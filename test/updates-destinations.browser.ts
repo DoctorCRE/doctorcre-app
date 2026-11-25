@@ -101,10 +101,11 @@ async function open(
   theme: string,
   engine: Record<string, Handler> = {},
   fromEngine = true,
+  height = width === 390 ? 844 : 1000,
 ) {
   const browser = await chromium.launch();
   t.after(() => browser.close());
-  const page = await browser.newPage({ viewport: { width, height: width === 390 ? 844 : 1000 } });
+  const page = await browser.newPage({ viewport: { width, height } });
   await page.addInitScript((theme) => {
     localStorage.setItem("doctorcre.visual-preferences", JSON.stringify({ theme, walkthroughSeen: { joe: true } }));
   }, theme);
@@ -180,7 +181,7 @@ for (const width of viewports)
       await assertListOnly(page);
       await capture(page, "updates-loading", width, theme);
       pending.resolve({ json: emptyFeed });
-      await page.getByRole("heading", { name: "No updates", exact: true }).waitFor();
+      await page.getByRole("heading", { name: "No updates yet", exact: true }).waitFor();
     });
 
     test(`a failed Updates read can recover via Retry at ${width}px in ${theme} mode`, async (t) => {
@@ -210,13 +211,27 @@ for (const width of viewports)
       await capture(page, "updates-recovered", width, theme);
     });
 
-    test(`an empty Updates read shows No updates at ${width}px in ${theme} mode`, async (t) => {
+    test(`an empty Updates read says so once at ${width}px in ${theme} mode`, async (t) => {
       const { page } = await open(t, width, theme);
       await page.clock.setFixedTime(new Date("2026-07-01T12:27:00Z"));
       await page.goto(updates);
-      await page.getByRole("heading", { name: "No updates", exact: true }).waitFor({ timeout: 2500 });
+      await page.getByRole("heading", { name: "No updates yet", exact: true }).waitFor({ timeout: 2500 });
       assert.equal(await page.locator("#feedAsOf").textContent(), "As of 7:27 AM");
-      assert.equal(await page.getByText("Nothing unread", { exact: true }).count(), 1);
+      assert.equal(
+        await page.getByRole("heading", { level: 1, name: "Updates", exact: true }).count(),
+        1,
+        "no count at zero",
+      );
+      assert.equal(
+        await page
+          .getByText(/^No (notifications|recent activity)$/)
+          .filter({ visible: true })
+          .count(),
+        0,
+        "one empty line, not three",
+      );
+      const line = await page.locator("#feedState").evaluate((node) => getComputedStyle(node).borderTopWidth);
+      assert.equal(line, "0px", "a quiet line, not a card");
       assert.equal(await page.getByRole("button", { name: "Retry", exact: true }).count(), 0);
       assert.doesNotMatch((await page.locator("main").textContent()) ?? "", /\bunknown\b/i);
       await assertListOnly(page);
@@ -257,6 +272,209 @@ for (const width of viewports)
     }
   }
 
+const manyUpdates = Array.from({ length: 20 }, (_, n) => ({
+  ...unread,
+  source_id: `22222222-2222-4222-8222-${String(n).padStart(12, "0")}`,
+  title: `${unread.title} ${n + 1}`,
+}));
+const manyChanges = Array.from({ length: 30 }, (_, n) => change("Joe", `moved Example Dental to phase ${n + 1}`));
+const fullFeed = {
+  "GET /api/engine/updates": () => ({ json: { unread_count: 20, updates: manyUpdates } }),
+  "GET /api/engine/updates/changes": () => ({ json: { changes: manyChanges, next_before: null } }),
+};
+
+const screenFit = (page: Page) =>
+  page.evaluate(() => {
+    const box = (selector: string) => document.querySelector(selector)?.getBoundingClientRect();
+    const scrolls = (selector: string) => {
+      const node = document.querySelector(selector);
+      return Boolean(node && node.scrollHeight > node.clientHeight);
+    };
+    const rows = [...document.querySelectorAll("#feedList > li")].map((row) => row.getBoundingClientRect().height);
+    return {
+      pageScrolls: scrolls("#appMainSlot") || document.documentElement.scrollHeight > innerHeight,
+      sideways: document.documentElement.scrollWidth > innerWidth,
+      feedScrolls: scrolls("#feedList"),
+      activityScrolls: scrolls("#activityList"),
+      feedTop: Math.round(box("#feedList")?.top ?? 0),
+      feedBottom: Math.round(box("#feedList")?.bottom ?? 0),
+      besideFeed: (box("#activityList")?.left ?? 0) > (box("#feedList")?.right ?? Infinity),
+      tallestRow: Math.round(Math.max(...rows)),
+    };
+  });
+
+for (const [width, height] of [
+  [1280, 800],
+  [1440, 900],
+] as const)
+  for (const today of ["open", "closed"])
+    for (const theme of themes)
+      test(`Updates fits one screen at ${width}x${height} with Today ${today} in ${theme} mode`, async (t) => {
+        const { page } = await open(t, width, theme, fullFeed, true, height);
+        await page.addInitScript((state) => localStorage.setItem("doctorcre:today", state), today);
+        await page.goto(updatesPath);
+        await page.getByRole("heading", { name: `${unread.title} 1`, exact: true }).waitFor({ timeout: 2500 });
+        await page.locator("#activityList > li").first().waitFor();
+        assert.equal(
+          await page.getByRole("heading", { level: 1 }).textContent(),
+          "Updates 20 unread",
+          "the unread count sits in the title",
+        );
+        const fit = await screenFit(page);
+        assert.equal(fit.pageScrolls, false, "the page itself does not scroll");
+        assert.equal(fit.sideways, false, "nothing scrolls sideways");
+        assert.equal(fit.feedScrolls, true, "the feed scrolls inside itself");
+        assert.equal(fit.activityScrolls, true, "Who did what scrolls inside itself");
+        assert.equal(fit.besideFeed, true, "Who did what sits beside the feed");
+        assert.ok(fit.feedTop <= 112, `the feed starts near the top, not at ${fit.feedTop}px`);
+        assert.ok(fit.feedBottom <= height, "the feed ends on screen");
+        assert.ok(fit.tallestRow <= 68, `rows are compact, not ${fit.tallestRow}px`);
+        await capture(page, `updates-fit-${today === "open" ? "today" : "wide"}`, width, theme);
+      });
+
+for (const theme of themes)
+  test(`Updates stacks the feed over Who did what on a phone in ${theme} mode`, async (t) => {
+    const { page } = await open(t, 390, theme, fullFeed);
+    await page.goto(updatesPath);
+    await page.getByRole("heading", { name: `${unread.title} 1`, exact: true }).waitFor({ timeout: 2500 });
+    const fit = await screenFit(page);
+    assert.equal(fit.sideways, false, "nothing scrolls sideways");
+    assert.equal(fit.feedScrolls, false, "the page scrolls, not a box inside it");
+    assert.equal(fit.besideFeed, false, "Who did what follows the feed");
+    const act = await page.getByRole("button", { name: "Mark read" }).first().boundingBox();
+    assert.ok(act && act.height >= 44, "the row's button is a full touch target");
+    await capture(page, "updates-fit-phone", 390, theme);
+  });
+
+test("an update row opens on click and with the keyboard, and marks read from the row", async (t) => {
+  const { page, sent } = await open(
+    t,
+    1280,
+    "dark",
+    {
+      "GET /api/engine/updates": () => ({ json: { unread_count: 1, updates: [unread] } }),
+      "GET /api/engine/updates/changes": () => ({ json: { changes: [change("Joe", "moved it")], next_before: null } }),
+      "POST /api/engine/updates/read": () => ({
+        json: { ok: true, updates: [{ id: unread.source_id, read_at: "2026-11-21T12:00:00Z" }], unread_count: 0 },
+      }),
+    },
+    true,
+    800,
+  );
+  await page.goto(updatesPath);
+  const row = page.locator("#feedList > li").first();
+  const toggle = row.getByRole("button", { name: unread.title });
+  await toggle.waitFor({ timeout: 2500 });
+  assert.equal(await toggle.getAttribute("aria-expanded"), "false");
+  await row.locator(".note-subject").click();
+  assert.equal(await toggle.getAttribute("aria-expanded"), "true", "a click on the row opens it");
+  await toggle.press("Enter");
+  assert.equal(await toggle.getAttribute("aria-expanded"), "false", "Enter closes it again");
+  await toggle.press("Space");
+  assert.equal(await toggle.getAttribute("aria-expanded"), "true", "Space opens it");
+  const change_ = page.locator("#activityList > li").first();
+  await change_.getByRole("button", { name: "moved it" }).click();
+  assert.equal(await change_.locator(".row-more").isVisible(), true, "Who did what rows open the same way");
+
+  await row.getByRole("button", { name: "Mark read", exact: true }).click();
+  await row.getByText("Read at 6:00 AM", { exact: true }).waitFor();
+  assert.equal(await toggle.getAttribute("aria-expanded"), "true", "the row stays open after the save");
+  const [save] = sent.filter(({ key }) => key === "POST /api/engine/updates/read");
+  assert.deepEqual(save?.body?.update_ids, [unread.source_id]);
+  assert.equal(await page.locator("#unreadLine").textContent(), "");
+});
+
+test("Who did what leads with the record and folds a run of one change; an empty feed is one line", async (t) => {
+  const notes = Array.from({ length: 24 }, (_, n) => ({
+    ...change("", "added a note"),
+    id: `${n}`,
+    job: "agent",
+    record: `Clinic ${n + 1}`,
+  }));
+  const { page } = await open(t, 1280, "dark", {
+    "GET /api/engine/updates/changes": () => ({
+      json: { changes: [change("Joe", "moved the deal to LOI"), ...notes], next_before: null },
+    }),
+  });
+  await page.goto(updatesPath);
+  await page.getByRole("heading", { name: "No notifications", exact: true }).waitFor({ timeout: 2500 });
+  const rows = page.locator("#activityList > li");
+  assert.equal(await rows.nth(0).getByRole("heading").textContent(), "Example Dental · moved the deal to LOI");
+  assert.equal(
+    await rows.nth(0).getByRole("link", { name: "Example Dental" }).getAttribute("href"),
+    `/deals?deal=${deal}`,
+  );
+  assert.equal(await rows.nth(0).locator(".note-subject").textContent(), "Joe · 9:00 AM");
+  assert.equal(await rows.count(), 2, "the 24 notes read as one row");
+  assert.equal(await rows.nth(1).locator(".note-subject").textContent(), "Written by the assistant · 9:00 AM");
+  await rows.nth(1).getByRole("button", { name: "24 records · added a note", exact: true }).click();
+  const records = rows.nth(1).locator(".fold-list a");
+  assert.equal(await records.count(), 24, "it opens to every record");
+  assert.deepEqual(
+    [await records.first().textContent(), await records.first().getAttribute("href")],
+    ["Clinic 1", `/deals?deal=${deal}`],
+  );
+  await capture(page, "updates-fold", 1280, "dark");
+});
+
+test("Mark read by keyboard keeps focus on its row, or the next row when it leaves", async (t) => {
+  const second = { ...seen, read_at: null };
+  let gone = false;
+  const { page } = await open(t, 1280, "dark", {
+    "GET /api/engine/updates": () => ({ json: { unread_count: 2, updates: gone ? [second] : [unread, second] } }),
+    "POST /api/engine/updates/read": (request) => {
+      const [id] = request.postDataJSON().update_ids;
+      gone ||= id === unread.source_id;
+      return id === unread.source_id
+        ? { status: 404, json: { error: "not_found" } }
+        : { json: { ok: true, updates: [{ id, read_at: "2026-11-21T12:00:00Z" }], unread_count: 0 } };
+    },
+  });
+  await page.goto(updatesPath);
+  const focused = () =>
+    page.evaluate(
+      () =>
+        `${document.activeElement?.closest("[data-row]")?.getAttribute("data-row")} ${document.activeElement?.className}`,
+    );
+  const markRead = (id: string) =>
+    page.locator(`[data-row="${id}"]`).getByRole("button", { name: "Mark read", exact: true });
+  await markRead(unread.source_id).press("Enter", { timeout: 2500 });
+  await page.locator(`[data-row="${unread.source_id}"]`).waitFor({ state: "detached" });
+  assert.equal(await focused(), `${second.source_id} row-toggle`, "focus moves to the next row");
+  await markRead(second.source_id).press("Enter");
+  await page.getByText("Read at 6:00 AM", { exact: true }).waitFor();
+  assert.equal(await focused(), `${second.source_id} row-toggle`, "focus stays on the same row");
+});
+
+test("an old-feed change stays open when a refresh brings a newer one", async (t) => {
+  const event = (id: string, field: string) => ({
+    id,
+    field,
+    verb: "patch-deal-field",
+    actor: "joe",
+    subject_type: "deal",
+    subject_id: deal,
+    recorded_at: `2026-11-20T1${id}:00:00Z`,
+  });
+  let events = [event("1", "phase")];
+  const { page } = await open(t, 1280, "dark", {}, false);
+  await page.route("**/pipeline/changes**", (route) => {
+    const from = Number(new URL(route.request().url()).searchParams.get("cursor") ?? 0);
+    return route.fulfill({ json: { events: events.slice(from), cursor: `${events.length}` } });
+  });
+  await page.goto(updatesPath);
+  const older = page.getByRole("button", { name: "Phase", exact: true });
+  await older.click({ timeout: 2500 });
+  events = [...events, event("2", "note")];
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  const newer = page.getByRole("button", { name: "Note added", exact: true });
+  await newer.waitFor();
+  assert.deepEqual(
+    [await older.getAttribute("aria-expanded"), await newer.getAttribute("aria-expanded")],
+    ["true", "false"],
+  );
+});
+
 test("an invalid feed reply offers Retry instead of staying in loading", async (t) => {
   const { page } = await open(t, 390, "dark", { "GET /api/engine/updates": () => ({ json: {} }) });
   await page.goto(`${server.origin}/updates?mode=live`);
@@ -290,7 +508,7 @@ test("Updates lists the partner's engine updates with the unread count", async (
   await page.getByRole("link", { name: "Updates", exact: true }).click();
   await today;
   await page.getByRole("heading", { name: unread.title }).waitFor({ timeout: 2500 });
-  assert.equal(await page.locator("#unreadLine").textContent(), "1 unread notification");
+  assert.equal(await page.locator("#unreadLine").textContent(), "1 unread");
   assert.equal(await page.getByText(unread.why, { exact: true }).count(), 1);
   const open_ = page.getByRole("link", { name: "Open checklist item" });
   assert.equal(await open_.getAttribute("href"), unread.open_url);
@@ -307,7 +525,7 @@ test("Updates lists the partner's engine updates with the unread count", async (
   assert.deepEqual(verbs, []);
   const unreadCard = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: unread.title }) });
   assert.equal(await unreadCard.getByText("9:00 AM", { exact: true }).count(), 1);
-  assert.equal(await unreadCard.getByText("Unread", { exact: true }).count(), 1);
+  assert.equal(await unreadCard.getByRole("button", { name: "Mark read", exact: true }).count(), 1);
   assert.equal(await page.getByText("Read at 10:00 AM", { exact: true }).count(), 1);
 });
 
@@ -350,7 +568,7 @@ test("Mark all read reuses the key after an unanswered save", async (t) => {
   await page.goto(updatesPath);
   await page.getByRole("button", { name: "Mark all read", exact: true }).click({ timeout: 2500 });
   await page.getByRole("button", { name: "Check outcome" }).click();
-  await page.locator("#unreadLine").getByText("Nothing unread", { exact: true }).waitFor();
+  await page.locator("#unreadLine:empty").waitFor({ state: "attached" });
   const writes = sent.filter(({ key }) => key === "POST /api/engine/updates/read").map(({ body }) => body);
   assert.equal(writes.length, 2);
   assert.deepEqual(writes[0]?.update_ids, [unread.source_id, second.source_id]);
@@ -412,7 +630,7 @@ test("a missing update reloads the feed and badge", async (t) => {
   });
   await page.goto(updatesPath);
   await page.getByRole("button", { name: "Mark all read", exact: true }).click({ timeout: 2500 });
-  await page.getByRole("heading", { name: "No updates", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "No updates yet", exact: true }).waitFor();
   assert.equal(await page.locator("#navUnreadBadge").getAttribute("aria-label"), null);
 });
 
@@ -548,15 +766,15 @@ test("Who did what shows the engine's first page and Show more follows next_befo
     }),
   });
   await page.goto(updatesPath);
-  await page.getByRole("heading", { name: "Alex Example · moved the deal to LOI" }).waitFor();
-  assert.equal(await page.locator("#activityList").getByText("Example Dental · 9:00 AM", { exact: true }).count(), 1);
+  await page.getByRole("heading", { name: "Example Dental · moved the deal to LOI" }).waitFor();
+  assert.equal(await page.locator("#activityList").getByText("Alex Example · 9:00 AM", { exact: true }).count(), 1);
   assert.equal(
-    await page.locator("#activityList").getByRole("link", { name: "Open deal" }).getAttribute("href"),
+    await page.locator("#activityList").getByRole("link", { name: "Example Dental" }).getAttribute("href"),
     `/deals?deal=${deal}`,
   );
   await page.getByRole("button", { name: "Show more" }).click();
-  await page.getByRole("heading", { name: "Blair Example · added a note" }).waitFor();
-  assert.equal(await page.getByRole("heading", { name: "Alex Example · moved the deal to LOI" }).count(), 1);
+  await page.getByRole("heading", { name: "Example Dental · added a note" }).waitFor();
+  assert.equal(await page.getByRole("heading", { name: "Example Dental · moved the deal to LOI" }).count(), 1);
   assert.equal(await page.getByRole("button", { name: "Show more" }).isVisible(), false);
   assert.deepEqual(
     sent.filter(({ key }) => key === "GET /api/engine/updates/changes").map(({ search }) => search),
@@ -579,7 +797,7 @@ test("a rejected activity cursor can be reloaded from the first page", async (t)
   await page.goto(updatesPath);
   await page.getByRole("button", { name: "Show more" }).click();
   await page.getByRole("button", { name: "Reload activity" }).click({ timeout: 2500 });
-  await page.getByRole("heading", { name: "Alex Example · opened the deal" }).waitFor();
+  await page.getByRole("heading", { name: "Example Dental · opened the deal" }).waitFor();
   assert.equal(await page.getByRole("button", { name: "Show more" }).isVisible(), false);
   assert.deepEqual(
     sent.filter(({ key }) => key.endsWith("/changes")).map(({ search }) => search),
@@ -590,8 +808,7 @@ test("a rejected activity cursor can be reloaded from the first page", async (t)
 test("switch off keeps the old feed, settings and activity reads", async (t) => {
   const { page, sent, verbs } = await open(t, 390, "dark", {}, false);
   await page.goto(updatesPath);
-  await page.getByRole("heading", { name: "No updates", exact: true }).waitFor();
-  await page.getByText("No recent activity", { exact: true }).waitFor();
+  await page.getByRole("heading", { name: "No updates yet", exact: true }).waitFor();
   await page.goto(settingsPath);
   await page.locator("#prefSummary").getByText("No quiet hours set · device push off", { exact: true }).waitFor();
   assert.ok(verbs.includes("notification-feed"));
@@ -667,19 +884,19 @@ test("automatic refresh fills in new activity and keeps the loaded rows and Show
   const more = page.getByRole("button", { name: "Show more" });
   const rows = page.locator("#activityList").getByRole("heading");
   await more.click();
-  await rows.getByText("Blair Example · added a note").waitFor();
+  await rows.getByText("Example Dental · added a note").waitFor();
   refreshed = true;
   await page.clock.fastForward(60_000);
-  await rows.getByText("Alex Example · signed the lease").waitFor({ timeout: 5_000 });
+  await rows.getByText("Example Dental · signed the lease").waitFor({ timeout: 5_000 });
   const expected = [
-    "Alex Example · signed the lease",
-    "Alex Example · sent the draft",
-    "Alex Example · opened the deal",
-    "Blair Example · added a note",
+    "Example Dental · signed the lease",
+    "Example Dental · sent the draft",
+    "Example Dental · opened the deal",
+    "Example Dental · added a note",
   ];
   assert.deepEqual(await rows.allTextContents(), expected);
   await more.click();
-  await rows.getByText("Blair Example · added the lead").waitFor();
-  assert.deepEqual(await rows.allTextContents(), [...expected, "Blair Example · added the lead"]);
+  await rows.getByText("Example Dental · added the lead").waitFor();
+  assert.deepEqual(await rows.allTextContents(), [...expected, "Example Dental · added the lead"]);
   assert.equal(await more.isVisible(), false);
 });

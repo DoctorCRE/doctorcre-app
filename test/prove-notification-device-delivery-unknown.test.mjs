@@ -135,6 +135,7 @@ for (const width of [390, 1440]) {
     await page.route('**/data/board-seed.json', route => route.fulfill({ json: seed }));
     await page.goto(`${server.origin}/updates?mode=fixture`);
     const row = page.locator(`[data-notification="${seed.notifications[0].id}"]`);
+    await row.locator('.row-toggle').click();
     await row.locator('[data-channel="device"]').waitFor();
     assert.equal(await row.locator('[data-channel="device"]').textContent(), 'Delivery status unavailable');
     assert.equal(await row.locator('[data-channel="in_app"]').textContent(), 'delivered');
