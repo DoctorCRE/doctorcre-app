@@ -300,7 +300,7 @@ button.client-portal-link:disabled { cursor: wait; }
 .deal-workspace[hidden], .workspace-open #main { display: none; }
 .workspace-open #appTabsSlot .board-toolbar { display: none; }
 /* Outranks deal-timeline.css's `.deal-detail > header`, which would pin it under the tab bar. */
-.deal-detail > .workspace-header { position: sticky; top: var(--tabbar-height); z-index: 70; padding: var(--space-2) var(--space-3) 0; background: var(--ground); border-bottom: 1px solid var(--hairline); }
+.deal-detail > .workspace-header { position: sticky; top: var(--scroll-edge, var(--tabbar-height)); z-index: 70; padding: var(--space-2) var(--space-3) 0; background: var(--ground); border-bottom: 1px solid var(--hairline); }
 .workspace-heading { display: grid; grid-template-columns: auto minmax(0,1fr); align-items: center; gap: var(--space-3); }
 .workspace-heading > button { justify-self: start; }
 .workspace-heading h1 { margin: 0; font-size: var(--font-size-3); }

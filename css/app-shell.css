@@ -329,7 +329,8 @@ body.has-app-layout:has(.toast) .receipt-dock { display: none; }
   .app-layout-center { display: flex; flex-direction: column; height: 100dvh; }
   .app-layout-topbar, .app-layout-tabbar, .app-layout-tools { flex: none; }
   .app-layout-tabbar { position: static; }
-  .app-layout-main { --tabbar-height: 0px; position: relative; flex: 1; min-height: 0; overflow: auto; }
+  /* Sticky offsets start inside a scroller's padding; --scroll-edge pins flush to its top edge instead. */
+  .app-layout-main { --tabbar-height: 0px; --scroll-edge: calc(0px - var(--pad)); position: relative; flex: 1; min-height: 0; overflow: auto; }
 }
 @media (max-width: 760px), (hover: none) and (pointer: coarse) and (max-width: 1023px) {
   :root { --layout-rail: 0px; --layout-bottom: calc(56px + env(safe-area-inset-bottom)); }
