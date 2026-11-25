@@ -196,6 +196,8 @@
   .cal-more, .cal-day-open, .cal-undated-chip { min-height: var(--touch); }
   .cal-grid[data-view="month"] .cal-chips > [data-overflow] { display: list-item; }
   .cal-grid[data-view="month"] .cal-more { display: none; }
+  .cal-grid:not([data-view="month"]) .cal-chip-label { white-space: normal; overflow-wrap: anywhere; }
+  .cal-chip-deal:empty { display: none; }
 }
 /* --------------------------------------------------------- reduced motion
    The shared floor stops every animation and transition; this page also
@@ -238,4 +240,5 @@
 @media (max-width: 640px) {
   .cal-grid[data-view="day"] .cal-day > .cal-chips { padding-inline-start: 6px; }
   .cal-blocks .cal-chip { flex-direction: column; gap: 0; }
+  .cal-blocks .cal-chip-label { align-self: stretch; }
 }

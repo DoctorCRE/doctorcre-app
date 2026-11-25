@@ -419,6 +419,8 @@ body.has-app-layout:has(#confirmDock:not([hidden])) .toast { bottom: calc(var(--
   .call-mode-starts { grid-template-columns: 1fr; }
   #openDealToolbar { gap: var(--space-2); padding-block: var(--space-2); }
   .search-wrap { max-width: none; }
+  .search-wrap kbd { display: none; }
+  .search-wrap input { padding-inline-end: var(--space-3); }
   .post-call { margin: 0 var(--space-3) var(--space-4); padding: var(--space-3); }
   .post-call-heading { align-items: center; }
   .post-call-status { align-items: flex-start; flex-wrap: wrap; }
