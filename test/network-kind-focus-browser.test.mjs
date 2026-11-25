@@ -86,6 +86,8 @@ for(const width of [390,1440])for(const theme of ['light','dark'])test(`kind res
   const h=await open(t,width,theme),{page}=h;
   await page.goto('http://localhost/relationships?mode=live&kind=vendor');
   await page.locator('#networkNodes button').first().waitFor();
+  const openFilters=()=>width<760&&page.getByText('Filter',{exact:true}).click();
+  await openFilters();
   const select=page.getByLabel('Relationship kind',{exact:true});
   assert.equal(await select.inputValue(),'vendor');
   assert.equal(await page.locator('#networkNodes button').count(),2);
@@ -104,6 +106,7 @@ for(const width of [390,1440])for(const theme of ['light','dark'])test(`kind res
   await page.reload();await page.locator('#networkNodes button').first().waitFor({state:'attached'});
   assert.equal(await select.inputValue(),'client');
   await page.locator('#graphTab').click();
+  await openFilters();
   await page.locator('#networkReset').click();
   assert.equal(await select.inputValue(),'');assert.equal(new URL(page.url()).searchParams.has('kind'),false);
   assert.equal(await page.locator('#networkNodes button').count(),recording.nodes.length);

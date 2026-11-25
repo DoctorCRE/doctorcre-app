@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { Page } from "playwright";
+import type { Locator, Page } from "playwright";
 import { appAssetSnapshot } from "../scripts/fixture-app-assets.mjs";
 import { startWorkerFixture } from "../scripts/fixture-http.mjs";
 import worker from "../src/worker.js";
@@ -85,6 +85,13 @@ const order = (page: Page, cards: string) =>
   page.locator(`${cards} .card-open`).evaluateAll((buttons) => buttons.map((b) => b.textContent));
 const boardOrder = (page: Page) => order(page, '.kanban-column[data-column="pending"] .kanban-card');
 const starButton = (page: Page, name: string) => page.getByRole("button", { name: `Star ${name}`, exact: true });
+// The board repaints on its refresh after a save, so a box read can land on the node it just replaced.
+const boxOf = (target: Locator) =>
+  settles(async () => {
+    const box = await target.boundingBox();
+    assert.ok(box, "the target is rendered");
+    return box;
+  });
 
 async function expectOrder(read: () => Promise<(string | null)[]>, expected: string[]) {
   await settles(async () => assert.deepEqual(await read(), expected));
@@ -110,10 +117,10 @@ test("each partner stars deals that then lead their column and list", async (t) 
       await expectOrder(() => boardOrder(page), [alder, birch, cedar]);
 
       const cedarStar = starButton(page, cedar);
-      const box = await cedarStar.boundingBox();
-      assert.ok(box && box.width >= 44 && box.height >= 44, "the star is a 44 px target");
-      const card = await page.locator(".kanban-card", { has: cedarStar }).boundingBox();
-      assert.ok(card && box.x + box.width <= card.x + card.width + 1, "the star stays inside its card");
+      const box = await boxOf(cedarStar);
+      assert.ok(box.width >= 44 && box.height >= 44, "the star is a 44 px target");
+      const card = await boxOf(page.locator(".kanban-card", { has: cedarStar }));
+      assert.ok(box.x + box.width <= card.x + card.width + 1, "the star stays inside its card");
       const unstarredColor = await cedarStar.evaluate((b) => getComputedStyle(b).color);
 
       await cedarStar.click();
@@ -140,8 +147,8 @@ test("each partner stars deals that then lead their column and list", async (t) 
       await expectOrder(() => order(page, ".deal-list .kanban-card"), [birch, alder, cedar]);
       await starButton(page, cedar).click();
       await expectOrder(() => order(page, ".deal-list .kanban-card"), [birch, cedar, alder]);
-      const rowStar = await starButton(page, cedar).boundingBox();
-      assert.ok(rowStar && rowStar.width >= 44 && rowStar.height >= 44);
+      const rowStar = await boxOf(starButton(page, cedar));
+      assert.ok(rowStar.width >= 44 && rowStar.height >= 44);
 
       const dellPage = await context.newPage();
       const dellServer = await openDeals(dellPage, "dell", stars, fail);

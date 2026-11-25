@@ -22,9 +22,9 @@ const { reachability } = JSON.parse(
 ).cases.reachable;
 
 // Every board stage is populated, New has more than five leads, and Contact evidence has both kinds.
-function fullBoard() {
+function fullBoard(boardStages = stages) {
   const board = workspace();
-  board.leads = stages.flatMap((stage, s) =>
+  board.leads = boardStages.flatMap((stage, s) =>
     Array.from({ length: stage === "new" ? 14 : 6 }, (_, n) => {
       const number = s * 20 + n + 1;
       const [city, state] = cities[number % cities.length] ?? [];
@@ -135,6 +135,41 @@ for (const [width, height] of [
       `the column scrolls inside itself: ${JSON.stringify(stack)}`,
     );
     assert.ok((await screen(page)).mainScroll <= 0, "expanding a column does not scroll the page");
+  });
+
+// Production's board at the walk: five stages hold leads and Nurture is empty.
+const fiveStageBoard = () => fullBoard(stages.filter((stage) => stage !== "nurture_drip"));
+
+for (const [width, today] of [
+  [1440, "open"],
+  [1280, "closed"],
+] as const)
+  test(`Leads fits five stages side by side at ${width} with Today ${today}`, async (t) => {
+    const browser = await chromium.launch();
+    t.after(() => browser.close());
+    const page = await browser.newPage({ viewport: { width, height: 800 }, reducedMotion: "reduce" });
+    await page.addInitScript((state) => localStorage.setItem("doctorcre:today", state), today);
+    await routeLeads(page, { getBoard: fiveStageBoard });
+    await page.goto("http://localhost/leads");
+    await page.locator("#leadBoard .lead-card").first().waitFor();
+    await capture(page, `leads-${width}x800-today-${today}`);
+    const { lanes, columns } = await screen(page);
+    const fit = await page.locator("#leadBoard .stage-columns").evaluate((board) => ({
+      sideways: board.scrollWidth - board.clientWidth,
+      cues: [...document.querySelectorAll<HTMLElement>(".lane-cue")].filter((cue) => cue.offsetWidth).length,
+      crowdedHeads: [...document.querySelectorAll<HTMLElement>("#leadBoard .stage-head")]
+        .filter((head) => head.offsetWidth && head.scrollWidth > head.clientWidth)
+        .map((head) => head.textContent),
+    }));
+    const detail = JSON.stringify({ fit, columns, lanes });
+    assert.equal(lanes.length, 5, detail);
+    assert.equal(fit.sideways, 0, `the board does not scroll sideways: ${detail}`);
+    assert.equal(fit.cues, 0, `no stage is off to the side: ${detail}`);
+    assert.ok(
+      lanes.every((lane) => lane.left >= columns.left - 0.5 && lane.right <= columns.right + 0.5 && lane.width >= 204),
+      `every lane is whole: ${detail}`,
+    );
+    assert.deepEqual(fit.crowdedHeads, [], "every stage heading fits its lane");
   });
 
 test("Leads connection warning is a 32px banner that keeps the board on screen", async (t) => {

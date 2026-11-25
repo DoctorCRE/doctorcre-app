@@ -67,6 +67,39 @@ test("a deal page header is compact and every tab fits on laptops", async (t) =>
       });
 });
 
+test("a scrolled deal page shows nothing above its pinned header", async (t) => {
+  const server = await startWorkerFixture({
+    assets: await appAssetSnapshot(),
+    env: { APP_ENV: "fixture", CARR: { fetch: async () => new Response("synthetic") } },
+  });
+  t.after(() => server.close());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  await mkdir(shots, { recursive: true });
+
+  for (const [width, height] of [
+    [1000, 600],
+    [1280, 600],
+    [1440, 600],
+  ] as const)
+    await t.test(`${width}`, async (t) => {
+      const page = await browser.newPage({ viewport: { width, height } });
+      t.after(() => page.close());
+      await page.goto(`${server.origin}/deals?mode=fixture&deal=d14`);
+      await page.locator("#panelTitle").filter({ hasText: "Demo Surgical Practice" }).waitFor();
+      const probe = await page.locator(".deal-detail > .workspace-header").evaluate((header) => {
+        const scroller = header.closest<HTMLElement>(".app-layout-main");
+        if (!scroller) return { scrolled: false, underHeader: false };
+        scroller.scrollTop = 400;
+        const edge = scroller.getBoundingClientRect();
+        const top = document.elementFromPoint(edge.left + edge.width / 2, edge.top + 1);
+        return { scrolled: scroller.scrollTop > 0, underHeader: Boolean(top && header.contains(top)) };
+      });
+      await page.screenshot({ path: `${shots}/deal-header-scrolled-${width}.png` });
+      assert.deepEqual(probe, { scrolled: true, underHeader: true }, "the header covers the scroll region's top edge");
+    });
+});
+
 test("Documents takes a file by keyboard, click or drop and names it", async (t) => {
   const server = await startWorkerFixture({
     assets: await appAssetSnapshot(),

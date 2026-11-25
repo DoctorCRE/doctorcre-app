@@ -29,40 +29,32 @@
     </div>
   </div>
 
-  <main id="main" class="shell">
-    <section class="card glass hero-card" aria-labelledby="pageTitle">
-      <div class="hero">
-        <h1 id="pageTitle">Updates</h1>
-        <span class="as-of" id="feedAsOf"></span>
-      </div>
-      <p class="headline" id="unreadLine"></p>
-      <p class="quiet-banner" id="quietNowBanner" data-quiet="off" hidden></p>
-    </section>
+  <main id="main" class="shell updates-shell">
+    <h1 id="pageTitle" data-layout-slot="title">Updates <span class="title-count" id="unreadLine"></span></h1>
 
     <p class="sr-only" id="feedLive" aria-live="polite" role="status">Loading notifications…</p>
 
-    <section class="card glass" data-section="feed" id="feedBlock" aria-labelledby="feedTitle">
-      <div class="card-heading">
+    <section class="updates-panel" data-section="feed" id="feedBlock" aria-labelledby="feedTitle">
+      <div class="panel-head">
         <h2 id="feedTitle">Notifications</h2>
-        <div class="pref-act">
-          <button class="btn" type="button" id="markAllRead" hidden>Mark all read</button>
-          <button class="btn" type="button" data-layout-refresh id="retryRead">Refresh</button>
-        </div>
+        <span class="as-of" id="feedAsOf"></span>
+        <button class="btn" type="button" id="markAllRead" hidden>Mark all read</button>
+        <button class="btn" type="button" data-layout-refresh id="retryRead">Refresh</button>
       </div>
+      <p class="quiet-banner" id="quietNowBanner" data-quiet="off" hidden></p>
       <div class="state-block" id="feedState" data-state="loading"><h3 id="feedStateTitle">Loading notifications…</h3><p class="state-hint" id="feedStateHint"></p></div>
-      <ul class="work-list" id="feedList"></ul>
+      <ul class="update-list" id="feedList"></ul>
     </section>
 
-    <section class="card glass" data-section="activity" id="activityBlock" aria-labelledby="activityTitle" hidden>
-      <div class="card-heading">
+    <section class="updates-panel" data-section="activity" id="activityBlock" aria-labelledby="activityTitle" hidden>
+      <div class="panel-head">
         <h2 id="activityTitle">Who did what</h2>
         <span class="as-of" id="activityAsOf"></span>
       </div>
-      <ul class="work-list" id="activityList"></ul>
-      <div class="pref-act"><button class="btn" type="button" id="activityMore" hidden>Show more</button><p class="caption" id="activityMoreState" role="status" aria-live="polite"></p></div>
       <div class="state-block" id="activityState" data-state="unavailable" hidden><h3>Recent activity is unavailable</h3><button class="btn" type="button" id="retryActivity" hidden>Retry</button></div>
+      <ul class="update-list" id="activityList"></ul>
+      <div class="panel-more"><button class="btn" type="button" id="activityMore" hidden>Show more</button><p class="caption" id="activityMoreState" role="status" aria-live="polite"></p></div>
     </section>
-
   </main>
 
   <div id="receiptDock" class="receipt-dock" role="group" aria-label="Command feedback"></div>

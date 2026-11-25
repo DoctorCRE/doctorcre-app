@@ -24,7 +24,7 @@ const deals = Array.from({ length: 70 }, (_, n) => ({
   open_actions: [],
 }));
 
-async function openBoard(page: Page) {
+async function openBoard(page: Page, view: "board" | "list" = "board") {
   const session = { actor: { slug: "joe" }, csrf_token: "synthetic-joe" };
   const env = {
     GIT_SHA: "0".repeat(40),
@@ -63,9 +63,12 @@ async function openBoard(page: Page) {
       body: Buffer.from(await reply.arrayBuffer()),
     });
   });
-  await page.goto(`${server.origin}/deals?mode=live`);
-  await page.locator("#prospectsLane").waitFor();
-  await page.locator(".kanban-column[data-column] .kanban-card").first().waitFor();
+  await page.goto(`${server.origin}/deals?mode=live&view=${view}`);
+  await page.locator("#prospectsLane h3").waitFor();
+  await page
+    .locator(view === "list" ? ".deal-list .kanban-card" : ".kanban-column[data-column] .kanban-card")
+    .first()
+    .waitFor();
   return server;
 }
 
@@ -193,4 +196,52 @@ test("the Deals board keeps deals in reach on a phone and fits one screen on lap
         const nav = await page.locator("#appShell").boundingBox();
         assert.ok(card && nav && card.y + card.height <= nav.y, "the first deal is whole on the first screen");
       });
+});
+
+test("the Deals list and the Prospects lane never cover each other", async (t) => {
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const shots = "out/test-artifacts/deals-list-fit";
+  await mkdir(shots, { recursive: true });
+
+  for (const [width, height, today] of [
+    [390, 844, "closed"],
+    [1280, 800, "closed"],
+    [1280, 800, "open"],
+    [1440, 900, "closed"],
+    [1440, 900, "open"],
+  ] as const)
+    await t.test(`${width} Today ${today}`, async (t) => {
+      const context = await browser.newContext({ viewport: { width, height } });
+      t.after(() => context.close());
+      await context.addInitScript((today) => localStorage.setItem("doctorcre:today:/deals", today), today);
+      const page = await context.newPage();
+      const server = await openBoard(page, "list");
+      t.after(() => server.close());
+      await page.screenshot({ path: `${shots}/list-${width}-today-${today}.png` });
+
+      const covered = await page.evaluate(() => {
+        const lane = document.getElementById("prospectsLane")?.getBoundingClientRect();
+        return [...document.querySelectorAll(".deal-list .kanban-card")].flatMap((row) => {
+          const box = row.getBoundingClientRect();
+          return lane && box.bottom > lane.top && box.top < lane.bottom ? [row.textContent?.trim().slice(0, 40)] : [];
+        });
+      });
+      assert.deepEqual(covered, [], "no deal row sits under the Prospects lane");
+      const lane = page.locator("#prospectsLane");
+      await lane.scrollIntoViewIfNeeded();
+      assert.equal(
+        await lane.evaluate((lane) => lane.scrollHeight <= lane.clientHeight + 1),
+        true,
+        "the Prospects lane shows whole after the last deal",
+      );
+      assert.equal(await page.getByRole("button", { name: "Add prospect" }).isVisible(), true);
+      await page.screenshot({ path: `${shots}/list-${width}-today-${today}-prospects.png` });
+      if (width > 760)
+        assert.equal(
+          await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight),
+          true,
+          "the list fits the screen without page scrolling",
+        );
+    });
 });

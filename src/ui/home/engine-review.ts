@@ -1,3 +1,4 @@
+import { splitSignature } from "./email-signature.ts";
 import { type CardReview, type InboxItem, object, type ReviewItem, type ReviewRequest } from "./inbox.tsx";
 
 type Rpc = (name: string, args: unknown, signal?: AbortSignal) => Promise<unknown>;
@@ -105,13 +106,15 @@ function emailThread(value: Record<string, unknown>): EmailThread {
           typeof body !== "string"
         )
           return [];
+        const { text, signature } = splitSignature(body);
+        const earlier = string(message.folded);
         return [
           {
             id,
             occurredAt,
-            body,
+            body: text,
             sender: string(sender_name)?.trim().split(/\s+/, 1)[0] || null,
-            folded: string(message.folded),
+            folded: signature === null ? earlier : [signature, earlier].filter(Boolean).join("\n\n"),
           },
         ];
       })
@@ -247,6 +250,17 @@ export type Suggestion = {
   filingEmailId: string | null;
 };
 
+// Header, greeting and "On … wrote:" lines say nothing about the deal.
+const notAReason =
+  /^(?:(?:from|to|cc|sent|date|subject):|(?:hi|hello|hey|dear|good (?:morning|afternoon|evening))\b[^.!?,]{0,40}[,!:]?$|on\b.*\bwrote:$)/i;
+function firstLine(text: string) {
+  const line = text
+    .split("\n")
+    .map((row) => row.replace(/^(?:>\s*)+/, "").trim())
+    .find((row) => row && !notAReason.test(row));
+  return line && line.length > 160 ? `${line.slice(0, 159)}…` : line || null;
+}
+
 function parseProposal(value: Record<string, unknown>, { id, emailId }: ProposalReference, canAccept: boolean) {
   const label = kinds.get(string(value.kind) ?? "");
   if (value.proposal_id !== id || typeof value.evidence !== "string" || !label) throw unreadable();
@@ -256,12 +270,13 @@ function parseProposal(value: Record<string, unknown>, { id, emailId }: Proposal
   const thread =
     !leadCandidate && (Array.isArray(value.thread) || activity?.kind === "email") ? emailThread(value) : null;
   const choices = filingChoices(value.filing_choices);
+  const newDeal = value.kind === "possible_new_deal";
   const proposal: Suggestion = {
     id,
     label: choices ? "File this email" : label,
-    target: string(value.target_name),
+    target: string(value.target_name) || (newDeal ? string(activity?.sender_name) : null),
     // Imported proposals can store raw email quotes in evidence.
-    reason: thread ? string(value.reason) : value.evidence,
+    reason: thread ? string(value.reason) || (newDeal ? firstLine(value.evidence) : null) : value.evidence,
     emailLead: value.kind === "email_lead",
     senderAddress: leadCandidate ? string(activity?.sender) : null,
     source: thread ? null : source(activity),
