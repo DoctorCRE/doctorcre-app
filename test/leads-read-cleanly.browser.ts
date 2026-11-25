@@ -61,38 +61,33 @@ for (const width of [1280, 1440]) {
     }
   });
 
-  test(`Territory chips show the whole market name or truncate with it on hover and focus at ${width}`, async (t) => {
+  test(`A truncated territory chip names its market in the native tip at ${width}`, async (t) => {
     const page = await openLeads(t, width);
-    const chip = page.locator("#marketCounts [data-market]").first();
-    const fit = () =>
-      page.evaluate(() => {
-        const strip = document.getElementById("marketCounts")?.getBoundingClientRect() ?? new DOMRect();
-        const box = document.querySelector("#marketCounts [data-market]")?.getBoundingClientRect() ?? new DOMRect();
-        return { inside: box.left >= strip.left - 0.5 && box.right <= strip.right + 0.5 };
-      });
-    assert.equal((await fit()).inside, true, "the chip stays inside the strip");
-    assert.equal(await chip.getAttribute("aria-pressed"), "false");
-    assert.equal(await chip.locator("b").textContent(), "3", "the count stays in the chip");
-    assert.equal(await chip.getAttribute("data-market"), longMarket);
-    const shown = (state: "hover" | "focus") =>
-      chip.evaluate((node, state) => {
-        const name = node.querySelector("span");
-        const truncated = name !== null && name.scrollWidth > name.clientWidth;
-        const tip = getComputedStyle(node, "::after");
-        const box = node.getBoundingClientRect();
-        return {
-          state,
-          truncated,
-          fullName: !truncated || (tip.content === `"${node.dataset.market}"` && tip.display !== "none"),
-          onScreen: !truncated || (box.top > 0 && Number.parseFloat(tip.maxWidth) > 0),
-        };
-      }, state);
-    await chip.hover();
-    const hover = await shown("hover");
-    await page.mouse.move(0, 0);
-    await chip.focus();
-    const focus = await shown("focus");
-    for (const result of [hover, focus])
-      assert.deepEqual([result.fullName, result.onScreen], [true, true], JSON.stringify(result));
+    const chips = page.locator("#marketCounts [data-market]");
+    const long = chips.filter({ hasText: "Northwest Synthetic County" });
+    const fits = chips.filter({ hasText: "Mobile, AL" });
+    const inside = await long.evaluate((node) => {
+      const strip = node.parentElement?.getBoundingClientRect() ?? new DOMRect();
+      const box = node.getBoundingClientRect();
+      return box.left >= strip.left - 0.5 && box.right <= strip.right + 0.5;
+    });
+    assert.equal(inside, true, "the chip stays inside the strip");
+    assert.equal(await long.locator("b").textContent(), "3", "the count stays in the chip");
+    assert.equal(await long.getAttribute("title"), longMarket);
+    assert.equal(await fits.getAttribute("title"), "", "a market that fits has no tip");
+    await long.hover();
+    assert.equal(
+      await long.evaluate((node) => getComputedStyle(node, "::after").content),
+      "none",
+      "no drawn tip that looks like another chip",
+    );
+  });
+
+  test(`Today marks only its two loading slots busy at ${width}`, async (t) => {
+    const page = await openLeads(t, width);
+    await openToday(page);
+    await page.locator("#appTodayOwners.chip-bar").waitFor({ state: "attached" });
+    const busy = await page.locator("#appToday [aria-busy]").evaluateAll((nodes) => nodes.map((node) => node.id));
+    assert.deepEqual(busy, ["appScheduleSlot", "appTodayNext"]);
   });
 }

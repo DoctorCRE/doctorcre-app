@@ -804,8 +804,9 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     const chips = [...strip.querySelectorAll("[data-market]")];
     for (const chip of chips) {
       chip.inert = !open && chip.getBoundingClientRect().top >= bottom;
+      // The native tip, as Calendar's chips use, names a truncated market in full.
       const name = chip.firstElementChild;
-      chip.toggleAttribute("data-truncated", name.scrollWidth > name.clientWidth);
+      chip.title = name.scrollWidth > name.clientWidth ? chip.dataset.market : "";
     }
     const folded = chips.filter(chip => chip.inert).length;
     more.hidden = !open && !folded;

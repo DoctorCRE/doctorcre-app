@@ -51,7 +51,7 @@ const sibling = (path: string) => import(new URL(path, import.meta.url).href);
 export async function mountHomeTodayPanel(
   rail: HTMLElement,
   readDeals: (signal: AbortSignal) => Promise<unknown[]>,
-  { hideEndedDealReminders = false } = {},
+  { hideEndedDealReminders = false, waiting }: { hideEndedDealReminders?: boolean; waiting: string },
 ) {
   const [transport, dates, clock, receipts, reviews]: [
     {
@@ -80,7 +80,6 @@ export async function mountHomeTodayPanel(
   const { escapeText } = receipts;
   const central = (value: string, date = false) => clock.meetingTime(value, "America/Chicago", { date });
   const status = (message: string) => `<p class="app-layout-empty">${escapeText(message)}</p>`;
-  const waiting = '<span class="skeleton-line"></span><span class="skeleton-line short"></span>';
   function meetingRow(item: Meeting) {
     const deal = localHref(item.open_url);
     const matches = Array.isArray(item.possible_deals) ? item.possible_deals.filter(object) : [];
@@ -145,8 +144,12 @@ export async function mountHomeTodayPanel(
   const paint = (node: Element, html: string) => {
     if (rendered.get(node) === html) return;
     node.innerHTML = html;
-    node.setAttribute("aria-busy", String(html === waiting));
     rendered.set(node, html);
+  };
+  // The two loading slots: null shows the waiting skeleton and marks the slot busy.
+  const fill = (slot: Element, html: string | null) => {
+    slot.setAttribute("aria-busy", String(html === null));
+    paint(slot, html ?? waiting);
   };
   // A null message means the reminders are still loading.
   const renderReminders = (message: string | null) => {
@@ -174,12 +177,8 @@ export async function mountHomeTodayPanel(
     paint(late, lateRows);
     const upcomingRows = data ? rows(data.upcoming, data.today) : "";
     const upcomingHeading = lateRows && upcomingRows ? "<h4>Due today</h4>" : "";
-    paint(
-      upcoming,
-      upcomingHeading +
-        (upcomingRows ||
-          (lateRows ? "" : data ? status("No dated reminders.") : message === null ? waiting : status(message))),
-    );
+    const empty = data ? status("No dated reminders.") : message === null ? null : status(message);
+    fill(upcoming, upcomingRows || lateRows ? upcomingHeading + upcomingRows : empty);
   };
   owners.onclick = (event) => {
     if (!(event.target instanceof HTMLButtonElement)) return;
@@ -193,10 +192,10 @@ export async function mountHomeTodayPanel(
     meetingReviews.update({});
     owners.hidden = true;
     retry.hidden = state === "loading";
-    paint(
+    fill(
       schedule,
       state === "loading"
-        ? waiting
+        ? null
         : status(state === "offline" ? "Meetings unavailable while offline." : "Couldn't load meetings."),
     );
     renderReminders(
@@ -272,7 +271,7 @@ export async function mountHomeTodayPanel(
       }
       const calendar = readMeetings(answer.meetings);
       if (calendar) {
-        paint(
+        fill(
           schedule,
           calendar.items.length
             ? calendar.items.map(meetingRow).join("")
@@ -280,7 +279,7 @@ export async function mountHomeTodayPanel(
                 (calendar.meetingsMayBeMissing ? status("Calendar may be incomplete") : ""),
         );
       } else {
-        paint(schedule, status("Couldn't load meetings."));
+        fill(schedule, status("Couldn't load meetings."));
       }
       const dated = reminders({ ...answer, today: answer.today });
       const groups =

@@ -213,10 +213,10 @@ export function mountAppLayout(root, host, pathname) {
       const deals = scopedDeals(await client.getBoard({ workspace: 'all', signal }), 'team');
       if (!deals) throw new Error('Could not load meeting deals');
       return deals;
-    }, { hideEndedDealReminders: pathname === '/deals' })).catch(() => {
+    }, { hideEndedDealReminders: pathname === '/deals', waiting })).catch(() => {
       for (const [slot, message] of [['#appScheduleSlot', "Couldn't load meetings."], ['#appTodayNext', "Couldn't load dated reminders."]]) {
         layout.querySelector(slot).textContent = message;
-        layout.querySelector(slot).removeAttribute('aria-busy');
+        layout.querySelector(slot).setAttribute('aria-busy', 'false');
       }
       return null;
     });

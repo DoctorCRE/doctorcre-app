@@ -22,17 +22,23 @@ const leadNames = lead => [lead.doctor_name, lead.practice_name, lead.entity_nam
 function cleanTitle(value) {
   return String(value || "").replace(/\s*\((?:via|referral|referred)[^)]*\)/gi, "").trim();
 }
-const KEPT_CAPITALS = new Set(["LLC", "PLLC", "LLP", "LP", "PC", "PA", "PLC", "DDS", "DMD", "MD", "DO", "DVM", "OD", "DC", "DPM", "NP", "II", "III", "IV", "USA"]);
+// Words an all-caps name keeps as spelled here: credentials, suffixes and acronyms stay upper, and
+// Mac names keep their inner capital (a general Mac rule would misread Machado or Macon).
+const SPELLINGS = new Map(
+  ["US", "USA", "LLC", "PLLC", "LLP", "LP", "PC", "PA", "PLC", "DDS", "DMD", "MD", "DO", "DVM", "OD", "DC", "DPM", "NP", "II", "III", "IV",
+    "MacArthur", "MacDonald", "MacGregor", "MacLeod", "MacMillan", "MacNeil", "MacPherson"].map(word => [word.toUpperCase(), word]),
+);
 const SMALL_WORDS = new Set(["of", "and", "the", "for"]);
-// Read-time only: a name typed in all capitals reads in title case, and suffixes and credentials keep theirs.
+// Read-time only: a name typed in all capitals reads in title case.
 function titleCase(name) {
   if (/\p{Ll}/u.test(name)) return name;
   return name.replace(/\p{L}+(?:['’]\p{L}+)*/gu, (word, at) => {
-    if (KEPT_CAPITALS.has(word)) return word;
+    const spelled = SPELLINGS.get(word);
+    if (spelled) return spelled;
     const lower = word.toLowerCase();
     if (at > 0 && SMALL_WORDS.has(lower)) return lower;
-    // O'NEIL reads O'Neil; SMITH'S reads Smith's.
-    return lower.replace(/^\p{L}(?:['’]\p{L})?/u, first => first.toUpperCase());
+    // MCDONALD reads McDonald, O'NEIL reads O'Neil, SMITH'S reads Smith's.
+    return lower.replace(/^(mc)?(\p{L}(?:['’]\p{L})?)/u, (_, mc, head) => (mc ? "Mc" : "") + head.toUpperCase());
   });
 }
 export function leadName(lead) {

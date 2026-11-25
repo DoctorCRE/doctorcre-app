@@ -52,7 +52,8 @@ for(const width of [390,1440])for(const theme of ['light','dark'])test(`automati
   const page=await open(t,{width,theme});
   assert.equal(await page.evaluate(()=>window.reads),1);
   assert.equal(await page.getByRole('button').count(),0,'the panel opens on its own, with no toggle');
-  await page.getByText('Loading closing anniversaries…').waitFor();
+  await page.locator('[aria-busy="true"] .skeleton-line').first().waitFor({state:'attached'});
+  assert.doesNotMatch(await page.locator('section').innerText(),/Loading/,'a skeleton, not loading text');
   await complete(page,fixtures.more.output);
   await page.getByText('More anniversary rows exist.',{exact:false}).waitFor();
   assert.equal(await page.locator('li').count(),20);
@@ -70,7 +71,7 @@ for(const width of [390,1440])for(const theme of ['light','dark'])test(`automati
     await page.screenshot({path:process.env.ANNIVERSARY_SCREENSHOT_DIR+'/'+width+'-'+theme+'.png',fullPage:true});
   }
 });
-for(const [value,text] of [[fixtures.empty.output,'No closing anniversaries in this slice.'],[fixtures.unavailable.output,'Closing anniversaries are unavailable.'],[fixtures.needs_input.output,'Closing anniversaries need input.'],[{},'Closing anniversaries could not be loaded. Try again.']])if(!text.startsWith('No '))test(`${text} retries explicitly`,async t=>{
+for(const [value,text] of [[fixtures.unavailable.output,'Closing anniversaries are unavailable.'],[fixtures.needs_input.output,'Closing anniversaries need input.'],[{},'Closing anniversaries could not be loaded. Try again.']])test(`${text} retries explicitly`,async t=>{
   const page=await open(t);
   await complete(page,value);
   await page.getByText(text,{exact:true}).waitFor();

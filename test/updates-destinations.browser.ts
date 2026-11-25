@@ -241,8 +241,9 @@ for (const width of viewports)
         assert.equal(await page.title(), "Closing anniversaries · DoctorCRE");
         assert.equal(await page.getByRole("heading", { level: 1 }).textContent(), "Closing anniversaries");
         assert.equal(
-          await page.locator("#main").getByRole("heading", { name: "Closing anniversaries", exact: true }).count(),
+          await page.locator(".app-layout-center").getByText("Closing anniversaries", { exact: true }).count(),
           1,
+          "the title shows once",
         );
         assert.doesNotMatch((await page.locator("#main").textContent()) ?? "", /Critical dates/);
         assert.equal(

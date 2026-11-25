@@ -130,13 +130,31 @@ async function fetchAnniversaries(path: string, signal?: AbortSignal, fetchImpl?
   );
 }
 
-async function readEngineAnniversaries(signal: AbortSignal): Promise<Row[]> {
+type EngineRead = { rows: Row[]; nextOn: string | null };
+
+async function readEngineAnniversaries(signal: AbortSignal): Promise<EngineRead> {
   const response = await fetchAnniversaries("/api/engine/closing-anniversaries", signal);
   if (!response.ok) throw Error("Closing anniversaries unavailable");
   const payload: unknown = await response.json();
   if (!Array.isArray(payload) || !payload.every(isAnniversaryRow)) throw Error("Anniversary response unavailable");
-  return payload;
+  // An empty window names the next date after it; a failed read leaves the plain empty line.
+  const nextOn = payload.length ? null : await readNextAnniversary(signal).catch(() => null);
+  return { rows: payload, nextOn };
 }
+
+async function readNextAnniversary(signal: AbortSignal) {
+  const response = await fetchAnniversaries("/api/engine/closing-anniversaries/next", signal);
+  const payload: unknown = response.ok ? await response.json() : null;
+  return object(payload) && date(payload.next_anniversary_on) ? payload.next_anniversary_on : null;
+}
+
+const longDate = (day: string) =>
+  new Date(`${day}T12:00:00Z`).toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
 
 export { parseClientAnniversaries };
 export function createClientAnniversariesClient({ fetchImpl }: { fetchImpl?: typeof fetch } = {}) {
@@ -158,7 +176,7 @@ export function createClientAnniversariesClient({ fetchImpl }: { fetchImpl?: typ
   };
 }
 
-type AnniversaryRead = Snapshot | Row[];
+type AnniversaryRead = Snapshot | EngineRead;
 
 type State = { kind: "loading" } | { kind: "refusal"; message: string } | { kind: "loaded"; value: AnniversaryRead };
 type PanelProps = {
@@ -202,9 +220,10 @@ function Panel({ load, fromEngine, cutover, win, dispose }: PanelProps) {
     };
   }, [win, dispose, read, cancel]);
   const result = state.kind === "loaded" ? state.value : null;
-  const snapshot = Array.isArray(result) ? null : result;
-  const rows = Array.isArray(result)
-    ? result.map((row) => ({ row, key: row.deal_id }))
+  const engine = result && "nextOn" in result ? result : null;
+  const snapshot = result && "state" in result ? result : null;
+  const rows = engine
+    ? engine.rows.map((row) => ({ row, key: row.deal_id }))
     : snapshot?.rows.map((row) => ({ row, key: row.evidence_ref }));
   const empty = snapshot ? snapshot.state === "empty" : rows?.length === 0;
   return (
@@ -218,7 +237,16 @@ function Panel({ load, fromEngine, cutover, win, dispose }: PanelProps) {
               : "Next 30 days · First slice of at most 20. This is not a complete client census."}
           </p>
         )}
-        {state.kind === "loading" && <p role="status">Loading closing anniversaries…</p>}
+        {state.kind === "loading" && (
+          <div className="anniversary-skeleton" aria-hidden="true">
+            {[0, 1, 2].map((row) => (
+              <div key={row}>
+                <span className="skeleton-line" />
+                <span className="skeleton-line short" />
+              </div>
+            ))}
+          </div>
+        )}
         {state.kind === "refusal" && (
           <>
             <p role="alert">{state.message}</p>
@@ -230,10 +258,11 @@ function Panel({ load, fromEngine, cutover, win, dispose }: PanelProps) {
         {rows && (
           <>
             {empty && (
-              <p>
+              <p className="anniversary-empty">
                 {fromEngine || cutover
                   ? "No closing anniversaries in the next 30 days."
                   : "No closing anniversaries in this slice."}
+                {engine?.nextOn && ` The next one is ${longDate(engine.nextOn)}.`}
               </p>
             )}
             {snapshot?.state === "unavailable" && <p role="alert">Closing anniversaries are unavailable.</p>}
