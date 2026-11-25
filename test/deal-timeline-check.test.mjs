@@ -46,7 +46,7 @@ test('other dates show each saved name when they share a day', () => {
     kind: 'other', due_on: '2026-10-04', note,
   }));
   const root = new JSDOM(renderCriticalDates({ ...detail, critical_dates }, now)).window.document;
-  const names = [...root.querySelectorAll('.critical-date > span')].map(label => label.textContent);
+  const names = [...root.querySelectorAll('.critical-date h3 > span')].map(label => label.textContent);
   assert.deepEqual(names.filter(name => critical_dates.some(date => date.note === name)), ['Phase effective date', 'Permit review']);
 });
 test('countdowns cross midnight and distinguish deadlines, cleared dates and past commencement',()=>{
@@ -263,7 +263,7 @@ test('undated originals keep their identities, status and evidence alongside con
   assert.match(card.textContent,new RegExp(row.note.replace(/[<>]/g,'.')));
   if(row.source) assert.ok(card.textContent.includes(row.source));
  }
- assert.equal(root.querySelector('[data-date-id="unknown"] > span').textContent,'Custom notice');
+ assert.equal(root.querySelector('[data-date-id="unknown"] h3 > span').textContent,'Custom notice');
  assert.match(root.querySelector('[data-date-id="invalid"]').textContent,/Date unavailable/);
  assert.match(root.querySelector('[data-date-id="missing"]').textContent,/cleared/);
  const undatedBefore=[...root.querySelectorAll('[data-state="unknown"]')].map(n=>n.outerHTML);

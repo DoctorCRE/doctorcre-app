@@ -48,7 +48,7 @@ import { isClosedDeal, localDeals, needsAttention, overdueLabel, overdueSince } 
 import { lostDeals, closedDeals, urgencyOrder, starredFirst, concise, invoiceClose, isPhaseMoveReceipt, isEngineDealDetail, prepareDealDetail, dealStepVersion, nationalMarketLabel, ordinaryOpenSteps, partnerDealStep, PARKING_REASONS, PHASE_TRIGGERS } from './local-deals-model.js';
 import { sourceTime, stepOriginLabel } from './email-source-line.js';
 import {
-  mountActivityAttribution, renderDealTimeline, renderDealUpdates, renderCriticalDates,
+  mountActivityAttribution, renderDealTimeline, renderDealUpdates, renderCriticalDates, askDateReason,
   dealTimeline, engineTimelineEntries, renderImportedDealHistory, criticalDateLabel, dateCaption, calendarDay, CRITICAL_DATE_OPTIONS,
 } from './deal-timeline.js';
 import { uuidv4 } from './uuid.js';
@@ -2060,6 +2060,8 @@ async function readPanel(id) {
           const historyOpen = current.querySelector('.updates-history')?.open;
           const dateOpens = new Set([...current.querySelectorAll('[data-date-id] details[open]')].map(n => n.closest('[data-date-id]').dataset.dateId));
           const openMeetings = new Set([...current.querySelectorAll('details[data-meeting-id][open]')].map(n => n.dataset.meetingId));
+          const dateAsks = [...current.querySelectorAll('[data-date-decision] .date-reason:not([hidden])')].map(n => [
+            n.closest('form').dataset.dateDecision, n.querySelector('[type="submit"]').value, n.querySelector('input').value]);
           const oldScroll = current.scrollLeft;
           if (fresh.dataset.detailRead === 'email-followups') {
             for (const input of current.querySelectorAll('[data-email-decision] input')) {
@@ -2075,6 +2077,12 @@ async function readPanel(id) {
           if (historyOpen && fresh.querySelector('.updates-history')) fresh.querySelector('.updates-history').open = true;
           fresh.querySelectorAll('.deal-note').forEach(n => { if (expanded.has(n.dataset.id)) n.querySelector('details').open = true; });
           fresh.querySelectorAll('details[data-meeting-id]').forEach(n => { n.open = openMeetings.has(n.dataset.meetingId); });
+          for (const [id, resolution, reason] of dateAsks) {
+            const form = fresh.querySelector(`[data-date-decision="${CSS.escape(id)}"]`);
+            if (!form?.querySelector(`[data-date-ask="${resolution}"]`)) continue;
+            askDateReason(form, resolution);
+            form.elements.reason.value = reason;
+          }
           if (focusIdentity) {
             const target = [...fresh.querySelectorAll('[data-detail-focus]')].find(n => n.dataset.detailFocus === focusIdentity);
             if (target) target.focus({preventScroll:true});
@@ -2894,6 +2902,12 @@ function wire() {
     if (e.target.closest('[data-undo-invoice]')) void undoInvoiceClose();
     const done = e.target.closest('[data-complete-step]');
     if (done) return completeDealStep(done);
+    const dateAsk = e.target.closest('[data-date-ask]');
+    if (dateAsk) {
+      const { form, dataset: { dateAsk: resolution } } = dateAsk;
+      askDateReason(form, resolution);
+      return (resolution ? form.elements.reason : form.querySelector('.date-actions button')).focus();
+    }
     const attention = e.target.closest('[data-deal-attention]');
     if (attention) return toggleDealAttention(attention);
     if (e.target.closest('[data-discard-update]') && !pendingCommand(commandState, updateKey(state.panelDeal)) && !pendingCommand(commandState, nextStepKey(state.panelDeal))) {

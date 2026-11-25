@@ -303,7 +303,7 @@ export async function readCalendar(client, { concurrency = READ_CONCURRENCY, onP
         };
       });
       entries.push(...next_steps.map(row => {
-        if (!isCalendarDay(row.due_on) || !isCalendarDay(row.display_on) || !row.id ||
+        if (!isCalendarDay(row.due_on) || !row.id ||
             typeof row.what !== "string" || typeof row.record_label !== "string" || typeof row.owner !== "string" ||
             !Number.isInteger(row.days_late) || row.days_late < 0 ||
             !(row.open_url === null || (typeof row.open_url === "string" && /^\/(?:deals|relationships)\?/.test(row.open_url))))
@@ -311,10 +311,10 @@ export async function readCalendar(client, { concurrency = READ_CONCURRENCY, onP
         const label = row.what.trim().replace(/\s+/g, " ");
         const why = typeof row.why === "string" ? row.why.trim().replace(/\s+/g, " ") : "";
         return {
-          key: `step:${row.id}`, type: "step", day: row.display_on, label,
+          key: `step:${row.id}`, type: "step", day: row.due_on, label,
           why,
           owner: row.owner, record_name: row.record_label, open_url: row.open_url,
-          days_late: row.days_late, due_on: row.due_on, settled: false,
+          days_late: row.days_late, settled: false,
         };
       }));
       return { ...empty, status: "ready", entries };
