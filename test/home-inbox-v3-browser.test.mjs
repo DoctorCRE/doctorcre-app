@@ -193,6 +193,7 @@ async function meetingAnswerFixture(t, { remindersUnavailable = false } = {}) {
   await page.route('**/api/engine/calendar/reviews/*/dismissal', route =>
     save(route, 'dismiss', new URL(route.request().url()).pathname.split('/').at(-2)));
   await page.goto(`${server.origin}/invoices?mode=live`);
+  await page.getByRole('button', { name: 'Today sidebar', exact: true }).click();
   const today = page.getByRole('complementary', { name: 'Today', exact: true });
   const question = index => today.locator(`[data-review="${reviews[index].key}"]`);
   const openReview = async index => {

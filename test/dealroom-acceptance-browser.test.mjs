@@ -1777,7 +1777,7 @@ for (const [width, height, today] of [[1280, 800, 'closed'], [1280, 800, 'open']
     const phone = width < 600;
     const page = await browser.newPage({ viewport: { width, height }, timezoneId: 'America/Chicago', reducedMotion: 'reduce', ...(phone ? { isMobile: true, hasTouch: true } : {}) });
     t.after(() => page.close());
-    await page.addInitScript(today => localStorage.setItem('doctorcre:today:/deals', today), today);
+    await page.addInitScript(today => localStorage.setItem('doctorcre:today:/deals?view=national', today), today);
     await page.clock.setFixedTime(new Date('2026-11-19T18:00:00Z'));
     await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `engine-national-fit-${width}-${today}`, viewer: 'joe', reset: true } });
     const account = crypto.randomUUID();

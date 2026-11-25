@@ -32,7 +32,7 @@ for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
     } }));
     await page.goto(server.origin + '/leads');
     await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
-    if (width === 390) await page.getByRole('button', { name: 'Today sidebar', exact: true }).click();
+    await page.getByRole('button', { name: 'Today sidebar', exact: true }).click();
     await animationsSettled(page);
     const chips = page.locator('#appTodayOwners .chip');
     await chips.first().waitFor();

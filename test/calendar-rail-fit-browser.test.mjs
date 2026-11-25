@@ -30,7 +30,10 @@ for (const theme of ['light', 'dark']) for (const count of [0, 1, 2, 3, 6]) test
   } }));
   for (const [width, height] of [[1024, 700], [1024, 768], [1280, 720], [1280, 800], [1440, 900], [390, 844], [1024, 700]]) {
     await page.setViewportSize({ width, height });
-    if (!page.url().startsWith(run.origin)) await run.open('/invoices?mode=live');
+    if (!page.url().startsWith(run.origin)) {
+      await run.open('/invoices?mode=live');
+      await page.getByRole('button', { name: 'Today sidebar' }).click();
+    }
     if (width === 390) await page.getByRole('button', { name: 'Today sidebar' }).click();
     const rail = page.getByRole('complementary', { name: 'Today' });
     if (!count) await rail.getByText('No meetings today.').waitFor();

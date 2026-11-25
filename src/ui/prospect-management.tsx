@@ -299,8 +299,9 @@ type AddProps = {
   sources: Record<string, string>;
   refresh: () => void;
   addDeal: (client: { id: string; name: string }) => void;
+  close: () => void;
 };
-export function AddProspect({ client, sources, refresh, addDeal }: AddProps) {
+export function AddProspect({ client, sources, refresh, addDeal, close }: AddProps) {
   const [name, setName] = useState("");
   const [kind, setKind] = useState<PartyKind>();
   const [found, setFound] = useState("");
@@ -308,6 +309,8 @@ export function AddProspect({ client, sources, refresh, addDeal }: AddProps) {
   const [matches, setMatches] = useState<Match[]>([]);
   const [message, setMessage] = useState("");
   const form = useRef<HTMLFormElement>(null);
+  const nameInput = useRef<HTMLInputElement>(null);
+  useEffect(() => nameInput.current?.focus(), []);
   const save = useProspectSave(client, prospectsPath, "add", "party_id", () => {
     form.current?.reset();
     setName("");
@@ -356,8 +359,20 @@ export function AddProspect({ client, sources, refresh, addDeal }: AddProps) {
   }
 
   return (
-    <form ref={form} className="prospect-add field" onSubmit={submit} onFocus={() => setMessage("")}>
+    <form
+      ref={form}
+      className="prospect-add field"
+      onSubmit={submit}
+      onFocus={() => setMessage("")}
+      onKeyDown={(event) => {
+        if (event.key !== "Escape" || event.nativeEvent.isComposing) return;
+        event.preventDefault();
+        event.stopPropagation();
+        close();
+      }}
+    >
       <input
+        ref={nameInput}
         aria-label="Prospect name"
         placeholder="Name"
         maxLength={100}
@@ -408,7 +423,10 @@ export function AddProspect({ client, sources, refresh, addDeal }: AddProps) {
         </select>
       )}
       <button className="btn" type="submit" disabled={save.blocked}>
-        Add prospect
+        Save prospect
+      </button>
+      <button className="btn" type="button" onClick={close}>
+        Cancel
       </button>
       {!picked && matches.length > 0 && (
         <ul aria-label="Matching people and companies">

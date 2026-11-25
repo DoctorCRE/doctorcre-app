@@ -91,6 +91,7 @@
 .prospect-add.field { display: flex; flex-wrap: wrap; gap: var(--space-1); margin-block: var(--space-2); }
 .prospect-add input { flex: 1 1 9rem; min-width: 0; }
 .prospect-add.field select { width: auto; max-width: 100%; height: var(--touch); }
+.prospect-add > .btn { max-width: 100%; white-space: normal; }
 .prospect-add > :is(p, ul) { flex-basis: 100%; }
 .prospect-add ul, .prospect-client-matches { margin: 0; padding: 0; list-style: none; }
 .prospect-client-matches { display: grid; gap: var(--space-2); }
@@ -111,7 +112,7 @@
 .kanban-column[data-column="legal"] { --phase: var(--status-hold); }
 .kanban-column[data-column="due_diligence"] { --phase: var(--status-danger); }
 .kanban-column[data-column="closing"] { --phase: var(--status-ok); }
-.kanban-column > h3 { position: sticky; top: 0; z-index: 2; margin: 0; min-height: var(--touch); font-size: var(--font-size-1); line-height: 1.25; overflow-wrap: break-word; background: inherit; }
+.kanban-column > h3 { position: sticky; top: 0; z-index: 2; margin: 0; min-height: var(--touch); align-items: center; font-size: var(--font-size-1); line-height: 1.25; overflow-wrap: break-word; background: inherit; }
 .kanban-column > .column-add { display: flex; align-items: center; gap: var(--space-1); width: 100%; min-height: var(--touch); padding: 0 var(--space-1); border: 0; border-radius: var(--radius-2); background: transparent; color: var(--fg-muted); font: inherit; font-size: var(--font-size-1); text-align: left; cursor: pointer; }
 .kanban-column > .column-add:hover { background: var(--surface-2); color: var(--fg); }
 .kanban-column > h3 button::before { content: ""; display: var(--phase-ring, none); flex: none; box-sizing: border-box; width: 12px; height: 12px; border: 1.5px solid var(--phase); border-radius: 50%; }
@@ -262,9 +263,6 @@
 .deal-updates .deal-note p { line-height:var(--line-height-body); }
 
 .dealroom-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:var(--space-3); margin-bottom:var(--space-4); }
-.app-section-tabs { display:flex; align-items:center; gap:var(--space-4); border-bottom:var(--hairline-width) solid var(--hairline); }
-.app-section-tabs a { display:flex; align-items:center; min-height:var(--touch); padding:var(--space-2) 0; color:var(--fg-muted); text-decoration:none; border-bottom:2px solid transparent; font-weight:var(--font-weight-strong); }
-.app-section-tabs a[aria-current=page] { color:var(--fg); border-bottom-color:var(--fg); }
 @media(max-width:760px) {
  .kanban { grid-template-columns: minmax(0, 1fr); overflow: visible; }
  /* The wrapped Deals toolbar is three rows on a phone; it scrolls away so phase names can stay at the top. */
@@ -278,7 +276,6 @@
  .stages-hidden button { min-height:var(--touch); padding:0 var(--space-3); border:0; background:transparent; color:var(--fg); font:inherit; text-decoration:underline; text-underline-offset:4px; cursor:pointer; }
  .dealroom-heading { gap:var(--space-2); }
  .dealroom-heading .hero-meta { order: 1; flex-basis: 100%; }
- .app-section-tabs { gap:var(--space-3); }
 }
 
 

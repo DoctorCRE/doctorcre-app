@@ -34,10 +34,7 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 
 /* ------------------------------------------------------------ page head */
 .shell { max-width: 1320px; margin: 0 auto; padding: var(--space-5) var(--space-5) var(--space-7); }
-.workspaces, .page-views { display: flex; gap: var(--space-1); }
-.workspace { min-height: var(--touch); padding: var(--space-2) var(--space-4); border: 0; border-radius: var(--radius-2); background: transparent; color: var(--fg-muted); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); }
-.workspace:hover { color: var(--fg); background: var(--surface-2); }
-.workspace.on { background: var(--surface-3); color: var(--fg); }
+.page-views { display: flex; gap: var(--space-1); }
 .back-link { min-height: var(--touch); padding: var(--space-2) 0; border: 0; background: transparent; color: var(--fg-muted); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); white-space: nowrap; }
 .back-link:hover { color: var(--fg); }
 .show-closed-deals > :is(#stats, #focusStrip, #boardSticky, #tableFrame) { display: none; }
@@ -439,9 +436,6 @@ body.has-app-layout:has(#confirmDock:not([hidden])) .toast { bottom: calc(var(--
   .vendor-draft .create-draft { width: 100%; }
   .receipts-head { flex-direction: column; gap: var(--space-2); }
   .receipt-actions .receipt-undo { width: 100%; }
-  .workspaces { min-width: 0; overflow-x: auto; scrollbar-width: none; }
-  .workspace { flex: 0 0 auto; }
-  .app-section-tabs.deal-section-tabs { overflow-x: auto; flex-wrap: nowrap; }
 }
 
 @media (prefers-reduced-motion: reduce) {
