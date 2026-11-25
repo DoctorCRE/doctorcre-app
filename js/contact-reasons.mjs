@@ -37,7 +37,7 @@ function publicSource(row) {
       : row.source === 'pecos' && url.hostname === 'data.cms.gov');
   } catch { return false; }
 }
-export function mountContactReasons({host,window,client,home = false,onPayload = () => {}}) {
+export function mountContactReasons({host,window,client,home = false}) {
   const document = host.ownerDocument;
   let payload = null, error = false, busy = false, retired = false, sequence = 0, visibleCount = homeListLimit(window);
   const view = createContactReasonsView(host);
@@ -45,7 +45,6 @@ export function mountContactReasons({host,window,client,home = false,onPayload =
     host.hidden = Boolean(home && payload && !error && !retired && !payload.cards.some(row => row.route === 'research'));
     host.setAttribute('aria-busy',String(busy));
     view.render({payload,error,busy,retired,home,visibleCount});
-    onPayload(payload);
   }
   async function read({signal} = {}, more = false) {
     if (retired || busy) return;

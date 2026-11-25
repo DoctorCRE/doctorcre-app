@@ -48,8 +48,18 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
   const $ = id => doc.getElementById(id), win = doc.defaultView || globalThis.window;
   const quietFilter = $("quietFilter");
   quietFilter.hidden = typeof client.getQuietFollowUps !== "function";
-  const reasons = $("contactReasons") && client.listPracticeOrigination ? mountContactReasons({host:$("contactReasons"),window:win,client,
-    onPayload: payload => { $("reasonsCount").textContent = payload ? `(${payload.cards.length}${payload.next_cursor ? "+" : ""})` : ""; }}) : null;
+  const reasons = $("contactReasons") && client.listPracticeOrigination ? mountContactReasons({host:$("contactReasons"),window:win,client:countedReasons()}) : null;
+  // The closed strip shows how many reasons have loaded; a first page restarts the count.
+  function countedReasons() {
+    const seen = new Set();
+    return { listPracticeOrigination: async args => {
+      const page = await client.listPracticeOrigination(args);
+      if (!args.before_id) seen.clear();
+      for (const card of page.cards || []) seen.add(card.id);
+      $("reasonsCount").textContent = `(${seen.size}${page.next_cursor ? "+" : ""})`;
+      return page;
+    } };
+  }
   // Home's "All reasons" link lands here, so it opens the strip it points into.
   if (win.location.hash === "#contactReasons" && $("reasonsStrip")) $("reasonsStrip").open = true;
   const engagement = engagementWriterFor(client, engagementStorage(win));
