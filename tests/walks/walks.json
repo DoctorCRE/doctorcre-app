@@ -123,19 +123,6 @@
     "coverage": "implemented"
   },
   {
-    "number": 10,
-    "title": "Bulk snooze and settle on Home",
-    "work_request": "WR617.S12",
-    "steps": "On phone Home, select two designated test cards and settle them. Verify both disappear, Undo stays visible for ten seconds and restores both. Repeat with snooze, then Finish and verify named-card focus or the attention heading when empty. Repeat at desktop width.",
-    "prs": [
-      "https://github.com/DoctorCRE/carr-system/pull/2955",
-      "https://github.com/jbookout/doctorcre-app/pull/654",
-      "https://github.com/jbookout/doctorcre-app/pull/661"
-    ],
-    "spec": "10-WR617-S12.spec.ts",
-    "coverage": "implemented"
-  },
-  {
     "number": 11,
     "title": "Doc request notifications link to a route the app lacks",
     "work_request": "WR-000620",

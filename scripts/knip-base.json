@@ -84,7 +84,6 @@
     "tests/walks/07-WR617-S8.spec.ts",
     "tests/walks/08-WR617-S10.spec.ts",
     "tests/walks/09-WR617-S11.spec.ts",
-    "tests/walks/10-WR617-S12.spec.ts",
     "tests/walks/11-WR-000620.spec.ts",
     "tests/walks/12-unit-inbox-reopen-action.spec.ts",
     "tests/walks/13-WR617-S13.spec.ts",

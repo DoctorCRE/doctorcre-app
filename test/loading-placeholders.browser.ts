@@ -12,6 +12,34 @@ const reply = (route: Route, value: unknown) =>
   route.fulfill({ json: { result: { content: [{ type: "text", text: JSON.stringify(value) }] } } });
 
 const step = "00000000-0000-0000-0000-000000000010";
+const task = {
+  item_id: `next_action:${step}`,
+  source_type: "next_action",
+  source_id: step,
+  source_version: "7",
+  source_state: "needs_attention",
+  base_version: "legacy:7",
+  title: "Send the sample floor plan",
+  activity_at: "2026-11-02T12:00:00.000Z",
+  completed_at: null,
+  due_on: "2026-11-03",
+  hold_until: null,
+  snoozed_until: null,
+  disposition: "inbox",
+  section: "inbox",
+  unseen: false,
+  explicit_unsettle: false,
+  auto_settled: false,
+  context_label: "Example Dental",
+  open_url: "/deals?deal=00000000-0000-0000-0000-000000000001&focus=next-step",
+  kind_label: "Task",
+  action_id: step,
+  action_version: 7,
+  deal_id: "00000000-0000-0000-0000-000000000001",
+  merged_source_ids: [step],
+  waiting_version: 0,
+  waiting_on: null,
+};
 const inbox = {
   ok: true,
   schema_version: "home-inbox.v5",
@@ -19,36 +47,34 @@ const inbox = {
   limit: 1000,
   working_collapsed: true,
   auto_settle_enabled: true,
-  items: [
-    {
-      item_id: `next_action:${step}`,
-      source_type: "next_action",
-      source_id: step,
-      source_version: "7",
-      source_state: "needs_attention",
-      base_version: "legacy:7",
-      title: "Send the sample floor plan",
-      activity_at: "2026-11-02T12:00:00.000Z",
-      completed_at: null,
-      due_on: "2026-11-03",
-      hold_until: null,
-      snoozed_until: null,
-      disposition: "inbox",
-      section: "inbox",
-      unseen: false,
-      explicit_unsettle: false,
-      auto_settled: false,
-      context_label: "Example Dental",
-      open_url: "/deals?deal=00000000-0000-0000-0000-000000000001&focus=next-step",
-      kind_label: "Task",
-      action_id: step,
-      action_version: 7,
-      deal_id: "00000000-0000-0000-0000-000000000001",
-      merged_source_ids: [step],
-      waiting_version: 0,
-      waiting_on: null,
-    },
-  ],
+  items: [task],
+};
+const empty = { count: 0, items: [] };
+const dashboard = {
+  ok: true,
+  schema_version: "home-inbox.v6",
+  home_mark_drop: true,
+  home_proposal_drop: true,
+  reminders: {
+    count: 1,
+    items: [
+      {
+        ...task,
+        card_id: task.item_id,
+        base_version: "7:0:inbox",
+        why: "The practice asked for it",
+        primary_action: "Mark done",
+        source_activity: null,
+        undo_completion: false,
+        returns_at: null,
+        waiting_reason: null,
+        days_late: null,
+        late_label: null,
+      },
+    ],
+  },
+  inbox: empty,
+  waiting: empty,
 };
 const deal = {
   id: "demo-deal",
@@ -237,7 +263,7 @@ test("Engine Home holds a grey tile where Today's meetings will appear while the
         await route.fulfill({ response, body: html });
       });
       await page.route("**/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6", (route) =>
-        route.fulfill({ status: 404 }),
+        route.fulfill({ json: dashboard }),
       );
       await page.route("**/api/engine/home/today", async (route) => {
         await held;

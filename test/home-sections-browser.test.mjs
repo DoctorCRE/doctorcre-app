@@ -38,7 +38,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
       const source = task.call ? 'capture_post_call_action' : 'next_action';
       return {
         item_id: `${source}:${id}`, source_type: source, source_id: id, source_version: enabled ? '2147483648' : '7',
-        source_state: 'needs_attention', base_version: enabled ? '2147483648:0:inbox' : 'legacy:7', title: index === 0 ? `**${task.title}**` : task.title,
+        source_state: 'needs_attention', base_version: enabled ? '2147483648:0:inbox' : 'legacy:7', title: index === 0 && !enabled ? `**${task.title}**` : task.title,
         activity_at: '2026-11-02T12:00:00.000Z', completed_at: null, due_on: '2026-11-03',
         hold_until: null, snoozed_until: null, disposition: 'inbox', section: 'inbox', unseen: false,
         ...(!enabled && { explicit_unsettle: false, auto_settled: false }), context_label: task.call ? 'Example Dental' : task.label,
@@ -179,7 +179,10 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   };
   await page.route('**/mcp', routeWorker);
 
-  await page.route('**/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6', route => route.fulfill({ status: 404 }));
+  await page.route('**/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6', route => {
+    reads.push('dashboard');
+    return route.fulfill({ json: dashboardOf(snapshot('new inbox').items.map(item => ({ why: null, ...item }))) });
+  });
   if (enabled) await page.route(/\/\?mode=live$/, async route => {
     const response = await route.fetch();
     const html = (await response.text()).replace('<html ', '<html data-home-today-from-engine ');
@@ -246,7 +249,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
     }
     await details.getByRole('button', { name: 'Close', exact: true }).click();
   }
-  assert.deepEqual(reads, [enabled ? 'GET /api/engine/home/inbox' : 'read-home-inbox-v5']);
+  assert.deepEqual(reads, [enabled ? 'dashboard' : 'read-home-inbox-v5']);
   const today = inbox.getByRole('region', { name: 'Reminders', exact: true });
   const card = today.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: /^Read the sample lease/ }) });
   const undo = page.getByRole('button', { name: 'Undo', exact: true });
@@ -983,10 +986,17 @@ const dashboardAnswer = (reminders, waiting) => {
     waiting: group(waiting),
   };
 };
-const snapshot = (items, legacy = false) => ({
-  ok: true, schema_version: 'home-inbox.v5', truncated: false, limit: 1000, working_collapsed: true,
-  ...(legacy ? { auto_settle_enabled: true } : { engine_marks: true }),
-  items: legacy ? items.map(item => ({ ...item, explicit_unsettle: false, auto_settled: false })) : items,
+const dashboardOf = items => {
+  const cards = items.filter(item => item.section !== 'done').map(item => ({
+    card_id: item.item_id, why: 'The practice requested an update.', primary_action: item.section === 'inbox' ? 'Mark done' : null,
+    source_activity: null, undo_completion: false, returns_at: item.snoozed_until,
+    waiting_reason: item.section === 'snoozed' ? 'Snoozed' : null, days_late: null, late_label: null, ...item,
+  }));
+  return dashboardAnswer(cards.filter(item => item.section === 'inbox'),
+    cards.filter(item => ['working', 'held', 'snoozed'].includes(item.section)));
+};
+const snapshot = items => ({
+  ok: true, schema_version: 'home-inbox.v5', truncated: false, limit: 1000, working_collapsed: true, engine_marks: true, items,
 });
 async function dashboard(t, width, theme, timezone) {
   const { page, open } = await scenario(t, { root: join(outDir, 'site'), now, timezone, page: { viewport: { width, height: 760 } } });
@@ -1011,9 +1021,6 @@ async function dashboard(t, width, theme, timezone) {
       step(8, 'Send the earlier note', { section: 'done', source_state: 'done', completed_at: now.toISOString() }),
       step(9, 'Call the snoozed prospect', { deal_id: null, open_url: `/deals?prospect=${id(55)}&focus=follow-up`, section: 'snoozed', disposition: 'snoozed' }),
     ],
-    dashboard: false,
-    oldEngine: false,
-    legacy: false,
     dashboardReads: 0,
     draft: { draft_id: id(20), version: 1, status: 'pending', subject: 'Sample reply', body: 'First draft.' },
     thread: mailThread,
@@ -1025,21 +1032,13 @@ async function dashboard(t, width, theme, timezone) {
   await page.route('**/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6', route => {
     state.dashboardReads++;
     if (state.unavailable) return route.fulfill({ status: 400, json: { error: 'unregistered_operation_fields', fields: ['other'] } });
-    if (state.oldEngine || !state.dashboard) return route.fulfill({ status: 404 });
-    const cards = state.items.filter(item => item.section !== 'done').map(item => ({
-      why: 'The practice requested an update.', primary_action: item.section === 'inbox' ? 'Mark done' : null,
-      source_activity: null, undo_completion: false, returns_at: item.snoozed_until,
-      waiting_reason: item.section === 'snoozed' ? 'Snoozed' : null, days_late: null, late_label: null, ...item,
-    }));
-    return route.fulfill({ json: dashboardAnswer(
-      cards.filter(item => item.section === 'inbox'), cards.filter(item => item.section === 'snoozed'),
-    ) });
+    return route.fulfill({ json: dashboardOf(state.items) });
   });
   await page.route('**/mcp', async route => {
     const request = route.request().postDataJSON();
     const { name, arguments: args } = request.params;
     let result = { ok: true, items: [], deals: [] };
-    if (name === 'read-home-inbox-v5') result = snapshot(state.items.map(({ card_id, ...item }) => item), state.legacy);
+    if (name === 'read-home-inbox-v5') result = snapshot(state.items.map(({ card_id, ...item }) => item));
     if (name === 'read-engine-home-card') result = { item_id: args.item_id, ...state.linkedDisposition };
     if (name === 'read-engine-home-proposal' && args.deal_id) {
       state.filingChecks.push(args);
@@ -1125,9 +1124,8 @@ const mailCard = { ...step(40, 'Review the floor plan request'), item_id: `sugge
   source_type: 'email_proposal', kind_label: 'Suggestion', suggestions: mailSuggestions, card_id: 'conversation:2',
   action_id: null, action_version: null, open_url: null, deal_id: null, primary_action: null };
 
-for (const grouped of [true, false]) test(`Home uses reported lateness on the ${grouped ? 'grouped' : 'fallback'} read`, async t => {
+test('Home uses reported lateness', async t => {
   const { page, open, state } = await dashboard(t, 390, 'light', 'UTC');
-  state.dashboard = grouped;
   await page.clock.setSystemTime(new Date('2026-11-04T02:00:00Z'));
   state.items = [
     step(1, 'Send the signed lease', { card_id: 'lease', due_on: '2026-10-31', days_late: 3 }),
@@ -1156,7 +1154,6 @@ for (const grouped of [true, false]) test(`Home uses reported lateness on the ${
 
 for (const width of [390, 1440]) test(`Home review shows the whole next-step instruction at ${width}px`, async t => {
   const { page, open, state } = await dashboard(t, width, 'light');
-  state.dashboard = true;
   state.items = [mailCard];
   state.proposalInstruction = 'Check the dimensions and send the revised floor plan to the practice manager. '.repeat(8).trim();
   await open('/?mode=live');
@@ -1172,7 +1169,6 @@ for (const width of [390, 1440]) test(`Home review shows the whole next-step ins
 
 test('Home suggestion instructions submit on Enter and add a line on Shift+Enter', async t => {
   const { page, open, state } = await dashboard(t, 390, 'light');
-  state.dashboard = true;
   state.items = [mailCard];
   state.filingWrites = [];
   await open('/?mode=live');
@@ -1192,7 +1188,6 @@ test('Home suggestion instructions submit on Enter and add a line on Shift+Enter
 
 for (const available of [true, false]) test(`Home email suggestions ${available ? 'share one thread' : 'hide a missing mailbox source'}`, async t => {
   const { page, open, state } = await dashboard(t, 390, 'light');
-  state.dashboard = true;
   state.items = [mailCard];
   if (!available) state.thread = [];
   await open('/?mode=live');
@@ -1231,7 +1226,6 @@ for (const { name, choices, kind, focus, dismiss, reasonRefused, reasonRequired,
   { name: 'an older filing keeps Accept', choices: undefined },
 ]) test(`Home filing: ${name}`, async t => {
   const { page, open, state } = await dashboard(t, 390, 'light');
-  state.dashboard = true;
   state.items = [{ ...mailCard, suggestions: [{ id: id(41) }], ...(choices && {
     filing_choices: choices, primary_action: choices.length === 1 ? choices[0].label : 'Review filing',
   }) }];
@@ -1366,7 +1360,6 @@ for (const { name, choices, kind, focus, dismiss, reasonRefused, reasonRequired,
 
 for (const width of [390, 1440]) test(`Home preserves authored lines and empty message disclosures at ${width}px`, async t => {
   const { page, open, state } = await dashboard(t, width, 'light');
-  state.dashboard = true;
   state.items = [mailCard];
   state.thread = [
     { ...mailThread[0], body: 'First line\nSecond line\n\nA postscript.', folded: null },
@@ -1396,7 +1389,6 @@ for (const width of [390, 1440]) test(`Home preserves authored lines and empty m
 test('Home reveals earlier text only for the selected email message', async t => {
   const { page, open, state } = await dashboard(t, 390, 'light');
   const earlier = ['Can we use the east entrance?\n\nPat Example', 'The sample suite is open.'];
-  state.dashboard = true;
   state.items = [mailCard];
   state.thread = [
     ...mailThread.map((message, index) => ({ ...message, folded: earlier[index] })),
@@ -1447,7 +1439,6 @@ test('Home reveals earlier text only for the selected email message', async t =>
 for (const width of [390, 1280, 1440]) test(`Home names the person the reply answers above the draft at ${width}px`, async t => {
   const { page, open, state } = await dashboard(t, width, 'light');
   const draft = { ...draftCard(), title: 'Review the reply to Pat Example' };
-  state.dashboard = true;
   state.items = [draft];
   state.draftSource = { ...mailSource, id: mailThread[1].activity_id };
   await open('/?mode=live');
@@ -1466,7 +1457,6 @@ for (const width of [390, 1280, 1440]) test(`Home names the person the reply ans
 test('Home separates Your reply from the email thread', async t => {
   const { page, open, state } = await dashboard(t, 1440, 'dark');
   const draft = draftCard();
-  state.dashboard = true;
   state.items = [draft];
   await open('/?mode=live');
   await page.getByRole('link', { name: draft.title }).click();
@@ -1486,7 +1476,6 @@ for (const draftHasMail of [false, true]) test(`Home combines a draft with its p
   const { page, open, state } = await dashboard(t, 390, 'light');
   const draft = { ...draftCard(), suggestions: mailSuggestions };
   const extra = { ...mailThread[0], activity_id: id(43), happened_at: '2026-11-02T16:00:00Z', body: 'The draft source.' };
-  state.dashboard = true;
   state.items = [draft];
   state.draftThread = draftHasMail ? [mailThread[1], extra] : [];
   await open('/?mode=live');
@@ -1502,7 +1491,6 @@ for (const draftHasMail of [false, true]) test(`Home combines a draft with its p
 
 test('Home shows the email once and keeps the reasons and targets of its suggestions', async t => {
   const { page, open, state } = await dashboard(t, 390, 'light');
-  state.dashboard = true;
   state.items = [mailCard];
   state.proposalEvidence = 'From: maya@example.test\n' + mailThread[0].body;
   await open('/?mode=live');
@@ -1525,7 +1513,6 @@ async function reviewShot(page, name) {
 test('Home puts a trailing signature under Show earlier text with the quoted history', async t => {
   const { page, open, state } = await dashboard(t, 390, 'light');
   const signature = 'Example Realty Group\nP: (555) 010-0100 | F: 555.010.0101\npat@example.test';
-  state.dashboard = true;
   state.items = [mailCard];
   state.thread = [{ ...mailThread[1], body: `The east suite also works.\n\nThanks,\nPat Example\n${signature}`,
     folded: 'On Nov 2, Maya Example wrote:\nCan you send the plan?' }];
@@ -1543,7 +1530,6 @@ test('Home puts a trailing signature under Show earlier text with the quoted his
 
 test('Home folds the contact details at the end of a one-line email with no sign-off', async t => {
   const { page, open, state } = await dashboard(t, 390, 'light');
-  state.dashboard = true;
   state.items = [mailCard];
   state.thread = [{ ...mailThread[1], folded: null,
     body: 'The east suite also works. Pat Example Example Realty Group P: (555) 010-0100 F: 555.010.0101 pat@example.test' }];
@@ -1558,7 +1544,6 @@ test('Home folds the contact details at the end of a one-line email with no sign
 
 test('Home shows who and why for a possible new deal from an email', async t => {
   const { page, open, state } = await dashboard(t, 390, 'light');
-  state.dashboard = true;
   state.items = [mailCard];
   state.proposals = { [id(41)]: {
     kind: 'possible_new_deal', target_name: null, reason: null,
@@ -1576,7 +1561,6 @@ test('Home shows who and why for a possible new deal from an email', async t => 
 test('Home shows every next step and settles only the one the partner decides', async t => {
   const { page, open, state } = await dashboard(t, 1440, 'light');
   const draft = { ...draftCard(), suggestions: [{ id: id(42) }, { id: id(43) }] };
-  state.dashboard = true;
   state.items = [draft];
   state.filingWrites = [];
   state.proposals = {
@@ -1606,7 +1590,6 @@ test('Home shows every next step and settles only the one the partner decides', 
 test('Home keeps the Doc status beside Talk to Doc, apart from Send reply', async t => {
   const { page, open, state } = await dashboard(t, 1440, 'dark');
   const draft = draftCard();
-  state.dashboard = true;
   state.items = [draft];
   await open('/?mode=live');
   await page.getByRole('link', { name: draft.title }).click();
@@ -1623,7 +1606,6 @@ test('Home keeps the Doc status beside Talk to Doc, apart from Send reply', asyn
 for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Home draft Edit saves once at ${width}px in ${theme}`, async t => {
   const { page, open, state } = await dashboard(t, width, theme);
   const draft = { ...draftCard(), suggestions: mailSuggestions };
-  state.dashboard = true;
   state.items = [draft];
   await open('/?mode=live');
   const background = locator => locator.evaluate(node => getComputedStyle(node).backgroundColor);
@@ -1674,7 +1656,6 @@ for (const width of [390, 1440]) test(`Home keeps other cards usable while a rev
   const draft = draftCard();
   const other = step(30, 'Call the practice manager', { card_id: 'other' });
   const swiped = step(31, 'Ask the surveyor for pricing', { card_id: 'swiped' });
-  state.dashboard = true;
   state.items = [draft, other, swiped];
   await open('/?mode=live');
   await page.getByRole('link', { name: draft.title }).click();
@@ -1709,7 +1690,6 @@ for (const [width, height] of [[1280, 800], [1440, 900]]) test(`Home keeps other
   const snoozed = step(30, 'Call the practice manager', { card_id: 'snoozed' });
   const finished = step(31, 'Ask the surveyor for pricing', { card_id: 'finished' });
   const dropped = step(32, 'Send the sample floor plan', { card_id: 'dropped' });
-  state.dashboard = true;
   state.items = [draft, snoozed, finished, dropped];
   state.filingWrites = [];
   let decide;
@@ -1758,7 +1738,6 @@ for (const [width, height] of [[1280, 800], [1440, 900]]) test(`Home keeps other
 test('Home pauses its minute refresh exactly while a review save runs', async t => {
   const { page, open, state } = await dashboard(t, 1440, 'light');
   const draft = { ...draftCard(), suggestions: [{ id: id(42) }] };
-  state.dashboard = true;
   state.items = [draft, step(30, 'Call the practice manager', { card_id: 'other' })];
   state.filingWrites = [];
   await page.clock.install({ time: now });
@@ -1809,7 +1788,6 @@ test('Home moves a snoozed card while the open review saves', async t => {
   const { page, open, state } = await dashboard(t, 1440, 'light');
   const draft = { ...draftCard(), suggestions: [{ id: id(42) }] };
   const snoozed = step(30, 'Call the practice manager', { card_id: 'snoozed' });
-  state.dashboard = true;
   state.items = [draft, snoozed];
   state.filingWrites = [];
   let release;
@@ -1868,7 +1846,6 @@ test('Inbox keeps Undo on another finished card usable while a review is open', 
 for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Home shows a stale edit alongside the saved draft at ${width}px in ${theme}`, async t => {
   const { page, open, state } = await dashboard(t, width, theme);
   const draft = draftCard();
-  state.dashboard = true;
   state.items = [draft];
   await open('/?mode=live');
   const title = page.getByRole('link', { name: draft.title });
@@ -1942,18 +1919,10 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   assert.equal(state.draft.body, 'Keep this local edit.');
 });
 
-test('Home uses the flat inbox when the engine has no dashboard', async t => {
-  const { page, open, state } = await dashboard(t, 390, 'light');
-  state.oldEngine = true;
-  await open('/?mode=live');
-  await page.getByRole('region', { name: 'Reminders', exact: true }).getByRole('link', { name: 'Send the signed lease' }).waitFor();
-});
-
 for (const width of [390, 1440]) {
   test(`Home shows all 90 characters of an action on the first card view at ${width}px`, async t => {
     const { page, open, state } = await dashboard(t, width, 'light');
     const title = 'Send the revised floor plan to the practice manager before the lease review next Thursday.';
-    state.oldEngine = true;
     state.items[0] = step(1, title);
     await open('/?mode=live');
     const heading = page.getByRole('region', { name: 'Reminders', exact: true })
@@ -1966,12 +1935,10 @@ for (const width of [390, 1440]) {
     }), { lineClamp: 'none', textOverflow: 'clip', textFits: true });
   });
 
-  test(`Home explains when a legacy next step failed at ${width}px`, async t => {
+  test(`Home explains when a next step failed at ${width}px`, async t => {
     const { page, open, state } = await dashboard(t, width, 'light');
-    state.oldEngine = true;
-    state.legacy = true;
     state.items = ['Floor plan failed to send', 'Failed to save the floor plan']
-      .map((title, index) => step(index + 1, title, { source_state: 'failed' }));
+      .map((title, index) => step(index + 1, title, { source_state: 'failed', why: null }));
     await open('/?mode=live');
     for (const item of state.items) {
       const title = page.getByRole('heading', { level: 3, name: item.title, exact: true });
@@ -1987,8 +1954,6 @@ for (const width of [390, 1440]) {
 
   test(`Home identifies a subject-only legacy reply as a draft at ${width}px`, async t => {
     const { page, open, state } = await dashboard(t, width, 'light');
-    state.oldEngine = true;
-    state.legacy = true;
     const draft = step(20, 'Floor plan', {
       item_id: `email_proposal:${id(20)}`, source_type: 'email_proposal', kind_label: 'Reply draft',
       action_id: null, action_version: null, open_url: null, deal_id: null,
@@ -2003,7 +1968,6 @@ for (const width of [390, 1440]) {
 
   test(`Home shows the draft cue when the title asks for reply review at ${width}px`, async t => {
     const { page, open, state } = await dashboard(t, width, 'light');
-    state.dashboard = true;
     const draft = { ...draftCard(), title: 'Review the reply to the practice manager', primary_action: 'Review reply' };
     state.items = [draft];
     await open('/?mode=live');
@@ -2015,7 +1979,6 @@ for (const width of [390, 1440]) {
 
   test(`Home leaves the type label and cues off an ordinary action card at ${width}px`, async t => {
     const { page, open, state } = await dashboard(t, width, 'light');
-    state.dashboard = true;
     state.items = [{ ...mailCard, primary_action: 'Review suggestions' }];
     await open('/?mode=live');
     const action = page.getByRole('heading', { level: 3, name: mailCard.title, exact: true });
@@ -2028,8 +1991,9 @@ for (const width of [390, 1440]) {
 
 for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Home dashboard at ${width}px in ${theme}`, async t => {
   const { page, open, state } = await dashboard(t, width, theme);
-  const extra = [step(10, 'Review the draft site plan'), step(11, 'Confirm the tour address')];
-  state.items.push(...extra);
+  // The engine leaves prospects and later reminders off the dashboard.
+  state.items = [...state.items.filter(item => !/prospect|next week/.test(item.title)),
+    step(10, 'Review the draft site plan'), step(11, 'Confirm the tour address')];
   let meetingItems = [scheduledMeeting];
   await page.route('**/api/engine/home/today', route => route.fulfill({ json: {
     ok: true, schema_version: 'home-today.v1', today: '2026-11-03', viewer: 'joe',
@@ -2083,7 +2047,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   }
   await reminders.getByRole('heading', { name: 'Late', exact: true }).waitFor();
   await reminders.getByText(/3 days late/).waitFor();
-  assert.equal(await page.getByText(/Call the (new|snoozed) prospect|Follow up next week|Send the earlier note/).count(), 0);
+  assert.equal(await page.getByText('Send the earlier note').count(), 0);
   const wake = waiting.getByRole('button', { name: 'Wake', exact: true });
   await wake.waitFor();
   await waiting.getByText(/Snoozed until/).waitFor();
@@ -2176,7 +2140,6 @@ for (const [width, height, withMeeting] of [[1280, 800, false], [1440, 900, fals
 for (const [width, height] of [[1280, 800], [1440, 779]]) test(`Home shows a grouped reminder once and saves each step it covers at ${width}x${height}`, async t => {
   const { page, open, state } = await dashboard(t, width, 'light');
   await page.setViewportSize({ width, height });
-  state.dashboard = true;
   const card = (number, title, fields) => step(number, title, { card_id: `step:${id(number)}`, ...fields });
   const cover = (number, record_name) => ({ item_id: `next_action:${id(number)}`, base_version: '1:0:inbox',
     action_id: id(number), action_version: 1, ...(record_name !== undefined && { record_name }) });
@@ -2240,7 +2203,6 @@ for (const [width, height] of [[1280, 720], [1440, 779], [1440, 900]]) test(`the
   const { page, open, state } = await dashboard(t, width, 'light');
   await page.addInitScript(() => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ theme: 'light' })));
   await page.setViewportSize({ width, height });
-  state.dashboard = true;
   state.items = Array.from({ length: 8 }, (_, index) => step(90 + index, `Send the sample lease summary ${index + 1}`, { card_id: `step:${id(90 + index)}` }));
   await page.clock.install({ time: now });
   await open('/?mode=live');
@@ -2282,7 +2244,6 @@ test('Home restores reply edits after Back and reload and compares a newer revis
     ...draft, item_id: `reply_draft:${id(21)}`, source_id: id(21), reply_draft_id: id(21), title: 'Reply to a different email',
     card_id: 'conversation:2',
   };
-  state.dashboard = true;
   state.items = [draft, otherDraft];
   state.otherDraft = { ...state.draft, draft_id: id(21), body: 'Different saved draft.' };
   await open('/?mode=live');
@@ -2334,7 +2295,6 @@ for (const event of ['sign-out', 'partner change', 'drop']) test(`Home clears re
   const draft = draftCard();
   const localEdit = 'My private sample reply.';
   let actor = 'joe';
-  state.dashboard = true;
   state.items = [draft];
   await page.route('**/auth/session', route => route.fulfill({
     status: actor ? 200 : 401,
@@ -2379,7 +2339,6 @@ test('Home skips edits from a retired session when the same partner signs back i
   const { page, open, state } = await dashboard(t, 1440, 'light');
   const draft = draftCard();
   const edit = 'Sample edit from the retired session.';
-  state.dashboard = true;
   state.items = [draft];
   let signedIn = true;
   const auth = route => route.fulfill({
@@ -2424,7 +2383,6 @@ test('Home skips edits from a retired session when the same partner signs back i
 test('Home evicts the old reply edit when browser storage rejects its replacement', async t => {
   const { page, open, state } = await dashboard(t, 1440, 'light');
   const draft = draftCard();
-  state.dashboard = true;
   state.items = [draft];
   await open('/?mode=live');
   const title = page.getByRole('link', { name: draft.title });
@@ -2679,7 +2637,6 @@ test('A link to a dropped or replaced Home draft shows its saved outcome', async
 test('The Home query link still opens its loaded draft', async t => {
   const { page, open, state } = await dashboard(t, 1440, 'light');
   const draft = draftCard();
-  state.dashboard = true;
   state.items = [draft];
   await open(`/?mode=live&card=${encodeURIComponent(draft.item_id)}`);
   const review = page.getByRole('region', { name: `Details for ${draft.title}` });
@@ -2695,7 +2652,6 @@ for (const save of ['single', 'review']) test(`Home keeps grouped cards after a 
   const done = step(1, 'Send the signed lease', { card_id: 'lease:1' });
   const next = step(2, 'Call the practice manager', { card_id: 'lease:2' });
   const untouched = step(3, 'Confirm the site visit', { card_id: 'lease:3', due_on: '2026-11-09' });
-  state.dashboard = true;
   state.items = [untouched, draft, done, next];
   await page.clock.install({ time: now });
   await open('/?mode=live');
@@ -2734,7 +2690,6 @@ for (const width of [390, 900, 1440]) for (const theme of ['light', 'dark']) tes
   const tasks = Array.from({ length: 10 }, (_, index) => ({
     ...step(21 + index, `Call about sample suite ${index + 1}`), card_id: `suite:${index}`,
   }));
-  state.dashboard = true;
   state.items = [...tasks.slice(0, 5), draft, ...tasks.slice(5)];
   await page.clock.install({ time: now });
   await open('/?mode=live');
@@ -3169,7 +3124,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   assert.equal(await inbox.count(), 0, 'the dismissed review leaves Inbox empty');
 });
 
-async function homeDropFixture(t, width, { items, markDrop = true, proposalDrop = true, invalidDrop = false, theme, path = '/' } = {}) {
+async function homeDropFixture(t, width, { items, invalidDrop = false, theme, path = '/' } = {}) {
   const { page, open } = await scenario(t, { root: join(outDir, 'site'), now: NOW, page: { viewport: { width, height: 900 } } });
   page.setDefaultTimeout(5000);
   await page.addInitScript(theme => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ theme, walkthroughSeen: { joe: true } })), theme);
@@ -3182,7 +3137,7 @@ async function homeDropFixture(t, width, { items, markDrop = true, proposalDrop 
       const path = new URL(request.url).pathname;
       if (path === '/api/engine/home/inbox') return Response.json({
         ok: true, schema_version: 'home-inbox.v5', truncated: false, limit: 1000, working_collapsed: true,
-        ...(proposalDrop && { home_proposal_drop: true }), ...(markDrop && { home_mark_drop: true }), items: state.items,
+        home_proposal_drop: true, home_mark_drop: true, items: state.items,
       });
       assert.equal(request.method, 'POST');
       const body = await request.json();
@@ -3232,7 +3187,7 @@ async function homeDropFixture(t, width, { items, markDrop = true, proposalDrop 
     const response = await worker.fetch(new Request(request.url(), { method: request.method(), headers: request.headers(), body: request.postData() }), env);
     await route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: await response.text() });
   });
-  await page.route('**/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6', route => route.fulfill({ status: 404 }));
+  await page.route('**/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6', route => route.fulfill({ json: dashboardOf(state.items) }));
   await page.route(url => url.pathname === '/' && url.searchParams.get('mode') === 'live', async route => {
     const response = await route.fetch();
     await route.fulfill({ response, body: (await response.text()).replace('<html ', '<html data-home-today-from-engine ') });

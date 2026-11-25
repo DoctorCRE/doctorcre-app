@@ -30,7 +30,6 @@ export async function readDashboardGroups(signal: AbortSignal) {
   const response: Response = await sessionFetch("/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6", {
     signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
   });
-  if (response.status === 404) return null;
   const answer: unknown = await response.json().catch(() => null);
   if (!response.ok || !object(answer) || answer.ok !== true || answer.schema_version !== "home-inbox.v6")
     throw Error(unavailable);
@@ -48,7 +47,6 @@ export async function readDashboardGroups(signal: AbortSignal) {
 
 export async function readDashboard(signal: AbortSignal) {
   const groups = await readDashboardGroups(signal);
-  if (!groups) return null;
   const items = dashboardTiles.flatMap((tile) =>
     groups[tile].map((item): InboxItem => {
       const parsed = parseEngineDashboardCard(item, groups);

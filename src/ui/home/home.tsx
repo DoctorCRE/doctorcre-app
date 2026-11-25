@@ -182,15 +182,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
   const mounted = useRef(true);
   const query = useQuery({
     queryKey,
-    queryFn: async ({ signal }) => {
-      if (home && engineHome) {
-        const dashboard = await readDashboard(signal);
-        if (dashboard) return dashboard;
-        const current = cache.getQueryData<Snapshot | { grouped: true }>(queryKey);
-        if (inFlight.current.size && current && "grouped" in current) throw Error("Reminders and Inbox unavailable.");
-      }
-      return client.read(signal);
-    },
+    queryFn: async ({ signal }) => (home && engineHome ? readDashboard(signal) : client.read(signal)),
     // eslint-disable-next-line no-restricted-syntax -- One read per 60000ms while visible and online; paused during writes and cleared on unmount by Query.
     refetchInterval: () =>
       navigator.onLine && document.visibilityState === "visible" && !saving.size ? 60_000 : false,

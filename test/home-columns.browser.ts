@@ -200,3 +200,12 @@ test("On a phone Today's meetings comes first and In motion and waiting last", a
   );
   assert.deepEqual(tiles, ["Today's meetings", "Reminders", "Inbox", "In motion and waiting"]);
 });
+
+test("At 1440 a waiting row keeps its whole return date and gives the rest to the title", async (t) => {
+  const page = await openHome(t, 1440, 900);
+  const row = page.getByRole("region", { name: "In motion and waiting", exact: true }).getByRole("article");
+  const fits = (selector: string) =>
+    row.locator(selector).evaluate((node) => ({ text: node.textContent, fits: node.scrollWidth <= node.clientWidth }));
+  assert.deepEqual(await fits(".inbox-why"), { text: "Snoozed until Dec 1, 2026, 9:00 AM", fits: true });
+  assert.deepEqual(await fits("h3"), { text: "Send the sample parking study", fits: true });
+});
