@@ -1,15 +1,19 @@
-.doc-chat-page { max-width: 62rem; }
-.doc-chat__header, .doc-chat__actions {
+/* The top bar names the page, so New chat and the Recent chats toggle start the grid instead of a title row. */
+.doc-chat-page {
+  display: grid;
+  grid-template-columns: minmax(10rem, 1fr) minmax(0, 3fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: var(--space-3) var(--space-5);
+}
+.doc-chat__header, .doc-chat__layout { display: contents; }
+.doc-chat__header > a { grid-area: 1 / 1; justify-self: start; }
+.doc-chat__recent { grid-area: 2 / 1; }
+.doc-chat__layout > section { grid-area: 1 / 2 / 3; min-width: 0; }
+.doc-chat__actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-}
-.doc-chat__layout {
-  display: grid;
-  grid-template-columns: minmax(10rem, 1fr) minmax(0, 3fr);
-  gap: var(--space-5);
-  margin-top: var(--space-5);
 }
 .doc-chat__recent { min-width: 0; overflow-wrap: anywhere; }
 .doc-chat__recent h2 { font-size: var(--font-size-2); }
@@ -45,10 +49,20 @@
 .doc-chat__actions { justify-content: flex-end; }
 .doc-chat__recent-toggle { display: none; }
 @media (max-width: 44rem) {
-  .doc-chat__layout { grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
-  .doc-chat__recent-toggle { display: block; }
+  .doc-chat-page { grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto; }
+  .doc-chat__recent-toggle { display: block; grid-area: 1 / 1; justify-self: start; }
+  .doc-chat__header > a { grid-area: 1 / 2; }
+  .doc-chat__recent, .doc-chat__layout > section { grid-area: auto / 1 / auto / -1; }
   .doc-chat__recent { display: none; }
   .doc-chat__recent--open { display: block; }
+}
+/* On a computer Ask Doc fits one screen: Recent chats and the conversation scroll inside themselves, the conversation opens at its latest turn, and the question box stays at the bottom. */
+@media (min-width: 761px) and (not ((hover: none) and (pointer: coarse) and (max-width: 1023px))) {
+  .doc-chat-page { height: 100%; }
+  .doc-chat__recent, .doc-chat__scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+  .doc-chat__layout > section { display: flex; flex-direction: column; min-height: 0; }
+  .doc-chat__layout > section > * { flex: none; }
+  .doc-chat__layout > section > .doc-chat__scroll { flex: 1 1 0; display: flex; flex-direction: column-reverse; }
 }
 .doc-chat__proposal {
   padding: var(--space-3);
