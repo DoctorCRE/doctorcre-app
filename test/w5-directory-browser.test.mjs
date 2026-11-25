@@ -238,7 +238,8 @@ for(const dataset of ['clients','vendors']) test(`${dataset} record panel labels
  const {page,errors}=await open(t);await page.goto(`${origin}/${dataset}`);await page.locator('.record-row').first().click();
  const tone=page.locator('#recordBody .record-tone');await tone.waitFor();
  assert.match(await tone.innerText(),/Owner\s+Joe/);
- assert.equal(await tone.getByText('Owner',{exact:true}).evaluate(label=>getComputedStyle(label).color),await page.locator('#recordBody .record-field dt').first().evaluate(label=>getComputedStyle(label).color),'the label reads like the other facts');
+ const [owner,fact]=await page.evaluate(()=>['#recordBody .record-tone .fact-label','#recordBody .record-field dt'].map(selector=>getComputedStyle(document.querySelector(selector)).color));
+ assert.equal(owner,fact,'the label reads like the other facts');
  assert.deepEqual(errors,[]);
 });
 

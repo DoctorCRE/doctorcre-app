@@ -161,7 +161,9 @@ function manyMarkets() {
 }
 
 const marketStrip = (page: Page) =>
-  page.evaluate(() => {
+  page.evaluate(async () => {
+    // A resize reaches the "+N" label at the next frame; measure after it.
+    await new Promise((settled) => requestAnimationFrame(() => requestAnimationFrame(settled)));
     const strip = document.getElementById("marketCounts")?.getBoundingClientRect() ?? new DOMRect();
     const chips = [...document.querySelectorAll("#marketCounts [data-market]")].map((chip) =>
       chip.getBoundingClientRect(),

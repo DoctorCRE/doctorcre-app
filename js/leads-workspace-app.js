@@ -822,6 +822,8 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
   $("marketCounts").addEventListener("click", event => { const button = event.target.closest("[data-market]"); if (button) selectMarket(button.dataset.market); });
   $("moreMarkets").addEventListener("click", event => { const more = event.currentTarget; more.setAttribute("aria-expanded", String(more.getAttribute("aria-expanded") !== "true")); foldMarkets(); });
   if (win.ResizeObserver) new win.ResizeObserver(foldMarkets).observe($("marketCounts"));
+  // A late web font rewraps the chips without resizing the strip.
+  doc.fonts?.ready.then(foldMarkets);
   $("refreshBoard").addEventListener("click", () => { refresh(); });
   $("checkDetailPending").addEventListener("click", executePending);
   $("closeDetail").addEventListener("click", () => $("leadDetail").close());
