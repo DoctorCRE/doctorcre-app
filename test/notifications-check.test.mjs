@@ -15,7 +15,7 @@ import {
   FEED_STATES, NO_PAGE_SENTENCE, PREFERENCE_OPERATION_KEY,
   PREFERENCE_REFUSALS, QUIET_NOW_BANNER,
   QUIET_SUPPRESSED_MARK, SEVERITIES, SEVERITY_LABELS, TIME_REFUSAL,
-  acknowledgeArgs, acknowledgeOperationKey, activityRows, foldChanges, preferenceTimeLabel, classifyPreferenceFailure,
+  acknowledgeArgs, acknowledgeOperationKey, activityRows, dayHeading, foldChanges, groupByDay, preferenceTimeLabel, classifyPreferenceFailure,
   classifyPreferenceReadFailure, classifyReadFailure, changeRows, parseChangesPage, deepLinkView, deliveryPhrases, feedState,
   notificationCards, preferenceState, preferenceSummary,
   preferenceView, quietNowBanner, setPreferenceArgs, toInputTime, unreadLine,
@@ -813,4 +813,34 @@ test('update times name only a zone other than Central', () => {
   const { changes } = parseChangesPage({ changes: [row], next_before: null });
   assert.equal(changeRows(changes)[0].clock, '12:30 PM');
   assert.equal(changeRows(changes, 'America/New_York')[0].clock, '1:30 PM EST');
+});
+
+test('a day heading follows the calendar day in the partner\'s zone', () => {
+  const day = (value, now, zone = 'America/Chicago') => dayHeading(value, zone, new Date(now));
+  const wednesdayNoon = '2026-11-25T18:00:00Z';
+  assert.equal(day('2026-11-25T06:00:00Z', wednesdayNoon), 'Today', 'midnight Central starts today');
+  assert.equal(day('2026-11-25T05:59:00Z', wednesdayNoon), 'Yesterday', 'a minute before midnight Central is yesterday');
+  assert.equal(day('2026-11-25T04:00:00Z', '2026-11-25T05:30:00Z'), 'Today', 'late evening Central is still today after UTC midnight');
+  assert.equal(day('2026-11-19T18:00:00Z', wednesdayNoon), 'Thursday', 'six days ago is its weekday');
+  assert.equal(day('2026-11-18T18:00:00Z', wednesdayNoon), 'Nov 18', 'seven days ago is its date');
+  assert.equal(day('2026-10-31T18:00:00Z', '2026-11-02T18:00:00Z'), 'Saturday', 'the clock change does not shift a day');
+  assert.equal(day('2025-11-25T18:00:00Z', wednesdayNoon), 'Nov 25, 2025', 'a prior year names the year');
+
+  const newYearNoon = '2027-01-01T18:00:00Z';
+  assert.equal(day('2026-12-31T18:00:00Z', newYearNoon), 'Yesterday', 'Dec 31 is yesterday on Jan 1');
+  assert.equal(day('2026-12-26T18:00:00Z', newYearNoon), 'Saturday', 'last week reads as a weekday across the year');
+  assert.equal(day('2026-12-25T18:00:00Z', newYearNoon), 'Dec 25, 2026', 'last year\'s date names its year');
+
+  assert.equal(day('2026-11-25T10:00:00Z', wednesdayNoon), 'Today', 'Central');
+  assert.equal(day('2026-11-25T10:00:00Z', wednesdayNoon, 'Pacific/Auckland'), 'Yesterday', 'Auckland is already on Nov 26');
+  assert.equal(day('not a date', wednesdayNoon), 'Date not recorded');
+});
+
+test('rows group into runs that share a Central day, newest first', () => {
+  const rows = ['2026-11-25T06:30:00Z', '2026-11-25T06:00:00Z', '2026-11-25T05:59:00Z', '2026-11-24T06:00:00Z',
+    '2025-12-31T18:00:00Z'].map((at, n) => ({ id: String(n), at }));
+  const groups = groupByDay(rows, 'America/Chicago', new Date('2026-11-25T18:00:00Z'));
+  assert.deepEqual(groups.map(({ day, rows: dayRows }) => [day, dayRows.map(row => row.id)]),
+    [['Today', ['0', '1']], ['Yesterday', ['2', '3']], ['Dec 31, 2025', ['4']]]);
+  assert.deepEqual(groupByDay([], 'America/Chicago'), []);
 });
