@@ -179,7 +179,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   };
   await page.route('**/mcp', routeWorker);
 
-  await page.route('**/api/engine/home/inbox?view=dashboard', route => route.fulfill({ status: 404 }));
+  await page.route('**/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6', route => route.fulfill({ status: 404 }));
   if (enabled) await page.route(/\/\?mode=live$/, async route => {
     const response = await route.fetch();
     const html = (await response.text()).replace('<html ', '<html data-home-today-from-engine ');
@@ -222,14 +222,13 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
     assert.equal(await link.count(), 1);
     const card = inbox.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: title, exact: true }) });
     assert.deepEqual(await card.getByRole('button').allTextContents(), enabled
-      ? ['Open', 'Mark done', 'Snooze', 'Drop']
-      : ['Open', 'Mark done', 'Snooze']);
-    assert.match(await card.locator('.inbox-context time').textContent(), /Nov 3/);
+      ? ['Mark done', 'Snooze', 'Drop']
+      : ['Mark done', 'Snooze']);
+    assert.equal(await card.getByText('Today', { exact: true }).count(), 1);
     if (enabled && !task.call) {
       assert.equal(await link.getAttribute('href'), task.path);
       continue;
     }
-    if (enabled && task.call) await card.getByText('From your call with Example Contact on Mon, Nov 2').waitFor();
     await link.click();
     const details = card.getByRole('region', { name: `Details for ${title}` });
     assert.equal(await details.getByRole('link', { name: task.label, exact: true }).getAttribute('href'), task.path);
@@ -260,7 +259,6 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
     const snoozed = waiting.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: /^Read the sample lease/ }) });
     await snoozed.getByText(/^Snoozed until .* [AP]M$/).waitFor();
     assert.deepEqual(await snoozed.getByRole('button').allTextContents(), ['Wake']);
-    assert.equal(await snoozed.getByRole('checkbox').isDisabled(), true);
   }
   const snoozedVersion = state.items[0].base_version;
   await undo.click();
@@ -273,43 +271,23 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
     return;
   }
   assert.deepEqual(writes[1][1], { item_id: id, base_version: snoozedVersion, action: 'unsnooze', idempotency_key: writes[1][1].idempotency_key });
-  for (const task of tasks.slice(0, 2)) await inbox.getByRole('checkbox', { name: `Select ${task.title} (${reader})` }).check();
-  const before = reads.length;
-  assert.equal(await page.getByRole('button', { name: 'Settle selected', exact: true }).count(), 0);
-  await page.getByRole('button', { name: 'Snooze selected', exact: true }).click();
-  await page.getByRole('button', { name: /^Not now · Tomorrow/ }).click();
-  await page.locator('[data-batch-state="results"]').waitFor();
-  assert.equal(reads.length, before + 1);
-  assert.equal(writes.length, 4);
-  assert.deepEqual(new Set(writes.slice(2).map(([, args]) => args.item_id)), new Set(state.items.slice(0, 2).map(item => item.item_id)));
-  assert.equal(new Set(writes.slice(2).map(([, args]) => args.idempotency_key)).size, 2);
-  await card.waitFor({ state: 'detached' });
-  const batchVersions = new Map(state.items.slice(0, 2).map(item => [item.item_id, item.base_version]));
-  await page.getByRole('button', { name: 'Undo whole batch' }).click();
-  await page.locator('[data-batch-state="undone"]').waitFor();
-  await card.waitFor();
-  assert.equal(writes.length, 6);
-  for (const [, args] of writes.slice(4)) {
-    assert.equal(args.base_version, batchVersions.get(args.item_id));
-    assert.equal(args.action, 'unsnooze');
-    assert.equal('until' in args, false);
-  }
-  assert.equal(new Set(writes.slice(2).map(([, args]) => args.idempotency_key)).size, 4);
-  await page.getByRole('button', { name: 'Finish reviewing batch' }).click();
+  assert.equal(await inbox.getByRole('checkbox').count(), 0);
+  assert.equal(await page.getByRole('button', { name: 'Snooze selected', exact: true }).count(), 0);
   conflict = true;
   await clickSnooze();
   await page.getByText('This card changed. Refreshing your inbox. Your change was not saved.', { exact: true }).waitFor();
   await today.getByRole('link', { name: /Read the revised sample lease/ }).waitFor();
-  assert.equal(writes.length, 7);
+  assert.equal(writes.length, 3);
   const notice = { ...state.items[3] };
-  const update = inbox.getByRole('region', { name: 'Reminders', exact: true }).locator('[data-inbox-row]')
+  const update = inbox.getByRole('region', { name: 'Inbox', exact: true }).locator('[data-inbox-row]')
     .filter({ has: page.getByRole('link', { name: /The sample deal moved ahead/ }) });
+  await update.getByRole('button', { name: 'Review', exact: true }).click();
   await update.getByRole('button', { name: 'Drop', exact: true }).click();
   await confirmDrop('Already reviewed.');
   await update.waitFor({ state: 'detached' });
-  assert.equal(writes[7][1].action, 'drop');
-  assert.equal(writes[7][1].item_id, `notification:${partyId}`);
-  assert.equal(writes[7][1].reason, 'Already reviewed.');
+  assert.equal(writes[3][1].action, 'drop');
+  assert.equal(writes[3][1].item_id, `notification:${partyId}`);
+  assert.equal(writes[3][1].reason, 'Already reviewed.');
   assert.equal(await undo.count(), 0);
 
   const revised = today.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: /Read the revised sample lease/ }) });
@@ -990,8 +968,9 @@ const step = (number, title, fields = {}) => ({
 const dashboardAnswer = (reminders, waiting) => {
   const group = items => ({ count: items.length, items });
   return {
-    ok: true, schema_version: 'home-inbox.v5', home_mark_drop: true, home_proposal_drop: true,
-    reminders: group(reminders), waiting: group(waiting),
+    ok: true, schema_version: 'home-inbox.v6', home_mark_drop: true, home_proposal_drop: true,
+    reminders: group(reminders.filter(item => item.action_id)), inbox: group(reminders.filter(item => !item.action_id)),
+    waiting: group(waiting),
   };
 };
 const snapshot = (items, legacy = false) => ({
@@ -1033,13 +1012,10 @@ async function dashboard(t, width, theme, timezone) {
     draftWrites: [],
     unavailable: false,
   };
-  await page.route('**/api/engine/home/inbox?view=dashboard', route => {
+  await page.route('**/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6', route => {
     state.dashboardReads++;
     if (state.unavailable) return route.fulfill({ status: 400, json: { error: 'unregistered_operation_fields', fields: ['other'] } });
-    if (state.oldEngine) return route.fulfill({ status: 400, json: { error: 'unregistered_operation_fields', fields: ['view'] } });
-    if (!state.dashboard) return route.fulfill(width === 390
-      ? { status: 404 }
-      : { json: snapshot(state.items) });
+    if (state.oldEngine || !state.dashboard) return route.fulfill({ status: 404 });
     const cards = state.items.filter(item => item.section !== 'done').map(item => ({
       why: 'The practice requested an update.', primary_action: item.section === 'inbox' ? 'Mark done' : null,
       source_activity: null, undo_completion: false, returns_at: item.snoozed_until,
@@ -1784,7 +1760,7 @@ test('Home pauses its minute refresh exactly while a review save runs', async t 
   await retry.waitFor();
 
   const reads = state.dashboardReads;
-  const read = page.waitForRequest('**/api/engine/home/inbox?view=dashboard');
+  const read = page.waitForRequest('**/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6');
   await page.clock.fastForward(60_000);
   await read;
   assert.equal(state.dashboardReads, reads + 1, 'an uncertain review keeps the minute refresh');
@@ -1797,7 +1773,7 @@ test('Home pauses its minute refresh exactly while a review save runs', async t 
   await review.getByText('Waiting for server confirmation…', { exact: true }).waitFor({ state: 'detached' });
   assert.deepEqual(state.filingWrites.map(({ decision }) => decision), ['accept'], 'the retry saved');
   assert.equal(state.dashboardReads, reads + 2, 'only the save\'s own read lands while the review saves');
-  const resumed = page.waitForRequest('**/api/engine/home/inbox?view=dashboard');
+  const resumed = page.waitForRequest('**/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6');
   await page.clock.fastForward(60_000);
   await resumed;
   assert.equal(state.dashboardReads, reads + 3, 'the minute refresh resumes once after the save');
@@ -1814,7 +1790,7 @@ test('Home moves a snoozed card while the open review saves', async t => {
   let hold;
   let decide;
   const decided = new Promise(resolve => { decide = resolve; });
-  await page.route('**/api/engine/home/inbox?view=dashboard', async route => {
+  await page.route('**/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6', async route => {
     await hold;
     await route.fallback().catch(() => {});
   });
@@ -1830,7 +1806,7 @@ test('Home moves a snoozed card while the open review saves', async t => {
   const snoozedRow = reminders.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: snoozed.title }) });
 
   hold = new Promise(resolve => { release = resolve; });
-  const followUp = page.waitForRequest('**/api/engine/home/inbox?view=dashboard');
+  const followUp = page.waitForRequest('**/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6');
   await snoozedRow.locator(':scope > .inbox-actions').getByRole('button', { name: 'Snooze', exact: true }).click();
   await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
   await followUp;
@@ -1940,7 +1916,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   assert.equal(state.draft.body, 'Keep this local edit.');
 });
 
-test('Home uses the flat inbox when the older engine refuses the dashboard view', async t => {
+test('Home uses the flat inbox when the engine has no dashboard', async t => {
   const { page, open, state } = await dashboard(t, 390, 'light');
   state.oldEngine = true;
   await open('/?mode=live');
@@ -3236,7 +3212,7 @@ async function homeDropFixture(t, width, { items, markDrop = true, proposalDrop 
     const response = await worker.fetch(new Request(request.url(), { method: request.method(), headers: request.headers(), body: request.postData() }), env);
     await route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: await response.text() });
   });
-  await page.route('**/api/engine/home/inbox?view=dashboard', route => route.fulfill({ status: 404 }));
+  await page.route('**/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6', route => route.fulfill({ status: 404 }));
   await page.route(url => url.pathname === '/' && url.searchParams.get('mode') === 'live', async route => {
     const response = await route.fetch();
     await route.fulfill({ response, body: (await response.text()).replace('<html ', '<html data-home-today-from-engine ') });

@@ -1,4 +1,4 @@
-import { bootInbox } from './home/boot';
+import { bootInbox } from "./home/boot";
 
-const root = document.querySelector<HTMLElement>('#homeRoot[data-inbox]');
+const root = document.querySelector<HTMLElement>("#homeRoot[data-inbox]");
 if (root) void bootInbox(root);

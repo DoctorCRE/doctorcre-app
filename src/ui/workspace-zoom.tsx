@@ -5,20 +5,28 @@ import type { Layout, LayoutNode } from "./workspace-layout";
 
 type Group = Extract<LayoutNode, { kind: "tabs" }>;
 
-export function mountZoomableWorkspace(options: Parameters<typeof mountWorkspace>[0]): ReturnType<typeof mountWorkspace> {
+export function mountZoomableWorkspace(
+  options: Parameters<typeof mountWorkspace>[0],
+): ReturnType<typeof mountWorkspace> {
   const { container, panels } = options;
   const document = container.ownerDocument;
   const view = document.defaultView;
   if (!view) throw new Error("Zoom workspace requires a browser document");
   const ElementType = view.Element;
-  if (!container.isConnected || container.childNodes.length) throw new Error("Zoom workspace requires an empty mounted container");
+  if (!container.isConnected || container.childNodes.length)
+    throw new Error("Zoom workspace requires an empty mounted container");
   const controls = document.createElement("div");
   const stage = document.createElement("div");
   stage.className = "workspace-zoom-stage";
   container.append(controls, stage);
   let shell;
-  try { shell = mountWorkspace({ ...options, container: stage }); }
-  catch (error) { controls.remove(); stage.remove(); throw error; }
+  try {
+    shell = mountWorkspace({ ...options, container: stage });
+  } catch (error) {
+    controls.remove();
+    stage.remove();
+    throw error;
+  }
   const root = createRoot(controls);
   const stylesheet = document.createElement("link");
   stylesheet.rel = "stylesheet";
@@ -28,7 +36,7 @@ export function mountZoomableWorkspace(options: Parameters<typeof mountWorkspace
   let selected: string | null = null;
   let groups: Group[] = [];
   let disposed = false;
-  const titles = new Map(panels.map(panel => [panel.id, panel.title]));
+  const titles = new Map(panels.map((panel) => [panel.id, panel.title]));
 
   function render() {
     const elements = stage.querySelectorAll<HTMLElement>(".workspace-group");
@@ -41,23 +49,41 @@ export function mountZoomableWorkspace(options: Parameters<typeof mountWorkspace
       if (obscured) element.setAttribute("aria-hidden", "true");
       else element.removeAttribute("aria-hidden");
     });
-    flushSync(() => root.render(<div className="workspace-zoom-controls" role="group" aria-label="Zoom workspace groups">
-      {groups.map(group => <button key={group.id} type="button" className="btn btn-quiet"
-        hidden={selected !== null && selected !== group.id}
-        aria-pressed={selected === group.id}
-        onClick={() => { selected = selected === group.id ? null : group.id; render(); }}>
-        {selected === group.id ? "Return to workspace" : `Zoom ${group.panels.map(id => titles.get(id)).join(", ")} group`}
-      </button>)}
-    </div>));
+    flushSync(() =>
+      root.render(
+        <div className="workspace-zoom-controls" role="group" aria-label="Zoom workspace groups">
+          {groups.map((group) => (
+            <button
+              key={group.id}
+              type="button"
+              className="btn btn-quiet"
+              hidden={selected !== null && selected !== group.id}
+              aria-pressed={selected === group.id}
+              onClick={() => {
+                selected = selected === group.id ? null : group.id;
+                render();
+              }}
+            >
+              {selected === group.id
+                ? "Return to workspace"
+                : `Zoom ${group.panels.map((id) => titles.get(id)).join(", ")} group`}
+            </button>
+          ))}
+        </div>,
+      ),
+    );
   }
   function refresh(layout: Layout) {
     groups = [];
     function visit(node: LayoutNode) {
       if (node.kind === "tabs") groups.push(node);
-      else { visit(node.first); visit(node.second); }
+      else {
+        visit(node.first);
+        visit(node.second);
+      }
     }
     if (layout.stage) visit(layout.stage);
-    if (!groups.some(group => group.id === selected)) selected = null;
+    if (!groups.some((group) => group.id === selected)) selected = null;
     render();
   }
   function doubleClick(event: MouseEvent) {
@@ -69,7 +95,10 @@ export function mountZoomableWorkspace(options: Parameters<typeof mountWorkspace
     if (!element) return;
     const index = [...stage.querySelectorAll(".workspace-group")].indexOf(element);
     const group = groups[index];
-    if (group) { selected = selected === group.id ? null : group.id; render(); }
+    if (group) {
+      selected = selected === group.id ? null : group.id;
+      render();
+    }
   }
   function keyDown(event: KeyboardEvent) {
     const target = event.target;
@@ -95,7 +124,9 @@ export function mountZoomableWorkspace(options: Parameters<typeof mountWorkspace
       container.removeEventListener("keydown", keyDown);
       root.unmount();
       shell.unmount();
-      controls.remove(); stage.remove(); stylesheet.remove();
+      controls.remove();
+      stage.remove();
+      stylesheet.remove();
       container.classList.remove("workspace-zoom");
     },
   };

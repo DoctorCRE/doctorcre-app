@@ -127,14 +127,15 @@ async function open(
           : { items: [] };
     return route.fulfill({ json: { result: { content: [{ type: "text", text: JSON.stringify(payload) }] } } });
   });
-  await page.route("**/api/engine/home/inbox?view=dashboard", (route) =>
+  await page.route("**/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6", (route) =>
     route.fulfill({
       json: {
         ok: true,
-        schema_version: "home-inbox.v5",
+        schema_version: "home-inbox.v6",
         home_mark_drop: true,
         home_proposal_drop: true,
         reminders: { count: 1, items: [{ item_id: "example-reminder", card_id: "example-reminder" }] },
+        inbox: { count: 0, items: [] },
         waiting: { count: 0, items: [] },
       },
     }),

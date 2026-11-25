@@ -536,12 +536,13 @@ async function app(
             filing_choices: [],
           };
           const items = tourFeedback ? (feedbackOpen ? [feedback] : []) : [filingCard];
+          const dashboard = url.searchParams.get("view") === "dashboard";
           return Response.json({
             ok: true,
-            schema_version: "home-inbox.v5",
+            schema_version: dashboard ? "home-inbox.v6" : "home-inbox.v5",
             ...(tourFeedback && { home_mark_drop: true }),
-            ...(url.searchParams.get("view") === "dashboard"
-              ? { reminders: { count: items.length, items }, waiting: empty }
+            ...(dashboard
+              ? { reminders: empty, inbox: { count: items.length, items }, waiting: empty }
               : { items, truncated: false, limit: 1000, working_collapsed: true }),
           });
         }
@@ -785,8 +786,9 @@ for (const lookup of ["stalled", "unknown", "on"]) {
                 ? Response.json({ error: "engine_unavailable" }, { status: 503 })
                 : Response.json({
                     ok: true,
-                    schema_version: "home-inbox.v5",
-                    reminders: { count: 1, items: [filingCard] },
+                    schema_version: "home-inbox.v6",
+                    reminders: { count: 0, items: [] },
+                    inbox: { count: 1, items: [filingCard] },
                     waiting: { count: 0, items: [] },
                   });
             return new Response(null, { status: 404 });
@@ -994,7 +996,7 @@ test("Home and the old Updates link load on the engine session and handle expiry
       legacyReads.push(name);
   });
   for (const [path, reads] of [
-    ["/?mode=live", ["/api/engine/home/inbox?view=dashboard", "/api/engine/home/today"]],
+    ["/?mode=live", ["/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6", "/api/engine/home/today"]],
     ["/notifications?mode=live", ["/api/engine/updates", "/api/engine/updates/changes", "/api/engine/preferences"]],
   ] as const) {
     const pending = reads.map((read) =>
@@ -1185,7 +1187,7 @@ test("an engine action link opens the successor reply with Home review controls"
   assert.equal(await page.getByRole("textbox", { name: "Subject", exact: true }).inputValue(), "Re: Demo relocation");
   assert.equal(partnerReads.get(actionResolver + carrReply.ref), `${cookieName}=first`);
   assert.equal(partnerReads.get(linkedCardRead), `${cookieName}=first`);
-  assert.equal(partnerReads.has("/api/engine/home/inbox?view=dashboard"), false);
+  assert.equal(partnerReads.has("/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6"), false);
   assert.equal(carrChecks(), 0);
 });
 

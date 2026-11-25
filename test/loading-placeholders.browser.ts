@@ -236,7 +236,9 @@ test("Engine Home holds a grey tile where Today's meetings will appear while the
         const html = (await response.text()).replace("<html ", "<html data-home-today-from-engine ");
         await route.fulfill({ response, body: html });
       });
-      await page.route("**/api/engine/home/inbox?view=dashboard", (route) => route.fulfill({ status: 404 }));
+      await page.route("**/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6", (route) =>
+        route.fulfill({ status: 404 }),
+      );
       await page.route("**/api/engine/home/today", async (route) => {
         await held;
         await route.fulfill({

@@ -51,14 +51,6 @@ copies or substantial portions of T3 Code included in the application.
   [composerDraftStore.ts](https://github.com/pingdotgg/t3code/blob/cefb544af3c98224874419198c0359b652ca3c94/apps/web/src/composerDraftStore.ts) and
   [QueuedRunsControl.tsx](https://github.com/pingdotgg/t3code/blob/cefb544af3c98224874419198c0359b652ca3c94/apps/web/src/components/chat/QueuedRunsControl.tsx)
   at `cefb544af3c98224874419198c0359b652ca3c94`.
-- Receipt-bound bulk settle, snooze, and Undo,
-  [PR 654](https://github.com/jbookout/doctorcre-app/pull/654).
-  App files: `src/ui/home/bulk-controls.tsx`, `src/ui/home/batch.ts`, and
-  `src/ui/home/inbox.tsx`.
-  T3 comparators:
-  [Sidebar.tsx](https://github.com/pingdotgg/t3code/blob/86b7dc6bfa12123abef683811c852ec320537690/apps/web/src/components/Sidebar.tsx) and
-  [Sidebar.logic.ts](https://github.com/pingdotgg/t3code/blob/86b7dc6bfa12123abef683811c852ec320537690/apps/web/src/components/Sidebar.logic.ts)
-  at `86b7dc6bfa12123abef683811c852ec320537690`.
 
 Additional mechanical comparison candidates are
 [Sidebar.drag.ts](https://github.com/pingdotgg/t3code/blob/80a2351fcb909034e65a512dfabeb3cdfd367762/apps/web/src/components/Sidebar.drag.ts)

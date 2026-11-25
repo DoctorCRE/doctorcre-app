@@ -287,7 +287,9 @@ export async function mountHomeTodayPanel(
           ? await readDashboardGroups(signal).catch(() => null)
           : null;
       if (signal.aborted || current !== revision) return false;
-      homeCards = new Set(groups ? [...groups.reminders, ...groups.waiting].map((card) => card.item_id) : []);
+      homeCards = new Set(
+        groups ? [...groups.reminders, ...groups.inbox, ...groups.waiting].map((card) => card.item_id) : [],
+      );
       data = dated;
       const partners = data?.partners ?? [];
       if (!partners.some((p) => p.slug === scope)) scope = "all";
