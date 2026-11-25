@@ -508,6 +508,7 @@ function DocChat() {
   const [draftSendConflict, setDraftSendConflict] = useState<keyof typeof draftChangeText>();
   const retired = useRef(false);
   const active = useRef(false);
+  const conversationPane = useRef<HTMLDivElement>(null);
   const latest = turns.at(-1);
   const review = latest?.draft_review;
   const draftId = review?.draft_id ?? initialDraft?.id;
@@ -706,6 +707,8 @@ function DocChat() {
         setRecent((rows) => [{ id: conversation_id, title: [...turn.question].slice(0, 80).join("") }, ...rows]);
       }
       setTurns((rows) => [...rows.filter((row) => row.id !== turn.id), turn]);
+      // The pane is column-reverse, so scrollTop 0 is the latest turn.
+      conversationPane.current?.scrollTo({ top: 0 });
       setPendingAsk(null);
       if (latest?.idempotency_key !== ask.idempotency_key) {
         privateDraft.current?.("doc-question", id ?? composerId).write("");
@@ -771,7 +774,7 @@ function DocChat() {
               </a>
             </p>
           )}
-          <div className="doc-chat__scroll">
+          <div className="doc-chat__scroll" ref={conversationPane}>
             <ol className="doc-chat__turns" aria-live="polite">
               {turns.map((turn) => {
                 const sources = turn.answer?.sources ?? [];

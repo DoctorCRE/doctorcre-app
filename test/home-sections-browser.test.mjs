@@ -1886,7 +1886,8 @@ for (const [width, height] of [[1280, 800], [1440, 900]]) for (const theme of ['
   await reminders.getByRole('heading', { name: /^Reminders/ }).waitFor();
 });
 
-for (const [width, height] of [[1280, 800], [1440, 900]]) test(`Home tiles fill one screen with long lists side by side at ${width}x${height}`, async t => {
+for (const [width, height, withMeeting] of [[1280, 800, false], [1440, 900, false], ...[[1024, 768], [1280, 640], [1280, 800], [1440, 900]].map(size => [...size, true])]) test(`Home tiles fill one screen with long lists side by side${withMeeting ? ' and a meeting' : ''} at ${width}x${height}`, async t => {
+  const meetings = withMeeting ? [scheduledMeeting] : [];
   const { page, open, state } = await dashboard(t, width, 'dark');
   await page.setViewportSize({ width, height });
   state.items = [
@@ -1894,17 +1895,25 @@ for (const [width, height] of [[1280, 800], [1440, 900]]) test(`Home tiles fill 
     ...Array.from({ length: 12 }, (_, index) => step(110 + index, `Wait on the sample survey ${index + 1}`, { section: 'snoozed', disposition: 'snoozed', snoozed_until: '2026-11-04T16:00:00Z' })),
   ];
   await page.route('**/api/engine/home/today', route => route.fulfill({ json: {
-    ok: true, schema_version: 'home-today.v1', today: '2026-11-03', viewer: 'joe', meetings: { state: 'empty', items: [] },
+    ok: true, schema_version: 'home-today.v1', today: '2026-11-03', viewer: 'joe', meetings: { state: meetings.length ? 'ready' : 'empty', items: meetings },
   } }));
   await page.clock.install({ time: now });
   await open('/?mode=live');
   const reminders = page.getByRole('region', { name: 'Reminders', exact: true });
   const waiting = page.getByRole('region', { name: 'In motion and waiting', exact: true });
+  const meeting = page.getByRole('region', { name: "Today's meetings", exact: true });
+  if (meetings.length) await meeting.getByRole('heading', { name: "Today's meetings 1" }).waitFor();
   for (const tile of [reminders, waiting]) await tile.getByRole('button', { name: /^See all/ }).click();
   const [first, second, grid] = await Promise.all([reminders, waiting, page.locator('.home-sections')].map(node => node.boundingBox()));
   assert.deepEqual(await page.evaluate(() => [document.scrollingElement, document.getElementById('appMainSlot')].every(node => node.scrollHeight <= node.clientHeight)), true, 'the page itself does not scroll');
   assert.equal(grid.y + grid.height, height - 12, 'the grid ends at the bottom of the screen');
-  for (const box of [first, second]) assert.equal(box.y + box.height, grid.y + grid.height, 'each column reaches the bottom');
+  const last = meetings.length ? await meeting.boundingBox() : second;
+  for (const box of [first, last]) assert.equal(box.y + box.height, grid.y + grid.height, 'each column reaches the bottom');
+  if (meetings.length) {
+    const [heading, row] = await Promise.all([meeting.getByRole('heading', { name: /^Today's meetings/ }), meeting.locator('.home-meeting')].map(node => node.boundingBox()));
+    assert.ok(row.y + row.height <= last.y + last.height, 'the meetings tile shows its heading and its meeting');
+    assert.ok(heading.y >= last.y, 'the meetings heading is not cut off');
+  }
   for (const tile of [reminders, waiting]) assert.equal(await tile.evaluate(node => node.scrollHeight > node.clientHeight), true, 'each long list scrolls inside its tile');
 });
 
