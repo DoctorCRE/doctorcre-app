@@ -88,7 +88,8 @@ test("a scrolled deal page shows nothing above its pinned header", async (t) => 
       await page.goto(`${server.origin}/deals?mode=fixture&deal=d14`);
       await page.locator("#panelTitle").filter({ hasText: "Demo Surgical Practice" }).waitFor();
       const probe = await page.locator(".deal-detail > .workspace-header").evaluate((header) => {
-        const scroller = header.closest(".app-layout-main") as HTMLElement;
+        const scroller = header.closest<HTMLElement>(".app-layout-main");
+        if (!scroller) return { scrolled: false, underHeader: false };
         scroller.scrollTop = 400;
         const edge = scroller.getBoundingClientRect();
         const top = document.elementFromPoint(edge.left + edge.width / 2, edge.top + 1);
