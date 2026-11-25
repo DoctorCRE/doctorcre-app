@@ -50,7 +50,10 @@ const shown = (page: Page, selector: string) =>
   page.locator(selector).evaluate((node) => getComputedStyle(node).opacity === "1");
 
 for (const [width, height] of [
+  [1200, 750],
+  [1280, 679],
   [1280, 800],
+  [1366, 768],
   [1440, 900],
 ] as const) {
   test(`a national account fits one screen with one toolbar row at ${width}x${height}`, async (t) => {
@@ -73,6 +76,18 @@ for (const [width, height] of [
     assert.equal(fit.pageScrolls, false, "the page itself does not scroll");
     assert.equal(fit.sideways, false, "nothing scrolls sideways");
     assert.ok(fit.mainTop <= 112, `the toolbar stays one row beside Today, deals at ${fit.mainTop}px`);
+    assert.equal(
+      await page.locator("#search").evaluate((input: HTMLInputElement) => {
+        const style = getComputedStyle(input);
+        const context = document.createElement("canvas").getContext("2d");
+        if (!context) throw Error("no canvas");
+        context.font = style.font;
+        const room = input.clientWidth - Number.parseFloat(style.paddingLeft) - Number.parseFloat(style.paddingRight);
+        return context.measureText(input.placeholder).width <= room;
+      }),
+      true,
+      "the search box shows its whole placeholder",
+    );
   });
 }
 

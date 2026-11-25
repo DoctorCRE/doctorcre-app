@@ -87,7 +87,10 @@ const firstScreen = (page: Page) =>
   });
 
 for (const [width, height] of [
+  [1200, 750],
+  [1280, 679],
   [1280, 800],
+  [1366, 768],
   [1440, 900],
 ] as const)
   test(`the Vendors list fills the first screen at ${width}x${height}`, async (t) => {
@@ -97,7 +100,8 @@ for (const [width, height] of [
     assert.equal(fit.pageScrolls, false, "the page itself does not scroll");
     assert.equal(fit.sideways, false, "nothing scrolls sideways");
     assert.ok(fit.listTop <= 112, `the list starts near the top, not at ${fit.listTop}px`);
-    assert.ok(fit.wholeRows >= 12, `at least twelve vendors show whole, not ${fit.wholeRows}`);
+    const rows = height >= 800 ? 12 : 10;
+    assert.ok(fit.wholeRows >= rows, `at least ${rows} vendors show whole, not ${fit.wholeRows}`);
   });
 
 test("the Vendors list fits beside an open Today at 1280x800", async (t) => {
@@ -169,6 +173,8 @@ const cutFilters = (page: Page) =>
   );
 
 for (const [width, height, today] of [
+  [1200, 750, undefined],
+  [1200, 750, "open"],
   [1280, 800, undefined],
   [1280, 800, "open"],
   [1440, 900, undefined],
