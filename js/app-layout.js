@@ -85,7 +85,11 @@ export function mountAppLayout(root, host, pathname) {
   const topbar = layout.querySelector('#appTopbar');
   const tabbar = layout.querySelector('.app-layout-tabbar');
   const crowded = node => node.scrollWidth > node.clientWidth + 1 || node.offsetHeight > topbar.clientHeight;
+  // A page can hand its title links to the phone's tab row, leaving its heading as the title.
+  const phoneTabs = [...slots.title.querySelectorAll('[data-phone-slot="tabs"]')];
   const placeTabs = () => {
+    const home = phone.matches ? pageViews : slots.title;
+    for (const node of phoneTabs) if (node.parentNode !== home) home.prepend(node);
     if (!phone.matches) {
       slots.title.after(pageViews);
       if (!crowded(slots.title) && !crowded(pageViews)) return;
