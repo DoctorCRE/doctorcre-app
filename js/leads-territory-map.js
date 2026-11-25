@@ -168,11 +168,10 @@ export async function mountTerritoryMap(root, selectLead, { signal, markets = op
       const key = `${at(b.x)},${at(b.y)}`;
       cells.has(key) ? cells.get(key).push(index) : cells.set(key, [index]);
     });
+    const span = (middle, reach) => Array.from({ length: at(middle + reach) - at(middle - reach) + 1 }, (_, step) => at(middle - reach) + step);
     function near(b) {
-      const reachX = (b.width + widest.width + gap) / 2, reachY = (b.height + widest.height + gap) / 2, found = [];
-      for (let x = at(b.x - reachX); x <= at(b.x + reachX); x++)
-        for (let y = at(b.y - reachY); y <= at(b.y + reachY); y++) found.push(...cells.get(`${x},${y}`) || []);
-      return found;
+      const reachX = (b.width + widest.width + gap) / 2, reachY = (b.height + widest.height + gap) / 2;
+      return span(b.x, reachX).flatMap(x => span(b.y, reachY).flatMap(y => cells.get(`${x},${y}`) || []));
     }
     return { near, grow };
   }
@@ -187,15 +186,13 @@ export async function mountTerritoryMap(root, selectLead, { signal, markets = op
       boxes[kept] = box(clusters[kept]); index.grow(boxes[kept]);
       return boxes[kept].width !== before.width || boxes[kept].height !== before.height;
     };
-    for (let start = 0; start < clusters.length; start++) {
-      let current = start;
-      search: while (clusters[current]) {
-        const partners = index.near(boxes[current]).filter(other => other !== current && clusters[other] && touch(boxes[current], boxes[other])).sort((a, b) => a - b);
-        if (partners.length && partners[0] < current) { merge(partners[0], current); current = partners[0]; continue; }
-        for (const partner of partners) if (merge(current, partner)) continue search;
-        break;
-      }
-    }
+    const settle = current => {
+      if (!clusters[current]) return;
+      const partners = index.near(boxes[current]).filter(other => other !== current && clusters[other] && touch(boxes[current], boxes[other])).sort((a, b) => a - b);
+      if (partners.length && partners[0] < current) { merge(partners[0], current); settle(partners[0]); }
+      else if (partners.some(partner => merge(current, partner))) settle(current);
+    };
+    clusters.forEach((_, start) => settle(start));
     return clusters.filter(Boolean);
   }
   // Largest markets claim room for their names first.
