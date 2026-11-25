@@ -13,7 +13,8 @@ const today = "2026-10-02";
 const daysAgo = (days: number) => new Date(Date.parse(today) - days * 86_400_000).toISOString().slice(0, 10);
 
 // Enough unpaid invoices in every age range that the table must scroll inside itself.
-function longTracker() {
+// With partial amounts, one invoice in each age range has no recorded amount.
+function longTracker(partial: boolean) {
   const tracker = invoiceTrackerFixture(today);
   const template = tracker.entries[0];
   assert.ok(template);
@@ -25,7 +26,7 @@ function longTracker() {
       name: `Synthetic Practice ${n}`,
       owner: n % 3 ? "joe" : "dell",
       commission_id: `00000000-0000-4000-9000-${String(n).padStart(12, "0")}`,
-      gross_amount: String(1000 + n * 250),
+      gross_amount: partial && n <= 8 ? null : String(1000 + n * 250),
       closed_on: daysAgo(age + 7),
       invoiced_on: daysAgo(age),
       commission_invoiced_on: daysAgo(age),
@@ -37,13 +38,13 @@ function longTracker() {
 
 let assets: ReturnType<typeof appAssetSnapshot> | undefined;
 
-async function openInvoices(width: number, height: number) {
+async function openInvoices(width: number, height: number, { partial = false } = {}) {
   assets ??= appAssetSnapshot(undefined, fileURLToPath(new URL("../", import.meta.url)));
   const snapshot = await assets;
   const browser = await chromium.launch({ args: [...CHROMIUM_SAFETY_ARGS] });
   const page = await browser.newPage({ viewport: { width, height }, timezoneId: "UTC", reducedMotion: "reduce" });
   await page.clock.install({ time: new Date(`${today}T17:00:00Z`) });
-  const tracker = longTracker();
+  const tracker = longTracker(partial);
   const answers: Record<string, unknown> = {
     "read-invoice-tracker": tracker,
     "deal-room-board": { actor: "joe", deals: [] },
@@ -112,22 +113,53 @@ const measure = (page: Page) =>
       firstRow: box("[data-invoice]"),
       tableOverflow: table ? table.scrollHeight - table.clientHeight : 0,
       updated: document.getElementById("invoiceUpdated")?.textContent ?? "",
+      today: document.querySelector(".app-layout")?.getAttribute("data-today"),
+      parts: [...document.querySelectorAll("#invoiceSummary :is(.invoice-totals, .invoice-chip)")].map((node) => {
+        const { top, bottom } = node.getBoundingClientRect();
+        return { top, bottom };
+      }),
+      divider: getComputedStyle(document.querySelector(".invoice-aging") ?? document.body).borderLeftWidth,
+      tracks: [...document.querySelectorAll<HTMLElement>(".invoice-age")].map((chip) => {
+        const outer = chip.getBoundingClientRect();
+        const track = chip.querySelector(".age-track")?.getBoundingClientRect() ?? new DOMRect();
+        return { chipLeft: outer.left, chipRight: outer.right, left: track.left, right: track.right };
+      }),
     };
   });
 
-for (const [width, height] of [
-  [1280, 800],
-  [1440, 900],
+const oneRow = (parts: { top: number; bottom: number }[]) =>
+  Math.max(...parts.map((part) => part.top)) < Math.min(...parts.map((part) => part.bottom));
+
+for (const [width, height, partial] of [
+  [1280, 800, false],
+  [1280, 800, true],
+  [1440, 900, false],
+  [1440, 900, true],
 ] as const)
-  test(`Invoices table fills the first screen without a page scroll at ${width}x${height}`, async (t) => {
-    const { browser, page } = await openInvoices(width, height);
+  test(`Invoices table fills the first screen without a page scroll at ${width}x${height}${partial ? " with unrecorded amounts" : ""}`, async (t) => {
+    const { browser, page } = await openInvoices(width, height, { partial });
     t.after(() => browser.close());
-    await capture(page, `invoices-${width}x${height}`);
+    await capture(page, `invoices-${width}x${height}${partial ? "-partial" : ""}`);
     const layout = await measure(page);
     const detail = JSON.stringify(layout);
+    assert.equal(layout.today, "open", "Today is open beside the table");
+    assert.ok(oneRow(layout.parts), `the totals and every age chip share one row: ${detail}`);
+    assert.notEqual(layout.divider, "0px", `a divider separates the totals from the age chips: ${detail}`);
+    assert.ok(
+      layout.tracks.length === 4 &&
+        layout.tracks.every(
+          (track) => track.left > track.chipLeft && track.right < track.chipRight && track.right > track.chipRight - 16,
+        ),
+      `each age bar spans its chip and ends inside it: ${detail}`,
+    );
     assert.equal(layout.pageScroll, 0, detail);
     assert.ok(layout.mainScroll <= 0, `the main region does not scroll: ${detail}`);
-    assert.ok(layout.strip.height > 0 && layout.strip.height <= 64, `the summary is one short strip: ${detail}`);
+    // An unpriced count adds one short line under the amount.
+    const stripLimit = partial ? 84 : 64;
+    assert.ok(
+      layout.strip.height > 0 && layout.strip.height <= stripLimit,
+      `the summary is one short strip: ${detail}`,
+    );
     assert.ok(layout.strip.bottom <= layout.ledger.top, `the strip sits above the table: ${detail}`);
     assert.ok(layout.ledger.top <= 200, `the table starts near the top: ${detail}`);
     assert.ok(
@@ -145,6 +177,17 @@ for (const [width, height] of [
     assert.ok(scrolled.firstRow.top < layout.head.top, "the rows moved under the header");
     assert.equal(scrolled.pageScroll, 0, "scrolling the rows does not scroll the page");
   });
+
+test("Invoices summary strip wraps without a stray divider at 1024x768 with Today open", async (t) => {
+  const { browser, page } = await openInvoices(1024, 768, { partial: true });
+  t.after(() => browser.close());
+  await capture(page, "invoices-1024x768-partial");
+  const layout = await measure(page);
+  const detail = JSON.stringify(layout);
+  assert.equal(layout.today, "open", "Today is open beside the table");
+  assert.equal(oneRow(layout.parts), false, `the age chips wrap under the totals: ${detail}`);
+  assert.equal(layout.divider, "0px", `no divider sits at the start of the wrapped row: ${detail}`);
+});
 
 test("Invoices age chips in the summary strip filter the table and mark the active chip", async (t) => {
   const { browser, page } = await openInvoices(1440, 900);

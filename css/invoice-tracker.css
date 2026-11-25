@@ -42,8 +42,12 @@ body { background: var(--ground); color: var(--fg); }
 :is(.invoice-total, .invoice-chip) > span { display: block; color: var(--fg-muted); font-size: var(--font-size-1); }
 :is(.invoice-total, .invoice-chip) strong { min-width: 0; max-width: 100%; font-size: var(--font-size-2); font-weight: var(--font-weight-strong); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 :is(.invoice-total, .invoice-chip) small { margin-inline-start: var(--space-1); color: var(--fg-muted); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; }
+/* An unpriced count gets its own line so it never widens the strip. */
+:is(.invoice-total, .invoice-chip) .invoice-missing { display: block; margin-inline-start: 0; white-space: nowrap; }
 .invoice-aging { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); min-width: 0; padding-left: var(--space-2); border-left: var(--hairline-width) solid var(--hairline); }
 .invoice-aging-chips { display: contents; }
+/* The divider only separates the two groups while they share a row. */
+.invoice-summary[data-wrapped] .invoice-aging { padding-left: 0; border-left: 0; }
 .invoice-chip { --age: var(--data-1); position: relative; padding: var(--space-1) var(--space-2) var(--space-2) !important; border: var(--hairline-width) solid var(--hairline) !important; border-radius: var(--radius-2) !important; background: transparent !important; text-align: left; }
 .invoice-chip:hover { border-color: var(--hairline-strong) !important; background: var(--surface-2) !important; }
 .invoice-chip[aria-pressed="true"] { border-color: var(--accent) !important; background: var(--surface-3) !important; box-shadow: inset 0 0 0 1px var(--accent); }
@@ -51,7 +55,7 @@ body { background: var(--ground); color: var(--fg); }
 .invoice-age .age-label { display: flex; align-items: center; gap: var(--space-1); }
 .age-count { min-width: 18px; padding: 0 var(--space-1); border-radius: var(--radius-round); background: var(--surface-3); color: var(--fg); font-weight: var(--font-weight-strong); line-height: 16px; text-align: center; font-variant-numeric: tabular-nums; }
 .invoice-chip[aria-pressed="true"] .age-count { background: var(--surface-1); }
-.age-track { position: absolute; right: var(--space-2); bottom: 3px; left: var(--space-2); width: auto; height: 3px; overflow: hidden; border-radius: var(--radius-round); }
+.age-track { position: absolute; bottom: 3px; left: var(--space-2); width: calc(100% - 2 * var(--space-2)); height: 3px; overflow: hidden; border-radius: var(--radius-round); }
 .age-base { fill: var(--surface-3); }
 .age-fill { fill: var(--age); }
 [data-age="1"] { --age: var(--data-2); }

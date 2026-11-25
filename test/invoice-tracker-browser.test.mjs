@@ -262,7 +262,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     assert.match(await owed.innerText(), /1 without a recorded amount/);
     assert.match(await age.innerText(), /\$12,500.00/);
     assert.equal(await age.locator('.age-count').innerText(), '2');
-    assert.match(await age.innerText(), /· 1 without a recorded amount/);
+    assert.match(await age.innerText(), /^1 no amount$/m);
     assert.equal(await age.getAttribute('aria-label'), '0–30 days, $12,500.00, 2 invoices · 1 without a recorded amount');
 
     await page.locator('#invoiceOwner').selectOption('dell');

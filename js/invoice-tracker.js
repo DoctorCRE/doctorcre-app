@@ -10,6 +10,7 @@ import { AGES, projectInvoices, validInvoiceTracker, isInvoiceBaseVersion, invoi
 const E=value=>String(value ?? '').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const ownerLabel = owner => partnerName(owner) || 'Unassigned';
 const missingAmounts = count => count ? ` · ${count} without a recorded amount` : '';
+const missingNote = (count, text) => count ? `<small class="invoice-missing">${count} ${text}</small>` : '';
 const statusLabel=row=>row.status==='paid'?'Paid':row.status==='awaiting'?'Awaiting invoice':row.overdue?'Overdue':'Unpaid';
 const isEarlierVersion = (version, current) => current != null && (version === null || version < current);
 const paymentRefusals = new Map([
@@ -116,7 +117,7 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
         <span>Owed to DoctorCRE</span>
         ${hasOwedAmount ? `<strong>${E(invoiceMoney(totals.owed))}</strong>`
           : '<strong class="invoice-missing-amount">No invoice amounts recorded yet</strong>'}
-        <small>${totals.unpaid} unpaid${hasOwedAmount ? missingAmounts(totals.unknown) : ''}</small>
+        <small>${totals.unpaid} unpaid</small>${hasOwedAmount ? missingNote(totals.unknown, 'without a recorded amount') : ''}
       </div>
       <div class="invoice-total"><span>Awaiting invoice</span><strong>${totals.awaiting}</strong></div>
       <div class="invoice-total"><span>Paid</span><strong>${totals.paid}</strong></div>`);
@@ -127,7 +128,7 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
       return `<button class="invoice-chip invoice-age" data-age="${bucket.index}" data-invoice-key="age:${bucket.index}" aria-pressed="${age===bucket.index}"
         aria-label="${E([bucket.label, money, count].filter(Boolean).join(', '))}" title="${E(count)}">
         <span class="age-label">${bucket.label}<b class="age-count">${bucket.count}</b></span>
-        ${money ? `<strong>${E(money)}</strong>` : ''}${money && bucket.unknown ? `<small>${missingAmounts(bucket.unknown)}</small>` : ''}
+        ${money ? `<strong>${E(money)}</strong>${missingNote(bucket.unknown, 'no amount')}` : ''}
         <svg class="age-track" viewBox="0 0 100 3" preserveAspectRatio="none" aria-hidden="true"><rect class="age-base" width="100" height="3"/><rect class="age-fill" width="${bucket.amount / ceiling * 100}" height="3"/></svg>
       </button>`;
     }).join(''));
@@ -307,8 +308,11 @@ export function mountInvoiceTracker({ document, window, client, today=localToday
     renderDetail();
     if(refusalMessage){$('invoicePaymentNotice').hidden=false;$('invoicePaymentNotice').textContent=refusalMessage;}
   });
+  const summary=$('invoiceSummary'), totalsBox=$('invoiceTotals'), agingBox=summary.querySelector('.invoice-aging');
+  const rowWatch=window.ResizeObserver&&new window.ResizeObserver(()=>summary.toggleAttribute('data-wrapped',agingBox.offsetTop>=totalsBox.offsetTop+totalsBox.offsetHeight));
+  rowWatch?.observe(summary);rowWatch?.observe(totalsBox);
   render();const ready=auto.refresh();
-  return {ready,refresh:()=>auto.refresh(),dispose(){disposed=true;auto.dispose();}};
+  return {ready,refresh:()=>auto.refresh(),dispose(){disposed=true;auto.dispose();rowWatch?.disconnect();}};
 }
 if(typeof document!=='undefined'&&document.getElementById('invoiceRows')){
   const boot=resolveDealroomBoot(window.location);
