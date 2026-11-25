@@ -42,10 +42,9 @@ function rowHtml(row, group) {
     : row.meta || [({ clients: "Client", leads: "Lead", vendors: "Vendor", organizations: "Company", people: "Person" })[group.id],
       ...((row.facts || []).map(fact => fact.value))];
   return `<li class="search-row">
-    <div><h3>${row.link ? `<a href="${escapeHtml(row.link)}">${title}</a>` : title}</h3>
-    <p class="work-meta">${meta.filter(Boolean).map(escapeHtml).join(" · ")}</p>
+    <h3>${row.link ? `<a href="${escapeHtml(row.link)}">${title}</a>` : title}</h3>
+    <p class="search-meta">${meta.filter(Boolean).map(escapeHtml).join(" · ")}</p>
     ${row.deals?.length ? `<ul class="search-deal-links">${row.deals.map(deal => `<li><a href="${escapeHtml(deal.link)}">${escapeHtml(dealName(deal.name))}</a></li>`).join("")}</ul>` : ""}
-    </div>
   </li>`;
 }
 
@@ -54,7 +53,7 @@ function renderChips(groups) {
   if (!bar) return;
   const focusKey = bar.contains(document.activeElement) ? document.activeElement.dataset.chip : null;
   const chips = scopeChips(groups, view.kinds);
-  bar.innerHTML = chips.map((chip) => `<button class="chip" type="button" data-chip="${escapeHtml(chip.id)}" aria-pressed="${chip.selected}">${escapeHtml(chip.label)}</button>`).join("");
+  bar.innerHTML = chips.map((chip) => `<button class="chip" type="button" data-chip="${escapeHtml(chip.id)}" data-count="${chip.count}" aria-pressed="${chip.selected}">${escapeHtml(chip.label)}</button>`).join("");
   if (focusKey) [...bar.querySelectorAll("[data-chip]")].find(node => node.dataset.chip === focusKey)?.focus();
 }
 
@@ -88,8 +87,8 @@ function render() {
   if (results) {
     results.setAttribute("aria-busy", String(phase === "loading"));
     results.innerHTML = shown.map((group) => `<section data-group="${escapeHtml(group.id)}" aria-label="${escapeHtml(group.label)}">
-      <h2 class="search-group-title">${escapeHtml(group.label)}</h2>
-      <ul class="work-list">${group.rows.map(row => rowHtml(row, group)).join("")}</ul>
+      <h2 class="search-group-title">${escapeHtml(group.label)} <span>${group.count}</span></h2>
+      <ul>${group.rows.map(row => rowHtml(row, group)).join("")}</ul>
     </section>`).join("");
   }
 

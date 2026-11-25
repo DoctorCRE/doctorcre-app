@@ -39,20 +39,64 @@ a.tab[aria-current="page"] { border-color: var(--hairline-strong); background: v
   main.shell { padding-bottom: 96px; }
 }
 
-.search-results { display: grid; gap: var(--space-4); padding-block: var(--space-4); }
+/* Search: one toolbar row (box, Search, scope, count), then rows that scroll under it, then saved views. */
+.search-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); padding-bottom: var(--space-3); border-bottom: var(--hairline-width) solid var(--hairline); }
+#searchForm { position: relative; display: flex; flex: 1 1 320px; max-width: 520px; gap: var(--space-2); }
+#searchForm::before { content: ""; position: absolute; left: var(--space-3); top: 50%; width: 16px; height: 16px; translate: 0 -50%; background: var(--fg-quiet); pointer-events: none; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M16 10a6 6 0 1 1-12 0 6 6 0 0 1 12 0zm-1.5 4.5L21 21'/%3E%3C/svg%3E") center / contain no-repeat; }
+#searchQuery { flex: 1; min-width: 0; min-height: var(--touch); padding: 0 var(--space-3) 0 calc(var(--space-3) + 16px + var(--space-2)); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); background: var(--surface-1); color: var(--fg); font: var(--font-size-2) var(--font-text); transition: border-color var(--duration-hover) var(--ease-out); }
+#searchQuery::placeholder { color: var(--fg-quiet); }
+#searchQuery:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 1px; }
+#searchChips { flex: 0 1 auto; min-width: 0; flex-wrap: nowrap; gap: var(--space-1); overflow-x: auto; scrollbar-width: none; }
+#searchChips .chip, #savedViewList .chip { min-height: var(--touch); flex: none; min-width: 0; border-color: transparent; background: transparent; color: var(--fg-muted); font-weight: var(--font-weight-regular); text-decoration: none; }
+#savedViewList a.chip { color: var(--fg); }
+#searchChips .chip::after { content: attr(data-count) / ""; color: var(--fg-quiet); font-variant-numeric: tabular-nums; }
+#searchChips .chip[aria-pressed="true"] { background: var(--surface-1); color: var(--fg); }
+#searchChips .chip[aria-pressed="false"] { color: var(--fg-quiet); text-decoration: line-through; }
+@media (hover: hover) { :is(#searchChips, #savedViewList) .chip:hover { background: var(--surface-2); color: var(--fg); } }
+#searchChips .chip:focus, #savedViewList .chip:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 1px; }
+#searchCount { margin-inline-start: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.search-state { padding: var(--space-4) 0; color: var(--fg-muted); }
+.search-state p { margin: 0; }
+.search-results { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: var(--space-4); padding-block: var(--space-3); }
 .search-results:empty { display: none; }
-.search-group-title { font-size: var(--font-size-1); color: var(--fg-muted); margin: 0 0 var(--space-1); }
-.search-row { padding: var(--space-2) 0; border-bottom: 1px solid var(--hairline); overflow-wrap: anywhere; }
-.search-row h3, .search-row p { margin: 0; }
-.search-row h3 a { display: inline-flex; align-items: center; min-height: var(--touch); }
-.search-row .work-meta { color: var(--fg-muted); }
-.search-deal-links { margin-top: var(--space-2); padding-inline-start: var(--space-4); }
-
-#searchChips .chip, #savedViewList .chip, .saved-view .chip { min-height: var(--touch); display: inline-flex; align-items: center; }
-#searchChips .chip[aria-pressed="false"] { color: var(--fg-muted); border-style: dashed; }
-.saved-view { display: inline-flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
-.quiet { color: var(--fg-quiet); }
-#searchForm .row-wrap { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-top: var(--space-3); }
+.search-results ul { margin: 0; padding: 0; list-style: none; }
+.search-group-title { margin: 0 0 var(--space-1); padding-inline: var(--space-2); color: var(--fg-muted); font: var(--font-weight-strong) var(--font-size-1) var(--font-text); }
+.search-group-title span { color: var(--fg-quiet); font-weight: var(--font-weight-regular); font-variant-numeric: tabular-nums; }
+/* A row is one line: the name opens the record from anywhere on the row; linked deals sit on the right. */
+.search-row { position: relative; display: flex; align-items: center; gap: var(--space-3); min-width: 0; padding: var(--space-2); border-radius: var(--radius-2); transition: background-color var(--duration-hover) var(--ease-out); }
+@media (hover: hover) { .search-row:hover { background: var(--surface-2); } }
+.search-row h3 { flex: 0 1 auto; min-width: 0; margin: 0; overflow: hidden; font: var(--font-weight-strong) var(--font-size-2)/1.5 var(--font-text); white-space: nowrap; text-overflow: ellipsis; }
+.search-row h3 a { color: var(--fg); text-decoration: none; }
+.search-row h3 a::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }
+.search-row h3 a:focus-visible { outline: 0; }
+.search-row:has(h3 a:focus-visible) { outline: var(--focus-width) solid var(--focus-ring); outline-offset: -2px; }
+.search-meta { flex: 1 1 auto; min-width: 0; margin: 0; overflow: hidden; color: var(--fg-muted); font-size: var(--font-size-1); white-space: nowrap; text-overflow: ellipsis; }
+.search-deal-links { display: flex; flex: 0 1 auto; gap: var(--space-3); min-width: 0; max-width: 45%; overflow: hidden; }
+.search-deal-links li { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: var(--font-size-1); }
+.search-deal-links a { position: relative; z-index: 1; color: var(--fg-muted); }
+@media (hover: hover) { .search-deal-links a:hover { color: var(--fg); } }
+.search-views { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding-top: var(--space-3); border-top: var(--hairline-width) solid var(--hairline); }
+#savedViewList { gap: var(--space-1); }
+.saved-view { display: inline-flex; align-items: center; }
+.saved-view [data-rename] { color: var(--fg-quiet); }
+#saveViewName { width: 12rem; min-height: var(--touch); padding: 0 var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); background: var(--surface-1); color: var(--fg); font: var(--font-size-1) var(--font-text); }
+#resetViewsButton { margin-inline-start: auto; }
+/* On a computer the page holds still: the toolbar and saved views stay put and the results scroll between them. */
+@media (min-width: 761px) and (not ((hover: none) and (pointer: coarse) and (max-width: 1023px))) {
+  .app-layout-main:has(> .search-page) { display: flex; flex-direction: column; overflow: hidden; }
+  .search-page { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+  .search-page > :not(.search-results) { flex: none; }
+  .search-results { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+}
+@media (max-width: 760px) {
+  #searchForm { flex-basis: 100%; max-width: none; }
+  #searchCount { margin-inline-start: 0; }
+  .search-row { flex-wrap: wrap; gap: 0 var(--space-3); min-height: var(--touch); }
+  .search-row h3 { flex-basis: 100%; }
+  .search-deal-links { flex-basis: 100%; max-width: none; flex-wrap: wrap; }
+  .search-deal-links a { display: inline-flex; align-items: center; min-height: var(--touch); }
+  #saveViewName { flex: 1 1 10rem; }
+}
 
 /* V5-UX-B06 Charts tab: a table first, a bar second.
  *  1. The row is the control: a full-width pick over the touch floor.
@@ -101,8 +145,3 @@ a.tab[aria-current="page"] { border-color: var(--hairline-strong); background: v
   .chart-bar-cell, .chart-bar-head { display: none; }
 }
 
-@media (max-width: 640px) {
-  [data-search="ask"] { padding: var(--space-4); }
-  [data-search="ask"] .field { margin-bottom: var(--space-2); }
-}
-#searchChips .chip:focus { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
