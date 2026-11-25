@@ -25,15 +25,16 @@
 .glass { border: var(--hairline-width) solid var(--hairline); border-radius: var(--radius-3); background: var(--surface-1); }
 
 .leads-workspace { display: flex; flex-direction: column; width: 100%; padding: var(--space-5) var(--space-6) var(--space-7); }
-.page-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-5); }
-.page-heading .freshness { flex-wrap: nowrap; white-space: nowrap; }
-.page-heading h1 span { margin-left: var(--space-2); white-space: nowrap; color: var(--fg-muted); font-size: var(--font-size-1); font-weight: var(--font-weight-regular); font-variant-numeric: tabular-nums; }
-.freshness { display: flex; align-items: center; gap: var(--space-2); color: var(--fg-muted); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; }
+#leadCount { margin-left: var(--space-2); white-space: nowrap; color: var(--fg-muted); font-size: var(--font-size-1); font-weight: var(--font-weight-regular); font-variant-numeric: tabular-nums; }
+/* Below desktop the toolbar's parts stack in the page, freshness first. */
+.leads-toolbar { display: contents; }
+.board-status { order: -1; display: flex; align-items: center; justify-content: flex-end; gap: var(--space-3); margin-bottom: var(--space-3); }
+.freshness { display: flex; align-items: center; gap: var(--space-2); color: var(--fg-muted); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .freshness button { min-width: var(--touch); padding: 0; border-color: var(--hairline); background: transparent; color: var(--fg-muted); font-size: var(--font-size-2); }
 .freshness button:hover { background: var(--surface-2); color: var(--fg); }
 
 /* --- territory ------------------------------------------------------------ */
-.territory-entry { display: inline-flex; align-items: center; gap: var(--space-2); min-height: var(--touch); margin-left: auto; padding: var(--space-2) var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); color: var(--fg); text-decoration: none; }
+.territory-entry { display: inline-flex; align-items: center; gap: var(--space-2); min-height: var(--touch); padding: var(--space-2) var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); color: var(--fg); text-decoration: none; }
 .territory-entry:hover { background: var(--surface-1); }
 .territory-entry:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 2px; }
 .territory { min-width: 0; margin-top: var(--space-5); padding-top: var(--space-4); border-top: var(--hairline-width) solid var(--hairline-strong); scroll-margin-top: calc(var(--touch) + var(--space-5)); }
@@ -43,7 +44,7 @@
 .research-facts p { margin: var(--space-1) 0 0; }
 .research-source, .research-expiry { color: var(--fg-muted); font-size: var(--font-size-1); }
 .leads-workspace:has(#refreshEmptyBoard) :is(.territory, .territory-entry),
-.leads-workspace:has(#leadBoard[data-unavailable]) :is(.controls, .stage-nav, .territory, .territory-entry) { display: none; }
+.leads-workspace:has(#leadBoard[data-unavailable]) :is(.controls, .stage-nav, .reasons-strip, .territory, .territory-entry) { display: none; }
 .section-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2) var(--space-3); margin-bottom: var(--space-3); }
 .section-heading h2 { font-size: var(--font-size-2); }
 .section-heading time { color: var(--fg-muted); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; }
@@ -156,12 +157,62 @@ dialog::backdrop { background: var(--scrim); }
 .maplibregl-ctrl-attrib { display: none; }
 .maplibregl-canvas:focus-visible { outline-offset: -4px; }
 
+/* --- reasons to reach out ------------------------------------------------------- */
+.reasons-strip { margin-top: var(--space-3); border-top: var(--hairline-width) solid var(--hairline-strong); }
+.reasons-strip summary { display: flex; align-items: center; min-height: var(--touch); cursor: pointer; font-weight: var(--font-weight-strong); }
+.reasons-strip summary::before { content: "▸"; margin-right: var(--space-2); color: var(--fg-muted); }
+.reasons-strip[open] summary::before { content: "▾"; }
+.reasons-strip summary:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 2px; }
+/* The summary names the strip, so the panel's own heading would repeat it. */
+.reasons-strip #contactReasons > .section-heading { display: none; }
+
 /* --- responsive ---------------------------------------------------------------- */
 .stages-hidden { display: none; }
+/* Desktop: the board fills the screen below one toolbar row and each stage scrolls inside itself, so the page never scrolls (owner, 2026-11-24). */
 @media (min-width: 1024px) {
-  .leads-body .app-layout-main { padding-block-end: var(--space-7); }
-  #leadBoard .stage-columns { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(min(100%, 280px), 1fr); overflow-x: auto; padding-bottom: var(--space-3); }
+  .leads-body .app-layout-main { display: flex; flex-direction: column; }
+  .leads-workspace { flex: 1; min-height: 0; }
+  .leads-workspace > * { flex: none; }
+  .leads-toolbar { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3); }
+  .controls { display: flex; flex: 1; align-items: center; gap: var(--space-2); min-width: 0; margin: 0; padding: 0; border: 0; background: none; }
+  .controls > label { flex: 1 1 7rem; min-width: 0; }
+  .controls > .search { flex: 1 1 8rem; }
+  .leads-toolbar :is(input, select) { padding-inline: var(--space-2); }
+  .controls > button { flex: none; }
+  #quietStatus { flex: none; white-space: nowrap; }
+  :is(.controls > label, .stage-nav) > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .stage-nav { flex: 0 1 8.5rem; width: auto; margin: 0; }
+  .board-status { order: 0; flex: none; margin: 0; }
+  .territory-entry { display: none; }
+  #leadBoardError { height: 32px; margin-bottom: var(--space-2); padding: 0 var(--space-3); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: var(--font-size-1); line-height: 30px; }
+  #leadBoardError button { min-height: 24px; padding: 0 var(--space-2); line-height: 1; }
+  #leadBoard { display: flex; flex: 1; flex-direction: column; min-height: 12rem; container-type: inline-size; }
+  /* As many whole lanes of at least 280px as fit share the width; more lanes scroll sideways and snap to a lane edge, so none is cut off. */
+  #leadBoard .stage-columns { --lanes: 2; flex: 1; min-height: 0; grid-template-columns: none; grid-template-rows: minmax(0, 1fr); grid-auto-flow: column; grid-auto-columns: minmax(calc((100% - (var(--lanes) - 1) * var(--space-3)) / var(--lanes)), 1fr); gap: var(--space-3); align-items: stretch; overflow-x: auto; scroll-snap-type: x mandatory; }
+  @container (min-width: 864px) { #leadBoard .stage-columns { --lanes: 3; } }
+  @container (min-width: 1156px) { #leadBoard .stage-columns { --lanes: 4; } }
+  @container (min-width: 1448px) { #leadBoard .stage-columns { --lanes: 5; } }
+  @container (min-width: 1740px) { #leadBoard .stage-columns { --lanes: 6; } }
   #leadBoard:not(:has(.dragging)) .stage-columns:has(.lead-card) > .stage-column:not(:has(.lead-card)) { display: none; }
+  .stage-column { display: flex; flex-direction: column; min-height: 0; scroll-snap-align: start; }
+  .lead-stack { flex: 1; min-height: 0; align-content: start; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+  .stage-column[data-expanded="true"] .lead-stack { max-height: none; }
+  .stage-column[data-expanded="true"] .stage-head { position: static; }
+  #leadBoard :is(.filtered-list, .filtered-empty) { min-height: 0; overflow-y: auto; }
+  .reasons-strip[open] #contactReasons { max-height: 40dvh; overflow-y: auto; }
+  .territory { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--space-3); margin-top: 0; padding-top: var(--space-2); }
+  .territory .section-heading { flex-wrap: nowrap; margin: 0; }
+  #marketCounts { order: 1; flex: 1; flex-wrap: nowrap; min-width: 0; margin: 0; overflow-x: auto; scrollbar-width: thin; }
+  #marketCounts button { flex: none; }
+  #showTerritory { order: 2; flex: none; }
+  #territoryMapFrame { order: 3; flex-basis: 100%; }
+  #territoryMap:not([hidden]) { margin-top: var(--space-2); }
+  .map-credit { order: 4; flex-basis: 100%; }
+  .territory:has(#territoryMap[hidden]) .map-credit { display: none; }
+}
+/* Below 1440px the filters need the room; the time stays in the refresh button's tooltip and for screen readers. */
+@media (min-width: 1024px) and (max-width: 1439px) {
+  .board-status time { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
 @media (max-width: 1100px) {
   .leads-workspace { padding: var(--space-4); }
@@ -177,7 +228,6 @@ dialog::backdrop { background: var(--scrim); }
   #leadBoard:not([data-touch-dragging]):not(:has(.dragging)) .stage-column[data-hide-empty="true"] { display: none; }
   .stages-hidden { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin: var(--space-3) 0 0; color: var(--fg-muted); font-size: var(--font-size-1); }
   .stages-hidden button { min-height: var(--touch); padding: 0 var(--space-3); border: 0; background: transparent; color: var(--fg); font: inherit; text-decoration: underline; text-underline-offset: 4px; cursor: pointer; }
-  .page-heading { margin-bottom: var(--space-3); }
   #territoryMap { height: 180px; }
   .map-place-members { position: static; width: auto; height: 280px; margin-top: var(--space-2); }
   .controls { grid-template-columns: 1fr 1fr; gap: var(--space-2); padding: var(--space-3); }

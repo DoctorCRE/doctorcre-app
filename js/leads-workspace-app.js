@@ -49,6 +49,8 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
   const quietFilter = $("quietFilter");
   quietFilter.hidden = typeof client.getQuietFollowUps !== "function";
   const reasons = $("contactReasons") && client.listPracticeOrigination ? mountContactReasons({host:$("contactReasons"),window:win,client}) : null;
+  // Home's "All reasons" link lands here, so it opens the strip it points into.
+  if (win.location.hash === "#contactReasons" && $("reasonsStrip")) $("reasonsStrip").open = true;
   const engagement = engagementWriterFor(client, engagementStorage(win));
   let researchView = null, researchSubject = null, researchKind = '', researchAttention = '';
   function clearResearch() { researchView?.dispose(); researchView = null; researchSubject = null; researchKind = ''; researchAttention = ''; }
@@ -195,6 +197,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     // only a failed read with nothing to show is "Unavailable".
     $("boardUpdated").textContent = state.board ? updatedLabel(state.board.generated_at, BUSINESS_TIME_ZONE) : state.readFailed ? "Unavailable" : "Updating…";
     $("boardUpdated").dateTime = state.board?.generated_at || "";
+    $("refreshBoard").title = `Refresh leads · ${$("boardUpdated").textContent}`;
     $("searchUpdated").textContent = state.board?.last_search_at ? `New-lead search ${stamp(state.board.last_search_at)}` : "";
     paintWriteControls();
     const columns = $("leadBoard").querySelector(".stage-columns");
@@ -327,6 +330,9 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     state.identityReady = false;
     paintWriteControls();
     $("leadBoard").setAttribute("aria-busy", "true");
+    // The board read rides the same session cookie, so it starts beside the identity check; nothing renders until both agree.
+    const workspace = client.getWorkspace();
+    workspace.catch(() => {});
     try {
       const actor = await client.getActor();
       if (epoch !== state.epoch) return;
@@ -334,7 +340,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
       if (state.actor && actor !== state.actor) { clearPrivateView(); startQuietRead(epoch); }
       state.actor = actor;
       state.identityReady = true;
-      const response = await client.getWorkspace();
+      const response = await workspace;
       if (epoch !== state.epoch) return;
       const next = validateLeadWorkspace(response);
       const leads = next.leads.map(lead => {

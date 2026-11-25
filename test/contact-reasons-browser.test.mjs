@@ -14,6 +14,7 @@ for (const width of [1280,390]) for (const theme of ['light','dark']) test(`cont
   page.on('pageerror',error=>errors.push(error.message));
   await routeLeads(page,{getReasons:args=>{ reads.push(args); return practiceOriginationFixture(); },onWrite:p=>writes.push(p)});
   await page.goto('http://localhost/leads');
+  await page.locator('#reasonsStrip summary').click();
   const reasons = page.locator('#contactReasons');
   await reasons.locator('.work-card').first().waitFor();
   assert.equal(await reasons.locator('.work-card').count(),width === 390 ? 1 : 2);
