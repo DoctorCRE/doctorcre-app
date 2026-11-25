@@ -1175,7 +1175,7 @@ function wireControls() {
   dom.panelClose?.addEventListener("click", () => closeRecord());
   dom.panel?.addEventListener("click", (event) => {
     // A long name is cut to one line; a tap shows all of it.
-    if (event.target === dom.panelTitle) dom.panelTitle.classList.toggle("full");
+    if (event.target.closest("#recordTitle")) dom.panelTitle.classList.toggle("full");
     if (event.target.closest("#recordActions button")) closePanelMenu();
     const edit = event.target.closest("[data-party-edit]");
     if (edit) return partyEditor?.edit();

@@ -311,6 +311,8 @@ test("Edit on a client opened by its old id edits the party the record names", a
     record: { party_id: party },
     width: 390,
   });
+  // On a phone the record actions sit in the header's menu.
+  await page.locator("#recordPanel").getByRole("button", { name: "Record actions" }).click();
   await page.locator("#recordPanel").getByRole("button", { name: "Edit" }).click();
   const dialog = page.getByRole("dialog", { name: "Edit Demo Practice 01" });
   assert.equal(await dialog.getByLabel("Client type").inputValue(), "group_practice");

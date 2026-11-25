@@ -8,11 +8,15 @@ import { directoryFixture } from "./fixtures/vendor-directory.synthetic.mjs";
 const shots = "out/test-artifacts/record-drawer";
 await mkdir(shots, { recursive: true });
 const recordId = "00000000-0000-4000-8000-000000000001";
-const longName = "Demo Partner With A Very Long Practice Name That Runs Well Past The Edge Of The Header On Every Screen Size";
+const longName =
+  "Demo Partner With A Very Long Practice Name That Runs Well Past The Edge Of The Header On Every Screen Size";
+
+type Fixture = { record?: { name: string; people?: { contact: object }[] } };
 
 /** A full record: a long name and every contact reachable, the way a busy record reads. */
 function heavy(url: string) {
-  const body = directoryFixture(url);
+  // The fixture is untyped JavaScript; this names the fields the test fills in.
+  const body = directoryFixture(url) as Fixture;
   if (!body.record) return body;
   body.record.name = longName;
   for (const person of body.record.people ?? [])
@@ -57,9 +61,9 @@ for (const dataset of ["clients", "vendors"] as const)
         const box = (el: Element | null) => el?.getBoundingClientRect() ?? new DOMRect();
         const head = node.querySelector(".record-panel-head");
         const title = node.querySelector<HTMLElement>("#recordTitle");
-        const shown = [...node.querySelectorAll(".record-panel-head button, #recordBody button, #recordBody summary")].filter(
-          (el) => el.getClientRects().length > 0,
-        );
+        const shown = [
+          ...node.querySelectorAll(".record-panel-head button, #recordBody button, #recordBody summary"),
+        ].filter((el) => el.getClientRects().length > 0);
         const style = (selector: string) => {
           const el = node.querySelector(selector);
           return el ? getComputedStyle(el) : null;
@@ -75,7 +79,10 @@ for (const dataset of ["clients", "vendors"] as const)
             .map((el) => el.textContent),
           titleCut: (title?.scrollWidth ?? 0) > (title?.clientWidth ?? 0),
           titleTip: title?.title,
-          controls: shown.map((el) => ({ name: el.getAttribute("aria-label") ?? el.textContent?.trim(), height: box(el).height })),
+          controls: shown.map((el) => ({
+            name: el.getAttribute("aria-label") ?? el.textContent?.trim(),
+            height: box(el).height,
+          })),
           valueSize: style(".record-field dd")?.fontSize,
           figureSize: style(".relationship-metric strong")?.fontSize ?? null,
           tinted: [".vendor-contacts > li", ".relationship-metrics", ".relationship-metric + .relationship-metric"]
