@@ -152,11 +152,13 @@ test("every left-menu label fits inside its item", async (t) => {
       await page.route("https://**", (route) => route.abort());
       await page.goto(`${server.origin}/?mode=fixture`);
       await page.waitForLoadState("networkidle");
-      const items = await page
-        .locator(".app-shell-navigation > a, .app-shell-more-toggle")
-        .evaluateAll((nodes) =>
-          nodes.map((node) => ({ label: node.textContent?.trim(), scroll: node.scrollWidth, client: node.clientWidth })),
-        );
+      const items = await page.locator(".app-shell-navigation > a, .app-shell-more-toggle").evaluateAll((nodes) =>
+        nodes.map((node) => ({
+          label: node.textContent?.trim(),
+          scroll: node.scrollWidth,
+          client: node.clientWidth,
+        })),
+      );
       assert.ok(items.length >= 5, "the menu shows its items");
       assert.deepEqual(
         items.filter((item) => item.scroll > item.client),
