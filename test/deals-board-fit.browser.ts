@@ -303,6 +303,64 @@ test("the board scrolls with no visible bar and a faint thumb shows only while a
   await thumb.waitFor({ state: "detached" });
 });
 
+test("a sideways board scroll shows no thumb", async (t) => {
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1000, height: 800 } });
+  const server = await openBoard(page);
+  t.after(() => server.close());
+  const board = page.locator("#kanban");
+  // A short window leaves the board itself scrolling both ways; a fixed height stands in for it.
+  await board.evaluate((k) => {
+    k.style.flex = "none";
+    k.style.height = "240px";
+  });
+  const scroll = (axis: "scrollLeft" | "scrollTop") =>
+    board.evaluate(
+      (k, axis) =>
+        new Promise<number>((resolve) => {
+          k.addEventListener("scroll", () => resolve(k[axis]), { once: true });
+          k[axis] = 60;
+        }),
+      axis,
+    );
+  assert.ok((await scroll("scrollLeft")) > 0, "the board moved sideways");
+  assert.equal(await page.locator(".scroll-thumb").count(), 0, "no up-and-down thumb for a sideways scroll");
+  assert.ok((await scroll("scrollTop")) > 0, "the board moved down");
+  assert.equal(await page.locator(".scroll-thumb").count(), 1, "moving down still shows the thumb");
+});
+
+test("with reduced motion the thumb holds, then leaves without fading", async (t) => {
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
+  t.after(() => context.close());
+  await context.addInitScript(() =>
+    localStorage.setItem("doctorcre.visual-preferences", JSON.stringify({ theme: "light" })),
+  );
+  const page = await context.newPage();
+  const server = await openBoard(page);
+  t.after(() => server.close());
+  assert.equal(await page.locator("html").getAttribute("data-theme"), "light");
+  const box = await page.locator('.kanban-column[data-column="pending"]').boundingBox();
+  assert.ok(box);
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.wheel(0, 400);
+  const thumb = page.locator(".scroll-thumb");
+  await thumb.waitFor();
+  await mkdir("out/test-artifacts/deals-board-fit", { recursive: true });
+  await page.screenshot({ path: "out/test-artifacts/deals-board-fit/thumb-light-reduced.png" });
+  const opacities = await thumb.evaluate((t) =>
+    t
+      .getAnimations()
+      .flatMap(({ effect }) =>
+        effect instanceof KeyframeEffect ? effect.getKeyframes().map((k) => Number(k.opacity ?? 1)) : [],
+      ),
+  );
+  assert.ok(opacities.length > 0 && opacities.every((o) => o === 1), `the thumb never fades (${opacities})`);
+  await thumb.waitFor({ state: "detached" });
+});
+
 test("the Deals list and the Prospects lane never cover each other", async (t) => {
   const browser = await chromium.launch();
   t.after(() => browser.close());
