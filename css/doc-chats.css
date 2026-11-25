@@ -29,7 +29,7 @@
 .doc-chat__icon:hover { color: var(--fg); background: var(--surface-2); }
 .doc-chat__chats-toggle, .doc-chat__topbar-new { display: none; }
 #docTopbarStart { display: contents; }
-.doc-chat__chats-head { display: flex; align-items: center; justify-content: space-between; padding-inline: var(--space-2); color: var(--fg-quiet); font-size: var(--font-size-1); }
+.doc-chat__list-new { display: grid; margin-inline-start: auto; }
 .doc-chat__chats ul { list-style: none; margin: var(--space-1) 0; padding: 0; }
 .doc-chat__chats a:not(.doc-chat__icon), .doc-chat__older {
   display: flex;
@@ -89,6 +89,10 @@
   .doc-chat__composer { grid-row: 2; }
   .doc-chat__icon { inline-size: var(--touch); block-size: var(--touch); }
   .doc-chat__chats-toggle, .doc-chat__topbar-new { display: inline-grid; }
+  /* The phone top bar is only the list icon, the chat's title and the New chat pencil at the right edge. */
+  .app-layout-topbar:has(#docTopbar) > :not(#docTopbar) { display: none; }
+  .app-layout-topbar #docTopbar { flex: 1 1 auto; margin: 0; }
+  .doc-chat__topbar-new { margin-inline-start: auto; }
   .doc-chat-topbar h1:has(.doc-chat__title) :is(.doc-chat__page, .doc-chat__separator) { display: none; }
   .doc-chat__title { color: var(--fg); font-weight: var(--font-weight-strong); }
   .doc-chat__chats {

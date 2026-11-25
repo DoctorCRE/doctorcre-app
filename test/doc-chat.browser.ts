@@ -1102,6 +1102,7 @@ test("Ask Doc opens inside the app shell with full-size targets on a phone", asy
           turns: [{ ...answeredTurn, idempotency_key: id, answer: { ...answeredTurn.answer, sources: [deal] } }],
         }),
   );
+  await page.setViewportSize({ width: 1440, height: 844 });
   await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
   await expect(page.getByRole("navigation", { name: "Primary navigation" })).toBeVisible();
   const askDoc = page.getByRole("link", { name: "Ask Doc", exact: true });
@@ -1111,14 +1112,12 @@ test("Ask Doc opens inside the app shell with full-size targets on a phone", asy
       const { color, backgroundColor } = getComputedStyle(element);
       return { color, backgroundColor };
     });
-  for (const width of [1440, 390]) {
-    await page.setViewportSize({ width, height: 844 });
-    assert.notDeepEqual(
-      await look(askDoc),
-      await look(page.getByRole("button", { name: "Search and quick switcher" })),
-      `Ask Doc looks current at ${width}px`,
-    );
-  }
+  assert.notDeepEqual(
+    await look(askDoc),
+    await look(page.getByRole("button", { name: "Search and quick switcher" })),
+    "Ask Doc looks current",
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByRole("link", { name: deal.label })).toBeVisible();
   const toolbar = page.getByRole("region", { name: "App controls" });
   const title = toolbar.getByRole("heading", { level: 1 });
@@ -1131,6 +1130,16 @@ test("Ask Doc opens inside the app shell with full-size targets on a phone", asy
   assert.ok(
     recentChats && heading && newChat && recentChats.x < heading.x && heading.x < newChat.x,
     "the top bar reads Recent chats, the chat's title, then New chat, matching Tab order",
+  );
+  assert.ok(
+    newChat && newChat.x + newChat.width >= 390 - 12,
+    `New chat sits at the right edge, ending at ${newChat?.x}`,
+  );
+  await expect(toolbar.locator("a:visible, button:visible")).toHaveCount(2);
+  assert.equal(
+    await title.evaluate((element) => element.scrollWidth <= element.clientWidth),
+    true,
+    "a title that fits is not cut short",
   );
   await page.getByRole("button", { name: "Recent chats", exact: true }).click();
   const targets = page.locator("#main").locator("a:visible, button:visible");
@@ -1242,6 +1251,7 @@ test("On a computer the chats list stays open, newest first, with each chat's Ce
   await expect(list.getByRole("link", { name: /^This morning's question/ })).toBeVisible();
   await expect(page.getByRole("button", { name: "Recent chats", exact: true })).toBeHidden();
   await expect(list.locator("li")).toHaveText(chats.map(({ chat, shown }) => `${chat.title}${shown}`));
+  await expect(list.getByText("Chats", { exact: true })).toHaveCount(0);
   for (const row of await list.getByRole("link").all()) {
     const box = await row.boundingBox();
     assert.ok(box && box.height <= 40, `${await row.textContent()} is one ${box?.height}px row`);
@@ -1274,6 +1284,33 @@ test("On a phone the chats slide in over the conversation and close from the dim
   );
   assert.deepEqual(await answer.boundingBox(), before, "the conversation stays where it was under the chats");
   await page.mouse.click(385, 400);
+  await expect(chat).toBeHidden();
+  await expect(toggle).toBeFocused();
+});
+
+test("On a phone the open chats keep Tab inside them and close on Escape wherever focus is", async (t) => {
+  const { page, origin } = await docChatFixture(t, (request) =>
+    new URL(request.url).pathname === "/api/engine/doc/conversations"
+      ? Response.json({ conversations: [conversation], next_before: id })
+      : Response.json({ conversation, turns: [{ ...answeredTurn, idempotency_key: id }] }),
+  );
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
+  const toggle = page.getByRole("button", { name: "Recent chats", exact: true });
+  await toggle.click();
+  const list = page.getByRole("complementary", { name: "Chats" });
+  const chat = list.getByRole("link", { name: new RegExp(`^${question}`) });
+  const older = list.getByRole("button", { name: "Older chats" });
+  const pencil = list.getByRole("link", { name: "New chat" });
+  await expect(chat).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(older).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(pencil).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(older).toBeFocused();
+  await older.evaluate((element) => element.blur());
+  await page.keyboard.press("Escape");
   await expect(chat).toBeHidden();
   await expect(toggle).toBeFocused();
 });

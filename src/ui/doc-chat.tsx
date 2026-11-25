@@ -713,9 +713,24 @@ function DocChat() {
     };
   }, [id, waitingTurnId, showUnavailable]);
 
-  useEffect(() => {
+  // While the phone drawer is open, keys anywhere act on it: Escape closes it and Tab stays inside it.
+  const onDrawerKey = useEffectEvent((event: KeyboardEvent) => {
     const panel = chatsPanel.current;
-    if (chatsOpen) (panel?.querySelector<HTMLElement>("[aria-current]") ?? panel?.querySelector("a"))?.focus();
+    if (event.key === "Escape") return closeChats();
+    if (event.key !== "Tab" || !panel) return;
+    const targets = [...panel.querySelectorAll<HTMLElement>("a[href], button:not(:disabled)")];
+    const [first, last] = event.shiftKey ? [targets.at(-1), targets[0]] : [targets[0], targets.at(-1)];
+    if (panel.contains(document.activeElement) && document.activeElement !== last) return;
+    event.preventDefault();
+    first?.focus();
+  });
+
+  useEffect(() => {
+    if (!chatsOpen) return;
+    const panel = chatsPanel.current;
+    (panel?.querySelector<HTMLElement>("[aria-current]") ?? panel?.querySelector("a"))?.focus();
+    document.addEventListener("keydown", onDrawerKey);
+    return () => document.removeEventListener("keydown", onDrawerKey);
   }, [chatsOpen]);
 
   function closeChats() {
@@ -831,13 +846,9 @@ function DocChat() {
           ref={chatsPanel}
           className="doc-chat__chats"
           data-open={chatsOpen || undefined}
-          aria-labelledby="docChatsLabel"
-          onKeyDown={(event) => chatsOpen && event.key === "Escape" && closeChats()}
+          aria-label="Chats"
         >
-          <div className="doc-chat__chats-head">
-            <span id="docChatsLabel">Chats</span>
-            {newChat("doc-chat__list-new")}
-          </div>
+          {newChat("doc-chat__list-new")}
           <ul>
             {recent.map((chat) => (
               <li key={chat.id}>
