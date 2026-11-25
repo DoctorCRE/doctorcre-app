@@ -91,11 +91,9 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 #appToolsSlot .deal-filter-field label { position: static; width: auto; height: auto; overflow: visible; clip-path: none; color: var(--fg-muted); font-size: var(--font-size-1); }
 /* Any choice but Active narrows the list, so it must not look like the default. */
 .deal-filter:has(option:checked:not([value="active"])) { border-color: var(--accent); background: var(--surface-3); font-weight: var(--font-weight-strong); }
-/* The environment and update time sit in the top bar. An open Today already says when it updated, and the
-   phone's tab row has no room, so there only a connection problem shows. */
-.deal-status { color: var(--fg-muted); font-size: var(--font-size-1); white-space: nowrap; }
-:is(.app-layout[data-today="open"], .app-layout-tabbar) .deal-status .sync:not(.offline),
-.app-layout-tabbar .deal-status .deployment-badge { display: none; }
+.deal-status { display: flex; align-items: center; gap: var(--space-2); color: var(--fg-muted); font-size: var(--font-size-1); white-space: nowrap; }
+/* An open Today already says when it updated, so the top bar keeps only a connection problem. */
+.app-layout[data-today="open"] #appTopbar .deal-status .sync:not(.offline) { display: none; }
 #appToolsSlot #openDealToolbar .search-wrap input { width: 100%; max-width: none; }
 .search-wrap { position: relative; flex: 1 1 8rem; min-width: 8rem; max-width: 16rem; }
 .search-wrap input { width: 100%; min-height: var(--touch); padding: var(--space-2) var(--space-7) var(--space-2) var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); background: var(--surface-1); color: var(--fg); }

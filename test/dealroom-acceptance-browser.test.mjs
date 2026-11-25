@@ -1775,7 +1775,7 @@ for (const width of [1440, 390]) test(`National account rows open the deal befor
 for (const [width, height, today] of [[1280, 800, 'closed'], [1280, 800, 'open'], [1440, 900, 'closed'], [1440, 900, 'open'], [390, 844, 'closed']]) {
   test(`a national account on the engine fits one screen at ${width}px with Today ${today}`, async t => {
     const phone = width < 600;
-    const page = await browser.newPage({ viewport: { width, height }, reducedMotion: 'reduce', ...(phone ? { isMobile: true, hasTouch: true } : {}) });
+    const page = await browser.newPage({ viewport: { width, height }, timezoneId: 'America/Chicago', reducedMotion: 'reduce', ...(phone ? { isMobile: true, hasTouch: true } : {}) });
     t.after(() => page.close());
     await page.addInitScript(today => localStorage.setItem('doctorcre:today:/deals', today), today);
     await page.clock.setFixedTime(new Date('2026-11-19T18:00:00Z'));
@@ -1817,6 +1817,7 @@ for (const [width, height, today] of [[1280, 800, 'closed'], [1280, 800, 'open']
         topBarClipped: [...document.querySelectorAll('#appTabsSlot, #appTopbar .app-layout-title')].some(node => node.scrollWidth > node.clientWidth),
         todayStamp: visible('#appSyncTime'),
         toolbar: visible('#appToolsSlot :is(#mondayReviewLink, #ownerButton, #dealFilter)').length,
+        toolbarStamp: visible('#appToolsSlot #syncStatus'),
         actions: (style => `${style.display} ${style.columnGap} ${style.rowGap}`)(getComputedStyle(document.querySelector('#rows tr:first-child .row-actions'))),
       };
     });
@@ -1824,6 +1825,7 @@ for (const [width, height, today] of [[1280, 800, 'closed'], [1280, 800, 'open']
     assert.equal(fit.toolbar, 3, 'Monday review, the owner and Show sit in the toolbar');
     if (phone) {
       assert.deepEqual(fit.tabs, ['Local Deals', 'National Accounts', 'Open deals', 'Closed deals'], 'the phone tab bar holds the four views');
+      assert.deepEqual(fit.toolbarStamp, ['Updated 12:00 PM'], 'the phone toolbar ends with the update time');
       const closedTab = page.locator('#appTabsSlot').getByRole('button', { name: 'Closed deals', exact: true });
       await closedTab.scrollIntoViewIfNeeded();
       const closedBox = await closedTab.boundingBox();

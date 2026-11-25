@@ -16,6 +16,7 @@ import { selectDocRecord, setDocFilters, publishDocRead } from './doc-context.js
 import { createClient, PHASES, PHICON, ACTOR_LABEL, phaseLabel } from './client.js';
 import { dealsSaveToEngine, deploymentIdentity, resolveDealroomBoot } from './boot-mode.js';
 import { uuidv4 } from './uuid.js';
+import { TOUCH_LAYOUT } from './touch-layout.js';
 import { createPostCallClient } from './post-call-review-client.js';
 import { createCallMode, CALL_MODE_URL, CALL_MODE_HEADER } from './call-mode.js';
 import {
@@ -1863,6 +1864,11 @@ async function boot() {
   });
   installCallMode();
   wireEvents();
+  // The update time sits in the top bar; the phone's tab row has no room, so there it ends the toolbar.
+  const touch = matchMedia(TOUCH_LAYOUT);
+  const placeStatus = () => (touch.matches ? $('#openDealToolbar') : $('#appTabsSlot')).append($('.deal-status'));
+  placeStatus();
+  touch.addEventListener('change', placeStatus);
   await loadHome();
   const linkedAccount = linkedNationalAccount(params);
   if (linkedAccount) openNationalAccount(linkedAccount, params.get('account_view') === 'closed' ? 'closed' : 'open');

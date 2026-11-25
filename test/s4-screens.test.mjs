@@ -50,7 +50,7 @@ async function national(t){
   await page.route('**/api/**',route=>route.fulfill({json:{}}));
   await page.goto(`${server.origin}/deals?view=national&mode=fixture`);
   await page.waitForFunction(()=>window.s4App?.state.deals.size>0);
-  await page.evaluate(()=>{const a=window.s4App;a.state.workspace='team';a.state.accountId=null;a.state.deals=new Map([['demo-deal',{id:'demo-deal',name:'Synthetic agenda deal',workspace_kind:'team',phase:'active'}]]);});
+  await page.evaluate(()=>{const a=window.s4App;a.state.accountId='demo-account';a.state.deals=new Map([['demo-deal',{id:'demo-deal',name:'Synthetic agenda deal',account_client_id:'demo-account',workspace_kind:'national_account',phase:'active'}]]);});
   return page;
 }
 for(const operation of ['startReview','reviewDeal','endReview','resolveConfirm']) test(`F04 ${operation} rejection is visible and outcome check reuses the request`,async t=>{
