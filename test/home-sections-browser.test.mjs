@@ -1785,20 +1785,27 @@ test('Home pauses its minute refresh exactly while a review save runs', async t 
   await retry.waitFor();
 
   const reads = state.dashboardReads;
-  const read = page.waitForRequest('**/api/engine/home/inbox?view=dashboard');
+  // The counting route runs after the request event, so wait for the answer.
+  const dashboardRead = () => page.waitForResponse('**/api/engine/home/inbox?view=dashboard');
+  const read = dashboardRead();
   await page.clock.fastForward(60_000);
   await read;
   assert.equal(state.dashboardReads, reads + 1, 'an uncertain review keeps the minute refresh');
 
+  // The save gives up after 10 seconds on this clock, so the minute mark is crossed inside that window.
+  await page.clock.fastForward(55_000);
   await retry.click();
   await review.getByText('Waiting for server confirmation…', { exact: true }).waitFor();
-  await page.clock.fastForward(60_000);
-  await page.clock.fastForward(60_000);
+  await page.clock.fastForward(9_000);
+  assert.equal(state.dashboardReads, reads + 1, 'no minute refresh while the review saves');
+  const ownRead = dashboardRead();
   decide();
+  await ownRead;
   await review.getByText('Waiting for server confirmation…', { exact: true }).waitFor({ state: 'detached' });
+  assert.equal(await retry.count(), 0, 'the retry confirmed');
   assert.deepEqual(state.filingWrites.map(({ decision }) => decision), ['accept'], 'the retry saved');
   assert.equal(state.dashboardReads, reads + 2, 'only the save\'s own read lands while the review saves');
-  const resumed = page.waitForRequest('**/api/engine/home/inbox?view=dashboard');
+  const resumed = dashboardRead();
   await page.clock.fastForward(60_000);
   await resumed;
   assert.equal(state.dashboardReads, reads + 3, 'the minute refresh resumes once after the save');

@@ -40,11 +40,24 @@ test("a deal page header is compact and every tab fits on laptops", async (t) =>
         await page.screenshot({ path: `${shots}/deal-client-view-${width}-${theme}.png` });
 
         const strip = page.locator("#workspaceTabs");
-        assert.equal(
-          await strip.evaluate((strip) => strip.scrollWidth <= strip.clientWidth),
-          true,
-          "the tab row has no scroll bar",
-        );
+        const phone = width < 651;
+        if (phone) {
+          const boxes = await strip
+            .locator('[role="tab"]')
+            .evaluateAll((tabs) =>
+              tabs.map((tab) => tab.getBoundingClientRect()).map(({ top, height }) => [Math.round(top), height]),
+            );
+          assert.equal(new Set(boxes.map(([top]) => top)).size, 1, "the tabs are one row");
+          assert.equal(new Set(boxes.map(([, height]) => height)).size, 1, "every tab name reads on one line");
+          assert.equal(await strip.evaluate((strip) => strip.scrollWidth > strip.clientWidth), true, "the row scrolls");
+          await strip.evaluate((strip) => strip.scrollTo({ left: 0 }));
+          await page.getByRole("tab", { name: "Documents" }).dispatchEvent("click");
+        } else
+          assert.equal(
+            await strip.evaluate((strip) => strip.scrollWidth <= strip.clientWidth),
+            true,
+            "the tab row has no scroll bar",
+          );
         const outside = await strip.evaluate((strip) => {
           const bounds = strip.getBoundingClientRect();
           return [...strip.querySelectorAll('[role="tab"]')]
@@ -54,7 +67,9 @@ test("a deal page header is compact and every tab fits on laptops", async (t) =>
             })
             .map((tab) => tab.textContent);
         });
-        assert.deepEqual(outside, [], "every tab shows whole");
+        if (phone) {
+          assert.equal(outside.includes("Documents"), false, "the chosen tab scrolls whole into view");
+        } else assert.deepEqual(outside, [], "every tab shows whole");
         const [title, header] = await Promise.all([
           page.locator("#panelTitle").boundingBox(),
           page.locator(".workspace-header").boundingBox(),
