@@ -786,6 +786,15 @@ function activityHtml(recordId) {
   return `<section class="record-section" id="recordActivity" tabindex="-1" aria-labelledby="recordActivityTitle" aria-live="polite"><h3 id="recordActivityTitle">Recent activity</h3>${body}</section>`;
 }
 
+/** Arriving activity replaces only its own section, so the note a partner is reading or clicking stays put. */
+function paintActivity(id) {
+  const section = dom.panelBody?.querySelector("#recordActivity");
+  if (!section) return;
+  capturePanelState();
+  section.outerHTML = activityHtml(id);
+  restorePanelState();
+}
+
 /**
  * One activity read per opened record. The answer paints only while the same
  * record is still open and no newer read has started.
@@ -803,7 +812,7 @@ async function loadActivity(id, record) {
     view.activity.result = result;
     if(['ready','empty'].includes(result.state))pageDocContext?.finish(docTicket,{record,activities:result.rows.map(({what, when}) => ({what, when}))});
     else if (docTicket)pageDocContext?.fail(docTicket);
-    renderRecordPanel();
+    paintActivity(id);
     if (activityHadFocus) focusWithoutScrolling(dom.panelBody?.querySelector("[data-retry='activity']") || dom.panelBody?.querySelector("#recordActivity"));
   };
   if (!request) return settle({ state: "no_ref" });
