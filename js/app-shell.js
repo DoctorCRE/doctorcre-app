@@ -287,7 +287,8 @@ function mountAccount(root, host, pathname, reactWorkspaceRequested, ready) {
   };
   if (pathname === "/calls") root.querySelector(".app-shell-call-availability").hidden = true;
   if (pathname !== "/calls" && !root.getElementById("callModeDialog")) {
-    import("./global-call-mode.js").then(async ({ mountGlobalCallMode }) => {
+    // Home's inbox shares the phone's bandwidth with this download, so it waits for the inbox.
+    ready.then(() => import("./global-call-mode.js")).then(async ({ mountGlobalCallMode }) => {
       if (boundary?.revoked) return;
       const call = await mountGlobalCallMode(root);
       if (boundary?.revoked) { call.dispose(); return; }

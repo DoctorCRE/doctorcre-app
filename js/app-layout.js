@@ -1,24 +1,23 @@
 import { TOUCH_LAYOUT } from './touch-layout.js';
-import { scopedDeals } from './deal-review-model.js';
-import { createClient } from './client.js';
 import { resolveDealroomBoot } from './boot-mode.js';
-
 import { mountAutoRefresh } from './auto-refresh.mjs';
-import { escapeText as escape } from './change-receipts.mjs';
 
 const time = value => { const date = new Date(value || ''); return Number.isFinite(date.valueOf()) ? date.toLocaleTimeString([], { hour:'numeric', minute:'2-digit', hour12:true }) : '—'; };
 
-function createAppLayout(root, title) {
+function createAppLayout(root, title = '') {
   const todayContent = `<section class="calendar-panel" aria-label="Meetings"><h3>Meetings</h3><div id="appScheduleSlot" role="status">Loading meetings…</div><div id="appMeetingReviews" hidden></div></section>
       <section aria-labelledby="appRemindersTitle"><h3 id="appRemindersTitle">Dated reminders</h3><div id="appTodayOwners" hidden></div><div id="appTodayLate" hidden><h4>Late</h4><div id="appTodayNeeds"></div></div><div id="appTodayNext" role="status">Loading dated reminders…</div></section>
       <button type="button" id="appTodayRetry" class="app-layout-item" hidden>Retry Today</button>`;
   const layout = root.createElement('div');
   layout.id = 'appLayout';
   layout.className = 'app-layout';
-  layout.innerHTML = `<aside id="appSidebar" class="app-layout-sidebar" aria-label="${escape(title)} workspace"><div class="app-layout-sidebar-head"><h2>${escape(title)}</h2><button type="button" data-layout-close="sidebar" aria-label="Close workspace">‹</button></div></aside>
-    <div class="app-layout-center"><div id="appTopbar" class="app-layout-topbar" role="region" aria-label="App controls"><button type="button" id="appSidebarToggle" aria-label="Workspace sidebar" aria-controls="appSidebar" aria-expanded="false" title="Workspace sidebar">☷</button><span class="app-layout-title">${escape(title)}</span><button type="button" id="appTodayToggle" aria-label="Today sidebar" aria-controls="appToday" aria-expanded="true" title="Today">◷</button></div><div class="app-layout-tabbar" role="navigation" aria-label="Page controls"><div id="appTabsSlot" class="app-layout-tabs" role="group" aria-label="${escape(title)} views"></div></div><div id="appToolsSlot" class="app-layout-tools"></div><div id="appMainSlot" class="app-layout-main"></div></div>
+  layout.innerHTML = `<aside id="appSidebar" class="app-layout-sidebar"><div class="app-layout-sidebar-head"><h2></h2><button type="button" data-layout-close="sidebar" aria-label="Close workspace">‹</button></div></aside>
+    <div class="app-layout-center"><div id="appTopbar" class="app-layout-topbar" role="region" aria-label="App controls"><button type="button" id="appSidebarToggle" aria-label="Workspace sidebar" aria-controls="appSidebar" aria-expanded="false" title="Workspace sidebar">☷</button><span class="app-layout-title"></span><button type="button" id="appTodayToggle" aria-label="Today sidebar" aria-controls="appToday" aria-expanded="true" title="Today">◷</button></div><div class="app-layout-tabbar" role="navigation" aria-label="Page controls"><div id="appTabsSlot" class="app-layout-tabs" role="group"></div></div><div id="appToolsSlot" class="app-layout-tools"></div><div id="appMainSlot" class="app-layout-main"></div></div>
     <aside id="appToday" class="app-layout-today" aria-labelledby="appTodayTitle"><div class="app-layout-sidebar-head"><h2 id="appTodayTitle">Today</h2><time id="appSyncTime" hidden></time><button type="button" data-layout-close="today" aria-label="Close Today">›</button></div><p id="appConnection" role="status" hidden></p>${todayContent}</aside>
     <button class="app-layout-scrim" id="appDrawerScrim" type="button" aria-label="Close sidebar" hidden></button>`;
+  layout.querySelector('#appSidebar').setAttribute('aria-label', `${title} workspace`);
+  layout.querySelector('#appTabsSlot').setAttribute('aria-label', `${title} views`);
+  layout.querySelector('#appSidebar h2').textContent = layout.querySelector('.app-layout-title').textContent = title;
   return layout;
 }
 
@@ -207,6 +206,8 @@ export function mountAppLayout(root, host, pathname) {
   let client;
   const homeToday = import('./ui-home-today.generated.js')
     .then(module => module.mountHomeTodayPanel(layout.querySelector('#appToday'), async signal => {
+      // Imported here so Home, which has no Today panel, never downloads them.
+      const [{ createClient }, { scopedDeals }] = await Promise.all([import('./client.js'), import('./deal-review-model.js')]);
       client ??= await createClient(boot.mode, { ...boot.options, docContext: false });
       const deals = scopedDeals(await client.getBoard({ workspace: 'all', signal }), 'team');
       if (!deals) throw new Error('Could not load meeting deals');

@@ -13,7 +13,7 @@ before(async () => { outDir = await temporaryDirectory('doctorcre-inbox-'); awai
 after(async () => { if (outDir) await rm(outDir, { recursive: true, force: true }); });
 
 const row = (item_id, fields = {}) => ({ auto_settled: false, item_id, source_type: 'next_action', source_id: item_id, source_version: 'v1', source_state: 'needs_attention', title: `Synthetic ${item_id}`, activity_at: '2026-10-30T12:00:00Z', hold_until: null, unseen: false, disposition: 'inbox', snoozed_until: null, explicit_unsettle: false, section: 'inbox', base_version: 'opaque:1', context_label: 'Demo practice with a long owning deal name', due_on: '2026-11-05', open_url: '/deals?deal=00000000-0000-0000-0000-000000000001&focus=next-step', kind_label: 'Task', merged_source_ids: ['00000000-0000-0000-0000-000000000002'], action_id: item_id === 'b' ? '00000000-0000-0000-0000-000000000003' : '00000000-0000-0000-0000-000000000002', action_version: 7, deal_id: '00000000-0000-0000-0000-000000000001', ...fields });
-async function open(t, { refusal = false, width = 1440, theme = 'light', card = '', partial = false, uncertain = false, holdUntil = null, clock = false, extra = [], malformed = false, intervening = null, legacy = false, taskLost = null, taskConflict = false } = {}) {
+async function open(t, { refusal = false, width = 1440, theme = 'light', card = '', partial = false, uncertain = false, holdUntil = null, clock = false, extra = [], malformed = false, intervening = null, legacy = false, taskLost = null, taskConflict = false, blocked = '' } = {}) {
   const server = await fixtureServer({ root: join(outDir, 'site') }); t.after(() => server.close());
   const browser = await chromium.launch(); t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width, height: 900 }, timezoneId: 'America/Chicago' });
@@ -66,6 +66,7 @@ async function open(t, { refusal = false, width = 1440, theme = 'light', card = 
     }
     await route.fulfill({ json: { result: { content: [{ type: 'text', text: JSON.stringify(payload) }] } } });
   });
+  if (blocked) await page.route(blocked, route => route.abort());
   await page.goto(`${server.origin}/inbox${card ? `/card/${card}` : ''}?mode=live`);
   return { page, calls };
 }
@@ -437,6 +438,7 @@ test('snoozing or settling a lease watch card keeps the watch and its saved link
  const card=page.locator('[data-inbox-row="lease-alert"]');
  assert.equal(await card.locator('.inbox-source').getAttribute('href'),`/leases?lease=${lease}`);
  await card.getByText('This alert is separate from its watch. Snoozing or settling the card keeps the watch.',{exact:true}).waitFor();
+ await card.getByText('Lease watch settings',{exact:true}).waitFor();
  await card.getByRole('button',{name:'Snooze',exact:true}).click();
  await page.getByRole('button',{name:/^1 hour/}).click();
  await page.getByRole('button',{name:'Undo',exact:true}).click();
@@ -446,6 +448,13 @@ test('snoozing or settling a lease watch card keeps the watch and its saved link
  assert.equal(await card.locator('.inbox-source').getAttribute('href'),`/leases?lease=${lease}`);
 });
 
+
+test('a lease card whose watch settings fail to download keeps the rest of the inbox', async t => {
+ const notification=row('lease-alert',{source_type:'notification',kind_label:'Update',action_id:null,action_version:null,deal_id:null,open_url:'/leases?lease=a593ce5f-a245-432b-a829-329a7a461a34'});
+ const {page}=await open(t,{card:'lease-alert',extra:[notification],blocked:'**/js/ui-watches.generated.js'});
+ await page.locator('[data-inbox-row="lease-alert"]').getByText('Watch settings unavailable. Refresh to try again.',{exact:true}).waitFor();
+ for(const id of ['a','b']) assert.equal(await page.locator(`[data-inbox-row="${id}"]`).count(),1,`row ${id} stays`);
+});
 
 for(const destination of ['/leases','/leases?lease=demo','/leases?lease=a593ce5f-a245-432b-a829-329a7a461a34&lease=a593ce5f-a245-432b-a829-329a7a461a34','//foreign.example/leases?lease=a593ce5f-a245-432b-a829-329a7a461a34']) test(`lease card refuses ambiguous or foreign destination ${destination}`,async t=>{
  const {page}=await open(t,{card:'invalid-lease',extra:[row('invalid-lease',{source_type:'notification',kind_label:'Update',action_id:null,action_version:null,deal_id:null,open_url:destination})]});

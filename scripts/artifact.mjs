@@ -125,6 +125,10 @@ async function assembleArtifact(commit, paths, sourceContracts, readSource) {
       });
       content = Buffer.from(result.code);
     }
+    if (path.startsWith("css/") && path.endsWith(".css")) {
+      const result = await transform(content.toString("utf8"), { loader: "css", minify: true, legalComments: "none" });
+      content = Buffer.from(result.code);
+    }
     if (["tours/app.js", "tours/planner.js"].includes(path)) {
       const result = await transform(content.toString("utf8"), { loader: "js", format: "esm", target: "es2022", minifyWhitespace: true, legalComments: "none" });
       content = Buffer.from(result.code);
