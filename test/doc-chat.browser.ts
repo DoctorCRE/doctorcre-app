@@ -1237,6 +1237,57 @@ test("A first-time partner on a phone sees no conversations yet and can send a f
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
 });
 
+test("Enter sends a Doc question once and Shift+Enter starts a new line", async (t) => {
+  const asks: { question: string; idempotency_key: string }[] = [];
+  let answer!: () => void;
+  const answered = new Promise<void>((resolve) => {
+    answer = resolve;
+  });
+  const { page, origin } = await docChatFixture(t, async (request) => {
+    if (new URL(request.url).pathname !== "/api/engine/doc/turns")
+      return Response.json({ conversations: [], next_before: null });
+    const ask = await request.json();
+    asks.push(ask);
+    await answered;
+    return Response.json({ conversation_id: id, turn: { ...answeredTurn, idempotency_key: ask.idempotency_key } });
+  });
+  await page.goto(`${origin}/doc-chats?mode=live`);
+  const composer = page.getByLabel("Question for Doc");
+  await expect(composer).toBeEnabled();
+
+  await composer.press("Enter");
+  await expect(composer).toHaveValue("");
+  await composer.fill("   ");
+  await composer.press("Enter");
+  await expect(composer).toHaveValue("   ");
+
+  await composer.fill("First line");
+  await composer.press("Shift+Enter");
+  await composer.pressSequentially("second line");
+  await expect(composer).toHaveValue("First line\nsecond line");
+
+  const composingEnterKept = await composer.evaluate((field) =>
+    field.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true, cancelable: true }),
+    ),
+  );
+  assert.equal(composingEnterKept, true);
+
+  await composer.evaluate((field) => {
+    for (let press = 0; press < 2; press++)
+      field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+  });
+  await expect(page.getByText("Sending question…")).toBeVisible();
+  await page.keyboard.press("Enter");
+  answer();
+  await expect(page.getByText(answeredTurn.answer.text)).toBeVisible();
+  await expect(composer).toHaveValue("");
+  assert.deepEqual(
+    asks.map((ask) => ask.question),
+    ["First line\nsecond line"],
+  );
+});
+
 for (const path of [`/doc-chats?id=${id}`, `/doc/conversations/${id}/turns/${id}`]) {
   test(`An unavailable legacy link offers a new chat: ${path}`, async (t) => {
     const { page, origin } = await docChatFixture(t, (request) =>
