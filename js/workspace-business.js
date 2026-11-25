@@ -513,13 +513,16 @@ const toneHtml = tone => tone
   ? `<span class="tone tone-${escapeHtml(tone.tone)}">${escapeHtml(tone.label)}</span>`
   : "";
 
+// Slash-joined places such as "Mobile/Baldwin/Dothan" wrap after a slash, never mid-word.
+const breakAfterSlashes = value => escapeHtml(value).replaceAll("/", "/<wbr>");
+
 function rowHtml(dataset, row, selectedId) {
   const tone = rowTone(dataset, row);
   const owner = ownerPresentation(row);
   const selected = row.id === selectedId;
   const vendor = dataset === "vendors";
   const facts = rowFacts(dataset, row).filter((fact) => fact.known).map((fact) =>
-    `<span class="row-fact${fact.unresolved ? " unresolved" : ""}" data-fact="${escapeHtml(fact.label)}"><span class="fact-label">${escapeHtml(fact.label)}</span><span class="fact-value">${escapeHtml(fact.value)}</span></span>`).join("");
+    `<span class="row-fact${fact.unresolved ? " unresolved" : ""}" data-fact="${escapeHtml(fact.label)}"><span class="fact-label">${escapeHtml(fact.label)}</span><span class="fact-value">${breakAfterSlashes(fact.value)}</span></span>`).join("");
   return `<li class="record-item"><a class="record-row${selected ? " selected" : ""}" id="row-${escapeHtml(row.id)}" data-record-id="${escapeHtml(row.id)}" href="${escapeHtml(viewHref(view.query, row.id))}"${selected ? ' aria-current="true"' : ""}><span class="row-head"><span class="row-name">${escapeHtml(vendor ? withoutRecordCodes(row.name) : row.name)}</span>${toneHtml(tone)}</span><span class="row-facts">${facts}</span>${vendor ? vendorContactDate(row.relationship?.last_contacted_at) : ''}<span class="row-foot">${owner.known ? `<span class="row-owner">Owner: ${escapeHtml(owner.text)}</span>` : ""}<span class="row-updated">Updated ${escapeHtml(formatMoment(row.updated_at))}</span></span></a>${dataset === "clients" ? dealLinks(row) : ""}</li>`;
 }
 
@@ -738,7 +741,7 @@ function renderRecordPanel() {
     // A redraw keeps focus on the record action that had it, such as Edit after a save.
     const actions = () => [...dom.panelBody.querySelectorAll(".party-record-actions button")];
     const action = actions().indexOf(document.activeElement);
-    dom.panelBody.innerHTML = `<p class="record-tone">${toneHtml(tone)}${owner.known ? `<span>${escapeHtml(owner.text)}</span>` : ""}</p>${partyEditor?.actionsHtml() ?? ""}${dataset === 'vendors' ? vendorContactsHtml(payload.record) + relationshipHtml(payload.record) : dealLinks(payload.record)}<div class="detail-columns">${sections}</div>${dataset === "clients" ? clientNote(payload.record) : ""}${referenceDetails}${activityHtml(payload.record.id)}<p class="observed">${escapeHtml(updatedLabel(payload.source?.observed_at, BUSINESS_TIME_ZONE))}</p>`;
+    dom.panelBody.innerHTML = `<p class="record-tone">${toneHtml(tone)}${owner.known ? `<span class="row-fact"><span class="fact-label">Owner</span><span class="fact-value">${escapeHtml(owner.text)}</span></span>` : ""}</p>${partyEditor?.actionsHtml() ?? ""}${dataset === 'vendors' ? vendorContactsHtml(payload.record) + relationshipHtml(payload.record) : dealLinks(payload.record)}<div class="detail-columns">${sections}</div>${dataset === "clients" ? clientNote(payload.record) : ""}${referenceDetails}${activityHtml(payload.record.id)}<p class="observed">${escapeHtml(updatedLabel(payload.source?.observed_at, BUSINESS_TIME_ZONE))}</p>`;
     dom.panelBody.dataset.recordId = payload.record.id;
     restorePanelState();
     if (action >= 0) focusWithoutScrolling(actions()[action]);

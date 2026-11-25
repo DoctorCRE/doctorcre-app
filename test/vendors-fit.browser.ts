@@ -13,18 +13,46 @@ meetings.items[0].vendor_id = "00000000-0000-4000-8000-000000000001";
 const shots = "out/test-artifacts/vendors-fit";
 await mkdir(shots, { recursive: true });
 
-type Relationship = { deals_referred: number; deals_worked: number } | null;
+type Relationship = { deals_referred: number; deals_worked: number; last_contacted_at: string | null } | null;
+type Row = Record<string, unknown> & { relationship: Relationship };
 // Vendors with no recorded deal history: the engine sends every count as 0.
-function withoutHistory(url: string) {
+function withoutHistory(url: string, vary?: (row: Row, n: number) => void) {
   const payload = directoryFixture(url);
   // The fixture is declared as a loose record; its list payload carries vendor rows.
-  for (const row of (payload.rows ?? []) as { relationship: Relationship }[])
+  (payload.rows as Row[] | undefined)?.forEach((row, n) => {
     if (row.relationship)
       Object.assign(row.relationship, { deals_referred: 0, deals_worked: 0, won: 0, lost: 0, win_rate: null });
+    vary?.(row, n);
+  });
   return payload;
 }
 
-async function openVendors(t: TestContext, width: number, height: number, today?: "open") {
+// Rows as uneven as real ones: long names and territories, and facts missing here and there.
+function uneven(row: Row, n: number) {
+  const territories = [
+    "Gulf Coast (statewide; incl Escambia/Okaloosa/Walton)",
+    "Demo North",
+    null,
+    "Big Bend/Panhandle",
+  ];
+  Object.assign(row, {
+    name: n % 3 ? row.name : `${row.name} Equipment Finance Group`,
+    territory: territories[n % 4],
+    owner_label: n % 2 ? "Example Partner" : null,
+    ...(n % 4 === 3 && { recorded_category: null }),
+    ...(n % 5 === 1 && { recorded_category_label: "Supply / Equipment Rep" }),
+    ...(n % 5 === 2 && { city: null, state: null }),
+  });
+  if (row.relationship && n % 3 === 1) row.relationship.last_contacted_at = null;
+}
+
+async function openVendors(
+  t: TestContext,
+  width: number,
+  height: number,
+  today?: "open",
+  vary?: (row: Row, n: number) => void,
+) {
   const server = await startFixtureServer();
   t.after(() => server.stop());
   const browser = await chromium.launch();
@@ -33,7 +61,7 @@ async function openVendors(t: TestContext, width: number, height: number, today?
   await page.clock.install({ time: new Date("2026-10-01T18:00:00Z") });
   if (today) await page.addInitScript((state) => localStorage.setItem("doctorcre:today:/vendors", state), today);
   await page.route("https://**", (r) => r.abort());
-  await page.route("**/api/v1/business/**", (r) => r.fulfill({ json: withoutHistory(r.request().url()) }));
+  await page.route("**/api/v1/business/**", (r) => r.fulfill({ json: withoutHistory(r.request().url(), vary) }));
   await page.route("**/mcp", (route) => {
     const request = route.request().postDataJSON();
     const payload = request.params.name === "read-vendor-meetings" ? meetings : {};
@@ -90,6 +118,77 @@ test("the Vendors list fits beside an open Today at 1280x800", async (t) => {
   );
   assert.deepEqual(broken, [], "every fact reads on one line");
 });
+
+const rowLayout = (page: Page) =>
+  page.evaluate(() => {
+    const lefts = (selector: string) => [
+      ...new Set(
+        [...document.querySelectorAll(`.record-row ${selector}`)].map((node) =>
+          Math.round(node.getBoundingClientRect().left),
+        ),
+      ),
+    ];
+    const brokenMidWord = [...document.querySelectorAll(".record-row .fact-value")].filter((value) => {
+      const walker = document.createTreeWalker(value, NodeFilter.SHOW_TEXT);
+      const chars: { char: string; top: number }[] = [];
+      for (let node = walker.nextNode(); node; node = walker.nextNode())
+        for (let i = 0; i < (node.textContent ?? "").length; i++) {
+          const range = document.createRange();
+          range.setStart(node, i);
+          range.setEnd(node, i + 1);
+          chars.push({ char: node.textContent?.[i] ?? "", top: range.getBoundingClientRect().top });
+        }
+      const wordEnds = (before = "", next = "") => /[\s/]/.test(before) || /\s/.test(next);
+      return chars.some(
+        (c, i) => i > 0 && c.top > (chars[i - 1]?.top ?? 0) + 1 && !wordEnds(chars[i - 1]?.char, c.char),
+      );
+    });
+    return {
+      columns: Object.fromEntries(
+        ["[data-fact=Category]", "[data-fact=Territory]", "[data-fact=Location]", ".contact-note"].map((s) => [
+          s,
+          lefts(s),
+        ]),
+      ),
+      brokenMidWord: brokenMidWord.map((value) => value.textContent),
+    };
+  });
+
+const cutFilters = (page: Page) =>
+  page.evaluate(() =>
+    [...document.querySelectorAll<HTMLSelectElement>("#filterForm select")]
+      .filter((select) => select.checkVisibility())
+      .filter((select) => {
+        const shown = select.getBoundingClientRect().width;
+        select.style.width = "max-content";
+        const needed = select.getBoundingClientRect().width;
+        select.style.width = "";
+        return shown + 0.5 < needed;
+      })
+      .map((select) => select.selectedOptions[0]?.text),
+  );
+
+for (const [width, height, today] of [
+  [1280, 800, undefined],
+  [1280, 800, "open"],
+  [1440, 900, undefined],
+  [1440, 900, "open"],
+] as const)
+  test(`vendor facts line up and read whole at ${width}x${height}${today ? " beside Today" : ""}`, async (t) => {
+    const page = await openVendors(t, width, height, today, uneven);
+    await page.screenshot({ path: `${shots}/uneven-${width}${today ? "-today" : ""}.png` });
+    const layout = await rowLayout(page);
+    for (const [fact, lefts] of Object.entries(layout.columns))
+      assert.equal(lefts.length, 1, `${fact} starts at one x on every row, not ${lefts.join(", ")}`);
+    const [category = 0, territory = 0, location = 0] = Object.values(layout.columns).map(([left]) => left ?? 0);
+    assert.ok(
+      category < territory && territory < location,
+      `facts sit side by side: ${JSON.stringify(layout.columns)}`,
+    );
+    assert.deepEqual(layout.brokenMidWord, [], "facts wrap between words");
+    assert.deepEqual(await cutFilters(page), [], "every filter shows its whole choice");
+    assert.ok((await firstScreen(page)).listTop <= (today ? 160 : 112), "the toolbar stays compact");
+  });
 
 test("Vendors stays usable on a phone", async (t) => {
   const page = await openVendors(t, 390, 844);

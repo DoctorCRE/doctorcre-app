@@ -166,6 +166,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     $("specialtyFilter").innerHTML = options(specialties.map(k => [k, k]), state.filters.specialty, "All specialties");
     $("clearMarket").hidden = !state.filters.market;
     $("marketCounts").innerHTML = groups.map(g => `<button data-market="${esc(g.key)}" aria-pressed="${g.key === state.filters.market}">${esc(g.key)}<b>${g.count}</b></button>`).join("") || (state.board ? '<p class="empty">No leads in these markets</p>' : "");
+    foldMarkets();
     state.map?.update(groups, state.selectedId);
     const currentStage = state.filters.stage;
     const stageCount = stage => resultsReady ? ` · ${visibleLeads(cohort, { ...state.filters, stage }).length}` : "";
@@ -795,6 +796,18 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
   }
   $("reachabilityFilter")?.addEventListener("change", event => { state.filters.reachability = event.target.value; render(); });
   quietFilter.addEventListener("click", () => { state.filters.quiet = !state.filters.quiet; render(); });
+  // Markets past the strip's one line fold into a "+N" chip; folded chips leave the tab order.
+  function foldMarkets() {
+    const strip = $("marketCounts"), more = $("moreMarkets");
+    const open = more.getAttribute("aria-expanded") === "true";
+    const bottom = strip.getBoundingClientRect().bottom;
+    const chips = [...strip.querySelectorAll("[data-market]")];
+    for (const chip of chips) chip.inert = !open && chip.getBoundingClientRect().top >= bottom;
+    const folded = chips.filter(chip => chip.inert).length;
+    more.hidden = !open && !folded;
+    more.textContent = open ? "Fewer" : `+${folded}`;
+    more.setAttribute("aria-label", open ? "Show fewer markets" : `Show ${folded} more markets`);
+  }
   function selectMarket(key) { state.filters.market = state.filters.market === key ? "" : key; render(); }
   for (const [id, key] of [["leadSearch", "search"], ["ownerFilter", "owner"], ["marketFilter", "market"], ["specialtyFilter", "specialty"]]) {
     // eslint-disable-next-line no-restricted-syntax -- Registers input/change handlers for only 4 filter controls; 0 lifecycle reads.
@@ -807,6 +820,8 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
   });
   $("clearMarket").addEventListener("click", () => { state.filters.market = ""; render(); });
   $("marketCounts").addEventListener("click", event => { const button = event.target.closest("[data-market]"); if (button) selectMarket(button.dataset.market); });
+  $("moreMarkets").addEventListener("click", event => { const more = event.currentTarget; more.setAttribute("aria-expanded", String(more.getAttribute("aria-expanded") !== "true")); foldMarkets(); });
+  if (win.ResizeObserver) new win.ResizeObserver(foldMarkets).observe($("marketCounts"));
   $("refreshBoard").addEventListener("click", () => { refresh(); });
   $("checkDetailPending").addEventListener("click", executePending);
   $("closeDetail").addEventListener("click", () => $("leadDetail").close());

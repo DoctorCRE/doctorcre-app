@@ -151,6 +151,8 @@ test('W4 desktop/phone render, owner filters, equal cards, wide detail and reduc
   for (const width of [1440, 390, 320]) await t.test(String(width), async t => {
     const { page, errors } = await open(t, { width, reducedMotion: 'reduce' });
     assert.equal(await page.locator('#pageTitle').textContent(), 'Local Deals');
+    const titles = await page.evaluate(() => [...document.querySelectorAll('h1, .app-layout-title')].filter(node => node.checkVisibility() && node.textContent.trim() === 'Local Deals').length);
+    assert.equal(titles, 1, 'Local Deals shows once, as the page title');
     assert.equal(await page.locator('#boardView').getAttribute('aria-pressed'), 'true');
     assert.deepEqual(await page.locator('#boardChips button').allTextContents(), ['All', 'Joe', 'Dell']);
     assert.equal(await page.locator('.kanban-column').count(), 7);
