@@ -3230,7 +3230,12 @@ for (const [signIn, width] of [
       ["/clients", page.getByRole("link", { name: /^Demo Practice 01\b/ })],
       ["/calendar?day=2026-11-24", page.locator("#dayPanelBody").getByText(dealName, { exact: false }).first()],
       ["/invoices", page.getByText(invoiceName, { exact: true }).first()],
-      ["/doc-chats", page.getByRole(signIn === "engine" ? "link" : "heading", { name: chat.title, exact: true })],
+      [
+        "/doc-chats",
+        signIn === "engine"
+          ? page.getByRole("complementary", { name: "Chats" }).getByText(chat.title, { exact: true })
+          : page.getByRole("heading", { name: chat.title, exact: true }),
+      ],
       ["/leases", page.getByText("Synthetic Clinic", { exact: true })],
     ] as const;
     for (const [path, ready] of screens) {
