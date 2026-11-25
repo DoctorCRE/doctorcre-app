@@ -387,6 +387,7 @@ button.client-portal-link:disabled { cursor: wait; }
 .deal-tour-list li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-block: var(--space-3); }
 .deal-tours .btn { min-height: 44px; white-space: normal; overflow-wrap: anywhere; max-width: 100%; }
 .deal-tours li, .deal-tours h3 { overflow-wrap: anywhere; }
+.deal-past-tours { margin-top: var(--space-5); }
 .deal-past-tours > ul { list-style: none; padding: 0; }
 .deal-past-tours h4 { margin: var(--space-3) 0 var(--space-1); }
 .tour-fields { display: grid; gap: var(--space-3); min-width: 0; padding: 0; border: 0; margin: var(--space-3) 0; }

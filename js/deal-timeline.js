@@ -102,15 +102,15 @@ function dateDecisionsHtml(date) {
   const proposed = date.status === 'proposed';
   return open || proposed ? `
     <form data-date-decision="${esc(date.id)}">
-      <div class="date-actions">
-        ${proposed ? '<button type="submit" class="btn" value="confirm" formnovalidate>Confirm</button>' : dateAsk('done')}
-        ${dateAsk('dropped')}
-        ${open ? dateAsk('passed') : ''}
-      </div>
       <div class="date-reason" hidden>
         <label>Reason <input name="reason" required maxlength="1000" data-detail-focus="date-reason:${esc(date.id)}"></label>
         <button type="submit" class="btn"></button>
         <button type="button" class="btn btn-quiet" data-date-ask="">Cancel</button>
+      </div>
+      <div class="date-actions">
+        ${proposed ? '<button type="submit" class="btn" value="confirm" formnovalidate>Confirm</button>' : dateAsk('done')}
+        ${dateAsk('dropped')}
+        ${open ? dateAsk('passed') : ''}
       </div>
     </form>` : '';
 }
@@ -126,7 +126,7 @@ export function askDateReason(form, resolution) {
   submit.textContent = label;
 }
 
-const dateTitle = (label, day) => `<h3><span>${esc(label)}</span>${day ? ` · <time datetime="${esc(day)}">${esc(dateCaption(day))}</time>` : ''}</h3>`;
+const dateTitle = (label, day) => `<h3><span>${esc(label)}</span>${day ? `&nbsp;· <time datetime="${esc(day)}">${esc(dateCaption(day))}</time>` : ''}</h3>`;
 const dateDetails = (d, sourceLine) => d.original || d.evidence ? `<details><summary data-detail-focus="date-original:${esc(d.id)}">Details</summary>${sourceLine
   ? `${d.original ? `<p class="note-original">${esc(d.original)}</p>` : ''}${d.evidence ? `<p class="date-source">Source: ${esc(d.evidence)}</p>` : ''}`
   : `<p class="note-original">${esc(d.original || d.evidence)}</p>`}</details>` : '';

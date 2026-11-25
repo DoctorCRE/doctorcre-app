@@ -165,8 +165,8 @@ for (const [width, height] of laptops) {
     await page.screenshot({ path: `${shots}/critical-dates-${width}.png` });
 
     for (const [card, title, state, actions] of [
-      [proposed, "Other · Mar 31, 2029", "Proposed", ["Confirm", "Drop"]],
-      [confirmed, "Lease expiration · Jun 30, 2030", "Confirmed", ["Mark done", "Drop", "Mark passed"]],
+      [proposed, "Other\u00a0· Mar 31, 2029", "Proposed", ["Confirm", "Drop"]],
+      [confirmed, "Lease expiration\u00a0· Jun 30, 2030", "Confirmed", ["Mark done", "Drop", "Mark passed"]],
     ] as const) {
       const heading = card.getByRole("heading", { level: 3 });
       assert.equal(await heading.textContent(), title, "kind and date are the title");
@@ -198,7 +198,13 @@ for (const [width, height] of laptops) {
 
     await proposed.getByRole("button", { name: "Drop", exact: true }).click();
     await reason.fill("The example lease was replaced");
-    await proposed.getByRole("button", { name: "Drop", exact: true }).click();
+    const asked = await proposed.elementHandle();
+    await page.getByRole("button", { name: "Refresh deal" }).click();
+    await page.waitForFunction((row) => !row?.isConnected, asked);
+    assert.equal(await reason.inputValue(), "The example lease was replaced", "the reason survives a refresh");
+    assert.deepEqual(await proposed.getByRole("button").allTextContents(), ["Drop", "Cancel"]);
+    assert.deepEqual(await confirmed.getByRole("button").allTextContents(), ["Mark done", "Drop", "Mark passed"]);
+    await reason.press("Enter");
     await proposed.locator(".date-badge").filter({ hasText: "Dropped" }).waitFor();
     assert.deepEqual(writes, [
       [
@@ -250,6 +256,9 @@ for (const [width, height] of laptops)
       ]);
       assert.equal(await past.getByRole("button").count(), 0, "past tours are read-only");
       assert.equal(await page.getByText("No planned tours.").count(), 0, "a past tour means the list is not empty");
+      const plan = await box(page.getByRole("button", { name: "Plan tour" }));
+      const heading = await box(past.getByRole("heading", { name: "Past tours" }));
+      assert.ok(heading.y - (plan.y + plan.height) >= 16, "Past tours has room under Plan tour");
       if (plans.length) {
         const plannedRow = await box(page.getByText("December 3, 2026", { exact: true }));
         assert.ok(plannedRow.y < (await box(past)).y, "past tours sit under the planned ones");
