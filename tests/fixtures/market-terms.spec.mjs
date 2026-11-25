@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { mkdir, readFile } from 'node:fs/promises';
 import { ownedServer as startFixtureServer } from '../../test/fixture-probe.ts';
 let server;
-test.beforeAll(async () => { server = await startFixtureServer(); await mkdir('.github/pr-evidence/WR39.S6.J21', {recursive:true}); });
+test.beforeAll(async () => { server = await startFixtureServer(); await mkdir('out/test-artifacts/WR39.S6.J21', {recursive:true}); });
 test.afterAll(async () => { await server.stop(); });
 for (const width of [390,1280]) for (const theme of ['light','dark']) {
   test(`comparison at ${width} ${theme}`, async ({page}) => {
@@ -28,7 +28,7 @@ for (const width of [390,1280]) for (const theme of ['light','dark']) {
     expect(await page.evaluate(() => window.marketReads)).toBe(1);
     await expect(page.locator('#workspace-market-terms')).toContainText('1 of 20 receipts eligible; 7 unsupported, 4 superseded without context, 8 unclassified');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await page.screenshot({path:`.github/pr-evidence/WR39.S6.J21/terms-${width}-${theme}.png`,fullPage:width !== 390});
+    await page.screenshot({path:`out/test-artifacts/WR39.S6.J21/terms-${width}-${theme}.png`,fullPage:width !== 390});
   });
 }
 
@@ -103,7 +103,7 @@ for (const width of [390,1280]) for (const theme of ['light','dark']) {
     const bounds = await date.boundingBox();
     expect(bounds.x).toBeGreaterThanOrEqual(0); expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
     await date.scrollIntoViewIfNeeded();
-    await page.screenshot({path:`.github/pr-evidence/WR39.S6.J21/as-of-${width}-${theme}.png`,fullPage:true});
+    await page.screenshot({path:`out/test-artifacts/WR39.S6.J21/as-of-${width}-${theme}.png`,fullPage:true});
     await date.fill(''); await compare.click();
     await expect(results).toContainText('All recorded history');
     await expect(root.locator('tbody tr')).toHaveCount(2);

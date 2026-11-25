@@ -87,6 +87,15 @@ async function openInvoices(width: number, height: number, { partial = false } =
       body: Buffer.from(await response.arrayBuffer()),
     });
   });
+  // Records the strip's row state in the same task that first paints the rows, before any ResizeObserver runs.
+  await page.addInitScript(() =>
+    new MutationObserver((_, observer) => {
+      const summary = document.getElementById("invoiceSummary");
+      if (!summary || !document.querySelector("[data-invoice]")) return;
+      observer.disconnect();
+      document.documentElement.dataset.wrappedWithRows = String(summary.hasAttribute("data-wrapped"));
+    }).observe(document, { childList: true, subtree: true }),
+  );
   await page.goto("http://localhost/invoices?mode=live");
   await page.locator("[data-invoice]").first().waitFor();
   return { browser, page };
@@ -112,6 +121,7 @@ const measure = (page: Page) =>
       head: box(".invoice-column-head"),
       firstRow: box("[data-invoice]"),
       tableOverflow: table ? table.scrollHeight - table.clientHeight : 0,
+      wrappedWithRows: document.documentElement.dataset.wrappedWithRows,
       updated: document.getElementById("invoiceUpdated")?.textContent ?? "",
       today: document.querySelector(".app-layout")?.getAttribute("data-today"),
       parts: [...document.querySelectorAll("#invoiceSummary :is(.invoice-totals, .invoice-chip)")].map((node) => {
@@ -147,6 +157,7 @@ for (const [width, height, partial] of [
     assert.equal(layout.today, "open", "Today is open beside the table");
     assert.ok(oneRow(layout.parts), `the totals and every age chip share one row: ${detail}`);
     assert.equal(layout.divider, "visible", `a divider separates the totals from the age chips: ${detail}`);
+    assert.equal(layout.wrappedWithRows, "false", "the divider shows as soon as the rows do");
     assert.ok(
       layout.tracks.length === 4 &&
         layout.tracks.every(
@@ -189,6 +200,7 @@ test("Invoices summary strip wraps without a stray divider at 1024x768 with Toda
   assert.equal(layout.today, "open", "Today is open beside the table");
   assert.equal(oneRow(layout.parts), false, `the age chips wrap under the totals: ${detail}`);
   assert.equal(layout.divider, "hidden", `no divider sits at the start of the wrapped row: ${detail}`);
+  assert.equal(layout.wrappedWithRows, "true", "the divider hides as soon as the rows show");
 });
 
 for (const partial of [false, true])

@@ -49,7 +49,7 @@ test("partners see and manage prospects from Deals", async (t) => {
   const CARR = { fetch: async () => Response.json(session) };
   const server = await startWorkerFixture({ assets: await appAssetSnapshot(), env: { CARR } });
   t.after(() => server.close());
-  await mkdir(".scratch/name-matches", { recursive: true });
+  await mkdir("out/test-artifacts/name-matches", { recursive: true });
   const browser = await chromium.launch();
   t.after(() => browser.close());
 
@@ -701,7 +701,7 @@ test("partners see and manage prospects from Deals", async (t) => {
         await clientField.fill("Client Ex");
         const company = form.getByRole("button", { name: "Client Example · Company · Austin · 3 deals", exact: true });
         await company.waitFor();
-        await form.screenshot({ path: `.scratch/name-matches/prospect-${width}.png` });
+        await form.screenshot({ path: `out/test-artifacts/name-matches/prospect-${width}.png` });
         await company.click();
         const lease = form.getByLabel("Lease to renew");
         await lease
@@ -740,7 +740,7 @@ test("partners see and manage prospects from Deals", async (t) => {
           true,
           "each client match fits inside the dialog",
         );
-        await form.screenshot({ path: `.scratch/name-matches/prospect-${width}.png` });
+        await form.screenshot({ path: `out/test-artifacts/name-matches/prospect-${width}.png` });
         await form
           .getByRole("button", { name: "Client Example · Person · No city recorded · 1 deal", exact: true })
           .click();
