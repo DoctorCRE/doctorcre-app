@@ -19,6 +19,8 @@ import {
 import { uuidv4 } from "./uuid.js";
 
 const $ = (id) => document.getElementById(id);
+/** Updates shows the feed and Settings the preference form; both read preferences. */
+const updatesPage = Boolean($("feedList"));
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
 }[char]));
@@ -60,7 +62,6 @@ const sources = {
 };
 let source = sources.old;
 let commandState = {};
-let preferenceAnchorRevealed = false;
 let dock = { record: () => {}, mount: () => {}, render: () => {} };
 /** What each open operation would send again: the dock's buttons need it. */
 const operations = new Map();
@@ -72,7 +73,7 @@ let draftBaseVersion = null;
 let preferenceSequence = 0;
 let readWrites = Promise.resolve();
 const preferenceInputs = {
-  time_zone: "quietTimezone", quiet_from: "quietStart", quiet_until: "quietEnd", push_to_device: "deviceOptIn",
+  quiet_from: "quietStart", quiet_until: "quietEnd", push_to_device: "deviceOptIn",
 };
 
 function announceFeed(text) {
@@ -174,6 +175,7 @@ function renderFeed() {
  * version and earn a conflict this page could have prevented.
  */
 function renderPreference() {
+  if (updatesPage) return;
   const read = view.preference;
   const model = preferenceModel();
   const state = preferenceState(read, model);
@@ -190,7 +192,7 @@ function renderPreference() {
   form.setAttribute("data-disabled", String(saving));
   form.setAttribute("data-quiet", model?.quietHoursSet ? "set" : "off");
   const retained = commandState[PREFERENCE_OPERATION_KEY];
-  for (const id of ["deviceOptIn", "quietStart", "quietEnd", "quietTimezone", "prefSave", "prefClear"]) {
+  for (const id of ["deviceOptIn", "quietStart", "quietEnd", "prefSave", "prefClear"]) {
     const field = $(id);
     if (field) field.disabled = saving || !model || (Boolean(retained) && id !== "prefSave");
   }
@@ -199,7 +201,6 @@ function renderPreference() {
   $("deviceOptIn").checked = model.deviceOptIn;
   $("quietStart").value = preferenceTimeLabel(model.start);
   $("quietEnd").value = preferenceTimeLabel(model.end);
-  $("quietTimezone").value = model.timezone;
 }
 
 function renderActivity() {
@@ -228,8 +229,10 @@ function renderActivity() {
 }
 
 function render() {
-  renderFeed();
-  renderActivity();
+  if (updatesPage) {
+    renderFeed();
+    renderActivity();
+  }
   renderPreference();
 }
 
@@ -386,16 +389,8 @@ async function takeActivity() {
 }
 
 async function load() {
-  const sequence = ++view.sequence;
-  await Promise.all([takeFeed(), takeActivity(), takePreference()]);
-  if (view.sequence !== sequence) return;
-  const form = $("prefForm");
-  // Feed and activity reads can change the target's position before anchoring.
-  if (!form.hidden && !preferenceAnchorRevealed && globalThis.location?.hash === "#prefForm") {
-    preferenceAnchorRevealed = true;
-    // eslint-disable-next-line no-restricted-syntax -- A single frame scrolls to the newly revealed preference form; preferenceAnchorRevealed prevents repetition.
-    requestAnimationFrame(() => form.scrollIntoView({ block: "start", behavior: "instant" }));
-  }
+  ++view.sequence;
+  await Promise.all(updatesPage ? [takeFeed(), takeActivity(), takePreference()] : [takePreference()]);
 }
 
 /* --------------------------------------------------------------------- writing */
@@ -541,9 +536,7 @@ async function savePreference(form) {
       for (const field of failure.fields) {
         if (Object.hasOwn(preferenceInputs, field)) $(preferenceInputs[field]).setAttribute("aria-invalid", "true");
       }
-      sentence = failure.fields.includes("time_zone")
-        ? "Timezone unavailable. Preferences were not saved."
-        : "Check the highlighted fields and save again.";
+      sentence = "Check the highlighted fields and save again.";
     }
     // A conflict is not retried. Show the current saved values beside the
     // unsaved fields so the person can review both before another save.
@@ -573,7 +566,6 @@ async function savePreference(form) {
         ++preferenceSequence;
         view.preference = { state: "read", payload: preference, observed_at: new Date().toISOString() };
       }
-      await takeFeed();
     } else await load();
   }
   renderPreference();
@@ -585,22 +577,7 @@ const formValues = () => ({
   device_opt_in: $("deviceOptIn").checked,
   quiet_hours_start: $("quietStart").value,
   quiet_hours_end: $("quietEnd").value,
-  timezone: $("quietTimezone").value,
 });
-
-/**
- * The timezone suggestions, from the BROWSER's own IANA database. It is a
- * convenience and never a validator: `pg_timezone_names` is the list that
- * decides, and a name this list does not carry is still sent and still refused
- * by name.
- */
-function mountTimezoneNames() {
-  const list = $("timezoneNames");
-  if (!list || typeof Intl.supportedValuesOf !== "function") return;
-  let names = [];
-  try { names = Intl.supportedValuesOf("timeZone"); } catch { return; }
-  list.innerHTML = names.map((name) => `<option value="${escapeHtml(name)}"></option>`).join("");
-}
 
 function mountDock() {
   const root = $("receiptDock");
@@ -625,7 +602,6 @@ async function boot() {
   mountPrefs();
 
   mountDock();
-  mountTimezoneNames();
   const location = globalThis.location || { hostname: "", search: "" };
   const params = new URLSearchParams(location.search || "");
   view.after = params.get("after") || null;
@@ -657,9 +633,7 @@ async function boot() {
   const boot_ = resolveDealroomBoot(location);
   const docLink = $("docLinkSettings");
   const session = privateSession();
-  const openDocLink = () => {
-    if (location.hash !== "#docLinkSettings" || !docLink || !session) return;
-    globalThis.removeEventListener("hashchange", openDocLink);
+  if (docLink && session) {
     void session.verify().then(async () => {
       if (!session.engineSignIn) return;
       const { mountDocLinkSettings } = await import("./ui-doc-link-settings.generated.js");
@@ -667,9 +641,7 @@ async function boot() {
     }).catch(() => {
       if (session.engineSignIn) docLink.textContent = "Couldn't load Doc link settings.";
     });
-  };
-  globalThis.addEventListener("hashchange", openDocLink);
-  openDocLink();
+  }
   const outage = params.get("outage");
   if (updatesFromEngine()) source = sources.engine;
   client = boot_.mode === "live"

@@ -435,8 +435,8 @@ export function preferenceView(payload) {
 export function preferenceSummary(view) {
   if (!view) return "";
   const window = view.quietHoursSet
-    ? `Quiet hours ${preferenceTimeLabel(view.start)} to ${preferenceTimeLabel(view.end)} ${view.timezone}`
-    : `No quiet hours set · ${view.timezone}`;
+    ? `Quiet hours ${preferenceTimeLabel(view.start)} to ${preferenceTimeLabel(view.end)}`
+    : "No quiet hours set";
   return `${window} · device push ${view.deviceOptIn ? "on" : "off"}`;
 }
 

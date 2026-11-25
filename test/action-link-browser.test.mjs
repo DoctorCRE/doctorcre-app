@@ -21,6 +21,7 @@ test('linked draft opens directly, reads safely and approves at phone and deskto
   await page.goto(`${server.origin}/a/${ref}?mode=live`);
   await page.getByRole('heading',{name:payload.card.subject}).waitFor();
   assert.equal(calls.filter(call=>call.name==='approve-lead-draft').length,0);
+  assert.doesNotMatch(await page.locator('.action-link-schedule').textContent(),/America\/Chicago/,'a Central time carries no zone label');
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
   await page.screenshot({path:`out/test-artifacts/action-links/${width}-${theme}-review.png`,fullPage:true});
   await page.getByRole('button',{name:'Approve draft',exact:true}).click();

@@ -425,8 +425,8 @@ function ActionLink({ ref, request }: Options) {
                     timeStyle: "short",
                     timeZone: state.card.timeZone,
                   }).format(new Date(state.card.scheduledFor))}
-                </time>{" "}
-                · {state.card.timeZone}
+                </time>
+                {state.card.timeZone !== "America/Chicago" && ` · ${state.card.timeZone}`}
               </p>
             )}
             {state.card.kind === "reply_draft" && (

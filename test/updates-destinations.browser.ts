@@ -9,7 +9,14 @@ import { chromium } from "./browser-harness.mjs";
 import anniversaryRecording from "./fixtures/client-anniversary-panel/recordings.json" with { type: "json" };
 
 const emptyFeed = { unread_count: 0, updates: [] };
-const preferences = {
+type Preferences = {
+  time_zone: string;
+  quiet_from: string | null;
+  quiet_until: string | null;
+  push_to_device: boolean;
+  base_version: number;
+};
+const preferences: Preferences = {
   time_zone: "America/Chicago",
   quiet_from: null,
   quiet_until: null,
@@ -123,14 +130,19 @@ async function open(
     const handler = engine[key] ?? defaults[key];
     return route.fulfill(handler ? await handler(request) : { status: 404, json: { error: "not_found" } });
   });
-  const updatesPage = assets.get("/notifications.html")?.body;
-  assert.ok(updatesPage);
-  await page.route(/^https?:\/\/[^/]+\/updates(?:\?|$)/, (route) =>
-    route.fulfill({
-      contentType: "text/html",
-      body: fromEngine ? updatesPage.toString().replace("<html ", "<html data-deals-saves-from-engine ") : updatesPage,
-    }),
-  );
+  for (const [path, asset] of [
+    ["updates", "/notifications.html"],
+    ["settings", "/settings.html"],
+  ] as const) {
+    const body = assets.get(asset)?.body;
+    assert.ok(body);
+    await page.route(new RegExp(`^https?://[^/]+/${path}(?:\\?|$)`), (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body: fromEngine ? body.toString().replace("<html ", "<html data-deals-saves-from-engine ") : body,
+      }),
+    );
+  }
   return { page, sent, verbs };
 }
 
@@ -226,9 +238,13 @@ for (const width of viewports)
           await page.locator("#main").getByRole("heading", { name: "Closing anniversaries", exact: true }).count(),
           1,
         );
+        assert.doesNotMatch((await page.locator("#main").textContent()) ?? "", /Critical dates/);
         assert.equal(
-          await page.locator("#main").getByRole("link", { name: "Deals", exact: true }).getAttribute("href"),
-          "/deals",
+          await page
+            .locator("#clientAnniversaries")
+            .getByRole("link", { name: "Synthetic Closing" })
+            .getAttribute("href"),
+          "/deals?deal=synthetic-deal",
         );
         if (entry === "More") await capture(page, "closing-anniversaries", width, theme);
       });
@@ -242,48 +258,8 @@ test("an invalid feed reply offers Retry instead of staying in loading", async (
   assert.equal(await page.getByRole("button", { name: "Retry", exact: true }).isVisible(), true);
 });
 
-test("saving notification preferences keeps its confirmation separate from a pending feed refresh", async (t) => {
-  const refreshed = Promise.withResolvers<Reply>();
-  let saved = false;
-  const { page } = await open(t, 390, "dark", {
-    "GET /api/engine/updates": () => (saved ? refreshed.promise : { json: emptyFeed }),
-    "POST /api/engine/preferences": (request) => {
-      saved = true;
-      const { idempotency_key: _key, ...fields } = request.postDataJSON();
-      return { json: { ok: true, ...fields, base_version: 1 } };
-    },
-  });
-  t.after(() => refreshed.resolve({ json: emptyFeed }));
-  await page.goto(`${server.origin}/updates?mode=live`);
-  await page.getByRole("heading", { name: "No updates", exact: true }).waitFor();
-
-  const feedStatus = page.getByRole("status").filter({ hasText: /^No updates$/ });
-  const announcements = await feedStatus.evaluateHandle((region) => {
-    const messages: string[] = [];
-    new MutationObserver((changes) => {
-      for (const change of changes) {
-        for (const node of change.addedNodes) messages.push(node.textContent ?? "");
-      }
-    }).observe(region, { childList: true });
-    return messages;
-  });
-
-  await page.getByRole("checkbox", { name: "Send a device push when something is addressed to me" }).check();
-  await page.getByRole("button", { name: "Save preferences" }).click();
-  await page
-    .getByRole("status")
-    .filter({ hasText: /^Updating…$/ })
-    .waitFor();
-  const confirmation = page.getByRole("status").filter({ hasText: /^Saved$/ });
-  assert.equal(await confirmation.count(), 1);
-  assert.deepEqual(await announcements.jsonValue(), ["Updating…"]);
-
-  refreshed.resolve({ json: emptyFeed });
-  await page.getByRole("heading", { name: "No updates", exact: true }).waitFor();
-  assert.equal(await confirmation.count(), 1);
-});
-
 const updatesPath = `${server.origin}/updates?mode=live`;
+const settingsPath = `${server.origin}/settings?mode=live`;
 const saveButton = (page: Page) => page.getByRole("button", { name: "Save preferences" });
 const savedFields = (sent: { key: string; body: Record<string, unknown> | null }[]) =>
   sent
@@ -304,7 +280,9 @@ test("Updates lists the partner's engine updates with the unread count", async (
   await page.getByRole("button", { name: "More", exact: true }).click();
   sent.length = 0;
   verbs.length = 0;
+  const today = page.waitForRequest("**/api/engine/home/today");
   await page.getByRole("link", { name: "Updates", exact: true }).click();
+  await today;
   await page.getByRole("heading", { name: unread.title }).waitFor({ timeout: 2500 });
   assert.equal(await page.locator("#unreadLine").textContent(), "1 unread notification");
   assert.equal(await page.getByText(unread.why, { exact: true }).count(), 1);
@@ -312,9 +290,10 @@ test("Updates lists the partner's engine updates with the unread count", async (
   assert.equal(await open_.getAttribute("href"), unread.open_url);
   assert.equal(await page.getByRole("heading", { name: seen.title }).count(), 1);
   assert.equal(await page.getByRole("link", { name: "Review feedback" }).getAttribute("href"), seen.open_url);
-  await page.locator("#prefForm").waitFor();
   await page.getByText("No recent activity", { exact: true }).waitFor();
-  assert.deepEqual(sent.map(({ key }) => key).sort(), [
+  assert.equal(await page.locator("#prefForm").count(), 0, "settings live on their own page");
+  assert.deepEqual([...new Set(sent.map(({ key }) => key))].sort(), [
+    "GET /api/engine/home/today",
     "GET /api/engine/preferences",
     "GET /api/engine/updates",
     "GET /api/engine/updates/changes",
@@ -324,9 +303,6 @@ test("Updates lists the partner's engine updates with the unread count", async (
   assert.equal(await unreadCard.getByText("9:00 AM", { exact: true }).count(), 1);
   assert.equal(await unreadCard.getByText("Unread", { exact: true }).count(), 1);
   assert.equal(await page.getByText("Read at 10:00 AM", { exact: true }).count(), 1);
-  const today = page.waitForRequest("**/api/engine/home/today");
-  await page.getByRole("button", { name: "Today sidebar" }).click();
-  await today;
 });
 
 test("opening an unread update uses the saved read time and returned badge count", async (t) => {
@@ -434,17 +410,18 @@ test("a missing update reloads the feed and badge", async (t) => {
   assert.equal(await page.locator("#navUnreadBadge").getAttribute("aria-label"), null);
 });
 
-test("notification settings load the engine defaults and save all four fields", async (t) => {
-  const { page, sent } = await open(t, 390, "dark");
+test("Settings opens from the account menu and saves without showing a time zone", async (t) => {
+  const { page, sent } = await open(t, 1440, "dark");
   await page.goto(updatesPath);
+  await page.locator("#selfAvatar").click();
+  const link = page.locator("#accountMenu").getByRole("link", { name: "Settings", exact: true });
+  assert.equal(await link.getAttribute("href"), "/settings");
+  await page.goto(settingsPath);
   await page.locator("#prefForm").waitFor();
-  assert.equal(await page.locator("#quietTimezone").inputValue(), "America/Chicago");
+  assert.equal(await page.getByLabel("Timezone").count(), 0);
   assert.equal(await page.locator("#quietStart").inputValue(), "");
   assert.equal(await page.locator("#deviceOptIn").isChecked(), false);
-  assert.equal(
-    await page.locator("#prefSummary").textContent(),
-    "No quiet hours set · America/Chicago · device push off",
-  );
+  assert.equal(await page.locator("#prefSummary").textContent(), "No quiet hours set · device push off");
   await page.locator("#quietStart").fill("10:00 PM");
   await page.locator("#quietEnd").fill("7:00 AM");
   await page.locator("#deviceOptIn").check();
@@ -455,13 +432,14 @@ test("notification settings load the engine defaults and save all four fields", 
   ]);
   await page
     .locator("#prefSummary")
-    .getByText("Quiet hours 10:00 PM to 7:00 AM America/Chicago · device push on")
+    .getByText("Quiet hours 10:00 PM to 7:00 AM · device push on", { exact: true })
     .waitFor();
+  assert.doesNotMatch((await page.locator("main").textContent()) ?? "", /America\/Chicago/);
 });
 
 test("checking a settings save outcome keeps newer preferences on screen", async (t) => {
-  const saved = { ...preferences, time_zone: "America/Denver", base_version: 5 };
-  const newer = { ...preferences, time_zone: "America/New_York", base_version: 6 };
+  const saved = { ...preferences, quiet_from: "22:00", quiet_until: "07:00", base_version: 5 };
+  const newer = { ...preferences, quiet_from: "21:00", quiet_until: "06:00", base_version: 6 };
   let current = { ...preferences, base_version: 4 };
   let savedOnce = false;
   const { page } = await open(t, 390, "dark", {
@@ -473,31 +451,27 @@ test("checking a settings save outcome keeps newer preferences on screen", async
       return { status: 503, json: { error: "unavailable" } };
     },
   });
-  await page.goto(updatesPath);
-  const timeZone = page.getByLabel("Timezone");
-  await timeZone.fill(saved.time_zone);
+  await page.goto(settingsPath);
+  const start = page.getByLabel("Quiet hours start");
+  await start.fill("10:00 PM");
+  await page.getByLabel("Quiet hours end").fill("7:00 AM");
   await saveButton(page).click();
   const check = page.locator("#prefForm").getByRole("button", { name: "Check outcome" });
   await check.waitFor();
   current = newer;
-  await page.getByRole("button", { name: "Refresh", exact: true }).press("Enter");
+  await page.evaluate(() => dispatchEvent(new Event("online")));
   const summary = page.locator("#prefSummary");
-  await summary.getByText(/America\/New_York/).waitFor();
+  await summary.getByText(/9:00 PM to 6:00 AM/).waitFor();
 
   await check.press("Enter");
   await saveButton(page).waitFor();
-  assert.equal(await timeZone.inputValue(), newer.time_zone);
-  assert.match((await summary.textContent()) ?? "", /America\/New_York/);
+  assert.equal(await start.inputValue(), "9:00 PM");
+  assert.match((await summary.textContent()) ?? "", /9:00 PM to 6:00 AM/);
 });
 
-test("notification settings explain a refused time zone and an unpaired quiet hour", async (t) => {
-  const { page, sent } = await open(t, 390, "dark", {
-    "POST /api/engine/preferences": () => ({
-      status: 400,
-      json: { error: "invalid_field_value", fields: ["time_zone"] },
-    }),
-  });
-  await page.goto(updatesPath);
+test("notification settings explain an unpaired quiet hour", async (t) => {
+  const { page, sent } = await open(t, 390, "dark");
+  await page.goto(settingsPath);
   await page.locator("#prefForm").waitFor();
   await page.locator("#quietStart").fill("10:00 PM");
   await saveButton(page).click();
@@ -506,13 +480,6 @@ test("notification settings explain a refused time zone and an unpaired quiet ho
     .getByText(/start and an end that differ/)
     .waitFor();
   assert.equal(savedFields(sent).length, 0);
-  await page.locator("#quietStart").fill("");
-  await page.locator("#quietTimezone").fill("Example/Nowhere");
-  await saveButton(page).click();
-  await page.locator("#prefMessage").getByText("Timezone unavailable. Preferences were not saved.").waitFor();
-  assert.equal(savedFields(sent)[0]?.time_zone, "Example/Nowhere");
-  assert.equal(await page.getByLabel("Timezone").getAttribute("aria-invalid"), "true");
-  assert.equal(await page.getByLabel("Quiet hours start").getAttribute("aria-invalid"), null);
 });
 
 test("a settings save that crossed another change reloads and says so", async (t) => {
@@ -526,15 +493,15 @@ test("a settings save that crossed another change reloads and says so", async (t
       json: conflicted ? { ...preferences, push_to_device: true, base_version: 9 } : preferences,
     }),
   });
-  await page.goto(updatesPath);
+  await page.goto(settingsPath);
   await page.locator("#prefForm").waitFor();
-  await page.locator("#quietTimezone").fill("America/Denver");
+  await page.locator("#deviceOptIn").check();
   await saveButton(page).click();
   await page
     .locator("#prefMessage")
     .getByText(/^Preferences changed elsewhere\. Your changes were not saved\./)
     .waitFor();
-  await page.locator("#prefSummary").getByText("No quiet hours set · America/Chicago · device push on").waitFor();
+  await page.locator("#prefSummary").getByText("No quiet hours set · device push on").waitFor();
   assert.equal(
     await page
       .locator("#prefForm")
@@ -597,9 +564,9 @@ test("switch off keeps the old feed, settings and activity reads", async (t) => 
   const { page, sent, verbs } = await open(t, 390, "dark", {}, false);
   await page.goto(updatesPath);
   await page.getByRole("heading", { name: "No updates", exact: true }).waitFor();
-  await page.locator("#prefForm").waitFor();
   await page.getByText("No recent activity", { exact: true }).waitFor();
-  assert.equal(await page.getByLabel("Timezone").inputValue(), "UTC");
+  await page.goto(settingsPath);
+  await page.locator("#prefSummary").getByText("No quiet hours set · device push off", { exact: true }).waitFor();
   assert.ok(verbs.includes("notification-feed"));
   assert.ok(verbs.includes("read-notification-preferences"));
   assert.ok(verbs.includes("/pipeline/changes"));
@@ -621,14 +588,15 @@ test("a conflict keeps the settings draft and notice visible when the refresh fa
         : { status: 503, json: { error: "unavailable" } };
     },
   });
-  await page.goto(updatesPath);
-  const draft = page.getByLabel("Timezone");
-  await draft.fill("America/Denver");
+  await page.goto(settingsPath);
+  const draft = page.getByLabel("Quiet hours start");
+  await draft.fill("10:00 PM");
+  await page.getByLabel("Quiet hours end").fill("7:00 AM");
   await saveButton(page).click();
   const panel = page.getByRole("region", { name: "Your notification preferences" });
   await panel.locator('#prefState[data-state="unavailable"]').waitFor();
-  assert.equal(await draft.isVisible(), true, "the unsaved timezone remains visible");
-  assert.equal(await draft.inputValue(), "America/Denver");
+  assert.equal(await draft.isVisible(), true, "the unsaved quiet hours remain visible");
+  assert.equal(await draft.inputValue(), "10:00 PM");
   const notice = panel
     .getByRole("status")
     .filter({ hasText: /^Preferences changed elsewhere\. Your changes were not saved\./ });
@@ -636,11 +604,8 @@ test("a conflict keeps the settings draft and notice visible when the refresh fa
 
   available = true;
   await panel.getByRole("button", { name: "Retry", exact: true }).click();
-  await panel
-    .locator("#prefSummary")
-    .getByText(/America\/Chicago/)
-    .waitFor();
-  assert.equal(await draft.inputValue(), "America/Denver");
+  await panel.locator("#prefSummary").getByText("No quiet hours set · device push off", { exact: true }).waitFor();
+  assert.equal(await draft.inputValue(), "10:00 PM");
   assert.equal(await notice.isVisible(), true);
 });
 
