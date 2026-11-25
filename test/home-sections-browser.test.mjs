@@ -1938,11 +1938,13 @@ for (const [width, height] of [[1280, 800], [1440, 779]]) test(`Home shows a gro
   const card = (number, title, fields) => step(number, title, { card_id: `step:${id(number)}`, ...fields });
   const cover = (number, record_name) => ({ item_id: `next_action:${id(number)}`, base_version: '1:0:inbox',
     action_id: id(number), action_version: 1, ...(record_name && { record_name }) });
-  const meeting = 'Follow up on the Oct 27 meeting: Site visit';
+  const meeting = 'Follow up on the Oct 27 meeting';
+  const grouped = (numbers, names = []) => ({ merged_source_ids: numbers.map(id),
+    covers: numbers.map((number, index) => cover(number, names[index])) });
   const names = ['Maya Example', 'Sam Example', 'Lee Example', 'Ari Example'];
   state.items = [
-    card(80, meeting, { due_on: '2026-10-30', days_late: 4, covers: names.map((name, index) => cover(80 + index, name)) }),
-    card(84, 'Follow up with Pat Example', { covers: [cover(84), cover(85)] }),
+    card(80, meeting, { due_on: '2026-10-30', days_late: 4, why: 'Send the site visit notes.', ...grouped([80, 81, 82, 83], names) }),
+    card(84, 'Follow up with Pat Example', grouped([84, 85])),
     ...Array.from({ length: 9 }, (_, index) => card(90 + index, `Send the sample lease summary ${index + 1}`)),
   ];
   await page.clock.install({ time: now });
@@ -1952,6 +1954,7 @@ for (const [width, height] of [[1280, 800], [1440, 779]]) test(`Home shows a gro
   const row = title => reminders.locator('[data-inbox-row]').filter({ has: page.getByRole('heading', { name: title, exact: true }) });
   await row(meeting).getByText('Maya Example, Sam Example and 2 more', { exact: true }).waitFor();
   await row(meeting).getByText(/Covers 4 reminders/).waitFor();
+  await row(meeting).getByText('Send the site visit notes.', { exact: true }).waitFor();
   await row('Follow up with Pat Example').getByText(/Covers 2 reminders/).waitFor();
   assert.equal(await row('Follow up with Pat Example').locator('.inbox-detail').count(), 0, 'covered steps without names list none');
   assert.equal(await reminders.getByText(/Covers \d+ reminders/).count(), 2, 'a card without covers is one reminder');

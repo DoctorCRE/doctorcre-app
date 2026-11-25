@@ -263,7 +263,7 @@ test('a grouped card writes every step it covers under its own key and reports e
   const { coverCommand, parseItem } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].contents).toString('base64')}`);
   const ids = [11, 12, 13, 14].map(n => `00000000-0000-0000-0000-0000000000${n}`);
   const covers = ids.map((id, index) => ({ item_id: `next_action:${id}`, base_version: `${index + 3}:0:inbox`, action_id: id, action_version: index + 3, record_name: null }));
-  const card = item(covers[0].item_id, { action_id: ids[0], action_version: 3, base_version: covers[0].base_version, covers });
+  const card = item(covers[0].item_id, { action_id: ids[0], action_version: 3, base_version: covers[0].base_version, merged_source_ids: ids, covers });
   assert.equal(parseItem(card, true, true, true).covers.length, 4);
   assert.equal(parseItem({ ...card, covers: undefined }, true, true, true).covers, undefined, 'a card without covers is its own step');
   assert.equal(parseItem({ ...card, covers: [covers[0]] }, true, true, true).covers, undefined);
