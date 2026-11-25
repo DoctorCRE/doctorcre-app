@@ -92,6 +92,7 @@ function DealDocumentUpload(props: Props & { signal: AbortSignal; fileInput: Ref
   const attempt = useRef<Attempt | null>(null);
   const { fileInput } = props;
   const fileHint = useId();
+  const chosen = useId();
   const candidates = props.documents.filter((document) => document.kind === kind);
   function choose() {
     setFileName(fileInput.current?.files?.[0]?.name ?? "");
@@ -189,15 +190,14 @@ function DealDocumentUpload(props: Props & { signal: AbortSignal; fileInput: Ref
           className="sr-only"
           type="file"
           accept={fileExtensions.join(",")}
-          aria-describedby={fileHint}
+          aria-label="File"
+          aria-describedby={`${chosen} ${fileHint}`}
           onChange={choose}
           required
           disabled={busy}
         />
-        <strong>{fileName || "Drop a file here or choose one"}</strong>
-        <small id={fileHint}>
-          {fileName ? "Choose another file · " : ""}PDF, Word, Excel or PowerPoint · Up to 25 MB
-        </small>
+        <strong id={chosen}>{fileName || "Drop a file here or choose one"}</strong>
+        <small id={fileHint}>PDF, Word, Excel or PowerPoint · Up to 25 MB</small>
       </label>
       <label>
         Document type
