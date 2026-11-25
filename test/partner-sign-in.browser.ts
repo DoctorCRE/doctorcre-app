@@ -1273,9 +1273,9 @@ test("Doc settings show each Mac status and keep link codes private", async (t) 
   const first = await context.newPage();
   await first.goto(server.origin + deepLink);
   await first.locator('#selfAvatar[aria-label*="account and settings"]').click();
-  await first.getByRole("link", { name: "Doc link", exact: true }).click({ timeout: 4000 });
-  assert.equal(first.url(), server.origin + "/updates#docLinkSettings");
-  const target = "/updates?mode=live#docLinkSettings";
+  await first.getByRole("link", { name: "Settings", exact: true }).click({ timeout: 4000 });
+  assert.equal(first.url(), server.origin + "/settings");
+  const target = "/settings?mode=live";
   await first.goto(server.origin + target);
   const settings = first.getByRole("region", { name: "Doc link" });
   await settings.getByText("Doc isn't set up on your Mac yet.").waitFor();
@@ -1323,39 +1323,6 @@ test("Doc settings show each Mac status and keep link codes private", async (t) 
   await settings.getByText("Doc isn't set up on your Mac yet.").waitFor();
 });
 
-for (const issuance of ["completed", "pending"] as const)
-  test(`Doc link clears the ${issuance} code when switching settings through the account menu`, async (t) => {
-    const issue = Promise.withResolvers<void>();
-    t.after(() => issue.resolve());
-    const { server, context } = await app(t, { width: 390, holdDocIssue: issue.promise });
-    const page = await context.newPage();
-    await page.goto(server.origin + "/updates?mode=live#docLinkSettings");
-    const settings = page.getByRole("region", { name: "Doc link" });
-    const making = page.waitForRequest((request) => request.method() === "POST" && request.url().endsWith(docLink));
-    await settings.getByRole("button", { name: "Make link code" }).click();
-    await making;
-    const code = settings.getByText("1".padStart(43, "a"), { exact: true });
-    if (issuance === "completed") {
-      issue.resolve();
-      await code.waitFor();
-    }
-
-    // The live fixture boots with a query that the production menu hrefs omit.
-    await page.evaluate(() => history.replaceState(null, "", "/updates#docLinkSettings"));
-    const avatar = page.locator('#selfAvatar[aria-label*="account and settings"]');
-    await avatar.click();
-    await page.getByRole("link", { name: "Notification preferences" }).click();
-    await page.waitForURL("**/updates#prefForm");
-    await page.keyboard.press("Escape");
-    await avatar.click();
-    await page.getByRole("link", { name: "Doc link", exact: true }).click();
-    await page.waitForURL("**/updates#docLinkSettings");
-    issue.resolve();
-    const replace = settings.getByRole("button", { name: "Replace link code" });
-    await code.or(replace).waitFor();
-    assert.equal(await code.count(), 0, "the issued code must be gone upon returning");
-  });
-
 test("phone notifications are available only with CARR sign-in", async (t) => {
   for (const signIn of ["engine", "carr"] as const) {
     const { server, context } = await app(t, { signIn });
@@ -1368,15 +1335,16 @@ test("phone notifications are available only with CARR sign-in", async (t) => {
         await route.fulfill({ json: { result: { structuredContent: {} } } });
       } else await route.continue();
     });
-    await page.goto(server.origin + "/updates?mode=live");
+    await page.goto(server.origin + "/settings?mode=live");
     if (signIn === "carr") {
       await page
+        .getByRole("region", { name: "Phone notifications" })
         .getByText("Phone notifications are unavailable because the public notification configuration is invalid.")
         .waitFor();
       assert.deepEqual(calls, ["read-web-push-config-v1"]);
     } else {
       await page.locator("html[data-updates-from-engine]").waitFor();
-      await page.getByRole("heading", { name: "Updates", exact: true }).waitFor();
+      await page.getByRole("heading", { name: "Settings", exact: true }).waitFor();
       await page.waitForLoadState("networkidle");
       assert.equal(await page.locator("#phonePush").textContent(), "");
       assert.deepEqual(calls, []);
@@ -1400,18 +1368,13 @@ test("Doc link settings are available only with engine sign-in", async (t) => {
         });
       });
     }
-    await page.goto(server.origin + "/updates?mode=live#docLinkSettings");
-    await page.locator('#selfAvatar[aria-label*="account and settings"]').click();
-    await page.getByRole("link", { name: "Notification preferences" }).waitFor();
-    const entry = page.getByRole("link", { name: "Doc link", exact: true });
+    await page.goto(server.origin + "/settings?mode=live");
     const settings = page.getByRole("region", { name: "Doc link" });
     if (signIn === "engine") {
-      await entry.waitFor();
       await settings.getByText("Doc isn't set up on your Mac yet.").waitFor();
     } else {
-      await page.getByText("Joe's Workspace", { exact: true }).waitFor();
+      await page.locator("#accountWorkspace", { hasText: "Joe's Workspace" }).waitFor({ state: "attached" });
       await page.locator('html[data-doc-link-settled="true"]').waitFor();
-      assert.equal(await entry.count(), 0, "CARR sign-in must hide the Doc link entry");
       assert.equal(
         server.requests.some(({ path }) => path === docLink),
         false,

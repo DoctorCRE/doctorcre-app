@@ -876,7 +876,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             {!waitingCard && presentation && (
               <button
                 type="button"
-                className="inbox-primary"
+                className={open ? undefined : "inbox-primary"}
                 aria-expanded={directUrl || namedAction === "Mark done" ? undefined : open}
                 disabled={openingLocked || (namedAction === "Mark done" && (!completable || open))}
                 onClick={(event) => {
@@ -901,7 +901,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             {!presentation && reviewLabel && (
               <button
                 type="button"
-                className="inbox-primary"
+                className={open ? undefined : "inbox-primary"}
                 aria-expanded={open}
                 disabled={openingLocked}
                 onClick={(event) => openCard(item, event.currentTarget)}

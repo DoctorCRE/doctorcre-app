@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { homeWeek, meetingTime } from '../js/home-week.js';
+import { meetingTime } from '../js/business-date.js';
+import { homeWeek } from '../js/home-week.js';
 
 const agenda = { entries: [
   { key: 'task:undated', type: 'task', day: null, label: 'Synthetic social setup' },

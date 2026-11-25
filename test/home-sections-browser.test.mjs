@@ -1086,7 +1086,7 @@ async function dashboard(t, width, theme, timezone) {
     }
     if (name === 'read-engine-home-draft') result = {
       ...(args.id === state.otherDraft?.draft_id ? state.otherDraft : state.draft), to: 'sender@example.test', cc: 'partner@example.test', attachments: [],
-      source_activity: mailSource, thread: state.draftThread ?? state.thread,
+      source_activity: state.draftSource ?? mailSource, thread: state.draftThread ?? state.thread,
     };
     if (name === 'edit-engine-home-draft') {
       state.draftWrites.push(args);
@@ -1458,6 +1458,25 @@ test('Home reveals earlier text only for the selected email message', async t =>
   assert.equal(await secondText.isVisible(), true);
 });
 
+for (const width of [390, 1280, 1440]) test(`Home names the person the reply answers above the draft at ${width}px`, async t => {
+  const { page, open, state } = await dashboard(t, width, 'light');
+  const draft = { ...draftCard(), title: 'Review the reply to Pat Example' };
+  state.dashboard = true;
+  state.items = [draft];
+  state.draftSource = { ...mailSource, id: mailThread[1].activity_id };
+  await open('/?mode=live');
+  await page.getByRole('link', { name: draft.title }).click();
+  const review = page.getByRole('region', { name: `Details for ${draft.title}` });
+  await review.getByRole('button', { name: 'Edit', exact: true }).waitFor();
+  const thread = review.getByRole('region', { name: 'Email thread' });
+  assert.deepEqual(await thread.getByRole('heading', { level: 5 }).allTextContents(), ['From Maya · Nov 2', 'From Pat · Nov 3']);
+  assert.equal(await review.getByText('Your reply to Pat', { exact: true }).isVisible(), true);
+  if (process.env.HOME_THREAD_SCREENSHOTS) {
+    await mkdir(process.env.HOME_THREAD_SCREENSHOTS, { recursive: true });
+    await page.screenshot({ path: join(process.env.HOME_THREAD_SCREENSHOTS, `reply-to-${width}.png`), fullPage: true });
+  }
+});
+
 test('Home separates Your reply from the email thread', async t => {
   const { page, open, state } = await dashboard(t, 1440, 'dark');
   const draft = draftCard();
@@ -1516,14 +1535,18 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   state.dashboard = true;
   state.items = [draft];
   await open('/?mode=live');
+  const background = locator => locator.evaluate(node => getComputedStyle(node).backgroundColor);
+  const opener = page.getByRole('button', { name: 'Review reply', exact: true });
+  const accent = await background(opener);
   await page.getByRole('link', { name: draft.title }).click();
   const review = page.getByRole('region', { name: `Details for ${draft.title}` });
   const edit = review.getByRole('button', { name: 'Edit', exact: true });
   await edit.waitFor();
-  const background = locator => locator.evaluate(node => getComputedStyle(node).backgroundColor);
-  const accent = await background(page.getByRole('button', { name: 'Review reply', exact: true }));
   assert.equal(await background(review.getByRole('button', { name: 'Send reply', exact: true })), accent, 'Send reply is the primary button');
-  for (const name of ['Edit', 'Drop']) assert.notEqual(await background(review.getByRole('button', { name, exact: true }).first()), accent, name);
+  assert.notEqual(await background(opener), accent, 'the open card gives the primary look to Send reply');
+  const primaries = await page.getByRole('button').evaluateAll((nodes, accent) =>
+    nodes.filter(node => getComputedStyle(node).backgroundColor === accent).map(node => node.textContent), accent);
+  assert.deepEqual(primaries, ['Send reply'], 'one primary button in view');
   assert.equal(await review.getByRole('textbox', { name: 'Message' }).count(), 0);
   assert.equal(await review.getByText('First draft.', { exact: true }).count(), 1);
   assert.equal(await review.getByText('Current saved reply').count(), 0);
@@ -1884,6 +1907,37 @@ for (const [width, height] of [[1280, 800], [1440, 900]]) for (const theme of ['
   assert.deepEqual(await page.evaluate(() => [document.scrollingElement, document.getElementById('appMainSlot')].every(node => node.scrollHeight <= node.clientHeight)), true, 'the page itself does not scroll');
   assert.deepEqual(await reminders.evaluate(node => node.scrollHeight > node.clientHeight), true, 'the long list scrolls inside its tile');
   await reminders.getByRole('heading', { name: /^Reminders/ }).waitFor();
+});
+
+for (const [width, height, withMeeting] of [[1280, 800, false], [1440, 900, false], ...[[1024, 768], [1280, 640], [1280, 800], [1440, 900]].map(size => [...size, true])]) test(`Home tiles fill one screen with long lists side by side${withMeeting ? ' and a meeting' : ''} at ${width}x${height}`, async t => {
+  const meetings = withMeeting ? [scheduledMeeting] : [];
+  const { page, open, state } = await dashboard(t, width, 'dark');
+  await page.setViewportSize({ width, height });
+  state.items = [
+    ...Array.from({ length: 12 }, (_, index) => step(70 + index, `Check the sample document ${index + 1}`)),
+    ...Array.from({ length: 12 }, (_, index) => step(110 + index, `Wait on the sample survey ${index + 1}`, { section: 'snoozed', disposition: 'snoozed', snoozed_until: '2026-11-04T16:00:00Z' })),
+  ];
+  await page.route('**/api/engine/home/today', route => route.fulfill({ json: {
+    ok: true, schema_version: 'home-today.v1', today: '2026-11-03', viewer: 'joe', meetings: { state: meetings.length ? 'ready' : 'empty', items: meetings },
+  } }));
+  await page.clock.install({ time: now });
+  await open('/?mode=live');
+  const reminders = page.getByRole('region', { name: 'Reminders', exact: true });
+  const waiting = page.getByRole('region', { name: 'In motion and waiting', exact: true });
+  const meeting = page.getByRole('region', { name: "Today's meetings", exact: true });
+  if (meetings.length) await meeting.getByRole('heading', { name: "Today's meetings 1" }).waitFor();
+  for (const tile of [reminders, waiting]) await tile.getByRole('button', { name: /^See all/ }).click();
+  const [first, second, grid] = await Promise.all([reminders, waiting, page.locator('.home-sections')].map(node => node.boundingBox()));
+  assert.deepEqual(await page.evaluate(() => [document.scrollingElement, document.getElementById('appMainSlot')].every(node => node.scrollHeight <= node.clientHeight)), true, 'the page itself does not scroll');
+  assert.equal(grid.y + grid.height, height - 12, 'the grid ends at the bottom of the screen');
+  const last = meetings.length ? await meeting.boundingBox() : second;
+  for (const box of [first, last]) assert.equal(box.y + box.height, grid.y + grid.height, 'each column reaches the bottom');
+  if (meetings.length) {
+    const [heading, row] = await Promise.all([meeting.getByRole('heading', { name: /^Today's meetings/ }), meeting.locator('.home-meeting')].map(node => node.boundingBox()));
+    assert.ok(row.y + row.height <= last.y + last.height, 'the meetings tile shows its heading and its meeting');
+    assert.ok(heading.y >= last.y, 'the meetings heading is not cut off');
+  }
+  for (const tile of [reminders, waiting]) assert.equal(await tile.evaluate(node => node.scrollHeight > node.clientHeight), true, 'each long list scrolls inside its tile');
 });
 
 const draftCard = () => ({

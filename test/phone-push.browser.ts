@@ -297,7 +297,7 @@ test("fresh Updates installation activates the root worker before enrollment", a
           await page.getByText("Session ended. Sign in again to manage this installation.", { exact: true }).waitFor();
         } else if (outcome !== "active") {
           await page
-            .getByText("Phone notification setup failed. Reopen Updates to try again.", { exact: true })
+            .getByText("Phone notification setup failed. Reopen Settings to try again.", { exact: true })
             .waitFor({ timeout: 15000 });
         } else {
           await page

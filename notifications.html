@@ -53,34 +53,6 @@
       <ul class="work-list" id="feedList"></ul>
     </section>
 
-    <section class="card glass" data-section="quiet_hours" id="quietHoursBlock" aria-labelledby="quietHoursTitle">
-      <div class="card-heading">
-        <h2 id="quietHoursTitle">Your notification preferences</h2>
-        <span class="as-of" id="prefAsOf"></span>
-      </div>
-      <div class="state-block" id="prefState" data-state="loading">
-        <h3 id="prefStateTitle">Reading your preferences…</h3>
-        <button class="btn" type="button" id="retryPreference" hidden>Retry</button>
-      </div>
-      <form class="pref-form" id="prefForm" novalidate hidden>
-        <label class="switch-field">
-          <input id="deviceOptIn" type="checkbox">
-          <span>Send a device push when something is addressed to me</span>
-        </label>
-        <div class="pref-grid">
-          <div class="field"><label for="quietStart">Quiet hours start</label><input id="quietStart" type="text" autocomplete="off" placeholder="10:00 PM"></div>
-          <div class="field"><label for="quietEnd">Quiet hours end</label><input id="quietEnd" type="text" autocomplete="off" placeholder="7:00 AM"></div>
-          <div class="field"><label for="quietTimezone">Timezone</label><input id="quietTimezone" type="text" list="timezoneNames" autocomplete="off" spellcheck="false" placeholder="America/Chicago"><datalist id="timezoneNames"></datalist></div>
-        </div>
-        <p class="caption pref-summary" id="prefSummary"></p>
-        <div class="pref-act">
-          <button class="btn btn-primary" type="submit" id="prefSave">Save preferences</button>
-          <button class="btn" type="button" id="prefClear">Clear quiet hours</button>
-        </div>
-      </form>
-      <p class="caption pref-message" id="prefMessage" role="status" aria-live="polite" aria-atomic="true"></p>
-    </section>
-
     <section class="card glass" data-section="activity" id="activityBlock" aria-labelledby="activityTitle" hidden>
       <div class="card-heading">
         <h2 id="activityTitle">Who did what</h2>
@@ -91,13 +63,10 @@
       <div class="state-block" id="activityState" data-state="unavailable" hidden><h3>Recent activity is unavailable</h3><button class="btn" type="button" id="retryActivity" hidden>Retry</button></div>
     </section>
 
-    <div id="docLinkSettings"></div>
-    <div id="phonePush"></div>
   </main>
 
   <div id="receiptDock" class="receipt-dock" role="group" aria-label="Command feedback"></div>
   <footer class="shell"><p class="small">DoctorCRE · Updates</p></footer>
-  <script type="module" src="/js/ui-phone-push.generated.js"></script>
   <script type="module" src="/js/notifications.js"></script>
 </body>
 </html>

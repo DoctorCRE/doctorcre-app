@@ -234,8 +234,9 @@ const OLD_HISTORY_ACTION = new Map(Object.entries({
 }));
 
 const historicalActor = slug => timelineActor(slug) || 'Author unavailable';
-const historicalPartner = slug => slug === 'joe-local' ? 'Joe'
-  : Object.hasOwn(ACTOR_LABEL, slug) ? ACTOR_LABEL[slug] : 'Name unavailable';
+// As a field value, a partner's machine sign-in names that partner; as an author it is the automation.
+const HISTORY_PARTNER = { ...ACTOR_LABEL, 'joe-local': ACTOR_LABEL.joe, 'dell-local': ACTOR_LABEL.dell };
+const historicalPartner = slug => typeof slug === 'string' && Object.hasOwn(HISTORY_PARTNER, slug) ? HISTORY_PARTNER[slug] : undefined;
 const words = value => value.replace(/(^|[_-]+)([a-z])/g, (_, separator, letter) =>
   separator ? ' ' + letter : letter.toUpperCase());
 function historicalDay(value) {
@@ -303,13 +304,15 @@ function importedFacts({ verb, old_value, new_value }) {
   return Object.entries(facts).flatMap(([key, [label, format]]) => {
     const had = Object.hasOwn(before, key);
     const has = Object.hasOwn(after, key);
-    if (!had && !has) return [];
-    const oldText = historicalValue(before[key], format);
-    const newText = historicalValue(after[key], format);
-    if (had && has && oldText !== newText) {
+    const oldText = had ? historicalValue(before[key], format) : undefined;
+    const newText = has ? historicalValue(after[key], format) : undefined;
+    // A new value with no name drops the fact: the old name alone would read as current.
+    if (has && newText === undefined) return [];
+    if (oldText !== undefined && newText !== undefined && oldText !== newText) {
       return [after[key] === null ? `${label} cleared (was ${oldText})` : `${label}: ${oldText} to ${newText}`];
     }
-    return [`${label}: ${has ? newText : oldText}`];
+    const text = newText ?? oldText;
+    return text === undefined ? [] : [`${label}: ${text}`];
   }).join('\n');
 }
 

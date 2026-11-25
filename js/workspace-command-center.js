@@ -11,14 +11,14 @@ import { projectInvoices, invoiceHref, invoiceMoney, invoiceDate } from './invoi
 import { introductionSuggestions, introductionRouteLabel } from './relationship-network-model.js';
 import { mountAutoRefresh, readWithDeadline, updatedLabel } from './auto-refresh.mjs';
 import { homeClient } from './home-boot.js';
-import { BUSINESS_TIME_ZONE } from './business-date.js';
+import { BUSINESS_TIME_ZONE, meetingTime } from './business-date.js';
 import { mountCallOutcomes } from './call-outcomes.js';
 import { localToday } from './calendar-model.js';
 import { agendaSnapshot, createHomeReadQueue, dealHref, dealSnapshot, HOME_SCOPES, readHomeAgenda, readHomeDashboard, topNewLeads } from './home-dashboard-model.js';
 import { mountNotificationBadge } from './shell.js';
 import { mountHomeCallTasks } from './home-call-tasks.js';
 import { mountHomeWeek } from './home-week-view.js';
-import { meetingDate, meetingTime } from './home-week.js';
+import { meetingDate } from './home-week.js';
 import { pageScroller } from './touch-layout.js';
 
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));

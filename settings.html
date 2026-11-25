@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-density="comfortable" data-motion="full">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="description" content="DoctorCRE settings">
+  <title>Settings · DoctorCRE</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/dealroom-192.png">
+  <link rel="icon" href="/icons/dealroom.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <script src="/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/css/tokens.css">
+  <link rel="preload" as="style" data-font-stylesheet href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600&display=swap">
+  <link rel="stylesheet" href="/css/system.css">
+  <link rel="stylesheet" href="/css/notifications.css">
+  <link rel="stylesheet" href="/css/app-shell.css">
+</head>
+<body>
+  <div id="appShell"></div><script type="module" src="/js/app-shell.js"></script>
+  <a class="skip" href="#main">Skip to settings</a>
+
+  <main id="main" class="shell">
+    <h1 class="sr-only">Settings</h1>
+    <section class="card glass" data-section="quiet_hours" id="quietHoursBlock" aria-labelledby="quietHoursTitle">
+      <div class="card-heading">
+        <h2 id="quietHoursTitle">Your notification preferences</h2>
+        <span class="as-of" id="prefAsOf"></span>
+      </div>
+      <div class="state-block" id="prefState" data-state="loading">
+        <h3 id="prefStateTitle">Reading your preferences…</h3>
+        <button class="btn" type="button" id="retryPreference" hidden>Retry</button>
+      </div>
+      <form class="pref-form" id="prefForm" novalidate hidden>
+        <label class="switch-field">
+          <input id="deviceOptIn" type="checkbox">
+          <span>Send a device push when something is addressed to me</span>
+        </label>
+        <div class="pref-grid">
+          <div class="field"><label for="quietStart">Quiet hours start</label><input id="quietStart" type="text" autocomplete="off" placeholder="10:00 PM"></div>
+          <div class="field"><label for="quietEnd">Quiet hours end</label><input id="quietEnd" type="text" autocomplete="off" placeholder="7:00 AM"></div>
+        </div>
+        <p class="caption pref-summary" id="prefSummary"></p>
+        <div class="pref-act">
+          <button class="btn btn-primary" type="submit" id="prefSave">Save preferences</button>
+          <button class="btn" type="button" id="prefClear">Clear quiet hours</button>
+        </div>
+      </form>
+      <p class="caption pref-message" id="prefMessage" role="status" aria-live="polite" aria-atomic="true"></p>
+    </section>
+
+    <div id="docLinkSettings"></div>
+    <div id="phonePush"></div>
+  </main>
+
+  <div id="receiptDock" class="receipt-dock" role="group" aria-label="Command feedback"></div>
+  <script type="module" src="/js/ui-phone-push.generated.js"></script>
+  <script type="module" src="/js/notifications.js"></script>
+</body>
+</html>

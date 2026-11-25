@@ -233,7 +233,7 @@ test('phone capture ships behind the existing partner gate with narrowly scoped 
 test('switched linked routes serve guidance through their existing auth gates', async () => {
   for (const [path, key, oldAsset, newAsset, links] of [
     ['/review-workflows?email=example#homeEmailFollowups', null, 'review-workflows', 'review-workflows-moved', ['/', '/deals', '/calendar']],
-    ['/leases?lease=example', 'deals-saves-from-engine', 'lease-anniversaries', 'lease-anniversaries', ['/deals']],
+    ['/leases?lease=example', 'deals-saves-from-engine', 'lease-anniversaries', 'lease-anniversaries', []],
     ['/client-portal?slug=example', 'deals-saves-from-engine', 'client-portal', 'client-website-moved', ['/deals']],
   ]) {
     for (const on of [false, true]) {

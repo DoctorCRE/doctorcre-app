@@ -383,7 +383,7 @@ test("B12-1 defaults panel: with no row the page prints the record layer's docum
   const model = preferenceView(prefs);
   assert.equal(model.quietHoursSet, false);
   assert.equal(model.version, 1);
-  assert.equal(preferenceSummary(model), "No quiet hours set · UTC · device push off");
+  assert.equal(preferenceSummary(model), "No quiet hours set · device push off");
   assert.equal(preferenceSummary(null), "");
   assert.equal(preferenceState({ state: "read", payload: prefs }).state, "ready");
   assert.equal(preferenceState({ state: "pending" }).state, "loading");
@@ -396,13 +396,13 @@ test("B12-2 save with CAS: base_version comes from the last READ, and a save mov
   const client = await fixture();
   const before = await client.notificationPreferences();
   const built = setPreferenceArgs(
-    { device_opt_in: true, quiet_hours_start: "22:00", quiet_hours_end: "06:00", timezone: "America/Chicago" },
+    { device_opt_in: true, quiet_hours_start: "22:00", quiet_hours_end: "06:00" },
     preferenceView(before),
   );
   assert.equal(built.ok, true);
   assert.deepEqual(built.args, {
     base_version: 1, device_opt_in: true,
-    quiet_hours_start: "22:00", quiet_hours_end: "06:00", timezone: "America/Chicago",
+    quiet_hours_start: "22:00", quiet_hours_end: "06:00",
   });
 
   const saved = await client.setNotificationPreference({ idempotency_key: "b12-save-1", ...built.args });
@@ -410,7 +410,7 @@ test("B12-2 save with CAS: base_version comes from the last READ, and a save mov
   assert.equal(saved.exists, true);
   assert.equal(saved.version, 2, "a save must move the version exactly one step");
   assert.equal(saved.device_opt_in, true);
-  assert.equal(saved.timezone, "America/Chicago");
+  assert.equal(saved.timezone, before.timezone);
   assert.equal(validPreferencePayload(saved), true, "the set answer is the same shape as the read answer");
 
   // The same key replays and does NOT move the version a second time.
@@ -615,7 +615,7 @@ test("B12-8 both validators accept the REAL captured production payloads, field 
   assert.equal(model.timezone, "UTC");
   assert.equal(model.quietHoursSet, false, "the captured row has both times null");
   assert.equal(model.quietNow, false);
-  assert.equal(preferenceSummary(model), "No quiet hours set · UTC · device push off");
+  assert.equal(preferenceSummary(model), "No quiet hours set · device push off");
 
   const feed = captured("notification-feed");
   assert.equal(validFeedPayload(feed), true, "the feed validator refuses production");
@@ -734,7 +734,7 @@ test("B12-11 a version conflict reports unsaved changes while retaining version 
 test("Updates house grammar: preference summaries use AM/PM", () => {
   const model = preferenceView({ ok: true, exists: true, version: 7, device_opt_in: true,
     quiet_hours_start: "22:00:00", quiet_hours_end: "07:30:00", timezone: "UTC" });
-  assert.equal(preferenceSummary(model), "Quiet hours 10:00 PM to 7:30 AM UTC · device push on");
+  assert.equal(preferenceSummary(model), "Quiet hours 10:00 PM to 7:30 AM · device push on");
   const dom = new JSDOM(html), doc = dom.window.document;
   try {
 

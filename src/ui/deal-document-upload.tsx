@@ -87,10 +87,17 @@ function DealDocumentUpload(props: Props & { signal: AbortSignal; fileInput: Ref
   const [replaces, setReplaces] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [fileName, setFileName] = useState("");
+  const [dragging, setDragging] = useState(false);
   const attempt = useRef<Attempt | null>(null);
   const { fileInput } = props;
   const fileHint = useId();
+  const chosen = useId();
   const candidates = props.documents.filter((document) => document.kind === kind);
+  function choose() {
+    setFileName(fileInput.current?.files?.[0]?.name ?? "");
+    setMessage("");
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -121,6 +128,7 @@ function DealDocumentUpload(props: Props & { signal: AbortSignal; fileInput: Ref
       ) {
         attempt.current = null;
         if (fileInput.current) fileInput.current.value = "";
+        setFileName("");
         setKind("");
         setReplaces("");
         const documents = await props.refreshDocuments();
@@ -157,19 +165,46 @@ function DealDocumentUpload(props: Props & { signal: AbortSignal; fileInput: Ref
 
   return (
     <form className="deal-update-form deal-document-upload" onSubmit={(event) => void submit(event)}>
-      <label>
-        File
+      <label
+        className="deal-file-drop"
+        data-dragging={dragging || undefined}
+        onDragOver={(event) => {
+          if (!event.dataTransfer.types.includes("Files")) return;
+          event.preventDefault();
+          if (!busy) setDragging(true);
+        }}
+        onDragLeave={(event) => {
+          if (!(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)))
+            setDragging(false);
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          setDragging(false);
+          const input = fileInput.current;
+          const { files } = event.dataTransfer;
+          if (busy || !input || !files.length) return;
+          if (files.length > 1) {
+            setMessage("Drop one file at a time.");
+            return;
+          }
+          input.files = files;
+          choose();
+        }}
+      >
         <input
           ref={fileInput}
+          className="sr-only"
           type="file"
           accept={fileExtensions.join(",")}
-          aria-describedby={fileHint}
-          onChange={() => setMessage("")}
+          aria-label="File"
+          aria-describedby={`${chosen} ${fileHint}`}
+          onChange={choose}
           required
           disabled={busy}
         />
+        <strong id={chosen}>{fileName || "Drop a file here or choose one"}</strong>
+        <small id={fileHint}>PDF, Word, Excel or PowerPoint · Up to 25 MB</small>
       </label>
-      <small id={fileHint}>PDF, Word, Excel or PowerPoint · Up to 25 MB</small>
       <label>
         Document type
         <select

@@ -242,7 +242,6 @@ function mountAccount(root, host, pathname, reactWorkspaceRequested, ready) {
       if (boot.mode === "fixture") session = { actor: { slug: boot.options.selfActor || "joe" } };
       else {
         session = await boundary.verify();
-        panel.querySelector("#accountDocLink").hidden = !boundary.engineSignIn;
         for (const link of askDocLinks) link.hidden = !boundary.engineSignIn;
         lastVerified = new Date().toLocaleTimeString(); sessionStatus.hidden = true;
         panel.querySelector("#accountStatus").textContent = "";

@@ -57,8 +57,7 @@ export function appShellMarkup(pathname, search = "", items = navigationItems) {
           <div class="app-shell-account-group" role="group" aria-label="Account"><h3>Account</h3>
           <button type="button" id="accountProfile">Profile</button>
           <button type="button" id="accountHelp" aria-haspopup="dialog">How DoctorCRE works</button>
-          <a href="/updates#prefForm">Notification preferences</a>
-          <a href="/updates#docLinkSettings" id="accountDocLink" hidden>Doc link</a>
+          <a href="/settings"${pathname === "/settings" ? ' aria-current="page"' : ""}>Settings</a>
           </div>
           <div id="accountWorkspaceControls" class="app-shell-workspace-group" role="group" aria-label="Workspace" hidden><h3>Workspace</h3></div>
           <div class="app-shell-call-availability">
