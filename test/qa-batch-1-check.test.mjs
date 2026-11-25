@@ -24,11 +24,10 @@ test("Conversations carries no no-thread or unknown-status copy in the hero", as
   assert.match(js, /piece\.hidden = !header/);
 });
 
-test("Search puts results ahead of Scope and Saved views", async () => {
+test("Search keeps Scope in the search toolbar and puts results ahead of Saved views", async () => {
   const html = await read("search.html");
-  for (const later of ['data-search="scope"', 'data-search="views"']) {
-    assert.ok(at(html, 'id="searchResults"') < at(html, later), `results before ${later}`);
-  }
+  assert.ok(at(html, 'data-search="scope"') < at(html, 'id="searchResults"'), "scope sits in the toolbar above results");
+  assert.ok(at(html, 'id="searchResults"') < at(html, 'data-search="views"'), "results before saved views");
 });
 
 test("no page or script points Home or sign-in at /business", async () => {
