@@ -7,7 +7,7 @@ import { COLUMNS, columnBySlug, columnByValue, noteText, PHASE_DATE_KIND } from 
 import { compareInstants, escapeText, fieldLabel, readableValue } from './change-receipts.mjs';
 import { sourceTime } from './email-source-line.js';
 import { concise, isEngineDealDetail, PARKING_REASONS } from './local-deals-model.js';
-import { authorLabel, dealTypeLabel, knownAuthor, partnerName } from './client.js';
+import { ACTOR_LABEL, authorLabel, dealTypeLabel, knownAuthor } from './client.js';
 
 const DAY = 86400000;
 const esc = escapeText;
@@ -234,6 +234,9 @@ const OLD_HISTORY_ACTION = new Map(Object.entries({
 }));
 
 const historicalActor = slug => timelineActor(slug) || 'Author unavailable';
+// As a field value, a partner's machine sign-in names that partner; as an author it is the automation.
+const HISTORY_PARTNER = { ...ACTOR_LABEL, 'joe-local': ACTOR_LABEL.joe, 'dell-local': ACTOR_LABEL.dell };
+const historicalPartner = slug => typeof slug === 'string' && Object.hasOwn(HISTORY_PARTNER, slug) ? HISTORY_PARTNER[slug] : undefined;
 const words = value => value.replace(/(^|[_-]+)([a-z])/g, (_, separator, letter) =>
   separator ? ' ' + letter : letter.toUpperCase());
 function historicalDay(value) {
@@ -266,8 +269,8 @@ const OLD_HISTORY_FACTS = {
   name: ['Deal name'], client_name: ['Client'],
   phase: ['Phase', value => value === 'dead' ? 'Lost' : columnBySlug(value)?.label || words(value)],
   deal_type: [fieldLabel('kind'), words], market: ['Market'], agent_name: ['Market agent'],
-  market_agent: ['Market agent'], lead: ['Deal owner', partnerName], owner: ['Assigned to', partnerName],
-  assignee: ['Assigned to', partnerName], set_by: ['Set by', historicalActor],
+  market_agent: ['Market agent'], lead: ['Deal owner', historicalPartner], owner: ['Assigned to', historicalPartner],
+  assignee: ['Assigned to', historicalPartner], set_by: ['Set by', historicalActor],
   lane: ['Board lane', words], next_action: ['Next step'], next_step: ['Next step'],
   description: ['Next step'], summary: ['Summary'], reason: ['Reason'], outcome: ['Outcome', words],
   status: ['Status', words], closed_on: ['Closing date', historicalDay], invoiced_on: ['Invoice date', historicalDay],

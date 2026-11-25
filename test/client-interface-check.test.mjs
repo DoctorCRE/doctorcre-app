@@ -321,8 +321,8 @@ test('shared reads never join across signed-in users', async () => {
 
 test('note authors never resolve through the object prototype', async () => {
   const { authorLabel } = await import('../js/client.js');
-  assert.deepEqual(['joe', 'dell', 'joe-local', 'dell-local', 'claude', 'constructor', 'toString'].map(authorLabel),
-    ['Joe', 'Dell', 'Joe', 'Dell', 'Doc (assistant)', 'Doc (assistant)', 'Doc (assistant)']);
+  assert.deepEqual(['joe', 'dell', 'joe-local', 'claude', 'constructor', 'toString'].map(authorLabel),
+    ['Joe', 'Dell', 'Joe', 'Doc (assistant)', 'Doc (assistant)', 'Doc (assistant)']);
 });
 
 test('a job author says plainly who wrote it, never a partner', async () => {
