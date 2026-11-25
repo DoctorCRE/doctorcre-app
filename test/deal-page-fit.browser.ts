@@ -42,9 +42,11 @@ test("a deal page header is compact and every tab fits on laptops", async (t) =>
         const strip = page.locator("#workspaceTabs");
         const phone = width < 651;
         if (phone) {
-          const boxes = await strip.locator('[role="tab"]').evaluateAll((tabs) =>
-            tabs.map((tab) => tab.getBoundingClientRect()).map(({ top, height }) => [Math.round(top), height]),
-          );
+          const boxes = await strip
+            .locator('[role="tab"]')
+            .evaluateAll((tabs) =>
+              tabs.map((tab) => tab.getBoundingClientRect()).map(({ top, height }) => [Math.round(top), height]),
+            );
           assert.equal(new Set(boxes.map(([top]) => top)).size, 1, "the tabs are one row");
           assert.equal(new Set(boxes.map(([, height]) => height)).size, 1, "every tab name reads on one line");
           assert.equal(await strip.evaluate((strip) => strip.scrollWidth > strip.clientWidth), true, "the row scrolls");

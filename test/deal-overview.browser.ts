@@ -281,9 +281,9 @@ for (const [width, height] of laptops)
     const header = await box(page.locator(".workspace-header"));
     const tabs = await box(page.locator("#workspaceTabs"));
     assert.ok(tabs.y - header.y <= 96, "the tabs sit under one heading row and one line of facts");
-    const factTops = await page.locator(".workspace-facts dd").evaluateAll((all) =>
-      all.map((fact) => Math.round(fact.getBoundingClientRect().top)),
-    );
+    const factTops = await page
+      .locator(".workspace-facts dd")
+      .evaluateAll((all) => all.map((fact) => Math.round(fact.getBoundingClientRect().top)));
     assert.equal(new Set(factTops).size, 1, "the header's facts share one line");
 
     const list = await box(page.locator(".deal-open-steps ul"));
@@ -296,7 +296,7 @@ for (const [width, height] of laptops)
       ["Timeline", "Dated events"],
       ["Correspondence & notes", "Correspondence & notes"],
       ["Documents", "Documents"],
-    ]) {
+    ] as const) {
       await page.getByRole("tab", { name: tab }).click();
       const title = page.getByRole("tabpanel").getByRole("heading", { name: heading, exact: true });
       assert.equal(await title.evaluate((title) => getComputedStyle(title).fontSize), body, `${heading} is body size`);
