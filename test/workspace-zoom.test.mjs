@@ -94,7 +94,10 @@ for (const actor of ['joe', 'dell']) test(`${actor} can double click a visible t
   const browser = await chromium.launch(); t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const theme = actor === 'joe' ? 'light' : 'dark';
-  await page.addInitScript(theme => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ theme })), theme);
+  await page.addInitScript(theme => {
+    localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ theme }));
+    localStorage.setItem('doctorcre:today:/invoices', 'open');
+  }, theme);
   await page.goto(`${server.origin}/invoices?actor=${actor}&ui=react`);
   assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
   await page.locator('[data-invoice]').first().waitFor();

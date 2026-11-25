@@ -107,7 +107,8 @@ for (const width of [1440, 390])
     await page.locator(".record-row").first().click();
     const section = page.getByRole("dialog", { name: /Demo Practice 01/ }).locator(".client-note");
     await assertLinked(section);
-    await section.scrollIntoViewIfNeeded();
+    // The record panel paints twice as it opens, so scroll whichever note is current in one step.
+    await section.evaluate((note) => note.scrollIntoView({ block: "nearest" }));
     await page.screenshot({ path: `${evidence}client-note-${width}.png`, animations: "disabled" });
     assert.deepEqual(errors, []);
   });
