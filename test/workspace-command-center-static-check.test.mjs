@@ -21,7 +21,7 @@ test("workspace surfaces share navigation while the client portal mounts its ded
     assert.equal((nav.match(/data-app-nav-item/g) || []).length, navigationItems.length, `${route}: same destinations`);
   }
   assert.deepEqual(navigationItems.filter(item => !item.secondary).map(({ label }) => label),
-    ["Home", "Deals", "Leads", "Vendors"]);
+    ["Home", "Deals", "Leads", "Calendar", "Vendors"]);
 });
 
 test("People offers both directories in the shared shell", () => {
