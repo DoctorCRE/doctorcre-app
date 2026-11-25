@@ -6,7 +6,6 @@ export function preserveBoardFocus({ board, document, paint, announce = () => {}
   const control = active?.dataset?.open === id ? 'open'
     : active?.dataset?.openClientWebsite === id ? 'open-client-website'
     : active?.dataset?.move === id ? 'move'
-    : active?.dataset?.star === id ? 'star'
     : active?.dataset?.undoPhase === id ? 'undo-phase' : 'card';
 
   paint();
