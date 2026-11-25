@@ -180,9 +180,8 @@ const chatTimes = {
   older: centralFormat({ month: "short", day: "numeric", year: "numeric" }),
 };
 
-// Gr8r Studio's dates: a time today, the weekday within the week, else the date.
-function chatTime(createdAt: string, now: Date) {
-  const date = new Date(createdAt);
+function chatTime(at: string, now: Date) {
+  const date = new Date(at);
   const days = chatDay(now) - chatDay(date);
   const format =
     days === 0
