@@ -3,7 +3,7 @@ const allSteps = [
   { target: '[data-app-nav-item][href="/"]', text: 'Start with your agenda. Home brings together upcoming work and deals that need attention.' },
   { target: '[data-app-nav-item][href="/deals"]', text: 'Follow each deal through its phase, next step, and next date. Open a deal to review its details.' },
   { target: '[data-app-nav-item][href="/leads"]', text: 'Search and review potential clients in Leads. Open a lead to see its details before deciding what comes next.' },
-  { target: '.app-shell-more-toggle', title: 'Calendar', text: 'Open More, then Calendar to see meetings and important deal dates.' },
+  { target: '[data-app-nav-item][href="/calendar"]', text: 'Open Calendar to see meetings and important deal dates.' },
   { target: '#askDocLink', title: 'Ask Doc', text: 'Open Ask Doc to ask about deals, leads, clients, or your mail.' },
   { target: '#callModeButton', title: 'Call mode', text: 'Use Call Mode to record and review your weekly pipeline call.' },
 ];
