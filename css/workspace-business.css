@@ -144,29 +144,29 @@ body.record-open { overflow: hidden; }
 /* Sections part by whitespace, not rules. */
 .record-panel-body { display: grid; gap: var(--space-5); }
 .record-section h4 { margin: 0 0 var(--space-1); color: var(--fg-muted); font-size: var(--font-size-1); font-weight: var(--font-weight-regular); }
-.record-section ul:not([class]) { margin: 0; padding-inline-start: var(--space-4); font-size: var(--font-size-body); line-height: var(--line-height-body); }
-.record-panel-body :is(.note-summary, .entry-detail, .client-deals) { font-size: var(--font-size-body); }
+.record-section ul:not([class]) { margin: 0; padding-inline-start: var(--space-4); font-size: var(--font-size-2); line-height: var(--line-height-body); }
+.record-panel-body :is(.note-summary, .entry-detail, .client-deals) { font-size: var(--font-size-2); }
 .record-panel-body [data-retry='activity'] { min-height: 28px; padding: 0 var(--space-2); border: 0; background: transparent; color: var(--fg); font: inherit; text-decoration: underline; cursor: pointer; }
 .record-panel-body .client-deals { gap: var(--space-2); }
 .record-panel-body .client-deals a { display: inline-flex; align-items: center; padding: var(--space-1) var(--space-3); border-radius: var(--radius-round); background: var(--surface-2); text-decoration: none; }
 .record-panel-body .client-deals a:hover { background: var(--surface-3); }
 .vendor-contacts { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: var(--space-4) var(--space-6); margin: 0; padding: 0; list-style: none; }
 .vendor-contacts > li { display: grid; align-content: start; gap: var(--space-1); }
-.vendor-contacts h4 { margin: 0; color: var(--fg); font-size: var(--font-size-body); font-weight: var(--font-weight-strong); }
+.vendor-contacts h4 { margin: 0; color: var(--fg); font-size: var(--font-size-2); font-weight: var(--font-weight-strong); }
 .vendor-contacts .note-summary { color: var(--fg-muted); }
 .vendor-contacts .record-field { grid-template-columns: minmax(0, 1fr); gap: 0; }
 .vendor-contacts dd, .vendor-contacts .observed { overflow-wrap: anywhere; }
 .record-tone { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0; color: var(--fg-muted); font-size: var(--font-size-1); }
 .record-owner { margin: 0; font-size: var(--font-size-1); }
-.record-note { margin: 0; color: var(--fg-muted); font-size: var(--font-size-body); line-height: var(--line-height-body); }
+.record-note { margin: 0; color: var(--fg-muted); font-size: var(--font-size-2); line-height: var(--line-height-body); }
 .detail-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-5) var(--space-6); }
-.record-section h3 { margin: 0 0 var(--space-2); color: var(--fg); font-size: var(--font-size-body); font-weight: var(--font-weight-strong); line-height: var(--line-height-heading); }
+.record-section h3 { margin: 0 0 var(--space-2); color: var(--fg); font-size: var(--font-size-2); font-weight: var(--font-weight-strong); line-height: var(--line-height-heading); }
 .record-section * + h3 { margin-top: var(--space-4); }
 .record-section dl { display: grid; gap: var(--space-1); margin: 0; }
 /* A fixed label column keeps each value beside its label at every width. */
 .record-field { display: grid; grid-template-columns: 10rem minmax(0, 1fr); gap: var(--space-3); }
 .record-field dt { margin: 0; color: var(--fg-muted); font-size: var(--font-size-1); }
-.record-field dd { margin: 0; font-size: var(--font-size-body); line-height: var(--line-height-body); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.record-field dd { margin: 0; font-size: var(--font-size-2); line-height: var(--line-height-body); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .client-deals { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); font-size: var(--font-size-1); }
 .record-item > .client-deals { padding: 0 var(--space-4) var(--space-2); }
 .client-deals a, #recordActivity .activity-what a { overflow-wrap: anywhere; text-decoration: underline; }
@@ -187,10 +187,10 @@ body.record-open { overflow: hidden; }
 .relationship-metric { display: grid; align-content: start; gap: 2px; }
 .relationship-metric span { order: -1; color: var(--fg-muted); font-size: var(--font-size-1); }
 .relationship-section .note-summary { margin-top: var(--space-2); color: var(--fg-muted); }
-.relationship-metric strong { font-size: var(--font-size-body); font-weight: var(--font-weight-strong); line-height: var(--line-height-body); font-variant-numeric: tabular-nums; }
+.relationship-metric strong { font-size: var(--font-size-2); font-weight: var(--font-weight-strong); line-height: var(--line-height-body); font-variant-numeric: tabular-nums; }
 .network-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-5); }
 .network-list { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
-.network-list li { padding: var(--space-2) 0; font-size: var(--font-size-body); }
+.network-list li { padding: var(--space-2) 0; font-size: var(--font-size-2); }
 .network-list li + li { border-top: var(--hairline-width) solid var(--hairline); }
 .network-list time { display: block; margin-top: var(--space-1); color: var(--fg-muted); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; }
 
@@ -202,9 +202,9 @@ body.record-open { overflow: hidden; }
 .activity-row:hover { border-color: var(--hairline); background: var(--surface-2); }
 .activity-dot { position: absolute; top: 13px; left: calc(var(--space-4) * -1); width: 9px; height: 9px; border: 2px solid var(--fg-muted); border-radius: var(--radius-round); background: var(--surface-1); }
 .activity-row[data-kind="event"] .activity-dot { border-color: var(--status-info); border-radius: 0; }
-.activity-what { font-size: var(--font-size-body); line-height: var(--line-height-body); overflow-wrap: anywhere; }
+.activity-what { font-size: var(--font-size-2); line-height: var(--line-height-body); overflow-wrap: anywhere; }
 .activity-when { color: var(--fg-muted); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; }
-.activity-note { font-size: var(--font-size-body); }
+.activity-note { font-size: var(--font-size-2); }
 .client-activity .activity-what summary { cursor: pointer; }
 .client-activity .activity-row { grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; }
 .client-activity .activity-when { white-space: nowrap; }

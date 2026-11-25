@@ -83,6 +83,13 @@ for (const dataset of ["clients", "vendors"] as const)
             name: el.getAttribute("aria-label") ?? el.textContent?.trim(),
             height: box(el).height,
           })),
+          bodySize: (() => {
+            const probe = node.appendChild(document.createElement("span"));
+            probe.style.fontSize = "var(--font-size-2)";
+            const size = getComputedStyle(probe).fontSize;
+            probe.remove();
+            return size;
+          })(),
           valueSize: style(".record-field dd")?.fontSize,
           figureSize: style(".relationship-metric strong")?.fontSize ?? null,
           tinted: [".vendor-contacts > li", ".relationship-metrics", ".relationship-metric + .relationship-metric"]
@@ -100,9 +107,10 @@ for (const dataset of ["clients", "vendors"] as const)
       assert.deepEqual(drawer.outsideHead, [], "every header control sits in the one row");
       assert.ok(drawer.titleCut, "a long name is cut to one line");
       assert.equal(drawer.titleTip, longName, "the full name shows on hover");
-      assert.equal(drawer.valueSize, phone ? "16px" : "14px", "values read at body size");
+      // The body token's size per width belongs to the token itself (#1531); the drawer only uses it.
+      assert.equal(drawer.valueSize, drawer.bodySize, "values read at body size");
       if (dataset === "vendors") {
-        assert.equal(drawer.figureSize, phone ? "16px" : "14px", "figures are body size");
+        assert.equal(drawer.figureSize, drawer.bodySize, "figures are body size");
         assert.deepEqual(drawer.tinted, [], "contacts and figures sit on the drawer, not in boxes");
       }
       assert.doesNotMatch(drawer.body, /Edit|Link to someone/, "the body does not repeat the actions");

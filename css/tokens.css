@@ -135,7 +135,6 @@
   --font-text: "DM Sans", "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --font-size-1: 0.8125rem;  /* 13px  meta, captions */
-  --font-size-body: 0.875rem; /* 14px reading text on a computer; 16px on a phone */
   --font-size-2: 1.03125rem; /* 16.5px body, controls */
   --font-size-3: 1.3125rem;  /* 21px  heading */
   --font-size-4: 1.6875rem;  /* 27px  title */
@@ -193,5 +192,4 @@
 }
 
 :root[data-density="compact"] { --density: 0.75; }
-@media (max-width: 767px) { :root { --font-size-body: 1rem; } }
 @media (min-width: 1024px) { :root { --density: 0.75; } }
