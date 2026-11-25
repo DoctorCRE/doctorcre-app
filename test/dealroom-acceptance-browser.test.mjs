@@ -2017,7 +2017,8 @@ for (const width of [1440, 390]) test(`Add deal and Won or Lost save through the
   await page.getByText('Reload Deals before adding a deal.', { exact: true }).waitFor();
   assert.equal(writes.length, 0);
   await page.reload();
-  await page.getByText('0 open deals · 0 parked', { exact: true }).waitFor();
+  // With saves on, the headline gains the prospect count once that lane loads.
+  await page.getByText('0 open deals · 0 parked · 0 prospects', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Add deal', exact: true }).click();
   await page.getByLabel('Deal name').fill('Example Unmatched Deal');
   const dialog = page.getByRole('dialog', { name: 'Add deal' });

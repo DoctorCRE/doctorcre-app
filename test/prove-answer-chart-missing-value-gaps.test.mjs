@@ -35,10 +35,11 @@ async function fixture(t, mode) {
 }
 
 for (const [mode,code] of [['success',0],['broken',1],['no-release',78],['invalid-release',78],['no-entry',78],['no-chunk',78],['foreign',78],['cap',78],['timeout',78]]) {
+  // The fixture drops a held response after 30s, so the deadline under test must end well before that.
   test(`proof CLI ${mode} with declared flags`,{timeout:40000},async t=>{
     const fixtureServer = await fixture(t,mode), origin = fixtureServer.origin;
     let result;
-    try {result = {code:0,...await execute(process.execPath,['scripts/prove-answer-chart-missing-value-gaps.mjs','--origin',origin,'--timeout-ms','30000'],{timeout:35000})};}
+    try {result = {code:0,...await execute(process.execPath,['scripts/prove-answer-chart-missing-value-gaps.mjs','--origin',origin,'--timeout-ms',mode === 'timeout' ? '50' : '30000'],{timeout:35000})};}
     catch(error) {result = error;}
     const requests = fixtureServer.requests;
     assert.equal(result.code,code,result.stdout || result.message);
