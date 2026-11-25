@@ -342,8 +342,8 @@ dialog.party-editor::backdrop { background: var(--scrim); }
   .quiet-vendors.quiet-vendors-idle { margin: 0; }
   #secondaryFilters { flex: 0 1 auto; min-width: 0; }
   .filter-row { display: contents; }
-  /* Filters apply as they change and "Clear all" sits with the chips, so Apply and Reset add nothing here. */
-  body[data-directory="vendors"] .filter-actions { display: none; }
+  /* Filters and search apply as they change, so Apply adds nothing here. */
+  body[data-directory="vendors"] #applyFilters { display: none; }
 }
 /* The count and owner chips sit in the top bar beside the page title. */
 .app-layout-tabs .result-heading { display: flex; align-items: center; margin: 0; }
