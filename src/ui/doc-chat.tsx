@@ -508,6 +508,7 @@ function DocChat() {
   const [draftSendConflict, setDraftSendConflict] = useState<keyof typeof draftChangeText>();
   const retired = useRef(false);
   const active = useRef(false);
+  const conversationPane = useRef<HTMLDivElement>(null);
   const latest = turns.at(-1);
   const review = latest?.draft_review;
   const draftId = review?.draft_id ?? initialDraft?.id;
@@ -706,6 +707,8 @@ function DocChat() {
         setRecent((rows) => [{ id: conversation_id, title: [...turn.question].slice(0, 80).join("") }, ...rows]);
       }
       setTurns((rows) => [...rows.filter((row) => row.id !== turn.id), turn]);
+      // The pane is column-reverse, so scrollTop 0 is the latest turn.
+      conversationPane.current?.scrollTo({ top: 0 });
       setPendingAsk(null);
       if (latest?.idempotency_key !== ask.idempotency_key) {
         privateDraft.current?.("doc-question", id ?? composerId).write("");
@@ -719,7 +722,7 @@ function DocChat() {
   return (
     <>
       <header className="doc-chat__header">
-        <h1>Ask Doc</h1>
+        <h1 className="sr-only">Ask Doc</h1>
         <a className="btn" href={chatHref(null)} onClick={() => privateDraft.current?.("doc-question", null).write("")}>
           New chat
         </a>
@@ -771,47 +774,51 @@ function DocChat() {
               </a>
             </p>
           )}
-          <ol className="doc-chat__turns" aria-live="polite">
-            {turns.map((turn) => {
-              const sources = turn.answer?.sources ?? [];
-              const suggestion = turn.state === "answered" && turn.answer?.kind === "answer" && turn.answer.proposal;
-              const storage = ready && privateDraft.current?.("doc-proposal", turn.id);
-              return (
-                <li key={turn.id}>
-                  <p className="doc-chat__question">{turn.question}</p>
-                  <p className="doc-chat__reply">{turn.answer?.text ?? turn.waiting_reason ?? stateText[turn.state]}</p>
-                  {turn.state === "answered" && turn.answered_by === "backup" && <small>Answered by backup</small>}
-                  {sources.length > 0 && (
-                    <ul className="doc-chat__sources" aria-label="Sources">
-                      {sources.map(({ ref, label, href }) => {
-                        const path = recordHref(href);
-                        return (
-                          <li key={`${ref.kind}:${ref.id}${href}`}>{path ? <a href={path}>{label}</a> : label}</li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                  {turn.confirmation ? (
-                    <SavedProposal result={turn.confirmation} />
-                  ) : (
-                    suggestion &&
-                    storage && (
-                      <ProposalEditor
-                        turnId={turn.id}
-                        suggestion={suggestion}
-                        storage={storage}
-                        onSaved={(result) =>
-                          setTurns((rows) =>
-                            rows.map((row) => (row.id === turn.id ? { ...row, confirmation: result } : row)),
-                          )
-                        }
-                      />
-                    )
-                  )}
-                </li>
-              );
-            })}
-          </ol>
+          <div className="doc-chat__scroll" ref={conversationPane}>
+            <ol className="doc-chat__turns" aria-live="polite">
+              {turns.map((turn) => {
+                const sources = turn.answer?.sources ?? [];
+                const suggestion = turn.state === "answered" && turn.answer?.kind === "answer" && turn.answer.proposal;
+                const storage = ready && privateDraft.current?.("doc-proposal", turn.id);
+                return (
+                  <li key={turn.id}>
+                    <p className="doc-chat__question">{turn.question}</p>
+                    <p className="doc-chat__reply">
+                      {turn.answer?.text ?? turn.waiting_reason ?? stateText[turn.state]}
+                    </p>
+                    {turn.state === "answered" && turn.answered_by === "backup" && <small>Answered by backup</small>}
+                    {sources.length > 0 && (
+                      <ul className="doc-chat__sources" aria-label="Sources">
+                        {sources.map(({ ref, label, href }) => {
+                          const path = recordHref(href);
+                          return (
+                            <li key={`${ref.kind}:${ref.id}${href}`}>{path ? <a href={path}>{label}</a> : label}</li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                    {turn.confirmation ? (
+                      <SavedProposal result={turn.confirmation} />
+                    ) : (
+                      suggestion &&
+                      storage && (
+                        <ProposalEditor
+                          turnId={turn.id}
+                          suggestion={suggestion}
+                          storage={storage}
+                          onSaved={(result) =>
+                            setTurns((rows) =>
+                              rows.map((row) => (row.id === turn.id ? { ...row, confirmation: result } : row)),
+                            )
+                          }
+                        />
+                      )
+                    )}
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
           <p role="status">{busy ? (pendingAsk ? "Sending question…" : "Loading chats…") : notice}</p>
           <div className="doc-chat__actions">
             {!pendingAsk && status === "loadFailed" && (

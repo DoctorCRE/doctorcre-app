@@ -1120,6 +1120,15 @@ test("Ask Doc opens inside the app shell with full-size targets on a phone", asy
     );
   }
   await expect(page.getByRole("link", { name: deal.label })).toBeVisible();
+  const [newChat, recentChats] = await Promise.all(
+    [page.getByRole("link", { name: "New chat" }), page.getByRole("button", { name: "Recent chats", exact: true })].map(
+      (control) => control.boundingBox(),
+    ),
+  );
+  assert.ok(
+    newChat && recentChats && newChat.x < recentChats.x,
+    "New chat sits left of Recent chats, matching Tab order",
+  );
   await page.getByRole("button", { name: "Recent chats", exact: true }).click();
   const targets = page.locator("#main").locator("a:visible, button:visible");
   assert.ok((await targets.count()) >= 5);
@@ -1129,6 +1138,84 @@ test("Ask Doc opens inside the app shell with full-size targets on a phone", asy
   }
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
 });
+
+for (const [width, height] of [
+  [1280, 800],
+  [1440, 900],
+] as const) {
+  test(`A long Ask Doc chat fits one screen at its latest turn at ${width}x${height}`, async (t) => {
+    const chatTitle = (index: number) => `Example question ${index + 1} about the sample clinic lease`;
+    const chats = Array.from({ length: 16 }, (_, index) => ({
+      ...conversation,
+      id: `00000000-0000-4000-8000-${String(100 + index).padStart(12, "0")}`,
+      title: chatTitle(index),
+    }));
+    const turns = Array.from({ length: 10 }, (_, index) => ({
+      ...answeredTurn,
+      id: `00000000-0000-4000-8000-${String(200 + index).padStart(12, "0")}`,
+      position: index + 1,
+      idempotency_key: id,
+      question: `Example question ${index + 1}?`,
+      answer: { ...answeredTurn.answer, text: `Example answer ${index + 1}.\nIt has a second line.\nAnd a third.` },
+    }));
+    const { page, origin } = await docChatFixture(t, async (request) => {
+      const path = new URL(request.url).pathname;
+      if (path === "/api/engine/doc/conversations")
+        return Response.json({ conversations: [conversation, ...chats], next_before: null });
+      if (path !== "/api/engine/doc/turns") return Response.json({ conversation, turns });
+      const { question, idempotency_key } = await request.json();
+      return Response.json({
+        conversation_id: id,
+        turn: {
+          ...answeredTurn,
+          id: `00000000-0000-4000-8000-${"3".repeat(12)}`,
+          position: 11,
+          question,
+          idempotency_key,
+        },
+      });
+    });
+    await page.setViewportSize({ width, height });
+    await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
+    const latest = page.getByText("Example answer 10.", { exact: false });
+    await expect(latest).toBeVisible();
+    assert.equal(
+      await page.evaluate(() =>
+        [document.scrollingElement, document.getElementById("appMainSlot")].every(
+          (node) => node && node.scrollHeight <= node.clientHeight,
+        ),
+      ),
+      true,
+      "the page itself does not scroll",
+    );
+    const inView = async (locator: Locator) => {
+      const box = await locator.boundingBox();
+      return Boolean(box && box.y >= 0 && box.y + box.height <= height);
+    };
+    assert.equal(await inView(latest), true, "the chat opens at its latest answer");
+    assert.equal(await inView(page.getByRole("button", { name: "Send", exact: true })), true, "Send stays on screen");
+    assert.equal(await inView(page.getByRole("link", { name: "New chat" })), true);
+    const heading = await page.getByRole("heading", { name: "Ask Doc", level: 1 }).boundingBox();
+    assert.ok(heading && heading.height <= 1, "the top bar is the only visible title");
+    const chat = page.getByRole("link", { name: chatTitle(15) });
+    await chat.scrollIntoViewIfNeeded();
+    assert.equal(await inView(chat), true, "Recent chats scrolls inside itself");
+    assert.equal(await page.evaluate(() => document.getElementById("appMainSlot")?.scrollTop), 0);
+    const pane = page.locator(".doc-chat__scroll");
+    const inPane = async (locator: Locator) => {
+      const [box, frame] = await Promise.all([locator.boundingBox(), pane.boundingBox()]);
+      return Boolean(box && frame && box.y >= frame.y && box.y + box.height <= frame.y + frame.height);
+    };
+    assert.equal(await inPane(latest), true);
+    await pane.evaluate((node) => node.scrollTo({ top: -node.scrollHeight }));
+    assert.equal(await inPane(latest), false, "the partner scrolled up the conversation");
+    await page.getByLabel("Question for Doc").fill("Example follow-up question?");
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    const sent = page.locator(".doc-chat__turns").getByText("Example follow-up question?", { exact: true });
+    await expect(sent).toBeVisible();
+    assert.equal(await inPane(sent), true, "a sent question shows at the bottom of the conversation");
+  });
+}
 
 test("A first-time partner on a phone sees no conversations yet and can send a first question", async (t) => {
   const { page, origin } = await docChatFixture(t, async (request) =>
