@@ -690,6 +690,12 @@ function clientNote({ notes, record_links }) {
 function paintPanelHead(meta = "", actions = "") {
   if (dom.panelMeta) dom.panelMeta.innerHTML = meta;
   if (dom.panelActions) dom.panelActions.innerHTML = actions;
+  dom.panelTitle?.removeAttribute("title");
+}
+
+/** On a phone the record actions open as a menu; it closes once one is chosen. */
+function closePanelMenu() {
+  if (dom.panelActions?.matches(":popover-open")) dom.panelActions.hidePopover();
 }
 
 function renderRecordPanel() {
@@ -697,6 +703,8 @@ function renderRecordPanel() {
   const { record, dataset } = view;
   if (!view.signedOut) capturePanelState();
   if (!view.recordId) {
+    closePanelMenu();
+    dom.panelTitle?.classList.remove("full");
     dom.panel.hidden = true;
     dom.panel.classList.remove("open");
     applyPanelModality();
@@ -736,7 +744,7 @@ function renderRecordPanel() {
   const vendor = dataset === "vendors";
   paintPanelHead(`${toneHtml(tone)}${owner.known ? `<span class="row-fact"><span class="fact-label">Owner</span><span class="fact-value">${escapeHtml(owner.text)}</span></span>` : ""}`, partyEditor?.actionsHtml() ?? "");
   if (action >= 0) focusWithoutScrolling(actions()[action]);
-  if (dom.panelTitle) dom.panelTitle.textContent = vendor ? withoutRecordCodes(payload.record.name) : payload.record.name;
+  if (dom.panelTitle) dom.panelTitle.textContent = dom.panelTitle.title = vendor ? withoutRecordCodes(payload.record.name) : payload.record.name;
   const ref = recordedValue(payload.record.ref);
   const referenceDetails = !vendor && ref.known
     ? `<details class="record-details" data-details-key="reference"><summary>Details</summary><dl><div class="record-field"><dt>Internal reference</dt><dd>${escapeHtml(ref.text)}</dd></div></dl></details>`
@@ -1166,6 +1174,9 @@ function wireControls() {
 
   dom.panelClose?.addEventListener("click", () => closeRecord());
   dom.panel?.addEventListener("click", (event) => {
+    // A long name is cut to one line; a tap shows all of it.
+    if (event.target === dom.panelTitle) dom.panelTitle.classList.toggle("full");
+    if (event.target.closest("#recordActions button")) closePanelMenu();
     const edit = event.target.closest("[data-party-edit]");
     if (edit) return partyEditor?.edit();
     if (event.target.closest("[data-party-link]")) return partyEditor?.link(view.record.payload?.record?.name ?? "");
