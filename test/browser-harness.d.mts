@@ -13,7 +13,7 @@ export function fixtureServer(
   capability?: unknown,
 ): Promise<{ origin: string; close(): Promise<void> }>;
 
-export function settles(check: () => unknown | Promise<unknown>, budgetMs?: number): Promise<void>;
+export function settles<T>(check: () => T | Promise<T>, budgetMs?: number): Promise<T>;
 
 export declare const WAIT_MS: number;
 
