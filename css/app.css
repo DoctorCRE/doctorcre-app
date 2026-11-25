@@ -86,6 +86,8 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 #openDealToolbar > :is(button, a), .deal-filter { flex: none; min-height: var(--touch); white-space: nowrap; }
 #openDealToolbar .secondary { display: inline-grid; place-items: center; padding-inline: var(--space-3); text-decoration: none; }
 .deal-filter { max-width: 10rem; padding: 0 var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); background: var(--surface-1); color: var(--fg); font-size: var(--font-size-1); }
+/* As wide as its current choice, so the toolbar keeps one row beside Today at 1200 wide. */
+#appToolsSlot .deal-filter { field-sizing: content; }
 .deal-filter-field { display: flex; flex: none; align-items: center; gap: var(--space-2); }
 .deal-filter-field:has(> [hidden]) { display: none; }
 #appToolsSlot .deal-filter-field label { position: static; width: auto; height: auto; overflow: visible; clip-path: none; color: var(--fg-muted); font-size: var(--font-size-1); }
@@ -95,6 +97,12 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 /* An open Today already says when it updated, so the top bar keeps only a connection problem. */
 .app-layout[data-today="open"] #appTopbar .deal-status .sync:not(.offline) { display: none; }
 #appToolsSlot #openDealToolbar .search-wrap input { width: 100%; max-width: none; }
+/* A narrow search box drops its "/" hint so "Search deals…" reads whole. */
+#appToolsSlot #openDealToolbar .search-wrap { container-type: inline-size; }
+@container (max-width: 11rem) {
+  #openDealToolbar .search-wrap kbd { display: none; }
+  #appToolsSlot #openDealToolbar .search-wrap input { padding-right: var(--space-3); }
+}
 .search-wrap { position: relative; flex: 1 1 8rem; min-width: 8rem; max-width: 16rem; }
 .search-wrap input { width: 100%; min-height: var(--touch); padding: var(--space-2) var(--space-7) var(--space-2) var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); background: var(--surface-1); color: var(--fg); }
 .search-wrap kbd { position: absolute; right: var(--space-3); top: 50%; transform: translateY(-50%); padding: 0 var(--space-1); border: var(--hairline-width) solid var(--hairline); border-radius: var(--radius-1); color: var(--fg-muted); font: var(--font-size-1) var(--font-mono); }
