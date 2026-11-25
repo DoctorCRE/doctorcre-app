@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
-import { componentDocument, chromium, pausedClock, webkitSkipReason } from './browser-harness.mjs';
+import { componentDocument, chromium, pausedClock, settles, webkitSkipReason } from './browser-harness.mjs';
 
 test('WebKit skips macOS 27 and newer without disabling Linux CI or older Macs', () => {
   for (const version of ['27.0.1', '28.0']) {
@@ -62,5 +62,22 @@ test('a page loaded after pausedClock runs no timer until the test moves the clo
     assert.equal(await page.evaluate(() => window.fired), undefined, 'a due timer waits for the paused clock');
     await page.clock.runFor(1);
     assert.equal(await page.evaluate(() => window.fired), true);
+  } finally { await browser.close(); }
+});
+
+test('Back sent while the next page is committing lands on the page before it', async () => {
+  const browser = await chromium.launch();
+  try {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.route('http://127.0.0.1:9/**', route => route.fulfill({ contentType: 'text/html', body: '<title>page</title>' }));
+    await page.goto('http://127.0.0.1:9/before');
+    const cdp = await context.newCDPSession(page);
+    // A renderer busy right after it starts a navigation holds the commit open.
+    await page.evaluate(() => setTimeout(() => { location.href = '/after'; const end = Date.now() + 1500; while (Date.now() < end); }));
+    await settles(() => assert.rejects(cdp.send('Page.getNavigationHistory'), /Not attached to an active page/));
+    await page.goBack();
+    // Back from /before itself would land on about:blank.
+    await page.waitForURL('**/before');
   } finally { await browser.close(); }
 });
