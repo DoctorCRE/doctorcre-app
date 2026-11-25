@@ -160,10 +160,7 @@ export function createClientAnniversariesClient({ fetchImpl }: { fetchImpl?: typ
 
 type AnniversaryRead = Snapshot | Row[];
 
-type State =
-  | { kind: "idle" | "loading" }
-  | { kind: "refusal"; message: string }
-  | { kind: "loaded"; value: AnniversaryRead };
+type State = { kind: "loading" } | { kind: "refusal"; message: string } | { kind: "loaded"; value: AnniversaryRead };
 type PanelProps = {
   load: (signal: AbortSignal) => Promise<AnniversaryRead>;
   fromEngine: boolean;
@@ -173,17 +170,13 @@ type PanelProps = {
 };
 
 function Panel({ load, fromEngine, cutover, win, dispose }: PanelProps) {
-  const [state, setState] = useState<State>({ kind: "idle" });
+  const [state, setState] = useState<State>({ kind: "loading" });
   const pending = useRef<AbortController | null>(null);
   const cancel = useCallback(() => {
     pending.current?.abort();
     pending.current = null;
   }, []);
-  const reset = useCallback(() => {
-    cancel();
-    setState({ kind: "idle" });
-  }, [cancel]);
-  const open = useCallback(async () => {
+  const read = useCallback(async () => {
     if (pending.current) return;
     const controller = new AbortController();
     pending.current = controller;
@@ -201,13 +194,13 @@ function Panel({ load, fromEngine, cutover, win, dispose }: PanelProps) {
   useEffect(() => {
     win?.addEventListener("pagehide", dispose);
     win?.addEventListener("doctorcre-session-invalidated", dispose);
-    void open();
+    void read();
     return () => {
       win?.removeEventListener("pagehide", dispose);
       win?.removeEventListener("doctorcre-session-invalidated", dispose);
       cancel();
     };
-  }, [win, dispose, open, cancel]);
+  }, [win, dispose, read, cancel]);
   const result = state.kind === "loaded" ? state.value : null;
   const snapshot = Array.isArray(result) ? null : result;
   const rows = Array.isArray(result)
@@ -217,25 +210,8 @@ function Panel({ load, fromEngine, cutover, win, dispose }: PanelProps) {
   return (
     <section aria-label="Closing anniversaries" style={{ overflowWrap: "anywhere" }}>
       {cutover && <p>Covers deals closed before {cutover.label}.</p>}
-      <button
-        type="button"
-        className="action"
-        aria-expanded={state.kind !== "idle"}
-        aria-controls="anniversaryContent"
-        onClick={() => {
-          if (state.kind === "idle") void open();
-          else reset();
-        }}
-      >
-        {state.kind === "idle" ? "Show closing anniversaries" : "Hide closing anniversaries"}
-      </button>
-      <div
-        id="anniversaryContent"
-        hidden={state.kind === "idle"}
-        aria-live="polite"
-        aria-busy={state.kind === "loading"}
-      >
-        {!fromEngine && state.kind !== "idle" && (
+      <div aria-live="polite" aria-busy={state.kind === "loading"}>
+        {!fromEngine && !empty && (
           <p>
             {cutover
               ? "Upcoming anniversaries in the next 30 days."
@@ -246,7 +222,7 @@ function Panel({ load, fromEngine, cutover, win, dispose }: PanelProps) {
         {state.kind === "refusal" && (
           <>
             <p role="alert">{state.message}</p>
-            <button type="button" className="action" onClick={() => void open()}>
+            <button type="button" className="action" onClick={() => void read()}>
               Retry closing anniversaries
             </button>
           </>
@@ -263,7 +239,7 @@ function Panel({ load, fromEngine, cutover, win, dispose }: PanelProps) {
             {snapshot?.state === "unavailable" && <p role="alert">Closing anniversaries are unavailable.</p>}
             {snapshot?.state === "needs_input" && <p role="alert">Closing anniversaries need input.</p>}
             {(snapshot?.state === "unavailable" || snapshot?.state === "needs_input") && (
-              <button type="button" className="action" onClick={() => void open()}>
+              <button type="button" className="action" onClick={() => void read()}>
                 Retry closing anniversaries
               </button>
             )}

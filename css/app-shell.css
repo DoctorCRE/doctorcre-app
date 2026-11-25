@@ -221,6 +221,9 @@ html[data-deals-from-engine] :is([data-layout-slot="moves"], #receiptsOpen, #rec
 .has-app-layout #appToday .receipt-line { display: flex; flex-wrap: wrap; }
 .has-app-layout #appToday .receipt-deal { font-size: var(--font-size-1); }
 @media (hover: hover) { .app-layout-item:hover { background: var(--surface-2); border-color: var(--hairline-strong); } }
+#appToday [aria-busy="true"] { display: grid; gap: var(--space-2); padding: var(--space-3) 0; }
+#appToday .skeleton-line { display: block; width: 70%; height: 10px; margin: 0; border-radius: var(--radius-round); background: var(--surface-3); animation: none; }
+#appToday .skeleton-line.short { width: 42%; }
 .app-layout-empty { display: block; padding: var(--space-3) 0; color: var(--fg-muted); font: var(--font-size-1) var(--font-text); }
 #appSyncTime, #appConnection, [data-layout-slot="status"] { color: var(--fg-muted); font-size: var(--font-size-1); }
 #appSyncTime { margin-inline-start: auto; }

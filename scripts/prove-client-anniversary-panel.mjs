@@ -55,13 +55,11 @@ export async function prove({origin,expectedCommit,cdpUrl,timeoutMs=30000}) {
     if(!['ready','empty'].includes(snapshot.state))throw insufficient('Natural anniversary snapshot unavailable');
     snapshotObserved = true;
     const section=page.getByRole('region',{name:'Closing anniversaries',exact:true});
-    assert.equal(await section.locator('button[aria-controls="anniversaryContent"]').getAttribute('aria-expanded'),'true');
     await section.locator('[aria-busy="false"]').waitFor({timeout:remaining()});
-    assert.equal(await section.locator('#anniversaryContent').isVisible(),true);
     const text=await section.innerText();
     if(await section.getByRole('alert').count())throw insufficient('Anniversary panel read unavailable');
     assert.doesNotMatch(text,/America\/Chicago|\bC[SD]T\b|\bCentral\b/);
-    assert.equal(await section.locator('#anniversaryContent > p').filter({hasText:'As of '}).innerText(),`As of ${snapshot.as_of}. Scanned ${snapshot.coverage.scanned}. Skipped invalid ${snapshot.coverage.skipped_invalid}.`);
+    assert.equal(await section.locator('p').filter({hasText:'As of '}).innerText(),`As of ${snapshot.as_of}. Scanned ${snapshot.coverage.scanned}. Skipped invalid ${snapshot.coverage.skipped_invalid}.`);
     const rows=section.locator('ol > li');
     assert.equal(await rows.count(),snapshot.rows.length);
     for(let i=0;i<snapshot.rows.length;i++) {

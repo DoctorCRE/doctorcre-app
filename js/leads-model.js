@@ -22,9 +22,25 @@ const leadNames = lead => [lead.doctor_name, lead.practice_name, lead.entity_nam
 function cleanTitle(value) {
   return String(value || "").replace(/\s*\((?:via|referral|referred)[^)]*\)/gi, "").trim();
 }
-export function leadTitle(lead) {
+const KEPT_CAPITALS = new Set(["LLC", "PLLC", "LLP", "LP", "PC", "PA", "PLC", "DDS", "DMD", "MD", "DO", "DVM", "OD", "DC", "DPM", "NP", "II", "III", "IV", "USA"]);
+const SMALL_WORDS = new Set(["of", "and", "the", "for"]);
+// Read-time only: a name typed in all capitals reads in title case, and suffixes and credentials keep theirs.
+function titleCase(name) {
+  if (/\p{Ll}/u.test(name)) return name;
+  return name.replace(/\p{L}+(?:['’]\p{L}+)*/gu, (word, at) => {
+    if (KEPT_CAPITALS.has(word)) return word;
+    const lower = word.toLowerCase();
+    if (at > 0 && SMALL_WORDS.has(lower)) return lower;
+    // O'NEIL reads O'Neil; SMITH'S reads Smith's.
+    return lower.replace(/^\p{L}(?:['’]\p{L})?/u, first => first.toUpperCase());
+  });
+}
+export function leadName(lead) {
   const named = leadNames(lead).map(cleanTitle).find(Boolean);
-  return named ? withoutRecordCodes(named) : `${lead.specialty || lead.vertical || "Practice"} ${lead.plan_type || "startup"}${lead.city ? ` in ${lead.city}` : ""}`;
+  return named ? titleCase(withoutRecordCodes(named)) : null;
+}
+export function leadTitle(lead) {
+  return leadName(lead) ?? `${lead.specialty || lead.vertical || "Practice"} ${lead.plan_type || "startup"}${lead.city ? ` in ${lead.city}` : ""}`;
 }
 export const leadMarket = lead => lead.market?.trim() || [lead.city, lead.state].filter(Boolean).join(", ");
 export const marketKey = lead => leadMarket(lead) || "Leads without a market";

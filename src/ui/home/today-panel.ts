@@ -80,6 +80,7 @@ export async function mountHomeTodayPanel(
   const { escapeText } = receipts;
   const central = (value: string, date = false) => clock.meetingTime(value, "America/Chicago", { date });
   const status = (message: string) => `<p class="app-layout-empty">${escapeText(message)}</p>`;
+  const waiting = '<span class="skeleton-line"></span><span class="skeleton-line short"></span>';
   function meetingRow(item: Meeting) {
     const deal = localHref(item.open_url);
     const matches = Array.isArray(item.possible_deals) ? item.possible_deals.filter(object) : [];
@@ -144,9 +145,11 @@ export async function mountHomeTodayPanel(
   const paint = (node: Element, html: string) => {
     if (rendered.get(node) === html) return;
     node.innerHTML = html;
+    node.setAttribute("aria-busy", String(html === waiting));
     rendered.set(node, html);
   };
-  const renderReminders = (message: string) => {
+  // A null message means the reminders are still loading.
+  const renderReminders = (message: string | null) => {
     const name = new Map(data?.partners.map((p) => [p.slug, p.name]));
     const rows = (items: Reminder[], today: string) =>
       items
@@ -173,7 +176,9 @@ export async function mountHomeTodayPanel(
     const upcomingHeading = lateRows && upcomingRows ? "<h4>Due today</h4>" : "";
     paint(
       upcoming,
-      upcomingHeading + (upcomingRows || (lateRows ? "" : status(data ? "No dated reminders." : message))),
+      upcomingHeading +
+        (upcomingRows ||
+          (lateRows ? "" : data ? status("No dated reminders.") : message === null ? waiting : status(message))),
     );
   };
   owners.onclick = (event) => {
@@ -190,17 +195,13 @@ export async function mountHomeTodayPanel(
     retry.hidden = state === "loading";
     paint(
       schedule,
-      status(
-        state === "loading"
-          ? "Loading meetings…"
-          : state === "offline"
-            ? "Meetings unavailable while offline."
-            : "Couldn't load meetings.",
-      ),
+      state === "loading"
+        ? waiting
+        : status(state === "offline" ? "Meetings unavailable while offline." : "Couldn't load meetings."),
     );
     renderReminders(
       state === "loading"
-        ? "Loading dated reminders…"
+        ? null
         : state === "offline"
           ? "Dated reminders unavailable while offline."
           : "Couldn't load dated reminders.",

@@ -1,4 +1,5 @@
 import { compareInstants } from './change-receipts.mjs';
+import { leadName } from './leads-model.js';
 // App-owned, ephemeral context. Values come from the same authorized responses
 // as the page; names and screen text never resolve an identity or authorize work.
 const text = value => typeof value === 'string' && value.trim() ? value : null;
@@ -45,7 +46,7 @@ function record(kind, row, id, title, fields, activity = []) {
 }
 const deal = (row = {}) => record('deal', row, row.id, row.name, [field('Owner', row.owner), field('Stage', row.phase),
   field('Next step', row.next_step), field('Due', row.next_date), field('Needs attention', row.attention)]);
-const lead = (row = {}) => record('lead', row, row.id, row.doctor_name || row.practice_name || row.entity_name || row.name,
+const lead = (row = {}) => record('lead', row, row.id, leadName(row),
   [field('Owner', row.owner), field('Stage', row.stage), field('Score', row.score), field('Next step', row.next_action), field('Market', row.city || row.market)]);
 const conversation = (row = {}) => record('conversation', row, row.id, row.title,
   [field('Visibility', row.visibility), field('Last activity', row.latest_turn_at), field('Status', row.archived_at ? 'Archived' : 'Open')]);

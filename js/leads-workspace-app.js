@@ -165,7 +165,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     $("marketFilter").innerHTML = options(markets.map(k => [k, k]), state.filters.market, "All markets");
     $("specialtyFilter").innerHTML = options(specialties.map(k => [k, k]), state.filters.specialty, "All specialties");
     $("clearMarket").hidden = !state.filters.market;
-    $("marketCounts").innerHTML = groups.map(g => `<button data-market="${esc(g.key)}" aria-pressed="${g.key === state.filters.market}">${esc(g.key)}<b>${g.count}</b></button>`).join("") || (state.board ? '<p class="empty">No leads in these markets</p>' : "");
+    $("marketCounts").innerHTML = groups.map(g => `<button data-market="${esc(g.key)}" aria-pressed="${g.key === state.filters.market}"><span>${esc(g.key)}</span><b>${g.count}</b></button>`).join("") || (state.board ? '<p class="empty">No leads in these markets</p>' : "");
     foldMarkets();
     state.map?.update(groups, state.selectedId);
     const currentStage = state.filters.stage;
@@ -802,7 +802,11 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     const open = more.getAttribute("aria-expanded") === "true";
     const bottom = strip.getBoundingClientRect().bottom;
     const chips = [...strip.querySelectorAll("[data-market]")];
-    for (const chip of chips) chip.inert = !open && chip.getBoundingClientRect().top >= bottom;
+    for (const chip of chips) {
+      chip.inert = !open && chip.getBoundingClientRect().top >= bottom;
+      const name = chip.firstElementChild;
+      chip.toggleAttribute("data-truncated", name.scrollWidth > name.clientWidth);
+    }
     const folded = chips.filter(chip => chip.inert).length;
     more.hidden = !open && !folded;
     more.textContent = open ? "Fewer" : `+${folded}`;
