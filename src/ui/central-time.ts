@@ -12,6 +12,7 @@ function localParts(date: Date) {
   const get = (type: string) => parts.find((part) => part.type === type)?.value || "";
   return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}`;
 }
+export const centralToday = (now: Date) => localParts(now).slice(0, 10);
 export function tomorrowCentral(now: Date) {
   const date = new Date(`${localParts(now).slice(0, 10)}T12:00:00Z`);
   date.setUTCDate(date.getUTCDate() + 1);

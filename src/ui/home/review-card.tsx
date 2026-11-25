@@ -1,4 +1,6 @@
 import { type ReactNode, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { cardDueLabel } from "../card-due";
+import { centralToday } from "../central-time";
 import { type DocLinkRequest, type DocLinkStatus, docLinkMessages, readDocLinkStatus } from "../doc-link";
 import { submitOnEnter } from "../keyboard-input";
 import type { DraftEdit, DraftEdits } from "./draft-edits.ts";
@@ -63,6 +65,20 @@ function EarlierText({ text }: { text: string }) {
   );
 }
 
+function DueDate({ name, suggested }: { name: string; suggested: string }) {
+  const [due, setDue] = useState(suggested);
+  const today = centralToday(new Date());
+  return (
+    <>
+      <label>
+        Due date{" "}
+        <input type="date" name={name} defaultValue={suggested} onChange={(event) => setDue(event.target.value)} />
+      </label>
+      {due && due < today && <p>Already late. {cardDueLabel(due, today).text}.</p>}
+    </>
+  );
+}
+
 function TalkToDoc({ request, href }: { request: DocLinkRequest | undefined; href: string }) {
   const [status, setStatus] = useState<DocLinkStatus | null>();
   useEffect(() => {
@@ -74,11 +90,14 @@ function TalkToDoc({ request, href }: { request: DocLinkRequest | undefined; hre
     return () => controller.abort();
   }, [request]);
 
+  const reasonId = useId();
   if (status === "ready")
     return (
-      <a className="btn" href={href}>
-        Talk to Doc about this draft
-      </a>
+      <div className="inbox-actions home-draft-doc">
+        <a className="btn" href={href}>
+          Talk to Doc about this draft
+        </a>
+      </div>
     );
 
   let reason = "Sign in with DoctorCRE to talk to Doc.";
@@ -87,9 +106,14 @@ function TalkToDoc({ request, href }: { request: DocLinkRequest | undefined; hre
     else reason = status === null ? "Couldn't check whether Doc is ready." : "Checking Doc status…";
   }
   return (
-    <p className="inbox-detail inbox-guidance" role="status">
-      {reason}
-    </p>
+    <div className="inbox-actions home-draft-doc">
+      <button type="button" disabled aria-describedby={reasonId}>
+        Talk to Doc about this draft
+      </button>
+      <p id={reasonId} className="inbox-detail" role="status">
+        {reason}
+      </p>
+    </div>
   );
 }
 
@@ -483,9 +507,7 @@ export function ReviewCard<Item extends ReviewItem>({
                     }}
                   />
                 </label>
-                <label>
-                  Due date <input type="date" name={`${proposal.id}-date`} defaultValue={proposal.dueOn ?? ""} />
-                </label>
+                <DueDate name={`${proposal.id}-date`} suggested={proposal.dueOn ?? ""} />
               </>
             ) : (
               proposal.what && <p>{proposal.what}</p>
@@ -748,6 +770,15 @@ export function ReviewCard<Item extends ReviewItem>({
                     )}
                   </div>
                 )}
+                {engineReply && editable && !draftEdits && editOperation && (
+                  <TalkToDoc
+                    request={docLinkRequest}
+                    href={`/doc-chats?${new URLSearchParams({
+                      draft: String(editOperation.args.proposal_id),
+                      version: String(editOperation.args.base_version),
+                    })}`}
+                  />
+                )}
                 {!item.engine_marks && canSaveDraft && (
                   <p>
                     Save draft sends nothing. Submit reply authorizes the existing sender to send this exact content to
@@ -789,15 +820,6 @@ export function ReviewCard<Item extends ReviewItem>({
                 </button>
               );
             })}
-            {engineReply && editable && !draftEdits && editOperation && (
-              <TalkToDoc
-                request={docLinkRequest}
-                href={`/doc-chats?${new URLSearchParams({
-                  draft: String(editOperation.args.proposal_id),
-                  version: String(editOperation.args.base_version),
-                })}`}
-              />
-            )}
           </div>
           {!proposalLed && proposals.length > 0 && <fieldset disabled={!editable}>{suggestionFields}</fieldset>}
         </form>
