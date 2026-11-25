@@ -383,6 +383,12 @@ function markCurrentPage(dataset) {
 }
 
 function renderChips() {
+  // Clients apply each filter as it changes, so their one reset is a Clear that shows only when it would do something.
+  if (dom.reset) {
+    const clients = view.dataset === "clients";
+    dom.reset.textContent = clients ? "Clear" : "Reset";
+    dom.reset.hidden = clients && !hasActiveFilters(view.query);
+  }
   if (!dom.chips) return;
   const chips = filterChips(view.query, view.facets);
   if (!chips.length) {
@@ -988,7 +994,7 @@ function applyLocation({ reason = "initial", restoreScroll = null } = {}) {
   if (recordChanged) { view.panelState = null; delete dom.panelBody.dataset.recordId; }
   document.body.dataset.directory = parsed.dataset;
   if (reason === "initial" || datasetChanged) {
-    document.querySelector("#secondaryFilters").open = parsed.dataset !== "vendors" || !phoneFilters.matches;
+    document.querySelector("#secondaryFilters").open = !phoneFilters.matches;
   }
   view.dataset = parsed.dataset;
   view.query = parsed.query;

@@ -226,8 +226,11 @@ body.record-open { overflow: hidden; }
 }
 
 @media (max-width: 767px) {
-  body[data-directory="vendors"] #secondaryFilters > summary { display: list-item; min-height: var(--touch); align-content: center; color: var(--fg-muted); cursor: pointer; font-size: var(--font-size-1); }
-  body[data-directory="vendors"] #secondaryFilters[open] > summary { margin-bottom: var(--space-2); }
+  #secondaryFilters > summary { display: list-item; min-height: var(--touch); align-content: center; color: var(--fg-muted); cursor: pointer; font-size: var(--font-size-1); }
+  #secondaryFilters[open] > summary { margin-bottom: var(--space-2); }
+  .filter-row:not(.filter-row-actions) { display: grid; }
+  /* The chip bar's Clear all already sits under the folded filters. */
+  body[data-directory="clients"] .filter-row-actions { display: none; }
   body[data-directory="vendors"] .record-row { grid-template-areas: "head" "facts" "foot"; gap: var(--space-1); padding-block: var(--space-2); }
   body[data-directory="vendors"] .record-row:has(.contact-note) { grid-template-areas: "head" "facts" "note" "foot"; }
 }
@@ -341,10 +344,13 @@ dialog.party-editor::backdrop { background: var(--scrim); }
   #secondaryFilters { flex: 1 1 0; min-width: 0; }
   .filter-row { display: contents; }
   /* Filters and search apply as they change, so Apply adds nothing here. */
-  body[data-directory="vendors"] #applyFilters { display: none; }
+  #applyFilters { display: none; }
+  /* Each Clients filter shows its value in the toolbar, and Clear undoes them all. */
+  body[data-directory="clients"] #chipBar { display: none; }
   /* Each select keeps its whole choice; the territory box takes what is left. */
   body[data-directory="vendors"] .filter-form .field:has(> select) { flex: none; }
 }
+body[data-directory="clients"] #applyFilters { display: none; }
 /* The count and owner chips sit in the top bar beside the page title. */
 .app-layout-tabs .result-heading { display: flex; align-items: center; margin: 0; }
 .app-layout-tabs .scope-switch { flex: none; padding: 0; border: 0; background: none; }
