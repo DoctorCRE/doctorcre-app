@@ -12,6 +12,7 @@ import { ownedServer } from "./fixture-probe.ts";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const loi = "00000000-0000-4000-8000-0000000000a1";
 const signed = "00000000-0000-4000-8000-0000000000a2";
+const openDeal = "00000000-0000-4000-8000-0000000000c9";
 const property = { id: "00000000-0000-4000-8000-0000000000b1", name: null, address: "1 Example North Road" };
 const row = (fields: Record<string, unknown>) => ({
   deal_id: "00000000-0000-4000-8000-0000000000c1",
@@ -65,21 +66,26 @@ async function mount(page: Page, server: string, theme: "light" | "dark") {
     html: `<!doctype html><html lang="en" data-theme="${theme}"><title>Compare terms fixture</title><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/css/tokens.css"><link rel="stylesheet" href="/css/system.css"><link rel="stylesheet" href="/css/pipeline.css"><body><main></main></body></html>`,
     dispose: (page) => page.evaluate(() => Reflect.get(window, "compareTest")?.panel.dispose()),
   });
-  await page.evaluate(async (body) => {
-    const path = "/js/ui-compare-terms.generated.js";
-    const { mountCompareTerms } = await import(path);
-    const paths: string[] = [];
-    const state = { paths, reply: { status: 200, body }, panel: { dispose() {} } };
-    Reflect.set(window, "compareTest", state);
-    state.panel = mountCompareTerms(document.querySelector("main"), {
-      market: "Example North",
-      request: async (path: string) => {
-        state.paths.push(path);
-        const { status, body } = state.reply;
-        return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
-      },
-    });
-  }, recorded);
+  await page.evaluate(
+    async ({ body, dealId }) => {
+      const path = "/js/ui-compare-terms.generated.js";
+      const { mountCompareTerms } = await import(path);
+      const paths: string[] = [];
+      const state = { paths, reply: { status: 200, body }, panel: { dispose() {} } };
+      Reflect.set(window, "compareTest", state);
+      state.panel = mountCompareTerms(document.querySelector("main"), {
+        dealId,
+        market: "Example North",
+        markets: ["Example North", "Example South"],
+        request: async (path: string) => {
+          state.paths.push(path);
+          const { status, body } = state.reply;
+          return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+        },
+      });
+    },
+    { body: recorded, dealId: openDeal },
+  );
   await page.locator(".market-terms-table").waitFor();
 }
 
@@ -101,7 +107,7 @@ test("Compare terms reads the engine and filters recorded terms at both widths a
       try {
         await mount(page, server.url, theme);
         assert.deepEqual(await page.evaluate(() => Reflect.get(window, "compareTest").paths), [
-          "/api/engine/market-terms?market=Example+North",
+          `/api/engine/market-terms?market=Example+North&exclude_deal_id=${openDeal}`,
         ]);
         assert.equal(await page.getByLabel("Market").inputValue(), "Example North");
         await page.getByText("Compared with Example North · All recorded history", { exact: true }).waitFor();
@@ -162,7 +168,7 @@ test("Compare terms reads the engine and filters recorded terms at both widths a
         await page.getByText("Compared with Example North · Terms as of Fri, May 15, 2026", { exact: true }).waitFor();
         assert.equal(
           (await page.evaluate(() => Reflect.get(window, "compareTest").paths)).at(-1),
-          "/api/engine/market-terms?market=Example+North&use_type=Medical+office&as_of=2026-05-15",
+          `/api/engine/market-terms?market=Example+North&use_type=Medical+office&as_of=2026-05-15&exclude_deal_id=${openDeal}`,
         );
 
         await page.evaluate(() => {
@@ -198,7 +204,7 @@ test("Compare terms reads the engine and filters recorded terms at both widths a
         await page.getByText("Compared with all markets · All recorded history", { exact: true }).waitFor();
         assert.equal(
           (await page.evaluate(() => Reflect.get(window, "compareTest").paths)).at(-1),
-          "/api/engine/market-terms",
+          `/api/engine/market-terms?exclude_deal_id=${openDeal}`,
         );
         await page.screenshot({ path: `${shots}/${width}-${theme}-empty-all.png`, fullPage: true });
 
@@ -211,6 +217,15 @@ test("Compare terms reads the engine and filters recorded terms at both widths a
         await page.getByLabel("As of date (optional)").fill("2026-05-15");
         await page.getByRole("button", { name: "Compare" }).click();
         await page.getByText("Nothing matches the market and date entered.", { exact: true }).waitFor();
+
+        await page.getByLabel("Market").fill(" example south ");
+        await page.getByLabel("As of date (optional)").fill("");
+        await page.getByRole("button", { name: "Compare" }).click();
+        await page.getByText("Compared with Example South · All recorded history", { exact: true }).waitFor();
+        assert.equal(
+          (await page.evaluate(() => Reflect.get(window, "compareTest").paths)).at(-1),
+          `/api/engine/market-terms?market=Example+South&exclude_deal_id=${openDeal}`,
+        );
       } finally {
         await page.close();
       }

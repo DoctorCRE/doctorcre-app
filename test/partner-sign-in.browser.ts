@@ -1393,6 +1393,7 @@ const inMarket = "No offer rounds or signed leases are recorded on deals in this
 const anyMarket = "No offer rounds or signed leases are recorded yet.";
 for (const [dealMarket, dealMarketId, prefill, read, empty] of [
   ["Example North", undefined, "Example North", "/api/engine/market-terms?market=Example+North", inMarket],
+  ["example north", undefined, "Example North", "/api/engine/market-terms?market=Example+North", inMarket],
   ["Example City", undefined, "", "/api/engine/market-terms", anyMarket],
   [
     "Example City",
@@ -1436,7 +1437,7 @@ for (const [dealMarket, dealMarketId, prefill, read, empty] of [
       .waitFor();
     assert.deepEqual(
       [...partnerReads.keys()].filter((path) => path.startsWith("/api/engine/market-terms")),
-      [read],
+      [`${read}${read.includes("?") ? "&" : "?"}exclude_deal_id=${dealId}`],
     );
     await room.getByRole("tab", { name: "Tours", exact: true }).click();
     await room
@@ -1476,7 +1477,7 @@ test("Compare terms opens without the markets list and closing the deal cancels 
   assert.equal(await terms.getByLabel("Market").inputValue(), "");
   assert.deepEqual(
     [...partnerReads.keys()].filter((path) => path.startsWith("/api/engine/market-terms")),
-    ["/api/engine/market-terms"],
+    [`/api/engine/market-terms?exclude_deal_id=${dealId}`],
   );
   assert.deepEqual(await page.evaluate(() => Reflect.get(window, "marketsRead")), { started: true, aborted: false });
   await page.locator("#panelClose").click();

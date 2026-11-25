@@ -2126,16 +2126,12 @@ async function refreshEvidence(detail, id, seq) {
   root.innerHTML = template.innerHTML;
   root.querySelectorAll('details').forEach(n => { if (expanded.has(n.querySelector('summary')?.textContent)) n.open = true; });
 }
-// An imported deal's market is often old city text that matches no terms; prefill only a market on the engine's list.
-async function engineMarket({ market, market_id }, signal) {
-  const recorded = market?.trim();
-  if (!market_id && !recorded) return null;
+async function engineMarkets(signal) {
   try {
     const response = await sessionFetch('/api/engine/markets', { headers: { accept: 'application/json' }, signal });
     const markets = response.ok ? await response.json() : [];
-    const match = Array.isArray(markets) ? markets.find(row => market_id ? row?.market_id === market_id : row?.name === recorded) : null;
-    return typeof match?.name === 'string' ? match.name : null;
-  } catch { return null; }
+    return Array.isArray(markets) ? markets.filter(row => typeof row?.name === 'string') : [];
+  } catch { return []; }
 }
 
 function paintPanel(detail) {
@@ -2178,10 +2174,13 @@ function paintPanel(detail) {
         let mounted;
         if (engineMode) {
           // A slow markets list costs the Market pre-fill, never the tab.
-          const prefill = readWithDeadline(() => engineMarket(detail.deal, marketRead.signal), { timeoutMs: 2000 }).catch(() => null);
-          const [{ mountCompareTerms }, market] = await Promise.all([import('./ui-compare-terms.generated.js'), prefill]);
+          const listed = readWithDeadline(() => engineMarkets(marketRead.signal), { timeoutMs: 2000 }).catch(() => []);
+          const [{ mountCompareTerms }, markets] = await Promise.all([import('./ui-compare-terms.generated.js'), listed]);
           if (marketDisposed) return;
-          mounted = mountCompareTerms(element, { request: sessionFetch, market });
+          const { id: dealId, market, market_id } = detail.deal;
+          // Imported city text often names no market; the tab prefills only a market on the engine's list.
+          const named = market_id ? markets.find(row => row.market_id === market_id)?.name ?? null : market ?? null;
+          mounted = mountCompareTerms(element, { request: sessionFetch, dealId, market: named, markets: markets.map(row => row.name) });
         } else {
           const { mountMarketTerms } = document.documentElement.hasAttribute('data-deals-saves-from-engine')
             ? await import('./ui-market-cutover.generated.js') : await import('./ui-market.generated.js');
