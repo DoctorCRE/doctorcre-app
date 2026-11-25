@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { z } from "zod";
 import { centralToday } from "./central-time";
 import { docLinkMessages } from "./doc-link";
+import { submitOnEnter } from "./keyboard-input";
 import { refreshWhileVisible } from "./visible-refresh";
 
 // The app's Content Security Policy blocks dynamic code evaluation.
@@ -962,6 +963,7 @@ function DocChat() {
               privateDraft.current?.("doc-question", id ?? composerId).write(value);
               setQuestion(value);
             }}
+            onKeyDown={(event) => submitOnEnter(event.nativeEvent, () => event.currentTarget.form?.requestSubmit())}
           />
           <div className="doc-chat__actions">
             <small id="docQuestionLength">
