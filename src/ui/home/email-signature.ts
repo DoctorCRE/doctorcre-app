@@ -1,26 +1,89 @@
-const signOff =
-  /^(?:best|(?:(?:best|kind|warm|warmest) )?regards|thanks(?: so much| again)?|thank you|many thanks|sincerely|cheers|respectfully)[,.!]?$/i;
-const reachableSource = String.raw`\(?\b\d{3}\)?[\s.-]*\d{3}[\s.-]\d{4}\b|[\w.+-]+@[\w-]+(?:\.[\w-]+)+|(?:https?:\/\/|www\.)\S+`;
+const signOffs = [
+  "regards",
+  "best regards",
+  "kind regards",
+  "warm regards",
+  "warmest regards",
+  "best",
+  "thanks",
+  "thanks so much",
+  "thanks again",
+  "thank you",
+  "many thanks",
+  "sincerely",
+  "cheers",
+  "respectfully",
+  "saludos",
+  "un saludo",
+  "atentamente",
+  "cordialement",
+  "bien cordialement",
+  "bien à vous",
+  "mit freundlichen grüßen",
+  "freundliche grüße",
+  "viele grüße",
+  "beste grüße",
+  "cordiali saluti",
+  "atenciosamente",
+];
+// Punctuation or a line end after the phrase, so "Thanks for the tour." stays a sentence.
+const signOff = new RegExp(String.raw`^(?:${signOffs.join("|")})(?:[,.!]|(?=[^\S\n]*(?:\n|$)))\s*`, "iu");
+const reachableSource = String.raw`\(?\b\d{3}\)?[\s.-]*\d{3}[\s.-]\d{4}\b|[\w.+-]+@[\w-]+(?:\.[\w-]+)+|(?:https?:\/\/|www\.)\S+|\b[\w-]+(?:\.[\w-]+)*\.(?:com|net|org|co|io|us)\b(?:\/\S*)?`;
 const reachable = new RegExp(reachableSource, "i");
 const everyReachable = new RegExp(reachableSource, "gi");
-const contactLabel = /\b(?:(?:phone|tel|cell|mobile|fax|office|direct|email|e-mail|web)\b\s*[:.]?|[pfmcote]\s*[:.])/gi;
+const contactLabelSource = String.raw`\b(?:(?:phone|tel|cell|mobile|fax|office|direct|email|e-mail|web|ext|x)\b\s*[:.]?|[pfmcote]\s*[:.)])`;
+const contactLabel = new RegExp(contactLabelSource, "gi");
+const streetAddress = String.raw`\b\d{1,6}(?:[^\S\n]+[\w'.-]+){1,4}?[^\S\n]+(?:st|street|ave|avenue|blvd|boulevard|rd|road|dr|drive|ln|lane|way|ct|court|pkwy|parkway|hwy|highway|pl|place|cir|circle)\b`;
+const firstContactDetail = new RegExp(
+  String.raw`(?:${contactLabelSource}[^\S\n]*)?(?:${reachableSource}|${streetAddress})`,
+  "i",
+);
 const lowercaseWord = /(?:^|[\s,|·•/(])(?!(?:of|and|the|at|for|in|on|by|de|la)\b)[a-z]/;
+// Bodies decoded before line breaks were kept are one line, so a sentence end also starts a new part.
+const sentenceOrLineBreak = /(?<=[.?!])\s+|\s*\n\s*/g;
 
-// Name, title, company, address and contact lines have no lowercase words beyond small joiners; sentences do.
-const contactShaped = (line: string) =>
-  line.length <= 80 &&
-  !/[?!]$/.test(line) &&
-  !lowercaseWord.test(line.replace(everyReachable, "").replace(contactLabel, ""));
+// Sign-offs, names, titles, companies, addresses and contact details have no lowercase words beyond small joiners; sentences do.
+const contactShaped = (part: string) => {
+  const rest = part.replace(signOff, "").replace(everyReachable, "").replace(contactLabel, "");
+  return !/[?!]$/.test(rest) && !lowercaseWord.test(rest);
+};
 
-/** Splits a trailing contact block under a sign-off and name from the text a person wrote. */
-export function splitSignature(body: string): { text: string; signature: string | null } {
-  const lines = body.split("\n");
-  const signedAt = lines.map((line) => signOff.test(line.trim())).lastIndexOf(true);
-  const name = lines.findIndex((line, index) => index > signedAt && line.trim());
-  if (signedAt < 0 || name < 0) return { text: body, signature: null };
-  const named = lines.slice(name).map((line) => line.trim());
-  const [, ...block] = named;
-  if (!named.filter(Boolean).every(contactShaped) || !block.some((line) => reachable.test(line)))
-    return { text: body, signature: null };
-  return { text: lines.slice(0, name + 1).join("\n"), signature: block.join("\n").trim() };
+function senderName(rest: string, sender: string | null) {
+  const full = sender?.trim();
+  return [full, full?.split(/\s+/, 1)[0]].find(
+    (candidate) => candidate && rest.startsWith(candidate) && !/[\p{L}\d]/u.test(rest.charAt(candidate.length)),
+  );
+}
+
+/** A sign-off's name and title: its whole line when contact details start below it, else the words before the first one. */
+function signerLength(rest: string) {
+  const [line = ""] = rest.split("\n", 1);
+  const contact = line.search(firstContactDetail);
+  return contact === -1 ? line.length : line.slice(0, contact).replace(/[\s|·•,;:/(-]+$/u, "").length;
+}
+
+/** Where a signature that opens at `start` would fold: after its sign-off and name, or after the sender's name. */
+function anchorEnd(body: string, start: number, sender: string | null): number | null {
+  const rest = body.slice(start);
+  const signedOff = rest.match(signOff)?.[0].length;
+  if (signedOff !== undefined) return start + signedOff + signerLength(rest.slice(signedOff));
+  const name = senderName(rest, sender);
+  if (!name) return null;
+  const [line = ""] = rest.split("\n", 1);
+  return start + (line.length < rest.length && !reachable.test(line) ? line.length : name.length);
+}
+
+/** Folds the contact details after a message's sign-off or sender's name; with neither, or with writing after them, nothing folds. */
+export function splitSignature(body: string, sender: string | null): { text: string; signature: string | null } {
+  const breaks = [...body.matchAll(sentenceOrLineBreak)];
+  const parts = [0, ...breaks.map(({ index, 0: gap }) => index + gap.length)].map((start, at) => ({
+    start,
+    text: body.slice(start, breaks[at]?.index),
+  }));
+  const tail = parts.slice(parts.map(({ text }) => contactShaped(text)).lastIndexOf(false) + 1);
+  const foldAt = tail.map(({ start }) => anchorEnd(body, start, sender)).find((at): at is number => at !== null);
+  if (foldAt === undefined) return { text: body, signature: null };
+  const signature = body.slice(foldAt).trim();
+  if ((signature.match(everyReachable)?.length ?? 0) < 2) return { text: body, signature: null };
+  return { text: body.slice(0, foldAt).trimEnd(), signature };
 }
