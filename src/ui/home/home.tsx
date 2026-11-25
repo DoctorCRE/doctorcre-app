@@ -96,6 +96,17 @@ function coveredNames(covers: readonly Cover[]) {
   const last = names.length > 3 ? `${names.length - 2} more` : names.at(-1);
   return `${names.slice(0, names.length > 3 ? 2 : -1).join(", ")} and ${last}`;
 }
+// Names the people whose reminders did not save when the card lists people, else counts them.
+function coverFailure(covers: readonly Cover[], results: readonly ItemResult[]) {
+  const failed = covers.filter((_, index) => !results[index]?.ok);
+  const saved = covers.length - failed.length;
+  const names = coveredNames(covers) ? failed.flatMap((entry) => (entry.record_name ? [entry.record_name] : [])) : [];
+  const rest =
+    names.length === failed.length
+      ? `Not saved: ${names.join(", ")}.`
+      : `${failed.length} ${failed.length === 1 ? "wasn't" : "weren't"} saved.`;
+  return saved ? `Saved ${saved} of ${covers.length}. ${rest}` : `None of the ${covers.length} reminders were saved.`;
+}
 const savedMessage = (action: keyof typeof SAVED, items: readonly InboxItem[]) =>
   `${SAVED[action]}: ${items.length === 1 ? items[0]?.title : `${items.length} cards`}.`;
 // An Undo stays offered only while the card is still the version this save produced.
@@ -452,13 +463,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
           // No Undo: it could restore only some of the covered steps.
           confirmSave(savedMessage(change, operation.before));
           setPending(null);
-        } else
-          showNotice(
-            saved
-              ? `Saved ${saved} of ${results.length}. ${results.length - saved} ${results.length - saved === 1 ? "wasn't" : "weren't"} saved.`
-              : `None of the ${results.length} reminders were saved.`,
-            true,
-          );
+        } else showNotice(coverFailure(operation.request.covers, results), true);
         focusRow(neighbours);
         return;
       }

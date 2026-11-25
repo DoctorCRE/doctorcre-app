@@ -267,6 +267,7 @@ test('a grouped card writes every step it covers under its own key and reports e
   assert.equal(parseItem(card, true, true, true).covers.length, 4);
   assert.equal(parseItem({ ...card, covers: undefined }, true, true, true).covers, undefined, 'a card without covers is its own step');
   assert.equal(parseItem({ ...card, covers: [covers[0]] }, true, true, true).covers, undefined);
+  assert.deepEqual(parseItem({ ...card, covers: covers.map(entry => ({ ...entry, record_name: '' })) }, true, true, true).covers.map(entry => entry.record_name), [null, null, null, null], 'a blank record name reads as none');
   assert.throws(() => parseItem({ ...card, covers: covers.slice(1) }, true, true, true), /unreadable reminders/);
   const until = new Date(Date.now() + 3_600_000).toISOString();
   for (const [change, verb] of [[{ change: 'complete' }, 'end-engine-home-step'], [{ change: 'drop', reason: ' Work moved. ' }, 'end-engine-home-step'], [{ change: 'snooze', until }, 'save-engine-home-mark']]) {

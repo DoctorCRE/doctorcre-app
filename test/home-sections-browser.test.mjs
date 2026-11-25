@@ -2086,7 +2086,7 @@ for (const [width, height] of [[1280, 800], [1440, 779]]) test(`Home shows a gro
   });
   await row(meeting).getByRole('button', { name: 'Mark done', exact: true }).click();
   const notice = page.locator('.inbox-notice');
-  await notice.getByText("Saved 3 of 4. 1 wasn't saved.", { exact: true }).waitFor();
+  await notice.getByText('Saved 3 of 4. Not saved: Lee Example.', { exact: true }).waitFor();
   assert.deepEqual(writes.map(args => [args.id, args.base_version]), names.map((_, index) => [id(80 + index), 1]));
   assert.equal(new Set(writes.map(args => args.idempotency_key)).size, 4, 'each covered step has its own retry key');
   refused = null;

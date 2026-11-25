@@ -302,7 +302,7 @@ const cover = (value: unknown): value is Cover =>
   uuid(value.action_id) &&
   Number.isSafeInteger(value.action_version) &&
   Number(value.action_version) >= 0 &&
-  (value.record_name === undefined || value.record_name === null || text(value.record_name));
+  (value.record_name === undefined || value.record_name === null || typeof value.record_name === "string");
 // Until the engine groups steps, a card without covers is just its own step.
 function parseCovers(value: unknown, itemId: string): readonly [Cover, Cover, ...Cover[]] | undefined {
   if (value === undefined) return undefined;
@@ -314,7 +314,7 @@ function parseCovers(value: unknown, itemId: string): readonly [Cover, Cover, ..
     new Set(value.map((entry) => entry.item_id)).size !== value.length
   )
     throw Error("Inbox returned unreadable reminders. Refresh to try again.");
-  const covers = value.map((entry) => ({ ...entry, record_name: entry.record_name ?? null }));
+  const covers = value.map((entry) => ({ ...entry, record_name: entry.record_name || null }));
   const [first, second, ...rest] = covers;
   return first && second ? [first, second, ...rest] : undefined;
 }
