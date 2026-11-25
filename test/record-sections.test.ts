@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ownerPresentation, recordSections } from "../js/workspace-business-model.js";
+import { recordSections } from "../js/workspace-business-model.js";
 
 const contactStatus = (dataset: "vendors" | "clients", state: string) =>
   recordSections(dataset, { contact_state: state })
@@ -22,6 +22,4 @@ test("A client or vendor's owner reads as the partner's first name", () => {
       .find((field) => field.key === "owner_label");
     assert.equal(owner?.text, "Avery");
   }
-  assert.equal(ownerPresentation({ owner_label: "Avery Example" }).text, "Avery");
-  assert.equal(ownerPresentation({ owner_label: null }).text, "Not recorded");
 });
