@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
+import { meetingTime } from "../../js/business-date.js";
 import type { ExactCard } from "./exact-action-card.ts";
 import { parseExactCard } from "./exact-action-card.ts";
 import { ExactActionCardView } from "./exact-action-card-view.tsx";
@@ -420,13 +421,8 @@ function ActionLink({ ref, request }: Options) {
               <p className="action-link-schedule">
                 Planned for{" "}
                 <time dateTime={state.card.scheduledFor}>
-                  {new Intl.DateTimeFormat("en-US", {
-                    dateStyle: "medium",
-                    timeStyle: "short",
-                    timeZone: state.card.timeZone,
-                  }).format(new Date(state.card.scheduledFor))}
+                  {meetingTime(state.card.scheduledFor, state.card.timeZone, { date: true })}
                 </time>
-                {state.card.timeZone !== "America/Chicago" && ` · ${state.card.timeZone}`}
               </p>
             )}
             {state.card.kind === "reply_draft" && (

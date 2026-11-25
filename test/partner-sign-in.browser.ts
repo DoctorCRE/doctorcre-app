@@ -1338,6 +1338,7 @@ test("phone notifications are available only with CARR sign-in", async (t) => {
     await page.goto(server.origin + "/settings?mode=live");
     if (signIn === "carr") {
       await page
+        .getByRole("region", { name: "Phone notifications" })
         .getByText("Phone notifications are unavailable because the public notification configuration is invalid.")
         .waitFor();
       assert.deepEqual(calls, ["read-web-push-config-v1"]);

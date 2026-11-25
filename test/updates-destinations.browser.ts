@@ -83,6 +83,18 @@ type Reply = NonNullable<Parameters<Route["fulfill"]>[0]>;
 
 type Handler = (request: Request) => Reply | Promise<Reply>;
 
+function preferenceStore(initial: Preferences): Record<string, Handler> {
+  let saved = initial;
+  return {
+    "GET /api/engine/preferences": () => ({ json: saved }),
+    "POST /api/engine/preferences": (request) => {
+      const { idempotency_key: _key, ...fields } = request.postDataJSON();
+      saved = { ...fields, base_version: saved.base_version + 1 };
+      return { json: { ok: true, ...saved } };
+    },
+  };
+}
+
 async function open(
   t: TestContext,
   width: number,
@@ -110,15 +122,9 @@ async function open(
     verbs.push("/pipeline/changes");
     return route.fulfill({ json: { events: [], cursor: "end" } });
   });
-  let saved = preferences;
   const defaults: Record<string, Handler> = {
     "GET /api/engine/updates": () => ({ json: emptyFeed }),
-    "GET /api/engine/preferences": () => ({ json: saved }),
-    "POST /api/engine/preferences": (request) => {
-      const { idempotency_key: _key, ...fields } = request.postDataJSON();
-      saved = { ...fields, base_version: saved.base_version + 1 };
-      return { json: { ok: true, ...saved } };
-    },
+    ...preferenceStore(preferences),
     "GET /api/engine/updates/changes": () => ({ json: { changes: [], next_before: null } }),
   };
   const sent: { key: string; search: string; body: Record<string, unknown> | null }[] = [];
@@ -410,8 +416,16 @@ test("a missing update reloads the feed and badge", async (t) => {
   assert.equal(await page.locator("#navUnreadBadge").getAttribute("aria-label"), null);
 });
 
+test("Settings shows the Updates unread count in the navigation", async (t) => {
+  const { page } = await open(t, 1440, "dark", {
+    "GET /api/engine/updates": () => ({ json: { unread_count: 1, updates: [unread] } }),
+  });
+  await page.goto(settingsPath);
+  await page.locator("#navUnreadBadge[aria-label='1 unread notification']").waitFor({ state: "attached" });
+});
+
 test("Settings opens from the account menu and saves without showing a time zone", async (t) => {
-  const { page, sent } = await open(t, 1440, "dark");
+  const { page, sent } = await open(t, 1440, "dark", preferenceStore({ ...preferences, time_zone: "America/Denver" }));
   await page.goto(updatesPath);
   await page.locator("#selfAvatar").click();
   const link = page.locator("#accountMenu").getByRole("link", { name: "Settings", exact: true });
@@ -428,13 +442,13 @@ test("Settings opens from the account menu and saves without showing a time zone
   await saveButton(page).click();
   await page.locator("#prefMessage").getByText("Saved", { exact: true }).waitFor();
   assert.deepEqual(savedFields(sent), [
-    { base_version: 0, time_zone: "America/Chicago", quiet_from: "22:00", quiet_until: "07:00", push_to_device: true },
+    { base_version: 0, time_zone: "America/Denver", quiet_from: "22:00", quiet_until: "07:00", push_to_device: true },
   ]);
   await page
     .locator("#prefSummary")
     .getByText("Quiet hours 10:00 PM to 7:00 AM · device push on", { exact: true })
     .waitFor();
-  assert.doesNotMatch((await page.locator("main").textContent()) ?? "", /America\/Chicago/);
+  assert.doesNotMatch((await page.locator("main").textContent()) ?? "", /America\/Denver/);
 });
 
 test("checking a settings save outcome keeps newer preferences on screen", async (t) => {

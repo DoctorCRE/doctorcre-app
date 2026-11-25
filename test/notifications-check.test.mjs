@@ -396,13 +396,13 @@ test("B12-2 save with CAS: base_version comes from the last READ, and a save mov
   const client = await fixture();
   const before = await client.notificationPreferences();
   const built = setPreferenceArgs(
-    { device_opt_in: true, quiet_hours_start: "22:00", quiet_hours_end: "06:00", timezone: "America/Chicago" },
+    { device_opt_in: true, quiet_hours_start: "22:00", quiet_hours_end: "06:00" },
     preferenceView(before),
   );
   assert.equal(built.ok, true);
   assert.deepEqual(built.args, {
     base_version: 1, device_opt_in: true,
-    quiet_hours_start: "22:00", quiet_hours_end: "06:00", timezone: "America/Chicago",
+    quiet_hours_start: "22:00", quiet_hours_end: "06:00",
   });
 
   const saved = await client.setNotificationPreference({ idempotency_key: "b12-save-1", ...built.args });
@@ -410,7 +410,7 @@ test("B12-2 save with CAS: base_version comes from the last READ, and a save mov
   assert.equal(saved.exists, true);
   assert.equal(saved.version, 2, "a save must move the version exactly one step");
   assert.equal(saved.device_opt_in, true);
-  assert.equal(saved.timezone, "America/Chicago");
+  assert.equal(saved.timezone, before.timezone);
   assert.equal(validPreferencePayload(saved), true, "the set answer is the same shape as the read answer");
 
   // The same key replays and does NOT move the version a second time.
