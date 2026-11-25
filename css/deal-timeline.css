@@ -12,11 +12,14 @@
 .phase-rail li[aria-current]::before { background:var(--fg); }
 .phase-rail li span { border:0; padding:0; color:inherit; }
 .phase-rail time,.phase-rail small { display:block; color:var(--fg-muted); font-size:var(--font-size-1); font-weight:var(--font-weight-regular); margin-top:var(--space-1); font-variant-numeric:tabular-nums; }
-.critical-dates { display:grid; align-items:start; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:var(--space-2); margin-bottom:var(--space-5); }
+.critical-dates { display:grid; align-items:start; grid-template-columns:repeat(auto-fit,minmax(16rem,1fr)); gap:var(--space-2); margin-bottom:var(--space-5); }
 .critical-date { min-width:0; padding:var(--space-3); border:var(--hairline-width) solid var(--hairline); border-radius:var(--radius-2); background:var(--surface-2); color:var(--fg); display:flex; flex-direction:column; gap:var(--space-2); text-align:left; overflow-wrap:anywhere; transition:border-color var(--duration-hover) var(--ease-out); }
 @media (hover:hover) { .critical-date:hover,.deal-note:hover { border-color:var(--hairline-strong); } }
-.critical-date > span { color:var(--fg-muted); font-size:var(--font-size-1); }
-.critical-date strong { font-size:var(--font-size-3); line-height:var(--line-height-heading); font-weight:var(--font-weight-strong); font-variant-numeric:tabular-nums; }
+.critical-date-head { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:var(--space-1) var(--space-2); }
+.critical-date h3 { margin:0; font-size:var(--font-size-2); line-height:var(--line-height-heading); font-weight:var(--font-weight-strong); }
+.critical-date h3 time { font-size:inherit; color:inherit; white-space:nowrap; }
+.date-badge { flex:0 0 auto; padding:0 var(--space-2); border:var(--hairline-width) solid var(--hairline-strong); border-radius:var(--radius-round); color:var(--fg-muted); font-size:var(--font-size-1); }
+.critical-date strong { font-size:var(--font-size-1); line-height:var(--line-height-heading); font-weight:var(--font-weight-strong); font-variant-numeric:tabular-nums; }
 .critical-date time { font-size:var(--font-size-1); color:var(--fg-muted); font-variant-numeric:tabular-nums; }
 .critical-date[data-state='unknown'] { border-left:3px dashed var(--status-warn); }
 .critical-date[data-state='unknown'] > strong { color:var(--status-warn-ink); }
@@ -30,8 +33,9 @@
 :root[data-color-assist="on"] .critical-date[data-state='today'],:root[data-color-assist="on"] .critical-date[data-state='soon'] { border-left:3px dashed var(--status-warn); }
 .critical-date summary { cursor:pointer; color:var(--fg-muted); min-height:var(--touch); display:flex; align-items:center; font-size:var(--font-size-1); }
 .critical-date p { font-size:var(--font-size-1); }
-.critical-date form { display:flex; flex-wrap:wrap; gap:var(--space-1); }
-.critical-date form label, .critical-date form input { width:100%; min-width:0; }
+.critical-date :is(.date-actions,.date-reason):not([hidden]) { display:flex; flex-wrap:wrap; align-items:flex-end; gap:var(--space-1); }
+.critical-date .date-reason label { display:grid; gap:var(--space-1); flex:1 1 12rem; min-width:0; font-size:var(--font-size-1); }
+.critical-date .date-reason input { min-height:44px; min-width:0; }
 /* A missing date is an empty slot: dashed, quiet, and only the label reads as action. */
 .add-date { cursor:pointer; border-style:dashed; background:transparent; }
 .add-date strong { font-size:var(--font-size-1); font-weight:var(--font-weight-strong); color:var(--fg-muted); margin-top:var(--space-2); }

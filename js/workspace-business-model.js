@@ -663,7 +663,6 @@ const VENDOR_SECTIONS = [
   ] },
   { title: "Working together", fields: [
     ["referral_active", "Sending referrals"],
-    ["is_target", "Target"],
     ["last_touch", "Last touch"],
     ["offers", "What they offer"], ["seeking", "What they are looking for"],
     ["rivalry_group", "Competes with"], ["originated", "Where we met"],

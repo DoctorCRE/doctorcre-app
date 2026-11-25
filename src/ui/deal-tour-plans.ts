@@ -1,7 +1,12 @@
 import { z } from "zod";
 
 const place = z.object({ address: z.string(), name: z.string().nullable() });
-const plans = z.object({ tours: z.array(z.object({ id: z.uuid(), planned_on: z.iso.date() })) });
+const plans = z.object({
+  tours: z.array(z.object({ id: z.uuid(), planned_on: z.iso.date() })),
+  past_tours: z.array(
+    z.object({ id: z.uuid(), happened_at: z.iso.datetime({ offset: true }), properties: z.array(place) }),
+  ),
+});
 const planReceipt = z.object({ id: z.uuid(), revision: z.int().positive() });
 const tour = planReceipt.extend({
   planned_on: z.iso.date(),
@@ -21,6 +26,7 @@ const refusal = z.object({
   fields: z.array(z.string()).optional(),
 });
 const date = new Intl.DateTimeFormat("en-US", { dateStyle: "long", timeZone: "UTC" });
+const happened = new Intl.DateTimeFormat("en-US", { dateStyle: "long", timeZone: "America/Chicago" });
 
 type Tour = z.infer<typeof tour>;
 type Editor = { mode: "plan" } | { mode: "edit" | "complete"; saved: Tour };
@@ -450,6 +456,20 @@ function tourRow(
   return row;
 }
 
+function pastTours(tours: z.infer<typeof plans>["past_tours"]) {
+  const list = element("ul");
+  for (const { happened_at, properties } of tours) {
+    const stops = properties.length
+      ? element("ol", ...properties.map((property) => element("li", label(property))))
+      : element("p", "No visited properties recorded.");
+    list.append(element("li", element("h4", happened.format(new Date(happened_at))), stops));
+  }
+  return Object.assign(element("section", element("h3", "Past tours"), list), {
+    className: "deal-past-tours",
+    ariaLabel: "Past tours",
+  });
+}
+
 type Request = (path: string, init?: RequestInit) => Promise<Response>;
 export function mountDealTourPlans(
   host: Element,
@@ -514,7 +534,7 @@ export function mountDealTourPlans(
     const loading = element("p", "Loading tours…");
     body.replaceChildren(loading);
     try {
-      const { tours } = await read(plans, path);
+      const { tours, past_tours } = await read(plans, path);
       if (!loading.isConnected) return;
       body.replaceChildren(action("Plan tour", () => open({ mode: "plan" })));
       for (const { id, planned_on } of tours) {
@@ -523,7 +543,8 @@ export function mountDealTourPlans(
         body.append(row);
         row.open = id === saved;
       }
-      if (!tours.length) body.append(element("p", "No planned tours."));
+      if (!tours.length && !past_tours.length) body.append(element("p", "No planned tours."));
+      if (past_tours.length) body.append(pastTours(past_tours));
     } catch {
       if (!loading.isConnected) return;
       const message = changed ? "Tour updated. Reload tours to see the change." : "Could not load tours.";

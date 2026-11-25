@@ -425,8 +425,7 @@ function vendorContactDate(contactedAt) {
 
 const vendorField = (label, value) => value ? `<div class="record-field"><dt>${label}</dt><dd>${escapeHtml(value)}</dd></div>` : '';
 function vendorContactsHtml(record) {
-  const statuses = { not_researched: 'Not researched', needs_review: 'Needs review', office_verified: 'Office verified' };
-  const contacts = (record.people || []).map(({ company, contact, office, research }) => `
+  const contacts = (record.people || []).map(({ company, contact, office }) => `
     <li>
       <h4>${escapeHtml(withoutRecordCodes(contact.name))}</h4>
       ${company ? `<p class="note-summary">${escapeHtml(withoutRecordCodes(company.name))}</p>` : ''}
@@ -434,7 +433,6 @@ function vendorContactsHtml(record) {
         ${vendorField('Email', contact.email)}
         ${vendorField('Phone', [contact.phone, contact.cell].filter(Boolean).map(phoneLabel).join(' · '))}
         ${vendorField('Office', office && `${office.street_address}, ${office.city}, ${office.state}`)}
-        <div class="record-field"><dt>Office research</dt><dd>${escapeHtml(statuses[research.status])}</dd></div>
       </dl>
       ${office ? `<p class="observed">${escapeHtml(office.source)} · ${escapeHtml(formatMoment(office.observed_at))}${office.expires_on ? ` · Expires ${escapeHtml(office.expires_on)}` : ''}</p>` : ''}
     </li>`).join('');

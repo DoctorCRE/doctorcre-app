@@ -29,8 +29,7 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`Ve
   await expect(contacts.getByText('Territory', { exact: true })).toBeVisible();
   await expect(contacts.getByText('Demo South', { exact: true })).toBeVisible();
   await expect(contacts.getByText('Office not recorded', { exact: true })).toHaveCount(0);
-  await expect(contacts.getByText('Not researched', { exact: true })).toBeVisible();
-  await expect(contacts.getByText('Needs review', { exact: true })).toBeVisible();
+  await expect(contacts.getByText('Office research', { exact: true })).toHaveCount(0);
   await expect(contacts.getByText('Email not recorded', { exact: true })).toHaveCount(0);
   await expect(contacts.getByText('Phone not recorded', { exact: true })).toHaveCount(0);
   await expect(contacts.getByText('Synthetic office evidence', { exact: false })).toBeVisible();

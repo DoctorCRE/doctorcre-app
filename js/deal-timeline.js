@@ -95,28 +95,54 @@ export function dealTimeline(detail, now = Date.now(), dateDecisions = false) {
 
 const isSavedDate = row => /^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(row.id);
 const DATE_STATES = new Map([['proposed','Proposed'], ['open','Confirmed'], ['cleared','Done'], ['done','Done'], ['dropped','Dropped'], ['passed','Passed']]);
+const DATE_RESOLUTIONS = new Map([['done', 'Mark done'], ['dropped', 'Drop'], ['passed', 'Mark passed']]);
+const dateAsk = resolution => `<button type="button" class="btn" data-date-ask="${resolution}">${DATE_RESOLUTIONS.get(resolution)}</button>`;
 function dateDecisionsHtml(date) {
-  if (!isSavedDate(date)) return '';
-  const state = DATE_STATES.get(date.status);
   const open = date.status === 'open';
   const proposed = date.status === 'proposed';
-  return `${state ? `<small>${state}</small>` : ''}${open || proposed ? `
+  return open || proposed ? `
     <form data-date-decision="${esc(date.id)}">
-      ${proposed ? '<button type="submit" class="btn" value="confirm" formnovalidate>Confirm</button>' : ''}
-      <label>Reason <input name="reason" required maxlength="1000"></label>
-      ${open ? '<button type="submit" class="btn" value="done">Mark done</button>' : ''}
-      <button type="submit" class="btn" value="dropped">Drop</button>
-      ${open ? '<button type="submit" class="btn" value="passed">Mark passed</button>' : ''}
-    </form>` : ''}`;
+      <div class="date-actions">
+        ${proposed ? '<button type="submit" class="btn" value="confirm" formnovalidate>Confirm</button>' : dateAsk('done')}
+        ${dateAsk('dropped')}
+        ${open ? dateAsk('passed') : ''}
+      </div>
+      <div class="date-reason" hidden>
+        <label>Reason <input name="reason" required maxlength="1000" data-detail-focus="date-reason:${esc(date.id)}"></label>
+        <button type="submit" class="btn"></button>
+        <button type="button" class="btn btn-quiet" data-date-ask="">Cancel</button>
+      </div>
+    </form>` : '';
 }
+// A resolution needs a reason, asked in place; an empty choice goes back to the actions.
+export function askDateReason(form, resolution) {
+  const label = DATE_RESOLUTIONS.get(resolution);
+  const panel = form.querySelector('.date-reason');
+  form.querySelector('.date-actions').hidden = Boolean(label);
+  panel.hidden = !label;
+  if (!label) return;
+  const submit = panel.querySelector('[type="submit"]');
+  submit.value = resolution;
+  submit.textContent = label;
+}
+
+const dateTitle = (label, day) => `<h3><span>${esc(label)}</span>${day ? ` · <time datetime="${esc(day)}">${esc(dateCaption(day))}</time>` : ''}</h3>`;
+const dateDetails = (d, sourceLine) => d.original || d.evidence ? `<details><summary data-detail-focus="date-original:${esc(d.id)}">Details</summary>${sourceLine
+  ? `${d.original ? `<p class="note-original">${esc(d.original)}</p>` : ''}${d.evidence ? `<p class="date-source">Source: ${esc(d.evidence)}</p>` : ''}`
+  : `<p class="note-original">${esc(d.original || d.evidence)}</p>`}</details>` : '';
 
 export function renderCriticalDates(detail, now = Date.now(), dateDecisions = false) {
   const view = dealTimeline(detail,now,dateDecisions);
   return `<section class="critical-dates" data-detail-read="dates" aria-label="Critical dates">${view.dates.map(d => {
     const count = countdown(d,now);
-    const settled = dateDecisions && DATE_STATES.has(d.status) && d.status !== 'open';
-    return `<article class="critical-date" data-date-id="${esc(d.id)}" data-state="${settled ? esc(d.status) : count.state}"><span>${esc(d.label)}</span>${settled ? '' : `<strong data-countdown="${esc(d.day)}" data-deadline="${Boolean(d.deadline)}" data-date-status="${esc(d.status || '')}">${esc(count.text)}</strong>`}<time datetime="${esc(d.day)}">${esc(dateCaption(d.day))}</time>${d.original || d.evidence ? `<details><summary data-detail-focus="date-original:${esc(d.id)}">Details</summary><p class="note-original">${esc(d.original || d.evidence)}</p></details>` : ''}${dateDecisions ? dateDecisionsHtml(d) : ''}</article>`;
-  }).join('')}${view.undated.map(d => `<article class="critical-date" data-date-id="${esc(d.id)}" data-state="unknown" data-date-status="${esc(d.status || '')}"><span>${esc(d.label)}</span><strong>${d.dateState === 'missing' ? 'Date not recorded' : 'Date unavailable'}</strong>${d.status ? `<small>Status: ${esc(d.status)}</small>` : ''}${d.original || d.evidence ? `<details><summary data-detail-focus="date-original:${esc(d.id)}">Details</summary>${d.original ? `<p class="note-original">${esc(d.original)}</p>` : ''}${d.evidence ? `<p class="date-source">Source: ${esc(d.evidence)}</p>` : ''}</details>` : ''}</article>`).join('')}${view.missing.map(d => `<article class="critical-date"><span>${esc(d.label)}</span><strong>Not recorded</strong></article>`).join('')}</section>`;
+    const decided = dateDecisions && isSavedDate(d);
+    const state = decided && DATE_STATES.get(d.status);
+    const settled = state && d.status !== 'open';
+    return `<article class="critical-date" data-date-id="${esc(d.id)}" data-state="${settled ? esc(d.status) : count.state}">
+      <div class="critical-date-head">${dateTitle(d.label, d.day)}${state ? `<span class="date-badge">${state}</span>` : ''}</div>
+      ${settled ? '' : `<strong data-countdown="${esc(d.day)}" data-deadline="${Boolean(d.deadline)}" data-date-status="${esc(d.status || '')}">${esc(count.text)}</strong>`}
+      ${dateDetails(d, false)}${decided ? dateDecisionsHtml(d) : ''}</article>`;
+  }).join('')}${view.undated.map(d => `<article class="critical-date" data-date-id="${esc(d.id)}" data-state="unknown" data-date-status="${esc(d.status || '')}">${dateTitle(d.label)}<strong>${d.dateState === 'missing' ? 'Date not recorded' : 'Date unavailable'}</strong>${d.status ? `<small>Status: ${esc(d.status)}</small>` : ''}${dateDetails(d, true)}</article>`).join('')}${view.missing.map(d => `<article class="critical-date">${dateTitle(d.label)}<strong>Not recorded</strong></article>`).join('')}</section>`;
 }
 
 const timelineActor = actor => knownAuthor(actor) ?? (actor ? 'Automatically' : '');
