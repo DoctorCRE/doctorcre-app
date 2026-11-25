@@ -425,8 +425,7 @@ function vendorContactDate(contactedAt) {
 
 const vendorField = (label, value) => value ? `<div class="record-field"><dt>${label}</dt><dd>${escapeHtml(value)}</dd></div>` : '';
 function vendorContactsHtml(record) {
-  const statuses = { not_researched: 'Not researched', needs_review: 'Needs review', office_verified: 'Office verified' };
-  const contacts = (record.people || []).map(({ company, contact, office, research }) => `
+  const contacts = (record.people || []).map(({ company, contact, office }) => `
     <li>
       <h4>${escapeHtml(withoutRecordCodes(contact.name))}</h4>
       ${company ? `<p class="note-summary">${escapeHtml(withoutRecordCodes(company.name))}</p>` : ''}
@@ -435,7 +434,6 @@ function vendorContactsHtml(record) {
         ${vendorField('Phone', contact.phone && phoneLabel(contact.phone))}
         ${vendorField('Mobile', contact.cell && phoneLabel(contact.cell))}
         ${vendorField('Office', office && `${office.street_address}, ${office.city}, ${office.state}`)}
-        <div class="record-field"><dt>Office research</dt><dd>${escapeHtml(statuses[research.status])}</dd></div>
       </dl>
       ${office ? `<p class="observed">${escapeHtml(office.source)} · ${escapeHtml(formatMoment(office.observed_at))}${office.expires_on ? ` · Expires ${escapeHtml(office.expires_on)}` : ''}</p>` : ''}
     </li>`).join('');
@@ -788,6 +786,15 @@ function activityHtml(recordId) {
   return `<section class="record-section" id="recordActivity" tabindex="-1" aria-labelledby="recordActivityTitle" aria-live="polite"><h3 id="recordActivityTitle">Recent activity</h3>${body}</section>`;
 }
 
+/** Arriving activity replaces only its own section, so the note a partner is reading or clicking stays put. */
+function paintActivity(id) {
+  const section = dom.panelBody?.querySelector("#recordActivity");
+  if (!section) return;
+  capturePanelState();
+  section.outerHTML = activityHtml(id);
+  restorePanelState();
+}
+
 /**
  * One activity read per opened record. The answer paints only while the same
  * record is still open and no newer read has started.
@@ -805,7 +812,7 @@ async function loadActivity(id, record) {
     view.activity.result = result;
     if(['ready','empty'].includes(result.state))pageDocContext?.finish(docTicket,{record,activities:result.rows.map(({what, when}) => ({what, when}))});
     else if (docTicket)pageDocContext?.fail(docTicket);
-    renderRecordPanel();
+    paintActivity(id);
     if (activityHadFocus) focusWithoutScrolling(dom.panelBody?.querySelector("[data-retry='activity']") || dom.panelBody?.querySelector("#recordActivity"));
   };
   if (!request) return settle({ state: "no_ref" });

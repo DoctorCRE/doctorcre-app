@@ -2324,7 +2324,7 @@ test('switched-on Deals selects an existing market agent and decides critical da
   await page.goto(`${origin}/deals?deal=${deal}&mode=live`);
   await page.getByRole('heading', { name: 'Critical dates', exact: true }).waitFor();
   assert.equal(await page.getByText('Add critical date', { exact: true }).count(), 0);
-  assert.equal(await page.locator('.critical-date').filter({ hasText: 'Jan 1, 2027' }).locator(':scope > span').textContent(), 'Phase effective date');
+  assert.equal(await page.locator('.critical-date').filter({ hasText: 'Jan 1, 2027' }).locator('h3 > span').textContent(), 'Phase effective date');
   await page.goto(`${origin}/deals?view=national&mode=live`);
   await page.getByRole('button', { name: /Example National Account/ }).click();
   await page.getByRole('button', { name: 'Previous Agent' }).click();
@@ -2371,6 +2371,7 @@ test('switched-on Deals selects an existing market agent and decides critical da
   await card.getByRole('button', { name: 'Confirm', exact: true }).click();
   await card.getByText('Confirmed', { exact: true }).waitFor();
   await card.screenshot({ path: join(evidence, 'engine-critical-date.png') });
+  await card.getByRole('button', { name: 'Mark done' }).click();
   await card.getByLabel('Reason').fill('The review is complete');
   await card.getByRole('button', { name: 'Mark done' }).click();
   await card.getByText('Done', { exact: true }).waitFor();
@@ -2409,7 +2410,7 @@ test('switched-on Deals selects an existing market agent and decides critical da
     await page.getByLabel('Note (optional)', { exact: true }).fill('Example clause');
     await saveDate.click();
     const card = page.locator('.critical-date').filter({ hasText: caption });
-    assert.equal(await card.locator(':scope > span').textContent(), label);
+    assert.equal(await card.locator('h3 > span').textContent(), label);
     await card.getByText('Details', { exact: true }).click();
     await card.getByText('Example clause', { exact: false }).waitFor();
   }

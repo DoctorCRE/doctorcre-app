@@ -49,20 +49,10 @@ for (const width of [1440, 390])
         recorded_at: "2026-10-02T17:45:00Z",
       },
     ];
-    await page.route("**/*", async (route) => {
-      const { origin, pathname } = new URL(route.request().url());
-      if (origin !== "http://localhost") return route.abort();
-      if (pathname === "/data/board-seed.json") return route.fulfill({ json: seed });
-      if (pathname.startsWith("/api/") || pathname === "/app-release") return route.fulfill({ json: {} });
-      const file = pathname === "/deals" ? "pipeline.html" : pathname.slice(1);
-      const contentType = /\.m?js$/.test(file) ? "text/javascript" : file.endsWith(".css") ? "text/css" : "text/html";
-      try {
-        return route.fulfill({ body: await readFile(new URL(file, root)), contentType });
-      } catch {
-        return route.fulfill({ status: 404, body: "" });
-      }
-    });
-    await page.goto("http://localhost/deals?deal=d14");
+    await page.route("https://**", (r) => r.abort());
+    await page.route("**/data/board-seed.json", (r) => r.fulfill({ json: seed }));
+    await page.route("**/{api/**,app-release}", (r) => r.fulfill({ json: {} }));
+    await page.goto(`${server?.origin}/deals?deal=d14`);
     await page.waitForSelector("#detailPhase");
     await page.evaluate(`import("/js/pipeline.js").then(({ state }) => {
       const read = state.client.getDeal;
@@ -88,15 +78,17 @@ for (const width of [1440, 390])
     await page.route("**/{api/system-work/session,auth/session}", (r) =>
       r.fulfill({ json: { csrf_token: "synthetic-session", actor: { slug: "joe" } } }),
     );
-    await page.route("**/mcp", (r) =>
-      r.fulfill({
+    const { promise: activityAnswered, resolve: answerActivity } = Promise.withResolvers<void>();
+    await page.route("**/mcp", async (r) => {
+      await activityAnswered;
+      return r.fulfill({
         json: {
           jsonrpc: "2.0",
           id: 1,
           result: { content: [{ type: "text", text: JSON.stringify({ state: "not_found", candidates: [] }) }] },
         },
-      }),
-    );
+      });
+    });
     await page.route("**/api/v1/business/**", (route) => {
       const json = directoryFixture(route.request().url());
       if (typeof json.record === "object" && json.record)
@@ -107,8 +99,12 @@ for (const width of [1440, 390])
     await page.locator(".record-row").first().click();
     const section = page.getByRole("dialog", { name: /Demo Practice 01/ }).locator(".client-note");
     await assertLinked(section);
-    // The record panel paints twice as it opens, so scroll whichever note is current in one step.
-    await section.evaluate((note) => note.scrollIntoView({ block: "nearest" }));
+    await section.locator("p").selectText();
+    answerActivity();
+    await page.locator("#recordActivity .activity-note:not([data-state=loading])").waitFor();
+    const selected = await page.evaluate(() => String(getSelection()));
+    assert.match(selected, /Called Demo Dental/, "Recent activity arriving keeps the note");
+    await section.scrollIntoViewIfNeeded();
     await page.screenshot({ path: `${evidence}client-note-${width}.png`, animations: "disabled" });
     assert.deepEqual(errors, []);
   });

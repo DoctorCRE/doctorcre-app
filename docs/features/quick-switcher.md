@@ -50,7 +50,9 @@ Arrow keys wrap while focus stays on the combobox. Native dialog excludes backgr
 Two designs were considered. The full Search page preserves broad search but
 its producer does not supply navigable deal links. The chosen local index gives
 instant filtering over existing navigable reads without a new server contract.
-Board actions supply task destinations. Leads open their drawer on Leads, clients and vendors open
+Board actions supply task destinations. A task reads "<what to do> · <record>" and drops the record when it
+matches the task's own wording, so no row repeats a name. Contacts that share a
+name each add their role and city, as the picker rule does (ruling 35(6)). Leads open their drawer on Leads, clients and vendors open
 their directory record, and other contacts open their relationship node.
 The model excludes transport and destination authorization checks, which remain
 with the authenticated adapters and destination pages.
