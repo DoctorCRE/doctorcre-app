@@ -277,9 +277,9 @@ test("The open day alone decides the sheet through month moves, Escape, a late c
     await page.keyboard.press("Enter");
     await expect(page.locator("#dayPanelTitle")).toHaveText(/Oct 23/);
     await expect(dayButton("2026-10-23")).toBeFocused();
-    await page.locator('#calGrid .cal-day[data-out-month="true"] .cal-day-open[data-select-day="2026-11-01"]').click();
-    await expect(page.locator("#dayPanelTitle")).toHaveText(/Nov 1\b/);
-    await expect(dayButton("2026-11-01")).toBeFocused();
+    await page.locator('#calGrid .cal-day[data-out-month="true"] .cal-day-open[data-select-day="2026-09-27"]').click();
+    await expect(page.locator("#dayPanelTitle")).toHaveText(/Sep 27\b/);
+    await expect(dayButton("2026-09-27")).toBeFocused();
   });
 
   await t.test("Escape closes the beside sheet when nothing has focus", async () => {
