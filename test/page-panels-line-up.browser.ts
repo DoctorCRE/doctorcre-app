@@ -215,7 +215,7 @@ for (const width of [1280, 1440]) {
       .getByRole("button")
       .evaluateAll((buttons) => buttons.map((button) => Math.round(button.getBoundingClientRect().top)));
     assert.equal(tops.length, 3);
-    assert.equal(new Set(tops).size, 1, "Both partners, Joe and Dell share one row");
+    assert.equal(new Set(tops).size, 1, "Both, Joe and Dell share one row");
     await mkdir(shots, { recursive: true });
     await page.locator("#appToday").screenshot({ path: `${shots}/today-${width}.png` });
   });
