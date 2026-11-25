@@ -131,3 +131,36 @@ test("a button whose label wraps keeps its text off the border", async (t) => {
         }
       });
 });
+
+test("every left-menu label fits inside its item", async (t) => {
+  const server = await startWorkerFixture({
+    assets: await appAssetSnapshot(),
+    env: { APP_ENV: "fixture", CARR: { fetch: async () => new Response("synthetic") } },
+  });
+  t.after(() => server.close());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+
+  for (const { width, touch } of [
+    { width: 1280, touch: false },
+    { width: 1440, touch: false },
+    { width: 390, touch: true },
+  ])
+    await t.test(`at ${width} with ${touch ? "touch" : "a mouse"}`, async () => {
+      const page = await browser.newPage({ viewport: { width, height: 800 }, hasTouch: touch });
+      t.after(() => page.close());
+      await page.route("https://**", (route) => route.abort());
+      await page.goto(`${server.origin}/?mode=fixture`);
+      await page.waitForLoadState("networkidle");
+      const items = await page
+        .locator(".app-shell-navigation > a, .app-shell-more-toggle")
+        .evaluateAll((nodes) =>
+          nodes.map((node) => ({ label: node.textContent?.trim(), scroll: node.scrollWidth, client: node.clientWidth })),
+        );
+      assert.ok(items.length >= 5, "the menu shows its items");
+      assert.deepEqual(
+        items.filter((item) => item.scroll > item.client),
+        [],
+      );
+    });
+});
