@@ -61,16 +61,19 @@ test("today follows the Chicago business calendar across UTC midnight", () => {
   assert.equal(localToday(new Date("2026-09-25T05:00:00Z")), "2026-09-25");
 });
 
-test("the month grid is six Sunday-first weeks with the anchor's month marked", () => {
+test("the month grid is the Sunday-first weeks holding the anchor's month, with the month marked", () => {
   const grid = monthGrid("2026-09-24");
   assert.equal(grid.title, "September 2026");
-  assert.equal(grid.days.length, 42);
+  assert.equal(grid.days.length, 35, "September 2026 spans five weeks, so no week of only October shows");
   assert.equal(grid.days[0].day, "2026-08-30", "Sep 1 2026 is a Tuesday, so the grid opens on Sunday Aug 30");
   assert.equal(grid.days[2].day, "2026-09-01");
   assert.equal(grid.days[2].inMonth, true);
   assert.equal(grid.days[0].inMonth, false);
   assert.equal(grid.days.filter((cell) => cell.inMonth).length, 30);
-  assert.equal(grid.days[41].day, "2026-10-10");
+  assert.equal(grid.days[34].day, "2026-10-03");
+  assert.equal(monthGrid("2026-10-01").days.length, 35, "October 2026 ends on a Saturday row");
+  assert.equal(monthGrid("2026-08-01").days.length, 42, "August 2026 opens on a Saturday and needs six weeks");
+  assert.equal(monthGrid("2026-02-01").days.length, 28, "February 2026 fills exactly four weeks");
 });
 
 test("the week strip is the anchor's Sunday-first week with a readable range title", () => {
@@ -111,11 +114,13 @@ test("a day's timeline places meetings by Central minutes and puts overlaps side
     meeting("d", "2026-10-21T04:30:00Z", "2026-10-21T06:00:00Z"),
     meeting("e", "2026-10-20T05:00:00Z", "2026-10-21T05:00:00Z", true),
     { key: "f", day: "2026-10-20" },
+    meeting("g", "2026-10-20T19:00:00Z", "2026-10-20T19:15:00Z"),
   ]);
   assert.deepEqual(blocks.map(({ entry, start, end, column, columns }) => [entry.key, start, end, column, columns]), [
     ["a", 540, 570, 0, 1],
     ["b", 600, 660, 0, 2],
     ["c", 630, 660, 1, 2],
+    ["g", 840, 870, 0, 1],
     ["d", 1410, 1440, 0, 1],
   ]);
 });

@@ -210,3 +210,47 @@ test("Today opens a one-day timeline that fits the screen", async (t) => {
       }
     });
 });
+
+test("A meeting's name fills its block, and a resize refits it", async (t) => {
+  const outDir = await temporaryDirectory("calendar-day-names-");
+  t.after(() => rm(outDir, { recursive: true, force: true }));
+  await buildArtifact({ root, outDir, commit: "0".repeat(40) });
+  const server = await (await createQaServer({ buildRoot: join(outDir, "site") })).start();
+  t.after(() => server.close());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const long = "Quarterly planning with the lender, the landlord's broker and both partners about the second building";
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
+  t.after(() => page.close());
+  await page.clock.install({ time: new Date("2026-10-22T13:00:00Z") });
+  await page.addInitScript(() => localStorage.setItem("doctorcre:today", "closed"));
+  await route(page, server.origin, {
+    "/api/engine/calendar/critical-dates": { ...dates, critical_dates: [], next_steps: [] },
+    "/api/engine/calendar/meetings": {
+      ...meetings,
+      meetings: [{ ...meetings.meetings[0], items: [meeting(long, 22, [14, 0], 60), meeting("Quick call", 22, [16, 0], 15)] }],
+    },
+  });
+  await page.request.post(`${server.origin}/api/test/seed`, { data: { namespace: "calendar-day-names", reset: true } });
+  await page.goto(`${app}/calendar?view=day&d=2026-10-22`);
+  await expect(page.locator("#calAsOf")).toContainText("Updated");
+
+  const nine = await box(page, '.cal-hours [data-hour="9"]');
+  const quick = await box(page, '.cal-blocks li:has([title*="Quick call"])');
+  assert.ok(Math.abs(quick.height - nine.height / 2) <= 1, `a 15-minute meeting takes half an hour so its name fits: ${quick.height}`);
+
+  const fit = () =>
+    page.locator(".cal-blocks [title*=\"Quarterly planning\"] .cal-chip-label").evaluate((label) => {
+      const chip = getComputedStyle(label.parentElement as HTMLElement);
+      const line = Number.parseFloat(getComputedStyle(label).lineHeight);
+      const inner = (label.parentElement as HTMLElement).clientHeight - Number.parseFloat(chip.paddingTop) - Number.parseFloat(chip.paddingBottom);
+      const room = Math.floor(inner / line);
+      const shown = Math.round(label.getBoundingClientRect().height / line);
+      return shown === Math.min(room, Math.round(label.scrollHeight / line)) ? "fits" : `${shown} of ${room} lines`;
+    });
+  expect(await fit()).toBe("fits");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect.poll(fit, { message: "a phone's taller hour shows more of the name" }).toBe("fits");
+  await page.setViewportSize({ width: 1280, height: 640 });
+  await expect.poll(fit, { message: "back on a computer the name ends on its block's last line" }).toBe("fits");
+});

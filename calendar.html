@@ -34,7 +34,7 @@
 
     <section class="cal-board" aria-labelledby="calPeriod">
       <header class="cal-toolbar">
-        <h1 id="pageTitle">Calendar</h1>
+        <h1 id="pageTitle" class="sr-only">Calendar</h1>
         <div class="cal-steps" role="group" aria-label="Move through the calendar">
           <button class="cal-icon" type="button" id="calPrev" aria-label="Previous month"><span aria-hidden="true">‹</span></button>
           <h2 class="cal-period" id="calPeriod" aria-live="polite">Calendar</h2>
@@ -47,22 +47,12 @@
         <div class="cal-view-switch" id="calViewSwitch" role="group" aria-label="Calendar view">
           <button class="cal-today" type="button" id="calToday">Today</button>
           <div class="cal-segments">
-            <button type="button" data-view="day" aria-pressed="false"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="12" rx="2"/><path d="M1.5 6h13M6 9h4v3H6z"/></svg>Day</button>
-            <button type="button" data-view="week" aria-pressed="false"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="12" rx="2"/><path d="M1.5 6h13M5.5 6v8.5M10.5 6v8.5"/></svg>Week</button>
-            <button type="button" data-view="month" aria-pressed="true"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="12" rx="2"/><path d="M1.5 6h13M1.5 10h13M5.5 6v8.5M10.5 6v8.5"/></svg>Month</button>
+            <button type="button" data-view="day" aria-pressed="false"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="12" rx="2"/><path d="M1.5 6h13M6 9h4v3H6z"/></svg><span>Day</span></button>
+            <button type="button" data-view="week" aria-pressed="false"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="12" rx="2"/><path d="M1.5 6h13M5.5 6v8.5M10.5 6v8.5"/></svg><span>Week</span></button>
+            <button type="button" data-view="month" aria-pressed="true"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="12" rx="2"/><path d="M1.5 6h13M1.5 10h13M5.5 6v8.5M10.5 6v8.5"/></svg><span>Month</span></button>
           </div>
         </div>
       </header>
-      <div class="cal-key">
-        <ul class="cal-legend" aria-label="What each marker means">
-          <li><span class="cal-mark" data-kind="step" aria-hidden="true"></span>Next step</li>
-          <li><span class="cal-mark" data-kind="date" aria-hidden="true"></span>Critical date</li>
-          <li><span class="cal-mark" data-kind="meeting" aria-hidden="true"></span>Meeting</li>
-          <li><span class="cal-mark" data-kind="tour" aria-hidden="true"></span>Tour</li>
-          <li><span class="cal-mark" data-kind="late" aria-hidden="true"></span>Late</li>
-          <li><span class="cal-soon" aria-hidden="true"></span>This week</li>
-        </ul>
-      </div>
       <div class="cal-notices" id="calNotices"></div>
       <div id="calState"><p>Reading Calendar…</p></div>
       <div class="cal-grid" id="calGrid" role="grid" aria-labelledby="calPeriod" data-view="month"></div>
