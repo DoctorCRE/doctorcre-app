@@ -16,42 +16,44 @@
   <link rel="stylesheet" href="/css/system.css">
   <link rel="stylesheet" href="/css/notifications.css">
   <link rel="stylesheet" href="/css/app-shell.css">
+  <link rel="stylesheet" href="/css/settings.css">
 </head>
 <body>
   <div id="appShell"></div><script type="module" src="/js/app-shell.js"></script>
   <a class="skip" href="#main">Skip to settings</a>
 
-  <main id="main" class="shell">
+  <main id="main" class="shell settings">
     <h1 class="sr-only">Settings</h1>
-    <section class="card glass" data-section="quiet_hours" id="quietHoursBlock" aria-labelledby="quietHoursTitle">
-      <div class="card-heading">
-        <h2 id="quietHoursTitle">Your notification preferences</h2>
-        <span class="as-of" id="prefAsOf"></span>
-      </div>
+    <section class="settings-group" data-section="quiet_hours" id="quietHoursBlock" aria-labelledby="quietHoursTitle">
+      <h2 id="quietHoursTitle">Notifications</h2>
       <div class="state-block" id="prefState" data-state="loading">
         <h3 id="prefStateTitle">Reading your preferences…</h3>
         <button class="btn" type="button" id="retryPreference" hidden>Retry</button>
       </div>
       <form class="pref-form" id="prefForm" novalidate hidden>
-        <label class="switch-field">
-          <input id="deviceOptIn" type="checkbox">
-          <span>Send a device push when something is addressed to me</span>
+        <label class="setting-row" for="deviceOptIn">
+          <span class="setting-text"><span class="setting-name">Device push</span><span class="setting-hint">Send a device push when something is addressed to me</span></span>
+          <input id="deviceOptIn" class="setting-switch" type="checkbox">
         </label>
-        <div class="pref-grid">
-          <div class="field"><label for="quietStart">Quiet hours start</label><input id="quietStart" type="text" autocomplete="off" placeholder="Not set"></div>
-          <div class="field"><label for="quietEnd">Quiet hours end</label><input id="quietEnd" type="text" autocomplete="off" placeholder="Not set"></div>
+        <div class="setting-row" role="group" aria-labelledby="quietHoursName">
+          <span class="setting-text"><span class="setting-name" id="quietHoursName">Quiet hours</span><span class="setting-hint">Device pushes wait until quiet hours end</span></span>
+          <span class="quiet-range">
+            <label class="sr-only" for="quietStart">Quiet hours start</label><input id="quietStart" type="text" autocomplete="off" placeholder="Not set">
+            <span aria-hidden="true">to</span>
+            <label class="sr-only" for="quietEnd">Quiet hours end</label><input id="quietEnd" type="text" autocomplete="off" placeholder="Not set">
+          </span>
         </div>
-        <p class="caption pref-summary" id="prefSummary"></p>
         <div class="pref-act">
           <button class="btn btn-primary" type="submit" id="prefSave">Save preferences</button>
-          <button class="btn" type="button" id="prefClear">Clear quiet hours</button>
+          <button class="btn btn-quiet" type="button" id="prefClear" hidden>Clear quiet hours</button>
+          <p class="caption pref-summary" id="prefSummary"></p>
         </div>
       </form>
       <p class="caption pref-message" id="prefMessage" role="status" aria-live="polite" aria-atomic="true"></p>
     </section>
 
-    <div id="docLinkSettings"></div>
     <div id="phonePush"></div>
+    <div id="docLinkSettings"></div>
   </main>
 
   <div id="receiptDock" class="receipt-dock" role="group" aria-label="Command feedback"></div>

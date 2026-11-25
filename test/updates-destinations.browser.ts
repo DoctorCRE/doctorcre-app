@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
-import type { Page, Request, Route } from "playwright";
+import type { Locator, Page, Request, Route } from "playwright";
 import { appAssetSnapshot } from "../scripts/fixture-app-assets.mjs";
 import { startWorkerFixture } from "../scripts/fixture-http.mjs";
 import { chromium } from "./browser-harness.mjs";
@@ -302,6 +302,8 @@ const screenFit = (page: Page) =>
       tallestRow: Math.round(Math.max(...rows)),
     };
   });
+
+const widthOf = async (locator: Locator) => (await locator.boundingBox())?.width ?? Number.NaN;
 
 for (const [width, height] of [
   [1280, 800],
@@ -669,9 +671,13 @@ test("Settings opens from the account menu and saves without showing a time zone
   assert.doesNotMatch((await page.locator("main").textContent()) ?? "", /America\/Denver/);
 });
 
-for (const width of [1280, 1440, 390])
-  test(`Settings shows unset quiet hours as empty boxes at ${width}`, async (t) => {
-    const { page } = await open(t, width, "dark");
+for (const [width, height] of [
+  [1280, 720],
+  [1440, 900],
+  [390, 844],
+] as const)
+  test(`Settings is one readable column with unset quiet hours empty at ${width}`, async (t) => {
+    const { page } = await open(t, width, "dark", {}, true, height);
     await page.goto(settingsPath);
     await page.locator("#prefForm").waitFor();
     await mkdir("out/test-artifacts/settings", { recursive: true });
@@ -679,8 +685,43 @@ for (const width of [1280, 1440, 390])
     for (const box of [page.getByLabel("Quiet hours start"), page.getByLabel("Quiet hours end")]) {
       assert.equal(await box.inputValue(), "");
       assert.equal(await box.getAttribute("placeholder"), "Not set", "an empty box does not show a time");
+      assert.ok((await widthOf(box)) <= 160, "a time box is sized for a time");
     }
+    assert.equal(await page.getByRole("button", { name: "Clear quiet hours" }).isVisible(), false);
+    assert.equal(
+      await page
+        .locator("main")
+        .getByText(/^As of /)
+        .count(),
+      0,
+    );
+    const column = await widthOf(page.locator("#quietHoursBlock"));
+    assert.ok(column <= 720, `the settings column is ${column}px wide`);
+    assert.ok((await widthOf(saveButton(page))) < column / 2 || width < 560, "Save is a button, not a full-width bar");
+    const overflow = await page.evaluate(() => ({
+      x: document.documentElement.scrollWidth > innerWidth,
+      y: document.documentElement.scrollHeight > innerHeight,
+    }));
+    assert.equal(overflow.x, false, "no sideways scroll");
+    if (width > 760) assert.equal(overflow.y, false, "Settings fits one screen");
   });
+
+test("Settings offers Clear quiet hours only once quiet hours are saved", async (t) => {
+  const { page } = await open(
+    t,
+    1440,
+    "dark",
+    preferenceStore({ ...preferences, quiet_from: "22:00", quiet_until: "07:00" }),
+  );
+  await page.goto(settingsPath);
+  const clear = page.getByRole("button", { name: "Clear quiet hours" });
+  await clear.waitFor();
+  assert.equal(await page.getByLabel("Quiet hours start").inputValue(), "10:00 PM");
+  await clear.click();
+  await page.locator("#prefSummary").getByText("No quiet hours set · device push off", { exact: true }).waitFor();
+  assert.equal(await clear.isVisible(), false);
+  assert.equal(await page.getByLabel("Quiet hours start").inputValue(), "");
+});
 
 test("checking a settings save outcome keeps newer preferences on screen", async (t) => {
   const saved = { ...preferences, quiet_from: "22:00", quiet_until: "07:00", base_version: 5 };
@@ -837,7 +878,7 @@ test("a conflict keeps the settings draft and notice visible when the refresh fa
   await draft.fill("10:00 PM");
   await page.getByLabel("Quiet hours end").fill("7:00 AM");
   await saveButton(page).click();
-  const panel = page.getByRole("region", { name: "Your notification preferences" });
+  const panel = page.getByRole("region", { name: "Notifications" });
   await panel.locator('#prefState[data-state="unavailable"]').waitFor();
   assert.equal(await draft.isVisible(), true, "the unsaved quiet hours remain visible");
   assert.equal(await draft.inputValue(), "10:00 PM");
