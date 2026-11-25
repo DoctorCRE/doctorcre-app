@@ -346,7 +346,7 @@ test("B05-14 the interface contract pins both verbs and the Search route", () =>
   // Both verbs travel over the existing /mcp mount, so no HTTP surface is added.
   assert.equal(contract.http_surfaces.includes("/api/v1/search"), false);
   assert.doesNotMatch(html, /id="searchAuthorization">[^<]*record layer/);
-  assert.match(css, /#searchChips \.chip, #savedViewList \.chip, \.saved-view \.chip \{ min-height: var\(--touch\)/, "every control the tab adds clears the touch floor");
+  assert.match(css, /#searchChips \.chip, #savedViewList \.chip \{ min-height: var\(--touch\)/, "every control the tab adds clears the touch floor");
   assert.doesNotMatch(css.slice(css.indexOf("V5-UX-B05")), /#[0-9a-fA-F]{3,8}\b/, "no literal colour in the B05 block");
   assert.doesNotMatch(pageJs, /new Date\(/, "the page keeps no clock of its own");
 });

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { test } from "@playwright/test";
 import { z } from "zod";
+import { steadyHistory } from "../../test/steady-history.ts";
 
 const endpoint = "https://doctorcre-engine-staging.joe-bookout-carr-us.workers.dev/jobs/sign-in-rehearsal";
 const prepared = z
@@ -86,6 +87,7 @@ export async function withJourneyFixture<T>(
 }
 
 export const journeyTest = test.extend<{ rehearsal: Fixture; journeyFixtureOptions: Options }>({
+  page: async ({ page }, use) => use(steadyHistory(page)),
   journeyFixtureOptions: [{}, { option: true }],
   rehearsal: [({ journeyFixtureOptions }, use) => withJourneyFixture(use, journeyFixtureOptions), { timeout: 125_000 }],
 });

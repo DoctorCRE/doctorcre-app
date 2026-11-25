@@ -1,7 +1,10 @@
 import { readFile } from 'node:fs/promises';
-import { test, expect } from '@playwright/test';
+import { test as base, expect } from '@playwright/test';
 import { ownedServer as startFixtureServer } from '../../test/fixture-probe.ts';
 import { controlFloor } from '../../test/control-floor.ts';
+import { steadyHistory } from '../../test/steady-history.ts';
+
+const test = base.extend({ page: async ({ page }, use) => use(steadyHistory(page)) });
 
 let server;
 test.beforeAll(async () => { server = await startFixtureServer(); });

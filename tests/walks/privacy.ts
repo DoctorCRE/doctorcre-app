@@ -1,5 +1,6 @@
 import { type BrowserContext, test as base } from "@playwright/test";
 import { type InboxItem, object, parseSnapshot } from "../../src/ui/home/inbox.tsx";
+import { steadyHistory } from "../../test/steady-history.ts";
 
 export const readOnlyVerbs: readonly string[] = [
   "capture-queue",
@@ -87,6 +88,7 @@ export function clearAdmission(context: BrowserContext): void {
 }
 
 export const test = base.extend<{ walkPrivacy: undefined }>({
+  page: async ({ page }, use) => use(steadyHistory(page)),
   walkPrivacy: [
     async ({ context }, use, info) => {
       if (info.project.name === "setup") return use(undefined);
