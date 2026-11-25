@@ -437,6 +437,7 @@ test('snoozing or settling a lease watch card keeps the watch and its saved link
  const card=page.locator('[data-inbox-row="lease-alert"]');
  assert.equal(await card.locator('.inbox-source').getAttribute('href'),`/leases?lease=${lease}`);
  await card.getByText('This alert is separate from its watch. Snoozing or settling the card keeps the watch.',{exact:true}).waitFor();
+ await card.getByText('Lease watch settings',{exact:true}).waitFor();
  await card.getByRole('button',{name:'Snooze',exact:true}).click();
  await page.getByRole('button',{name:/^1 hour/}).click();
  await page.getByRole('button',{name:'Undo',exact:true}).click();

@@ -39,6 +39,8 @@ test("the static artifact rebuild is byte-for-byte reproducible", async (t) => {
   assert.equal(home.replace(/<link rel="modulepreload"[^>]+>\n/g, ''), await readFile(join(ROOT, "workspace.html"), 'utf8'));
   const leads = await readFile(join(first, "site", "leads.html"), 'utf8');
   for (const deep of ["js/visibility-poll.mjs", "js/leads-client.js", "js/app-layout.js"]) assert.match(leads, new RegExp(`<link rel="modulepreload" href="/${deep}">`), `Leads fetches ${deep} in the first wave`);
+  const shellCss = await readFile(join(first, "site", "css", "app-shell.css"), 'utf8');
+  assert.ok(shellCss.length < (await readFile(join(ROOT, "css", "app-shell.css"))).length * 0.9, 'deployed stylesheets are minified');
 });
 
 test("the deployment directory is rebuilt without stale files", async (t) => {

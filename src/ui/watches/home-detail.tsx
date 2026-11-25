@@ -1,8 +1,17 @@
+import { lazy, Suspense } from "react";
 import { recordRoutes } from "../home/routes.tsx";
-import { createWatchClient } from "./client.ts";
-import { WatchControl } from "./control.tsx";
 
-const client = createWatchClient();
+// Home's first screen never shows a watch, so its control downloads when a card first opens one.
+const LeaseWatchControl = lazy(async () => {
+  const [{ WatchControl }, { createWatchClient }] = await Promise.all([import("./control.tsx"), import("./client.ts")]);
+  const client = createWatchClient();
+  return {
+    default: ({ lease }: { lease: string }) => (
+      <WatchControl subject={{ subject_type: "lease", subject_id: lease }} client={client} />
+    ),
+  };
+});
+
 export function HomeWatchDetail({ open_url }: { open_url: string | null }) {
   const source = recordRoutes.source({ open_url });
   if (!source) return null;
@@ -12,7 +21,9 @@ export function HomeWatchDetail({ open_url }: { open_url: string | null }) {
   return (
     <section aria-label="Lease watch details">
       <p>This alert is separate from its watch. Snoozing or settling the card keeps the watch.</p>
-      <WatchControl key={lease} subject={{ subject_type: "lease", subject_id: lease }} client={client} />
+      <Suspense>
+        <LeaseWatchControl key={lease} lease={lease} />
+      </Suspense>
     </section>
   );
 }
