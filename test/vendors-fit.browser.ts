@@ -222,6 +222,28 @@ test("Reset stays on the toolbar row at 1200x750 when sorted by least recent dea
   assert.deepEqual(cutPlaceholders, [], "search and territory hints read whole");
 });
 
+test("vendor rows take one line each under one header row that names the columns", async (t) => {
+  const page = await openVendors(t, 1280, 640);
+  await page.screenshot({ path: `${shots}/vendors-1280x640.png` });
+  assert.ok((await firstScreen(page)).wholeRows >= 11, "at least 11 vendors show whole at 1280x640");
+  const columns = await page.evaluate(() => {
+    const left = (node: Element | null | undefined) => Math.round(node?.getBoundingClientRect().left ?? Number.NaN);
+    const row = document.querySelector(".record-row");
+    return [...document.querySelectorAll(".list-head :is([data-fact], .contact-note, .row-owner)")].map((label) => {
+      const fact = label.getAttribute("data-fact");
+      const value = fact
+        ? row?.querySelector(`[data-fact="${fact}"] .fact-value`)
+        : row?.querySelector(`.${label.className}`);
+      return { label: label.textContent, header: left(label), value: left(value) };
+    });
+  });
+  assert.deepEqual(
+    columns.map(({ label }) => label),
+    ["Category", "Territory", "Location", "Last contacted", "Owner"],
+  );
+  for (const { label, header, value } of columns) assert.equal(value, header, `${label} values sit under their label`);
+});
+
 test("Vendors stays usable on a phone", async (t) => {
   const page = await openVendors(t, 390, 844);
   await page.screenshot({ path: `${shots}/vendors-390.png` });

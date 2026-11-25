@@ -86,13 +86,15 @@ function shortDate(day) {
   return `${SHORT_MONTHS[date.getUTCMonth()]} ${date.getUTCDate()}`;
 }
 
-/** Six Sunday-first weeks around the anchor's month. */
+/** The Sunday-first weeks that hold a day of the anchor's month: four to six. */
 export function monthGrid(anchor) {
   const date = asUtc(anchor);
   const first = fromUtc(new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1)));
   const start = startOfWeek(first);
   const month = date.getUTCMonth();
-  const days = Array.from({ length: 42 }, (_, index) => {
+  const monthDays = new Date(Date.UTC(date.getUTCFullYear(), month + 1, 0)).getUTCDate();
+  const weeks = Math.ceil((asUtc(first).getUTCDay() + monthDays) / 7);
+  const days = Array.from({ length: weeks * 7 }, (_, index) => {
     const day = addDays(start, index);
     return { day, inMonth: asUtc(day).getUTCMonth() === month };
   });
@@ -249,8 +251,8 @@ export function entriesByDay(entries) {
 
 const CENTRAL_CLOCK = new Intl.DateTimeFormat("en-US", { timeZone: BUSINESS_TIME_ZONE, hour: "numeric", minute: "numeric", hourCycle: "h23" });
 const DAY_MINUTES = 24 * 60;
-// A meeting without a readable end gets the shortest slot Outlook offers.
-const DEFAULT_MINUTES = 30;
+// The shortest slot Outlook offers; a shorter meeting, or one without a readable end, takes it so its name fits.
+const SHORTEST_MINUTES = 30;
 
 /** Minutes past Central midnight. */
 export function centralMinutes(instant) {
@@ -267,7 +269,7 @@ export function timelineBlocks(entries) {
   const blocks = entries.filter(entry => entry.at && !entry.all_day).map(entry => {
     const start = centralMinutes(entry.at);
     const length = entry.end ? Math.round((Date.parse(entry.end) - Date.parse(entry.at)) / 60_000) : 0;
-    return { entry, start, end: Math.min(DAY_MINUTES, start + (length > 0 ? length : DEFAULT_MINUTES)), column: 0, columns: 1 };
+    return { entry, start, end: Math.min(DAY_MINUTES, start + Math.max(length, SHORTEST_MINUTES)), column: 0, columns: 1 };
   }).sort((a, b) => a.start - b.start || b.end - a.end);
   let cluster = [];
   let clusterEnd = -1;

@@ -4,8 +4,8 @@
  * rows and one accent marker (today's number). Chips are light: one line on
  * the surface, a hairline edge and a small kind mark (a dot for a next step,
  * a diamond for a critical date, a bar for a meeting, a ring for a tour, red
- * for late). In a chip nearness is quiet:
- * red text when overdue and a small amber ring for this week. A chosen day
+ * for late). The shapes need no legend row. In a chip nearness is quiet: red
+ * text when overdue. A chosen day
  * opens in a sheet pinned to the viewport (right edge on a wide screen, where
  * the grid narrows beside it and stays usable; a modal bottom sheet on a
  * phone), so its title and Close are on screen wherever the page
@@ -13,35 +13,36 @@
  * shapes (.cal-pulse), never a loop: a double ring for today or overdue, a
  * ringed dot for this week, a dot for this month and a hollow ring for later.
  *
- * On a wide screen the month fills the screen below one header band: the
- * title, period, counts and controls on one line, the legend under it. Week
- * rows share the height left, and a day shows as many chips as fit (counted
- * in js/calendar.js); "+N more" sits beside the day's number.
+ * On a wide screen the month fills the screen below one toolbar row: the
+ * period, counts and controls on one line (the top bar already names the page).
+ * Only the weeks holding a day of the month show and share the height left, and
+ * a day shows as many chips as fit (counted in js/calendar.js); "+N more" sits
+ * beside the day's number. A week fills the same height and each day scrolls
+ * inside itself, every chip a name over its record.
  *
  * On a phone the month becomes an agenda: only days with items (plus today
  * and the selected day), one row each, every chip shown.
  *
  * The Day view fills the screen at every width: the day's untimed items in a
  * band, then an hour-by-hour timeline that scrolls inside itself. A meeting's
- * top and height come from its minutes (--start, --end) and its share of the
- * width from its overlap column (--col of --cols), all set in js/calendar.js.
+ * top and height come from its minutes (--start, --end), its share of the
+ * width from its overlap column (--col of --cols) and its name's lines from
+ * the room it has (--lines), all set in js/calendar.js.
  *
  * Motion: the grid moves once when the period or view changes (transform and
  * opacity only). Hover and press are a surface step, never a lift.
  */
 
-.cal-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--space-2); }
-.cal-toolbar h1 { margin: 0; font: var(--font-weight-strong) var(--font-size-3)/1.2 var(--font-text); }
-.cal-updated { margin-inline-start: auto; color: var(--fg-muted); font-size: var(--font-size-1); }
+.cal-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--space-2); margin-bottom: var(--space-2); }
+.cal-updated { margin-inline-start: auto; color: var(--fg-muted); font-size: var(--font-size-1); white-space: nowrap; }
 .cal-board { min-width: 0; }
-.cal-key { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-4); margin-bottom: var(--space-1); }
 .cal-steps, .cal-view-switch { display: flex; align-items: center; gap: var(--space-2); }
 .cal-steps { margin-left: calc(-1 * var(--space-2)); gap: 0; }
-.cal-period { min-width: 9ch; margin: 0; font: var(--font-weight-regular) var(--font-size-3)/1.2 var(--font-text); text-align: center; }
+.cal-period { min-width: 9ch; margin: 0; white-space: nowrap; font: var(--font-weight-regular) var(--font-size-3)/1.2 var(--font-text); text-align: center; }
 .cal-icon { display: grid; place-items: center; width: var(--touch); height: var(--touch); padding: 0; border: 0; border-radius: var(--radius-2); background: transparent; color: var(--fg-muted); font-size: var(--font-size-3); cursor: pointer; }
 .cal-today, .cal-segments button { min-height: var(--touch); padding: 0 var(--space-3); border: 0; border-radius: var(--radius-2); background: transparent; color: var(--fg-muted); font: var(--font-weight-strong) var(--font-size-1)/1 var(--font-text); cursor: pointer; transition: background-color var(--duration-hover) var(--ease-out); }
-.cal-today { box-shadow: inset 0 0 0 var(--hairline-width) var(--hairline-strong); color: var(--fg); }
-.cal-segments { display: flex; padding: 2px; border-radius: var(--radius-3); background: var(--surface-1); box-shadow: inset 0 0 0 var(--hairline-width) var(--hairline); }
+.cal-today { color: var(--fg); }
+.cal-segments { display: flex; gap: 2px; }
 .cal-segments button { display: inline-flex; align-items: center; gap: 6px; }
 .cal-segments svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.4; }
 .cal-segments button[aria-pressed="true"] { background: var(--surface-3); color: var(--fg); }
@@ -51,10 +52,8 @@
 @media (hover: hover) { :is(.cal-icon, .cal-today, .cal-segments button):hover { background: var(--surface-3); color: var(--fg); } }
 :is(.cal-icon, .cal-today, .cal-segments button):active { background: var(--hairline); }
 :is(.cal-icon, .cal-today, .cal-segments button):focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: -2px; }
-.cal-count { margin: 0; color: var(--fg-muted); font-size: var(--font-size-1); }
+.cal-count { min-width: 0; margin: 0; overflow: hidden; color: var(--fg-muted); font-size: var(--font-size-1); text-overflow: ellipsis; white-space: nowrap; }
 .cal-count:empty { display: none; }
-.cal-legend { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); margin: 0; padding: 0; list-style: none; color: var(--fg-muted); font-size: var(--font-size-1); }
-.cal-legend li { display: inline-flex; align-items: center; gap: 6px; }
 .cal-notices:empty { display: none; }
 .cal-notices { display: grid; gap: var(--space-2); margin-bottom: var(--gap); }
 
@@ -76,6 +75,8 @@
 @media (hover: hover) { .cal-day:hover { background: var(--surface-2); } }
 .cal-day:active { background: var(--surface-2); }
 .cal-grid[data-view="week"] .cal-day { min-height: 240px; }
+.cal-grid[data-view="week"] .cal-chip { display: grid; grid-template-columns: auto minmax(0, 1fr); align-content: center; align-items: baseline; gap: 2px 6px; padding-block: var(--space-1); }
+.cal-grid[data-view="week"] .cal-chip-deal { grid-column: 2; }
 .cal-day[data-out-month="true"] { background: var(--ground); }
 .cal-day[data-out-month="true"] .cal-day-num { color: var(--fg-quiet); }
 .shell:has(> .cal-day-sheet[open]) .cal-day[aria-selected="true"] { background: var(--surface-2); box-shadow: inset 0 0 0 var(--focus-width) var(--hairline-strong); }
@@ -98,9 +99,9 @@
 .cal-chip:active { background: var(--surface-3); }
 .cal-chip:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 1px; }
 .cal-chip-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cal-grid[data-view="week"] .cal-chip-label { white-space: normal; overflow-wrap: anywhere; }
+.cal-grid[data-view="week"] .cal-chip-label { white-space: normal; overflow-wrap: break-word; }
 .cal-chip:is([data-kind="late"], [data-band="overdue"]) .cal-chip-label { color: var(--status-danger-ink); }
-.cal-chip-deal { flex: 0 1 40%; overflow: hidden; color: var(--fg-muted); text-overflow: ellipsis; white-space: nowrap; }
+.cal-chip-deal { flex: 0 1 40%; min-width: 0; overflow: hidden; color: var(--fg-muted); text-overflow: ellipsis; white-space: nowrap; }
 .cal-chip[data-band="settled"] { color: var(--fg-muted); }
 .cal-chip[data-band="settled"] .cal-chip-label { text-decoration: line-through; }
 /* The kind mark's shape carries the kind, so it never rests on hue alone. */
@@ -108,8 +109,6 @@
 .cal-mark[data-kind="date"] { border-radius: 1px; transform: rotate(45deg) scale(0.9); }
 .cal-mark[data-kind="meeting"] { width: 9px; height: 5px; border-radius: 1px; }
 .cal-mark[data-kind="tour"] { box-sizing: border-box; border: 2px solid var(--kind); background: transparent; }
-.cal-soon, .cal-chip[data-band="soon"]::after { flex: none; box-sizing: border-box; width: 7px; height: 7px; border: 1.5px solid var(--status-warn); border-radius: var(--radius-round); }
-.cal-chip[data-band="soon"]::after { content: ""; }
 .cal-more { align-self: center; min-height: 20px; padding: 0 2px; border: 0; background: none; color: var(--fg-muted); font: var(--font-weight-regular) var(--font-size-1)/1 var(--font-text); font-variant-numeric: tabular-nums; cursor: pointer; }
 @media (hover: hover) { .cal-more:hover { color: var(--fg); text-decoration: underline; } }
 .cal-more:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 1px; }
@@ -168,14 +167,23 @@
   .cal-day { --cal-chip: var(--touch); }
   .cal-more, .cal-day-open, .cal-undated-chip { min-height: var(--touch); }
 }
-/* The month fills the screen: each box from the page column down to the grid takes the height left, and the six weeks share it. Coming up repeats days the whole month already shows. */
+/* The month and the week fill the screen: each box from the page column down to the grid takes the height left, and the weeks share it. Coming up repeats days the grid already shows. */
 @media (width > 640px) {
-  .app-layout-center:has(.cal-grid[data-view="month"]) { display: flex; flex-direction: column; height: calc(100dvh - var(--layout-bottom)); }
-  .app-layout-center:has(.cal-grid[data-view="month"]) > .app-layout-main { padding-block-end: var(--space-3); }
-  .app-layout-center:has(.cal-grid[data-view="month"]) > .app-layout-main,
-  .app-layout-main:has(.cal-grid[data-view="month"]) > main,
-  .shell:has(> .cal-board > .cal-grid[data-view="month"]) > .cal-board { display: flex; flex: 1 1 0; flex-direction: column; min-height: 0; }
-  .cal-grid[data-view="month"] { flex: 1 1 0; min-height: 360px; grid-template-rows: auto repeat(6, minmax(0, 1fr)); }
+  .cal-toolbar { flex-wrap: nowrap; }
+  .app-layout-center:has(.cal-grid:is([data-view="month"], [data-view="week"])) { display: flex; flex-direction: column; height: calc(100dvh - var(--layout-bottom)); }
+  .app-layout-center:has(.cal-grid:is([data-view="month"], [data-view="week"])) > .app-layout-main { padding-block-end: var(--space-3); }
+  .app-layout-center:has(.cal-grid:is([data-view="month"], [data-view="week"])) > .app-layout-main,
+  .app-layout-main:has(.cal-grid:is([data-view="month"], [data-view="week"])) > main,
+  .shell:has(> .cal-board > .cal-grid:is([data-view="month"], [data-view="week"])) > .cal-board { display: flex; flex: 1 1 0; flex-direction: column; min-height: 0; }
+  /* Under a week, Coming up is one short strip, its title beside up to five dates, scrolling inside itself. */
+  .shell:has(> .cal-board > .cal-grid[data-view="week"]) > .cal-extras { flex: none; margin-top: var(--space-3); }
+  .shell:has(> .cal-board > .cal-grid[data-view="week"]) .cal-coming { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: var(--space-4); }
+  .shell:has(> .cal-board > .cal-grid[data-view="week"]) .cal-agenda { display: grid; grid-auto-columns: minmax(0, 1fr); grid-auto-flow: column; gap: var(--space-2); max-height: 88px; overflow-y: auto; }
+  .shell:has(> .cal-board > .cal-grid[data-view="week"]) .cal-agenda-item { grid-template-columns: minmax(0, 1fr); gap: 2px; min-height: 0; padding-block: 0; }
+  .cal-grid[data-view="week"] { flex: 1 1 0; min-height: 240px; grid-template-rows: minmax(0, 1fr); }
+  .cal-grid[data-view="week"] .cal-week { min-height: 0; }
+  .cal-grid[data-view="week"] .cal-day { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  .cal-grid[data-view="month"] { flex: 1 1 0; min-height: 360px; grid-template-rows: auto; grid-auto-rows: minmax(0, 1fr); }
   .cal-grid[data-view="month"] .cal-week { grid-template-rows: minmax(0, 1fr); min-height: 0; }
   .cal-grid[data-view="month"] .cal-day { display: grid; grid-template: auto minmax(0, 1fr) / minmax(0, 1fr) auto; align-content: start; }
   .cal-grid[data-view="month"] .cal-chips { grid-column: 1 / -1; align-content: start; }
@@ -183,6 +191,15 @@
   .shell:has(> .cal-board > .cal-grid[data-view="month"]) > .cal-extras { display: none; }
 }
 @media (max-width: 640px) {
+  /* Period, then counts, then the view icons with the Updated time on one row. */
+  .cal-toolbar { column-gap: var(--space-1); }
+  .cal-steps, .cal-count { flex-basis: 100%; }
+  .cal-today { padding-inline: var(--space-2); }
+  .cal-view-switch { order: 1; }
+  :is(.cal-updated, #calRefresh) { order: 2; }
+  .cal-segments span { display: none; }
+  .cal-segments button { width: var(--touch); padding: 0; justify-content: center; }
+  .cal-segments svg { width: 18px; height: 18px; }
   .cal-day-sheet[open] { inset: auto 0 0; width: 100%; max-height: 85dvh; border-width: var(--hairline-width) 0 0; border-radius: var(--radius-3) var(--radius-3) 0 0; padding-bottom: env(safe-area-inset-bottom); }
   .cal-day-sheet a { display: inline-flex; align-items: center; min-height: var(--touch); }
   .cal-grid { border: 0; border-radius: 0; background: transparent; }
@@ -233,12 +250,11 @@
 .cal-hours li:first-child span { visibility: hidden; }
 .cal-blocks { position: absolute; inset: 0 var(--space-2) 0 64px; margin: 0; padding: 0; list-style: none; }
 .cal-blocks > li { position: absolute; top: calc(var(--start) * var(--cal-hour) / 60); left: calc(100% * var(--col) / var(--cols)); width: calc(100% / var(--cols)); height: calc((var(--end) - var(--start)) * var(--cal-hour) / 60); box-sizing: border-box; padding: 1px 2px; }
-.cal-blocks .cal-chip { align-items: start; height: 100%; min-height: 0; padding-block: 3px; overflow: hidden; border-inline-start: 3px solid var(--kind); }
+.cal-blocks .cal-chip { flex-direction: column; align-items: stretch; gap: 0; height: 100%; min-height: 0; padding-block: 3px; overflow: hidden; border-inline-start: 3px solid var(--kind); }
+.cal-blocks .cal-chip-label { display: -webkit-box; flex: none; overflow: hidden; white-space: normal; overflow-wrap: break-word; -webkit-box-orient: vertical; -webkit-line-clamp: var(--lines, 1); }
 .cal-blocks .cal-mark { display: none; }
 .cal-now { position: absolute; top: calc(var(--at) * var(--cal-hour) / 60); left: 56px; right: 0; border-top: 2px solid var(--status-danger); pointer-events: none; }
 .cal-now::before { content: ""; position: absolute; top: -5px; left: -4px; width: 8px; height: 8px; border-radius: var(--radius-round); background: var(--status-danger); }
 @media (max-width: 640px) {
   .cal-grid[data-view="day"] .cal-day > .cal-chips { padding-inline-start: 6px; }
-  .cal-blocks .cal-chip { flex-direction: column; gap: 0; }
-  .cal-blocks .cal-chip-label { display: -webkit-box; flex: none; align-self: stretch; -webkit-box-orient: vertical; -webkit-line-clamp: var(--lines, 1); }
 }

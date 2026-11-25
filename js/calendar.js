@@ -125,6 +125,16 @@ function dayHtml(cell) {
 
 const placeNow = () => $("calGrid").querySelector(".cal-now")?.style.setProperty("--at", String(centralMinutes(Date.now())));
 
+/** Ends each meeting's name on the last whole line its block holds; a resize changes the hour height and the block width, so it runs again. */
+function fitBlockNames(timeline) {
+  const fits = [...timeline.querySelectorAll(".cal-blocks .cal-chip-label")].map(label => {
+    const chip = getComputedStyle(label.parentElement);
+    const room = label.parentElement.clientHeight - Number.parseFloat(chip.paddingTop) - Number.parseFloat(chip.paddingBottom);
+    return [label, Math.max(1, Math.floor(room / Number.parseFloat(getComputedStyle(label).lineHeight)))];
+  });
+  fits.forEach(([label, lines]) => label.style.setProperty("--lines", String(lines)));
+}
+
 /**
  * Places each meeting and the now-line, ends each meeting's name on its last
  * whole line, then scrolls: a day opens at 7 AM, or two hours before now when
@@ -139,12 +149,7 @@ function placeTimeline(grid, kept) {
     const [start, end, column, columns] = block.dataset.place.split(" ");
     Object.entries({ start, end, col: column, cols: columns }).forEach(([name, value]) => block.style.setProperty(`--${name}`, value));
   }
-  const fits = [...timeline.querySelectorAll(".cal-blocks .cal-chip-label")].map(label => {
-    const chip = getComputedStyle(label.parentElement);
-    const room = label.parentElement.clientHeight - Number.parseFloat(chip.paddingTop) - Number.parseFloat(chip.paddingBottom);
-    return [label, Math.max(1, Math.floor(room / Number.parseFloat(getComputedStyle(label).lineHeight)))];
-  });
-  fits.forEach(([label, lines]) => label.style.setProperty("--lines", String(lines)));
+  fitBlockNames(timeline);
   placeNow();
   if (kept?.height === timeline.clientHeight) { timeline.scrollTop = kept.top; return; }
   const perMinute = timeline.querySelector(".cal-hours").offsetHeight / (24 * 60);
@@ -159,7 +164,7 @@ function paintGrid(layout) {
   const grid = $("calGrid");
   if (!grid) return;
   const state = view.state;
-  const header = state.view === "day" ? "" : `<div class="cal-week" role="row">${WEEKDAYS.map((name) => `<div class="cal-weekday" role="columnheader">${name}</div>`).join("")}</div>`;
+  const header = state.view !== "month" ? "" : `<div class="cal-week" role="row">${WEEKDAYS.map((name) => `<div class="cal-weekday" role="columnheader">${name}</div>`).join("")}</div>`;
   const weeks = [];
   // eslint-disable-next-line no-restricted-syntax -- Calendar rendering advances seven days per iteration and will stop at layout.days.length; 0 reads.
   for (let start = 0; start < layout.days.length; start += 7) {
@@ -500,6 +505,8 @@ function wire() {
   });
   PHONE_SHEET.addEventListener("change", paintSheet);
   new ResizeObserver(() => {
+    const timeline = $("calGrid").querySelector(".cal-timeline");
+    if (timeline) { fitBlockNames(timeline); return; }
     const lines = measureMonthLines();
     if (lines !== view.monthLines) { view.monthLines = lines; render(); }
   }).observe($("calGrid"));

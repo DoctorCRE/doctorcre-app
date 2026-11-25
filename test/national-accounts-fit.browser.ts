@@ -140,3 +140,33 @@ test("on a phone each deal keeps Park in reach without hover", async (t) => {
   const park = await page.locator("#rows tr:first-child [data-operating-state]").boundingBox();
   assert.ok(park && park.height >= 44, "Park is a full touch target");
 });
+
+test("on a phone every Today card on Deals stays inside the panel's gutter", async (t) => {
+  const server = await ownedFixtureServer();
+  t.after(() => server.close());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+    reducedMotion: "reduce",
+  });
+  await page.route("**/api/**", (route) => route.fulfill({ json: {} }));
+  await page.goto(`${server.origin}/deals?mode=fixture`);
+  await page.getByRole("button", { name: "Today sidebar", exact: true }).click();
+  const today = page.getByRole("complementary", { name: "Today", exact: true });
+  await today.locator(".receipt").first().waitFor();
+  await page.locator('#appLayout[data-drawer="today"]').waitFor();
+  await page.screenshot({ path: `${shots}/today-deals-390.png` });
+  const outside = await today.evaluate((panel) => {
+    const edge = panel.getBoundingClientRect();
+    return [...panel.children].flatMap((card) => {
+      const box = card.getBoundingClientRect();
+      return card.checkVisibility() && (box.left < edge.left + 15 || box.right > edge.right - 15)
+        ? [card.id || card.className]
+        : [];
+    });
+  });
+  assert.deepEqual(outside, [], "Retry Today and Recent changes keep the panel's side gutter");
+});

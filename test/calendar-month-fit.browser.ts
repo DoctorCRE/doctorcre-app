@@ -22,7 +22,7 @@ const step = (day: string, letter: string) => ({
   days_late: 0,
   open_url: "/relationships?node=party:synthetic-clinic",
 });
-// Oct 29 sits in the last of October's six week rows and holds more items than any cell shows.
+// Oct 29 sits in the last of October's five week rows and holds more items than any cell shows.
 const fullDay = "2026-10-29";
 const fullDayItems = 13;
 const calendar = {
@@ -36,7 +36,7 @@ const calendar = {
   ],
 };
 
-test("The whole month fits on one screen, with or without the day sheet beside it", async (t) => {
+test("The whole month fits on one screen, with or without the day sheet beside it, and so does a busy week", async (t) => {
   const outDir = await temporaryDirectory("calendar-month-fit-");
   t.after(() => rm(outDir, { recursive: true, force: true }));
   await buildArtifact({ root, outDir, commit: "0".repeat(40) });
@@ -75,7 +75,7 @@ test("The whole month fits on one screen, with or without the day sheet beside i
           await expect(page.locator("#calAsOf")).toContainText("Updated");
           await expect(page.locator("#dayPanel")).toBeVisible({ visible: sheet });
           const weeks = page.locator("#calGrid .cal-week:has(.cal-day)");
-          await expect(weeks).toHaveCount(6);
+          await expect(weeks).toHaveCount(5);
 
           const fit = () =>
             page.evaluate(() => ({
@@ -112,6 +112,23 @@ test("The whole month fits on one screen, with or without the day sheet beside i
           await expect
             .poll(measure, { message: "the full day shows whole chips and counts the rest in +N more" })
             .toEqual({ chipsShown: true, total: fullDayItems, clipped: 0, moreInside: true });
+
+          if (!sheet) {
+            await page.goto(`${app}/calendar?view=week&d=${fullDay}`);
+            await expect(page.locator(`#calGrid .cal-day[data-day="${fullDay}"] .cal-chip`)).toHaveCount(fullDayItems);
+            const week = await page.evaluate(() => ({
+              bottom: Math.max(
+                ...["#calGrid", "#calComing"].map(
+                  (id) => document.querySelector(id)?.getBoundingClientRect().bottom ?? 0,
+                ),
+              ),
+              pageHeight: document.documentElement.scrollHeight,
+            }));
+            assert.ok(
+              week.bottom <= height && week.pageHeight <= height,
+              `a busy week and Coming up fit the screen: ${JSON.stringify(week)}`,
+            );
+          }
         } finally {
           await page.close();
         }

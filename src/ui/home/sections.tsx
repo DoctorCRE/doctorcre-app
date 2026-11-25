@@ -29,6 +29,8 @@ export function completionLabel(item: InboxItem) {
 }
 
 export const tilePreviewCount = 5;
+// The wide Reminders column fits eight compact cards on a laptop screen.
+export const reminderPreviewCount = 8;
 export const cardKey = (item: InboxItem) => item.card_id ?? item.item_id;
 
 export function dashboardCards(items: readonly InboxItem[], today = day(new Date())) {
@@ -60,12 +62,14 @@ export function HomeTile({
   children,
   expanded,
   setExpanded,
+  preview = tilePreviewCount,
 }: {
   title: string;
   count: number;
   children: ReactNode;
   expanded: boolean;
   setExpanded: (expanded: boolean) => void;
+  preview?: number;
 }) {
   return (
     <section className="home-slice" aria-label={title}>
@@ -73,7 +77,7 @@ export function HomeTile({
         <h2 tabIndex={-1}>
           {title} <span>{count}</span>
         </h2>
-        {count > tilePreviewCount && (
+        {count > preview && (
           <button type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
             {expanded ? "Show less" : `See all ${count}`}
           </button>
@@ -121,6 +125,7 @@ export function CardTile({
   row,
   after = [],
   showLate = false,
+  preview = tilePreviewCount,
 }: {
   title: string;
   items: readonly InboxItem[];
@@ -129,6 +134,7 @@ export function CardTile({
   row: (item: InboxItem) => ReactNode;
   after?: ReactNode[];
   showLate?: boolean;
+  preview?: number;
 }) {
   const [expanded, setExpanded] = useState(false);
   const count = items.length + after.length;
@@ -143,12 +149,11 @@ export function CardTile({
   const shown = expanded
     ? ordered
     : ordered.filter(
-        (item, index) =>
-          index < tilePreviewCount || item.item_id === current || (pinned && cardKey(item) === cardKey(pinned)),
+        (item, index) => index < preview || item.item_id === current || (pinned && cardKey(item) === cardKey(pinned)),
       );
   const late = shown.filter(isLate);
   return (
-    <HomeTile title={title} count={count} expanded={expanded} setExpanded={setExpanded}>
+    <HomeTile title={title} count={count} expanded={expanded} setExpanded={setExpanded} preview={preview}>
       {late.length > 0 && (
         <section aria-label="Late">
           <h3 className="home-late">Late</h3>
@@ -156,7 +161,7 @@ export function CardTile({
         </section>
       )}
       {shown.filter((item) => !isLate(item)).map(row)}
-      {expanded ? after : after.slice(0, Math.max(0, tilePreviewCount - items.length))}
+      {expanded ? after : after.slice(0, Math.max(0, preview - items.length))}
     </HomeTile>
   );
 }

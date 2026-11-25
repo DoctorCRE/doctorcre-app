@@ -259,6 +259,39 @@ test('engine card Drop selects the reason-bearing door and confirms no Undo rece
   }
 });
 
+test('a grouped card writes every step it covers under its own key and reports each result', async () => {
+  const { coverCommand, parseItem } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].contents).toString('base64')}`);
+  const ids = [11, 12, 13, 14].map(n => `00000000-0000-0000-0000-0000000000${n}`);
+  const covers = ids.map((id, index) => ({ item_id: `next_action:${id}`, base_version: `${index + 3}:0:inbox`, action_id: id, action_version: index + 3, record_name: null }));
+  const card = item(covers[0].item_id, { action_id: ids[0], action_version: 3, base_version: covers[0].base_version, merged_source_ids: ids, covers });
+  assert.equal(parseItem(card, true, true, true).covers.length, 4);
+  assert.equal(parseItem({ ...card, covers: undefined }, true, true, true).covers, undefined, 'a card without covers is its own step');
+  assert.equal(parseItem({ ...card, covers: [covers[0]] }, true, true, true).covers, undefined);
+  assert.deepEqual(parseItem({ ...card, covers: covers.map(entry => ({ ...entry, record_name: '' })) }, true, true, true).covers.map(entry => entry.record_name), [null, null, null, null], 'a blank record name reads as none');
+  assert.throws(() => parseItem({ ...card, covers: covers.slice(1) }, true, true, true), /unreadable reminders/);
+  const until = new Date(Date.now() + 3_600_000).toISOString();
+  for (const [change, verb] of [[{ change: 'complete' }, 'end-engine-home-step'], [{ change: 'drop', reason: ' Work moved. ' }, 'end-engine-home-step'], [{ change: 'snooze', until }, 'save-engine-home-mark']]) {
+    const calls = [];
+    const client = createInboxClient(async (name, args) => {
+      if (name === 'read-home-inbox-v5') return { ...snapshot([]), schema_version: 'home-inbox.v5', engine_marks: true };
+      calls.push(args);
+      const target = args.id ?? args.item_id.slice('next_action:'.length);
+      if (target === ids[1]) return { error: 'step_ended', http_status: 409 };
+      if (target === ids[2]) return { error: 'version_conflict', http_status: 409 };
+      return args.id
+        ? { next_step_id: args.id, status: args.resolution, change_id: 9 }
+        : { ok: true, item_id: args.item_id, base_version: 'next', previous: { disposition: null, snoozed_until: null } };
+    });
+    const results = await client.run(coverCommand(covers, change));
+    assert.equal(calls.length, 4, `${change.change} writes each covered step`);
+    assert.equal(new Set(calls.map(args => args.idempotency_key)).size, 4, 'each step has its own retry key');
+    if (verb === 'end-engine-home-step') assert.deepEqual(calls.map(args => [args.id, args.base_version, args.resolution, args.reason]), covers.map(c => [c.action_id, c.action_version, change.change === 'drop' ? 'cancelled' : 'done', change.reason?.trim()]));
+    else assert.deepEqual(calls.map(args => [args.item_id, args.base_version, args.until]), covers.map(c => [c.item_id, c.base_version, until]));
+    assert.deepEqual(results.map(result => result.ok), [true, change.change !== 'snooze', false, true], 'a step already ended counts as finished; a refusal is reported for that step only');
+  }
+  assert.throws(() => coverCommand(covers, { change: 'drop', reason: ' ' }));
+});
+
 test('engine inbox cards drop through the route the engine accepts, with no Drop on Tour feedback or Fact review', async () => {
   const { dropTarget } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].contents).toString('base64')}`);
   const id = '00000000-0000-0000-0000-000000000001';

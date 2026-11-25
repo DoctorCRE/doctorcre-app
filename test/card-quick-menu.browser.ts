@@ -44,7 +44,10 @@ async function plainPoint(card: Locator) {
     const box = element.getBoundingClientRect();
     const steps = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
     const points = steps.flatMap((row) =>
-      steps.map((column) => ({ x: box.left + (box.width * column) / 12, y: box.top + (box.height * row) / 12 })),
+      steps.map((column) => ({
+        x: Math.round(box.left + (box.width * column) / 12),
+        y: Math.round(box.top + (box.height * row) / 12),
+      })),
     );
     const plain = points.find(({ x, y }) => {
       const hit = document.elementFromPoint(x, y);
@@ -54,7 +57,7 @@ async function plainPoint(card: Locator) {
         !hit.closest("button,a,input,select,textarea,label,details,.deal-vendor-details")
       );
     });
-    return plain ? { x: Math.round(plain.x), y: Math.round(plain.y) } : null;
+    return plain ?? null;
   });
   assert.ok(point, "the card has a plain surface to press");
   return point;

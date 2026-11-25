@@ -65,7 +65,7 @@
 .result-heading .result-title { margin: 0; font-size: var(--font-size-3); font-weight: var(--font-weight-strong); line-height: var(--line-height-heading); }
 .result-summary { margin: 0; color: var(--fg-muted); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; }
 .result-summary:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: var(--space-1); }
-.record-list { display: grid; margin: 0; padding: 0; list-style: none; border: var(--hairline-width) solid var(--hairline); border-radius: var(--radius-3); background: var(--surface-1); overflow: hidden; }
+.record-list { display: grid; margin: 0; padding: 0; list-style: none; }
 .record-item { margin: 0; }
 .record-item + .record-item, .record-skeleton + .record-skeleton { border-top: var(--hairline-width) solid var(--hairline); }
 .record-row { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(0, 3fr) minmax(140px, auto); grid-template-areas: "head facts foot"; align-items: start; gap: var(--space-2) var(--space-5); min-height: 56px; padding: var(--space-3) var(--space-4); color: var(--fg); text-decoration: none; transition: background-color var(--duration-hover) var(--ease-out); }
@@ -106,7 +106,7 @@
 .record-skeleton { display: grid; gap: var(--space-2); padding: var(--space-4); }
 .record-skeleton .skeleton-line { margin-top: 0; }
 .record-empty { display: grid; justify-items: start; gap: var(--space-2); padding: var(--space-6) var(--space-5); }
-.empty-title { margin: 0; font-size: var(--font-size-3); font-weight: var(--font-weight-strong); line-height: var(--line-height-heading); }
+.empty-title { margin: 0; font-size: var(--font-size-2); font-weight: var(--font-weight-strong); line-height: var(--line-height-heading); }
 .empty-copy { max-width: 56ch; margin: 0; color: var(--fg-muted); font-size: var(--font-size-1); line-height: var(--line-height-body); }
 .record-empty .action { margin-top: var(--space-2); }
 .pager { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
@@ -208,7 +208,7 @@ body.record-open { overflow: hidden; }
   .filter-row-actions .scope-option { min-width: 0; padding-inline: var(--space-2); }
   .filter-actions { width: auto; }
   .filter-actions .action { padding-inline: var(--space-3); }
-  .record-row, .record-row:has(.contact-note) { grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "facts" "note" "foot"; gap: var(--space-2); padding: var(--space-3); }
+  .record-row, .record-row:has(.contact-note) { grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "facts" "foot"; gap: var(--space-2); padding: var(--space-3); }
   .row-facts { gap: var(--space-1) var(--space-4); }
   .row-foot { flex-direction: row; flex-wrap: wrap; align-items: center; text-align: left; }
   .pager { flex-direction: column; align-items: stretch; }
@@ -233,7 +233,7 @@ body.record-open { overflow: hidden; }
   /* The chip bar's Clear all already sits under the folded filters. */
   body[data-directory="clients"] .filter-row-actions { display: none; }
   body[data-directory="vendors"] .record-row { grid-template-areas: "head" "facts" "foot"; gap: var(--space-1); padding-block: var(--space-2); }
-  body[data-directory="vendors"] .record-row:has(.contact-note) { grid-template-areas: "head" "facts" "note" "foot"; }
+  body[data-directory="vendors"] .record-row:has(.contact-note) { grid-template-columns: max-content minmax(0, 1fr); grid-template-areas: "head head" "facts facts" "note foot"; column-gap: var(--space-3); }
 }
 
 .quiet-vendors { overflow-wrap: anywhere; margin-bottom: var(--space-4); }
@@ -362,27 +362,53 @@ body[data-directory="clients"] #applyFilters { display: none; }
 .app-layout-main:has(.business-shell) { padding-top: var(--space-2); }
 /* Vendor rows share the list's columns, and each fact has its own, so facts line up row to row. */
 @container (min-width: 52rem) {
-  body[data-directory="vendors"] .record-list { grid-template-columns: minmax(11rem, 1fr) minmax(0, 3fr) max-content; column-gap: var(--space-5); }
+  body[data-directory="vendors"] .record-list { grid-template-columns: minmax(11rem, 1.5fr) minmax(0, 3fr) max-content max-content; column-gap: var(--space-5); }
   body[data-directory="vendors"] :is(.record-list > *, .record-row) { grid-column: 1 / -1; }
   body[data-directory="vendors"] :is(.record-item, .record-row) { display: grid; grid-template-columns: subgrid; }
-  body[data-directory="vendors"] .record-row { grid-template-areas: "head facts foot"; }
-  body[data-directory="vendors"] .record-row:has(.contact-note) { grid-template-areas: "head facts foot" "head note foot"; }
+  body[data-directory="vendors"] :is(.record-row, .record-row:has(.contact-note), .list-head) { grid-template-areas: "head facts note owner"; }
   body[data-directory="vendors"] .row-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   body[data-directory="vendors"] [data-fact="Category"] { grid-column: 1; }
   body[data-directory="vendors"] [data-fact="Territory"] { grid-column: 2; }
   body[data-directory="vendors"] [data-fact="Location"] { grid-column: 3; }
-  body[data-directory="vendors"] :is([data-fact="Referred"], [data-fact="Worked"], [data-fact="Win rate"]) { grid-row: 2; }
+  body[data-directory="vendors"] .row-fact.history { grid-row: 2; }
 }
-/* One line per vendor at desktop. */
-@container (min-width: 66rem) {
-  body[data-directory="vendors"] .record-list { grid-template-columns: minmax(14rem, 1.2fr) minmax(0, 3fr) max-content max-content; }
-  body[data-directory="vendors"] .record-row, body[data-directory="vendors"] .record-row:has(.contact-note) { grid-template-areas: "head facts note foot"; align-items: center; min-height: 0; padding-block: var(--space-2); }
-}
-body[data-directory="vendors"] .record-row .row-updated { display: none; }
+body[data-directory="vendors"] .row-updated { display: none; }
 body:not([data-directory="vendors"]) #directoryViews { display: none; }
 body[data-directory-view="meetings"] :is(.search-dock, .quiet-vendors-host, #chipBar, .business-body),
 body:not([data-directory-view="meetings"]) .vendor-meetings-host { display: none; }
 /* The phone's one tab row has no room for the count beside the vendor views and owner chips. */
 @media (max-width: 760px), (hover: none) and (pointer: coarse) and (max-width: 1023px) {
   body[data-directory="vendors"] .app-layout-tabs .result-summary { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+}
+
+/* A computer's toolbar and list share one left edge and draw no box (design rules 3 and 5). */
+.list-head { display: none; }
+@container (min-width: 40rem) {
+  .search-dock.glass { margin-bottom: 0; padding: var(--space-1) 0; border: 0; border-radius: 0; background: var(--ground); }
+  .record-row, .record-item > .client-deals { padding-inline: var(--space-3); }
+  .record-empty { padding-inline: var(--space-3); }
+}
+/* One line per record under one header row that names the columns and stays put while the list scrolls. */
+@container (min-width: 52rem) {
+  .list-head { position: sticky; top: var(--search-dock-height, 0px); z-index: 1; display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center; height: var(--space-6); padding-inline: var(--space-3); border-bottom: var(--hairline-width) solid var(--hairline); background: var(--ground); color: var(--fg-muted); font-size: var(--font-size-1); }
+  /* A row reached by keyboard scrolls clear of the header row as well as the toolbar. */
+  .record-row { align-items: center; min-height: 0; padding-block: var(--space-2); scroll-margin-top: calc(var(--space-6) + var(--hairline-width)); }
+  .row-head { flex-wrap: nowrap; }
+  .row-head .tone { flex: none; }
+  .record-row :is(.row-fact:not(.history), .row-foot, .contact-note) .fact-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  :is(.record-row, .list-head) .row-foot { display: contents; text-align: left; }
+  :is(.record-row, .list-head) .row-owner { grid-area: owner; }
+  :is(.record-row, .list-head) .row-updated { grid-area: updated; }
+  .record-skeleton { grid-template-columns: minmax(0, 1fr) minmax(0, 3fr); align-items: center; padding: var(--space-3); }
+  .record-skeleton .skeleton-line { margin: 0; }
+  body[data-directory="clients"] .record-list { grid-template-columns: minmax(12rem, 1.2fr) minmax(0, 4fr) max-content max-content; column-gap: var(--space-5); }
+  body[data-directory="clients"] :is(.record-list > *, .record-row, .record-item > .client-deals) { grid-column: 1 / -1; }
+  body[data-directory="clients"] :is(.record-item, .record-row) { display: grid; grid-template-columns: subgrid; }
+  body[data-directory="clients"] :is(.record-row, .list-head) { grid-template-areas: "head facts owner updated"; }
+  body[data-directory="clients"] .row-facts { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); column-gap: var(--space-5); }
+  body[data-directory="clients"] [data-fact="Status"] { grid-column: 1; }
+  body[data-directory="clients"] [data-fact="Practice type"] { grid-column: 2; }
+  body[data-directory="clients"] [data-fact="Deal type"] { grid-column: 3; }
+  body[data-directory="clients"] [data-fact="Client type"] { grid-column: 4; }
+  body[data-directory="clients"] [data-fact="Territory"] { grid-column: 5; }
 }

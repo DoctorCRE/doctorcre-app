@@ -132,7 +132,6 @@ function CompareTerms({
   return (
     <div className="compare-terms">
       <h2>Compare terms</h2>
-      <p>Offer rounds and signed leases recorded on our deals. This is not a complete market survey.</p>
       <form className="market-filters" ref={form} onSubmit={submit}>
         <label>
           Market
@@ -144,13 +143,12 @@ function CompareTerms({
         </label>
         <label>
           As of date (optional)
-          <input name="as_of" type="date" min="0001-01-01" max="9999-12-31" aria-describedby="market-date-help" />
+          <input name="as_of" type="date" min="0001-01-01" max="9999-12-31" />
         </label>
         <button className="btn" type="submit">
           Compare
         </button>
       </form>
-      <p id="market-date-help">Leave the date blank for all recorded history.</p>
       <div data-market-results role="status">
         {view.kind === "loading" ? (
           "Loading comparable terms…"

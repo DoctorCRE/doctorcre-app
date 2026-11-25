@@ -91,14 +91,25 @@ export type InboxItem = BaseItem &
         action_id: string;
         action_version: number;
         deal_id: string | null;
+        /** Present only when the engine shows several identical open steps as this one card. */
+        covers?: readonly [Cover, Cover, ...Cover[]];
       }>
     | Readonly<{
         source_type: "capture_session" | "email_proposal" | "notification" | "fact_review" | "tour_feedback";
         action_id: null;
         action_version: number | null;
         deal_id: string | null;
+        covers?: never;
       }>
   );
+/** One step a grouped card covers, with the identity its own write needs. */
+export type Cover = Readonly<{
+  item_id: string;
+  base_version: string;
+  action_id: string;
+  action_version: number;
+  record_name: string | null;
+}>;
 export type Snapshot = Readonly<{
   ok: true;
   truncated: boolean;
@@ -161,7 +172,20 @@ export function dropTarget(item: InboxItem): DropTarget | null {
   return item.home_mark_drop && markDropTarget(item) ? { kind: "mark" } : null;
 }
 type DropCommand = { action: "drop"; args: CommandArgs; target: DropTarget; reason: string };
-export type Command = DispositionCommand | TaskCommand | DropCommand;
+type CoverChange = { change: "complete" } | { change: "snooze"; until: string } | { change: "drop"; reason: string };
+type CoverCommand = Readonly<{ action: "cover"; args: CommandArgs; covers: readonly Cover[] } & CoverChange>;
+export type Command = DispositionCommand | TaskCommand | DropCommand | CoverCommand;
+
+/** Mark done, Snooze and Drop on a grouped card write each covered step on its own. */
+export function coverCommand(covers: readonly Cover[], change: CoverChange): CoverCommand {
+  if (change.change === "snooze" && !(timestamp(change.until) && Date.parse(change.until) > Date.now()))
+    throw Error("Choose a future snooze time.");
+  if (change.change === "drop" && (!change.reason.trim() || change.reason.trim().length > 500))
+    throw Error("Enter a reason to drop this card.");
+  const trimmed = change.change === "drop" ? { ...change, reason: change.reason.trim() } : change;
+  const items = covers.map(({ item_id, base_version }) => ({ item_id, base_version }));
+  return { action: "cover", args: { idempotency_key: crypto.randomUUID(), items }, covers, ...trimmed };
+}
 
 export function dropCommand(item: InboxItem, reason: string): DropCommand {
   const target = dropTarget(item);
@@ -212,6 +236,8 @@ export type ItemResult = { snapshot?: Snapshot } & (
   | { item_id: string; ok: true; item: InboxItem | null; receipt?: TaskReceipt; undo?: MarkUndo }
   | { item_id: string; ok: false; error: string; current_version?: string; current_item?: InboxItem }
 );
+const refusalCode = (error: Record<string, unknown>) =>
+  object(error.payload) && typeof error.payload.error === "string" ? error.payload.error : null;
 export function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -269,6 +295,29 @@ const day = (value: unknown) =>
   /^\d{4}-\d{2}-\d{2}$/.test(value) &&
   Number.isFinite(Date.parse(value)) &&
   new Date(value).toISOString().slice(0, 10) === value;
+const cover = (value: unknown): value is Cover =>
+  object(value) &&
+  text(value.item_id) &&
+  text(value.base_version) &&
+  uuid(value.action_id) &&
+  Number.isSafeInteger(value.action_version) &&
+  Number(value.action_version) >= 0 &&
+  (value.record_name === undefined || value.record_name === null || typeof value.record_name === "string");
+// Until the engine groups steps, a card without covers is just its own step.
+function parseCovers(value: unknown, itemId: string): readonly [Cover, Cover, ...Cover[]] | undefined {
+  if (value === undefined) return undefined;
+  if (
+    !Array.isArray(value) ||
+    value.length > 100 ||
+    !value.every(cover) ||
+    !value.some((entry) => entry.item_id === itemId) ||
+    new Set(value.map((entry) => entry.item_id)).size !== value.length
+  )
+    throw Error("Inbox returned unreadable reminders. Refresh to try again.");
+  const covers = value.map((entry) => ({ ...entry, record_name: entry.record_name || null }));
+  const [first, second, ...rest] = covers;
+  return first && second ? [first, second, ...rest] : undefined;
+}
 export function parseItem(value: unknown, v3 = false, v4 = false, engineMarks = false): InboxItem {
   const legacy = parseBaseItem(value, engineMarks);
   if (
@@ -345,8 +394,17 @@ export function parseItem(value: unknown, v3 = false, v4 = false, engineMarks = 
   )
     throw Error("Inbox returned unreadable completion time. Refresh to try again.");
   const reference = v3 ? parseReference(value.review_reference) : null;
-  const { explicit_unsettle, auto_settled, undo_completion, why, primary_action, checklist_item_ref, ...fields } =
-    value;
+  const {
+    explicit_unsettle,
+    auto_settled,
+    undo_completion,
+    why,
+    primary_action,
+    checklist_item_ref,
+    covers: _covers,
+    ...fields
+  } = value;
+  const covers = task && engineMarks ? parseCovers(value.covers, legacy.item_id) : undefined;
   const actionLabel =
     Array.isArray(value.filing_choices) &&
     value.filing_choices.length > 0 &&
@@ -360,6 +418,7 @@ export function parseItem(value: unknown, v3 = false, v4 = false, engineMarks = 
     ...fields,
     title: task && !presentation ? legacy.title.replace(/\*\*([^*]+)\*\*/g, "$1") : legacy.title,
     ...(presentation && { presentation }),
+    ...(covers && { covers }),
     ...(engineMarks && text(checklist_item_ref) && { checklistItemRef: checklist_item_ref }),
     ...(engineMarks ? { engine_marks: true } : { explicit_unsettle, auto_settled: v3 ? auto_settled : false }),
     ...(engineMarks &&
@@ -702,6 +761,42 @@ export function createInboxClient(
       },
     ];
   }
+  async function endStep({ action_id, action_version }: Cover, resolution: string, fields: object) {
+    const value = await rpc("end-engine-home-step", {
+      id: action_id,
+      base_version: action_version,
+      resolution,
+      ...fields,
+    });
+    if (object(value) && typeof value.error === "string") throw Object.assign(Error(value.error), { payload: value });
+    if (!object(value) || value.next_step_id !== action_id || value.status !== resolution)
+      throw Error("Change could not be confirmed. Retry the same request.");
+  }
+  // Each covered step saves under its own retry key, so one refusal never hides the others' saves.
+  async function saveCovers(request: CoverCommand): Promise<ItemResult[]> {
+    const saves = await Promise.allSettled(
+      request.covers.map((entry, index) => {
+        if (request.change === "snooze")
+          return saveMark(
+            markArgs(entry, { action: "snooze", until: request.until }, request.args.idempotency_key, index),
+          );
+        const idempotency_key = cardKey(request.args.idempotency_key, index);
+        return request.change === "complete"
+          ? endStep(entry, "done", { idempotency_key })
+          : endStep(entry, "cancelled", { idempotency_key, reason: request.reason });
+      }),
+    );
+    const snapshot = await read().catch(() => undefined);
+    return saves.map((save, index): ItemResult => {
+      const item_id = request.covers[index]?.item_id ?? "";
+      const code = save.status === "rejected" && object(save.reason) ? refusalCode(save.reason) : null;
+      // A step someone already ended is off Home either way.
+      const ended = code === "step_ended" && request.change !== "snooze";
+      return save.status === "fulfilled" || ended
+        ? { item_id, ok: true, item: null, ...(snapshot && { snapshot }) }
+        : { item_id, ok: false, error: code ?? "uncertain", ...(snapshot && { snapshot }) };
+    });
+  }
   async function read(signal?: AbortSignal): Promise<Snapshot> {
     // eslint-disable-next-line no-restricted-syntax -- At most four version reads; only unknown_tool advances to the next version.
     for (const { version } of inboxVersions) {
@@ -897,6 +992,7 @@ export function createInboxClient(
     },
     async run(request) {
       if (navigator.onLine === false) throw Error("Offline. No change was sent. Reconnect and retry manually.");
+      if (request.action === "cover") return saveCovers(request);
       if (request.action === "drop") return saveDrop(request);
       if (request.action === "complete" || request.action === "reopen") {
         const { items, ...args } = request.args;
