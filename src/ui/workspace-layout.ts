@@ -1,34 +1,16 @@
-export type LayoutNode =
-  | Readonly<{
-      kind: "tabs";
-      id: string;
-      panels: readonly [string, ...string[]];
-      active: string;
-    }>
-  | Readonly<{
-      kind: "split";
-      id: string;
-      axis: "horizontal" | "vertical";
-      ratio: number;
-      first: LayoutNode;
-      second: LayoutNode;
-    }>;
+export type LayoutNode = Readonly<{
+  kind: "tabs"; id: string; panels: readonly [string, ...string[]]; active: string;
+}> | Readonly<{
+  kind: "split"; id: string; axis: "horizontal" | "vertical"; ratio: number;
+  first: LayoutNode; second: LayoutNode;
+}>;
 export type Layout = Readonly<{
-  version: 1;
-  stage: LayoutNode | null;
+  version: 1; stage: LayoutNode | null;
 }>;
 type Destination = Readonly<
-  | { kind: "stage"; group: string }
-  | { kind: "tabs"; group: string; index?: number }
-  | {
-      kind: "split";
-      target: string;
-      id: string;
-      group: string;
-      axis: "horizontal" | "vertical";
-      side: "before" | "after";
-      ratio: number;
-    }
+  { kind: "stage"; group: string } |
+  { kind: "tabs"; group: string; index?: number } |
+  { kind: "split"; target: string; id: string; group: string; axis: "horizontal" | "vertical"; side: "before" | "after"; ratio: number }
 >;
 
 function record(value: unknown): Record<string, unknown> {
@@ -75,14 +57,7 @@ export function validateLayout(value: unknown): Layout {
     nodeIds.add(id);
     if (item.kind === "split") {
       if (item.axis !== "horizontal" && item.axis !== "vertical") throw new Error("Invalid split axis");
-      return {
-        kind: "split",
-        id,
-        axis: item.axis,
-        ratio: ratio(item.ratio),
-        first: node(item.first, depth + 1),
-        second: node(item.second, depth + 1),
-      };
+      return { kind: "split", id, axis: item.axis, ratio: ratio(item.ratio), first: node(item.first, depth + 1), second: node(item.second, depth + 1) };
     }
     if (item.kind !== "tabs" || !Array.isArray(item.panels)) throw new Error("Expected a tab group");
     const panels = Array.from(item.panels, panel);
@@ -98,15 +73,12 @@ export function validateLayout(value: unknown): Layout {
 function findNode(node: LayoutNode | null, id: string): LayoutNode | undefined {
   if (!node) return undefined;
   if (node.id === id) return node;
-  return node.kind === "split" ? (findNode(node.first, id) ?? findNode(node.second, id)) : undefined;
+  return node.kind === "split" ? findNode(node.first, id) ?? findNode(node.second, id) : undefined;
 }
 
 function hasPanel(layout: Layout, panel: string): boolean {
   function contains(node: LayoutNode | null): boolean {
-    return (
-      node !== null &&
-      (node.kind === "tabs" ? node.panels.includes(panel) : contains(node.first) || contains(node.second))
-    );
+    return node !== null && (node.kind === "tabs" ? node.panels.includes(panel) : contains(node.first) || contains(node.second));
   }
   return contains(layout.stage);
 }
@@ -128,12 +100,7 @@ function checkDestination(layout: Layout, destination: Destination): void {
   } else if (destination.kind === "split") {
     if (!findNode(layout.stage, destination.target)) throw new Error("Unknown split target");
     if (destination.side !== "before" && destination.side !== "after") throw new Error("Invalid split side");
-    if (
-      findNode(layout.stage, destination.id) ||
-      findNode(layout.stage, destination.group) ||
-      destination.id === destination.group
-    )
-      throw new Error("Duplicate node identifier");
+    if (findNode(layout.stage, destination.id) || findNode(layout.stage, destination.group) || destination.id === destination.group) throw new Error("Duplicate node identifier");
   } else {
     const exhaustive: never = destination;
     throw new Error(`Unknown placement ${String(exhaustive)}`);
@@ -143,42 +110,20 @@ function checkDestination(layout: Layout, destination: Destination): void {
 function place(layout: Layout, panel: string, destination: Destination): Layout {
   checkDestination(layout, destination);
   switch (destination.kind) {
-    case "stage":
-      return validateLayout({
-        ...layout,
-        stage: { kind: "tabs", id: destination.group, panels: [panel], active: panel },
-      });
-    case "tabs":
-      return validateLayout({
-        ...layout,
-        stage:
-          layout.stage &&
-          mapNode(layout.stage, destination.group, (node) => {
-            if (node.kind !== "tabs") throw new Error("Unknown tab group");
-            const panels: [string, ...string[]] = [...node.panels];
-            const index = destination.index ?? panels.length;
-            if (!Number.isInteger(index) || index < 0 || index > panels.length) throw new Error("Invalid tab index");
-            panels.splice(index, 0, panel);
-            return { ...node, panels, active: panel };
-          }),
-      });
-    case "split":
-      return validateLayout({
-        ...layout,
-        stage:
-          layout.stage &&
-          mapNode(layout.stage, destination.target, (node) => {
-            const group: LayoutNode = { kind: "tabs", id: destination.group, panels: [panel], active: panel };
-            return {
-              kind: "split",
-              id: destination.id,
-              axis: destination.axis,
-              ratio: destination.ratio,
-              first: destination.side === "before" ? group : node,
-              second: destination.side === "before" ? node : group,
-            };
-          }),
-      });
+    case "stage": return validateLayout({ ...layout, stage: { kind: "tabs", id: destination.group, panels: [panel], active: panel } });
+    case "tabs": return validateLayout({ ...layout, stage: layout.stage && mapNode(layout.stage, destination.group, node => {
+      if (node.kind !== "tabs") throw new Error("Unknown tab group");
+      const panels: [string, ...string[]] = [...node.panels];
+      const index = destination.index ?? panels.length;
+      if (!Number.isInteger(index) || index < 0 || index > panels.length) throw new Error("Invalid tab index");
+      panels.splice(index, 0, panel);
+      return { ...node, panels, active: panel };
+    }) });
+    case "split": return validateLayout({ ...layout, stage: layout.stage && mapNode(layout.stage, destination.target, node => {
+      const group: LayoutNode = { kind: "tabs", id: destination.group, panels: [panel], active: panel };
+      return { kind: "split", id: destination.id, axis: destination.axis, ratio: destination.ratio,
+        first: destination.side === "before" ? group : node, second: destination.side === "before" ? node : group };
+    }) });
   }
 }
 
@@ -195,20 +140,15 @@ export function removePanel(layout: Layout, panel: string): Layout {
   function remove(node: LayoutNode | null): LayoutNode | null {
     if (!node) return null;
     if (node.kind === "split") {
-      const first = remove(node.first),
-        second = remove(node.second);
-      return first && second ? { ...node, first, second } : (first ?? second);
+      const first = remove(node.first), second = remove(node.second);
+      return first && second ? { ...node, first, second } : first ?? second;
     }
     const index = node.panels.indexOf(panel);
     if (index < 0) return node;
-    const panels = node.panels.filter((id) => id !== panel);
+    const panels = node.panels.filter(id => id !== panel);
     const [first, ...rest] = panels;
     if (first === undefined) return null;
-    return {
-      ...node,
-      panels: [first, ...rest],
-      active: node.active === panel ? (panels[index] ?? panels[index - 1] ?? first) : node.active,
-    };
+    return { ...node, panels: [first, ...rest], active: node.active === panel ? panels[index] ?? panels[index - 1] ?? first : node.active };
   }
   return validateLayout({ ...current, stage: remove(current.stage) });
 }
@@ -239,15 +179,10 @@ export function resizeSplit(layout: Layout, id: string, size: number): Layout {
   const current = validateLayout(layout);
   if (findNode(current.stage, id)?.kind !== "split") throw new Error("Unknown split");
   const nextRatio = ratio(size);
-  return validateLayout({
-    ...current,
-    stage:
-      current.stage &&
-      mapNode(current.stage, id, (node) => {
-        if (node.kind !== "split") throw new Error("Unknown split");
-        return { ...node, ratio: nextRatio };
-      }),
-  });
+  return validateLayout({ ...current, stage: current.stage && mapNode(current.stage, id, node => {
+    if (node.kind !== "split") throw new Error("Unknown split");
+    return { ...node, ratio: nextRatio };
+  }) });
 }
 
 export function selectPanel(layout: Layout, panel: string): Layout {

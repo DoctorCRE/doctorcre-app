@@ -16,12 +16,12 @@ export type Rich = [
     | {
         link: Link;
       }
-  )[],
+  )[]
 ];
 type Date = string;
 type Basemap =
-  | { kind: "local-layers"; water: Asset; roads: Asset; attribution: Text }
-  | { kind: "vector-style"; style_url: Url; attribution_link: Link };
+  | { kind: 'local-layers'; water: Asset; roads: Asset; attribution: Text }
+  | { kind: 'vector-style'; style_url: Url; attribution_link: Link };
 type LonLat = [number, number];
 type Id = string;
 type Count = number;
@@ -73,7 +73,7 @@ export interface CarrMarketStudyV1 {
       ...{
         heading: Text;
         body: Rich;
-      }[],
+      }[]
     ];
   };
 }
@@ -215,7 +215,7 @@ interface Demographics {
             label: Text;
             value: Count;
             kind: "census" | "estimate" | "projection";
-          }[],
+          }[]
         ];
         source_url: Url;
       },
@@ -236,10 +236,10 @@ interface Demographics {
             label: Text;
             value: Count;
             kind: "census" | "estimate" | "projection";
-          }[],
+          }[]
         ];
         source_url: Url;
-      }[],
+      }[]
     ];
     reach_note: Text;
     source: Rich;
@@ -257,7 +257,7 @@ interface Demographics {
         under_18_pct: number;
         over_65_pct: number;
         source_url: Url;
-      }[],
+      }[]
     ];
   };
   median_income: {
@@ -269,7 +269,7 @@ interface Demographics {
       ...{
         name: Text;
         value: Count;
-      }[],
+      }[]
     ];
     households_note: Text;
   };
@@ -307,7 +307,7 @@ interface Demographics {
         source_url: Url;
         logo: Asset;
         locator: Locator;
-      }[],
+      }[]
     ];
     scope_note: Rich;
   };
@@ -341,7 +341,7 @@ interface MicroZones {
     ...{
       year: number;
       label: Text;
-    }[],
+    }[]
   ];
   estimate_year: number;
   projection_year: number;
@@ -423,7 +423,7 @@ interface MicroZone {
         reported_percent?: Percent;
         derived_percent: Percent;
         method: Text;
-      }[],
+      }[]
     ];
     source_page: Page;
   };
