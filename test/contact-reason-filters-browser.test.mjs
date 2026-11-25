@@ -16,6 +16,7 @@ for (const width of [1280,390]) for (const theme of ['light','dark']) test(`load
   page.on('pageerror',error => errors.push(error.message));
   await routeLeads(page,{getReasons:args => { reads.push(args); return args.before_id ? {...payload,cards:[{...payload.cards[0],id:'99',name:'Demo Later Practice'}],next_cursor:null} : payload; },onWrite:p => writes.push(p)});
   await page.goto('http://localhost/leads');
+  await page.locator('#reasonsStrip summary').click();
   const reasons = page.locator('#contactReasons');
   await settles(async () => assert.match(await reasons.innerText(),/No new reasons to reach out\./));
   assert.equal(await reasons.getByRole('searchbox').count(),0);
@@ -24,6 +25,7 @@ for (const width of [1280,390]) for (const theme of ['light','dark']) test(`load
   payload = {...practiceOriginationFixture(),next_cursor:'1'};
   reads.length = 0;
   await page.reload();
+  await page.locator('#reasonsStrip summary').click();
   await reasons.locator('.work-card').first().waitFor();
   assert.equal(await reasons.getByRole('searchbox',{name:'Search loaded reasons'}).count(),1);
   const search = reasons.getByRole('searchbox',{name:'Search loaded reasons'});

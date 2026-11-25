@@ -56,7 +56,7 @@ for (const [name, payload, message, labels] of [
     await page.getByRole('button', { name: 'Quick switcher' }).waitFor();
     await open(page, payload);
     if (message) await page.getByRole('status').filter({ hasText: message }).waitFor({ timeout: 2500 });
-    else await page.getByRole('status').filter({ hasText: '2 destinations' }).waitFor();
+    else await page.getByRole('status').filter({ hasText: '2 results' }).waitFor();
     await page.getByRole('combobox').fill('Valid');
     assert.deepEqual(await page.getByRole('option').allTextContents(), labels);
     await page.getByRole('combobox').press('Escape');
@@ -121,7 +121,7 @@ test('read rejection retries into full results and selection follows current res
       openQuickSwitcher({ opener: document.querySelector('.quick-switcher-toggle'), pages: [{ label: 'Valid Page', href: '/calendar' }], read: () => ++count === 1 ? Promise.reject(Error('Unavailable')) : new Promise(resolve => { window.finishRead = resolve; }) });
     });
     await page.getByRole('button', { name: 'Retry', exact: true }).click();
-    await page.getByRole('status').filter({ hasText: 'Loading accessible items' }).waitFor();
+    await page.getByRole('status').filter({ hasText: 'Loading…' }).waitFor();
     await page.getByRole('combobox').fill('Valid');
     await page.evaluate(payload => window.finishRead(payload), { board, network });
     await page.getByRole('option', { name: 'Valid Deal Deal', exact: true }).waitFor();
@@ -339,7 +339,7 @@ for (const theme of ['light', 'dark']) for (const width of [390, 1440]) for (con
     const bounds = await page.locator('[data-quick-switcher]').boundingBox();
     assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width + 1);
     if (kind === 'Task') await page.getByRole('combobox').press('Enter'); else await option.click();
-    await page.waitForURL(kind === 'Contact' ? `**/relationships?node=${encodeURIComponent(contact.id)}` : kind === 'Task' ? '**/inbox/card/next_action%3A33333333-3333-4333-8333-333333333333' : '**/deals?deal=switcher-deal');
+    await page.waitForURL(kind === 'Contact' ? `**/clients?record=${contact.record_id}` : kind === 'Task' ? '**/inbox/card/next_action%3A33333333-3333-4333-8333-333333333333' : '**/deals?deal=switcher-deal');
   } finally { await browser.close(); }
 });
 

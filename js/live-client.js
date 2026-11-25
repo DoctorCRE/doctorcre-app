@@ -402,6 +402,7 @@ export function createLiveClient(opts = {}) {
         } : Object.hasOwn(page, 'email_threads') ? { email_threads } : {}),
         lease: page.lease ?? null,
         checklist: page.checklist ?? null,
+        record_links: page.record_links ?? [],
         schema_version: page.schema_version,
       };
     },

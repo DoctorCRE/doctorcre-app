@@ -3,15 +3,12 @@
 Card: WR617.S11.J3
 
 Ask Doc opens the chat page from the shared top bar when the partner signs in through the engine.
-The global switcher uses Cmd/Ctrl+Alt+K. Its button advertises the same shortcut.
-Cmd/Ctrl+Shift+K was rejected because Edge on Windows reserves it for Duplicate
-Tab. The Alt variant is unused by app keydown handlers and is not listed in the
-published [Chrome](https://support.google.com/chrome/answer/157179),
-[Safari](https://support.apple.com/guide/safari/keyboard-and-other-shortcuts-cpsh003/mac)
-or [Edge](https://support.microsoft.com/en-us/edge/keyboard-shortcuts-in-microsoft-edge)
-shortcut tables. Safari coverage applies to macOS. Chrome and Edge tables cover
-macOS and Windows. User remappings and extensions can still claim shortcuts.
-The handler uses physical KeyK so Option-generated characters on macOS work.
+The global switcher opens with Cmd+K on a Mac and Ctrl+K elsewhere, from any page,
+including from a text field. On a Mac, Ctrl+K stays the text fields' delete to end
+of line. Its button advertises the shortcut for its platform. Cmd/Ctrl+Alt+K
+was dropped because partners expect plain Cmd/Ctrl+K, and the old Control Room
+that used it is retired.
+The handler uses physical KeyK.
 Composition events, including keyCode 229, and AltGraph pass through. Printable
 Ctrl+Alt characters in editable fields also pass through. Composing Enter
 never chooses a destination.
@@ -23,7 +20,7 @@ and intersect them with fresh reads. Labels are never persisted.
 ```mermaid
 stateDiagram-v2
   [*] --> closed
-  closed --> loading: Cmd/Ctrl+Alt+K or Search control
+  closed --> loading: Cmd/Ctrl+K or Search control
   loading --> open_empty: read completes, blank query
   loading --> typing: read completes, matching query
   loading --> no_results: read completes, unmatched query
@@ -53,7 +50,8 @@ Arrow keys wrap while focus stays on the combobox. Native dialog excludes backgr
 Two designs were considered. The full Search page preserves broad search but
 its producer does not supply navigable deal links. The chosen local index gives
 instant filtering over existing navigable reads without a new server contract.
-Board actions supply task destinations. Contacts open their relationship node.
+Board actions supply task destinations. Leads open their drawer on Leads, clients and vendors open
+their directory record, and other contacts open their relationship node.
 The model excludes transport and destination authorization checks, which remain
 with the authenticated adapters and destination pages.
 

@@ -53,7 +53,7 @@ test('partial retry, removal, close, recents and late session disposal', async (
     await input.press('Escape');
     assert.equal(await page.locator('.quick-switcher-toggle').evaluate(el => el === document.activeElement), true);
     await page.evaluate(() => { window.held = true; window.openFixture(); });
-    assert.equal(await kind.getByRole('button', { name: 'All destinations' }).getAttribute('aria-pressed'), 'true');
+    assert.equal(await kind.getByRole('button', { name: 'All', exact: true }).getAttribute('aria-pressed'), 'true');
     await kind.getByRole('button', { name: 'Tasks', exact: true }).click();
     await page.evaluate(() => dispatchEvent(new Event('doctorcre-session-invalidated')));
     await page.evaluate(fixture => window.resolveRead(fixture), fixture);
@@ -77,7 +77,7 @@ for (const mode of ['empty', 'contacts only', 'reject']) test(`${mode} keeps loc
     await group.getByRole('button', { name: 'Contacts', exact: true }).click();
     if (mode === 'contacts only') {
       await page.getByRole('option', { name: 'Fixture Contact Contact' }).waitFor();
-      await page.getByText('1 destinations', { exact: true }).waitFor();
+      await page.getByText('1 result', { exact: true }).waitFor();
     } else await page.getByText('No matches. Try a deal, contact or page name.').waitFor();
     await page.getByRole('combobox').press('Escape');
   } finally { await browser.close(); }

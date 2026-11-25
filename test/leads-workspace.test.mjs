@@ -649,7 +649,7 @@ for (const phase of ['identity', 'workspace']) test(`PR136 #1 resume during pend
   // (instead of a fixed 10 ms a starved runner can miss) still proves it.
   await settles(() => {
    assert.equal(actorReads, 2);
-   assert.equal(workspaceReads, phase === 'identity' ? 1 : 2);
+   assert.equal(workspaceReads, 2, 'each refresh starts its board read beside the identity check');
    assert.equal(s.d.querySelectorAll('.lead-card').length, 10);
   });
   assert.equal(s.d.getElementById('leadBoard').getAttribute('aria-busy'), 'false');
@@ -942,8 +942,8 @@ for (const code of ['network_error', 'read_timeout']) test(`Slice A initial iden
   assert.doesNotMatch(box.textContent, /sign.in/i);
   assert.equal(box.querySelector('a[href*="/auth/login"]'), null);
   assert.equal(s.app.state.identityReady, false);
-  assert.equal(workspaceReads, 0);
-  assert.equal(s.d.querySelectorAll('.lead-card').length, 0);
+  assert.equal(workspaceReads, 1, 'the board read starts beside the identity check');
+  assert.equal(s.d.querySelectorAll('.lead-card').length, 0, 'nothing renders without verified identity');
   failing = false;
   const retry = [...box.querySelectorAll('button')].find(button => button.textContent === 'Retry');
   assert.ok(retry, 'the failed read offers a local Retry action');

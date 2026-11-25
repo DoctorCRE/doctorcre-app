@@ -13,6 +13,7 @@ for(const width of [390,1280]) for(const theme of ['light','dark']) test(`source
   let reads=0;
   await routeLeads(page,{getReasons:()=>{reads++;return practiceOriginationFixture();}});
   await page.goto('http://localhost/leads');
+  await page.locator('#reasonsStrip summary').click();
   const full=page.locator('#contactReasons');
   await full.getByLabel('Source',{exact:true}).waitFor();
   await full.getByLabel('Source',{exact:true}).selectOption('pecos');
