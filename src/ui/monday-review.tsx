@@ -84,7 +84,7 @@ function parseReview(result: unknown): ReviewItem[] {
             ? "parked"
             : null,
       attention: row.attention === true || row.needs_attention === true,
-      step: text(deal ? row.next_step : step?.what),
+      step: deal ? text(row.next_step) : (text(step?.display_title) ?? text(step?.what)),
       due: text(deal ? row.next_date : step?.due_on),
       note: note && summary ? { ...stamp(note), id, summary } : null,
       reviewed: record(row.reviewed) ? { ...stamp(row.reviewed), id: text(row.reviewed.review_id) } : null,

@@ -2830,7 +2830,8 @@ for (const width of [1440, 390]) {
     const prospectNote = { by: 'dell', at: '2026-11-09T15:00:00Z', summary: 'Example prospect note' };
     const prospectRow = { party_id: prospect, name: 'Birch Prospect', owner: null, how_found: 'referral',
       change_id: 2, latest_note: prospectNote, reviewed: null, seen_change_id: 0, state: 'open', needs_attention: true,
-      follow_ups: [{ next_step_id: prospect, owner: 'joe', change_id: 1, what: 'Call back', due_on: '2026-11-16' }] };
+      follow_ups: [{ next_step_id: prospect, owner: 'joe', change_id: 1, what: 'Relationship touch — Birch. 45-day lead cadence.',
+        display_title: 'Check in with Birch Person (lead)', due_on: '2026-11-16' }] };
     const droppedRow = { ...prospectRow, party_id: dropped, name: 'Cedar Prospect', state: 'dropped',
       dropped: { at: '2026-11-10T01:00:00Z', by: 'dell', reason: 'Plans changed' }, needs_attention: false,
       follow_ups: [] };
@@ -2862,7 +2863,7 @@ for (const width of [1440, 390]) {
             return Response.json({ activity_id: crypto.randomUUID(), change_id: 7 }, { status: 201 });
           }
           if (url.pathname === '/api/engine/next-steps') {
-            if (body.party_id) prospectRow.follow_ups[0].what = body.what;
+            if (body.party_id) Object.assign(prospectRow.follow_ups[0], { what: body.what, display_title: body.what });
             else if (body.deal_id === deal) {
               if (raceStep) {
                 raceStep = false;
@@ -2955,7 +2956,8 @@ for (const width of [1440, 390]) {
     await page.getByRole('button', { name: 'Next', exact: true }).click();
     await page.getByRole('link', { name: 'Birch Prospect' }).waitFor();
     await page.getByText(/Prospect · Unclaimed · Needs attention/).waitFor();
-    await page.getByText(/Due Mon, Nov 16/).waitFor();
+    await page.getByText('Check in with Birch Person (lead) · Due Mon, Nov 16, 2026', { exact: true }).waitFor();
+    assert.equal(await page.getByText(/Relationship touch/).count(), 0);
     await page.getByText(prospectNote.summary).waitFor();
     await page.getByRole('button', { name: 'Back', exact: true }).click();
     await page.getByRole('link', { name: row.name }).waitFor();
@@ -3004,7 +3006,7 @@ for (const width of [1440, 390]) {
     await page.getByRole('checkbox', { name: 'Not reviewed' }).uncheck();
     await page.getByRole('link', { name: 'Birch Prospect' }).click();
     const dialog = page.getByRole('dialog', { name: 'Birch Prospect' });
-    await dialog.getByText(/Joe · Call back/).waitFor();
+    await dialog.getByText(/Joe · Check in with Birch Person \(lead\)/).waitFor();
     await dialog.getByRole('button', { name: 'Back to Monday review' }).click();
     await page.getByRole('button', { name: 'As a list', pressed: true }).waitFor();
     await page.getByRole('link', { name: prospectRow.name }).and(page.locator(':focus')).waitFor();

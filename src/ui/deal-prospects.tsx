@@ -68,6 +68,7 @@ function parseStep(value: unknown) {
     !uuid.test(value.next_step_id) ||
     !partner(value.owner) ||
     typeof value.what !== "string" ||
+    !(value.display_title === undefined || typeof value.display_title === "string") ||
     !textOrNull(value.due_on) ||
     (value.due_on !== null && !Number.isFinite(Date.parse(value.due_on))) ||
     typeof value.change_id !== "number" ||
@@ -77,7 +78,7 @@ function parseStep(value: unknown) {
   return {
     next_step_id: value.next_step_id,
     owner: value.owner,
-    what: value.what,
+    title: value.display_title ?? value.what,
     due_on: value.due_on,
     change_id: value.change_id,
     set_by: typeof value.set_by === "string" ? value.set_by : null,
@@ -378,7 +379,7 @@ function ProspectDetail({
                       ref={linked ? linkedStep : undefined}
                       tabIndex={linked ? -1 : undefined}
                     >
-                      {label(item.owner)} · {item.what} · {item === row.completed ? "Done" : due(item.due_on)}
+                      {label(item.owner)} · {item.title} · {item === row.completed ? "Done" : due(item.due_on)}
                       {origin && <small> · {origin}</small>}
                     </li>
                   );
@@ -498,7 +499,14 @@ function ProspectLane({
                   <small>{noteBy(row.latest_note, authorLabel)}</small>
                 </>
               )}
-              <p className="next-line">{next ? `${label(next.owner)} · ${due(next.due_on)}` : "No follow-up set"}</p>
+              {next ? (
+                <>
+                  <p className="next-line">{next.title}</p>
+                  <small>{`${label(next.owner)} · ${due(next.due_on)}`}</small>
+                </>
+              ) : (
+                <p className="next-line">No follow-up set</p>
+              )}
             </div>
           </article>
         );
