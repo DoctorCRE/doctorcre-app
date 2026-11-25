@@ -236,9 +236,9 @@ for(const dataset of ['clients','vendors']) test(`${dataset} record panel shows 
 
 for(const dataset of ['clients','vendors']) test(`${dataset} record panel labels the owner`,async t=>{
  const {page,errors}=await open(t);await page.goto(`${origin}/${dataset}`);await page.locator('.record-row').first().click();
- const tone=page.locator('#recordBody .record-tone');await tone.waitFor();
+ const tone=page.locator('#recordPanel .record-tone').filter({hasText:'Owner'});await tone.waitFor();
  assert.match(await tone.innerText(),/Owner\s+Joe/);
- const [owner,fact]=await page.evaluate(()=>['#recordBody .record-tone .fact-label','#recordBody .record-field dt'].map(selector=>getComputedStyle(document.querySelector(selector)).color));
+ const [owner,fact]=await page.evaluate(()=>['#recordPanel .record-tone .fact-label','#recordBody .record-field dt'].map(selector=>getComputedStyle(document.querySelector(selector)).color));
  assert.equal(owner,fact,'the label reads like the other facts');
  assert.deepEqual(errors,[]);
 });

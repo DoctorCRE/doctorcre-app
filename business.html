@@ -108,12 +108,11 @@
       <aside class="record-panel glass" id="recordPanel" role="dialog" aria-modal="true" aria-labelledby="recordTitle" hidden>
         <div class="record-panel-head">
           <div>
-            <p class="eyebrow" id="recordEyebrow">Record</p>
+            <p class="record-tone"><span class="eyebrow" id="recordEyebrow">Record</span><span id="recordMeta"></span></p>
             <h2 id="recordTitle" tabindex="-1">Opening…</h2>
           </div>
-          <div class="record-panel-actions">
-            <button type="button" class="panel-close" id="recordClose" aria-label="Close record">×</button>
-          </div>
+          <div class="record-panel-actions" id="recordActions"></div>
+          <button type="button" class="panel-close" id="recordClose" aria-label="Close record">×</button>
         </div>
         <div class="record-panel-body" id="recordBody">
           <p class="attention-copy">Opening this record.</p>

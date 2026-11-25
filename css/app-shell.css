@@ -399,7 +399,7 @@ body.has-app-layout:has(.toast) .receipt-dock { display: none; }
 .has-app-layout .card-move:focus, .has-app-layout .lead-move:focus-within { position: static; width: auto; height: auto; overflow: visible; clip-path: none; }
 .app-layout-tabs [aria-current=page] { scroll-margin-inline: 12px; }
 
-.has-app-layout aside#recordPanel { inset: 5dvh max(3vw, calc((100vw - 1180px) / 2)); transform: none; width: auto; max-height: 90dvh; z-index: 2001; box-sizing: border-box; box-shadow: var(--shadow-overlay); }
+.has-app-layout aside#recordPanel { inset: var(--space-5) max(var(--space-5), calc((100vw - 1040px) / 2)) auto; transform: none; width: auto; max-height: calc(100dvh - 2 * var(--space-5)); z-index: 2001; box-sizing: border-box; box-shadow: var(--shadow-overlay); }
 .has-app-layout .room-toast { bottom: calc(var(--layout-bottom) + 84px); z-index: 1200; }
 .has-app-layout .room-composer { bottom: var(--layout-bottom); left: var(--layout-rail); width: calc(100% - var(--layout-rail)); box-sizing: border-box; z-index: 1130; }
 @media (max-width: 767px) { .has-app-layout aside#recordPanel { inset: 2dvh 10px; max-height: 96dvh; } }
