@@ -9,7 +9,12 @@ import { directoryFixture } from "./fixtures/vendor-directory.synthetic.mjs";
 const shots = "out/test-artifacts/clients-first-screen";
 await mkdir(shots, { recursive: true });
 
-async function openClients(t: TestContext, width: number, height: number) {
+async function openClients(
+  t: TestContext,
+  width: number,
+  height: number,
+  { path = "/clients", ready = ".record-row", held }: { path?: string; ready?: string; held?: Promise<void> } = {},
+) {
   const server = await startFixtureServer();
   t.after(() => server.stop());
   const browser = await chromium.launch();
@@ -18,7 +23,8 @@ async function openClients(t: TestContext, width: number, height: number) {
   await page.clock.install({ time: new Date("2026-10-01T18:00:00Z") });
   const listReads: URL[] = [];
   await page.route("https://**", (r) => r.abort());
-  await page.route("**/api/v1/business/**", (r) => {
+  await page.route("**/api/v1/business/**", async (r) => {
+    await held;
     const url = new URL(r.request().url());
     if (url.pathname === "/api/v1/business/clients") listReads.push(url);
     return r.fulfill({ json: directoryFixture(url.href) });
@@ -29,8 +35,8 @@ async function openClients(t: TestContext, width: number, height: number) {
       json: { jsonrpc: "2.0", id: request.id, result: { content: [{ type: "text", text: "{}" }] } },
     });
   });
-  await page.goto(`${server.url}/clients`);
-  await page.locator(".record-row").first().waitFor();
+  await page.goto(`${server.url}${path}`);
+  await page.locator(ready).first().waitFor();
   return { page, listReads };
 }
 
@@ -74,6 +80,81 @@ for (const [width, height] of [
     assert.equal(await page.evaluate(() => scrollY), 0, "the list scrolls, not the page");
     assert.deepEqual(await page.locator("#searchInput").boundingBox(), before.search, "the toolbar stays in place");
   });
+
+test("Clients rows take one line each under one header row that names the columns", async (t) => {
+  const { page } = await openClients(t, 1280, 640);
+  await page.screenshot({ path: `${shots}/clients-1280x640.png` });
+  assert.ok((await firstScreen(page)).wholeRows >= 11, "at least 11 clients show whole at 1280x640");
+  const columns = await page.evaluate(() => {
+    const left = (node: Element | null | undefined) => Math.round(node?.getBoundingClientRect().left ?? Number.NaN);
+    const row = document.querySelector(".record-row");
+    return [...document.querySelectorAll(".list-head :is([data-fact], .row-owner, .row-updated)")].map((label) => {
+      const fact = label.getAttribute("data-fact");
+      const value = fact
+        ? row?.querySelector(`[data-fact="${fact}"] .fact-value`)
+        : row?.querySelector(`.${label.className}`);
+      return { label: label.textContent, header: left(label), value: left(value) };
+    });
+  });
+  assert.deepEqual(
+    columns.map(({ label }) => label),
+    ["Status", "Practice type", "Deal type", "Client type", "Territory", "Owner", "Updated"],
+  );
+  for (const { label, header, value } of columns) assert.equal(value, header, `${label} values sit under their label`);
+  const inline = await page.evaluate(
+    () =>
+      [...document.querySelectorAll(".record-row .fact-label")].filter((l) => l.getBoundingClientRect().width > 1)
+        .length,
+  );
+  assert.equal(inline, 0, "rows drop the labels the header already shows");
+  await page.mouse.move(640, 500);
+  await page.mouse.wheel(0, 600);
+  await page.waitForFunction(
+    () =>
+      (document.querySelector(".record-row")?.getBoundingClientRect().top ?? 0) < 0 &&
+      !document.querySelector("#noticeRegion")?.textContent,
+  );
+  const gap = await page.evaluate(() => {
+    const bottom = document.querySelector(".search-dock")?.getBoundingClientRect().bottom ?? Number.NaN;
+    return Math.abs((document.querySelector(".list-head")?.getBoundingClientRect().top ?? Number.NaN) - bottom);
+  });
+  assert.ok(gap <= 1, `the header row stays under the toolbar, ${gap}px away`);
+});
+
+test("the Clients toolbar and list share one left edge and draw no box", async (t) => {
+  const { page } = await openClients(t, 1280, 800);
+  const edges = await page.evaluate(() => {
+    const box = (selector: string) => document.querySelector(selector) ?? document.body;
+    const left = (selector: string) => Math.round(box(selector).getBoundingClientRect().left);
+    const border = (selector: string) => getComputedStyle(box(selector)).borderTopWidth;
+    return {
+      search: left("#searchInput"),
+      head: left(".list-head"),
+      row: left(".record-row"),
+      dock: border(".search-dock"),
+      list: border("#recordList"),
+    };
+  });
+  assert.deepEqual(edges, { search: edges.row, head: edges.row, row: edges.row, dock: "0px", list: "0px" });
+});
+
+test("a Clients search with no match says so in one line with one action", async (t) => {
+  const { page } = await openClients(t, 1280, 800, { path: "/clients?q=Nobody", ready: ".record-empty" });
+  const lines = await page.locator(".record-empty > *").allTextContents();
+  assert.deepEqual(lines, ["No clients match these filters", "Clear all filters"]);
+});
+
+test("loading Clients shows row-height placeholders that fill the list", async (t) => {
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const { page } = await openClients(t, 1280, 800, { ready: ".record-skeleton", held });
+  const heights = await page.locator(".record-skeleton").evaluateAll((rows) => rows.map((row) => row.clientHeight));
+  release();
+  assert.ok(heights.length >= 8, `${heights.length} placeholders`);
+  assert.ok(Math.max(...heights) <= 40, `placeholders are one row tall, not ${Math.max(...heights)}px`);
+});
 
 test("a Clients filter applies as it changes and Clear undoes it", async (t) => {
   const { page, listReads } = await openClients(t, 1280, 800);
