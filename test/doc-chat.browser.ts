@@ -29,6 +29,7 @@ async function docChatFixture(
   t: TestContext,
   respond: (request: Request) => Response | Promise<Response>,
   actor = () => "joe",
+  pageOptions: { viewport?: { width: number; height: number }; hasTouch?: boolean } = {},
 ) {
   const server = await startWorkerFixture({
     assets: await appAssetSnapshot(),
@@ -56,7 +57,7 @@ async function docChatFixture(
     }
   });
   browser = await chromium.launch();
-  page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  page = await browser.newPage({ viewport: { width: 390, height: 844 }, ...pageOptions });
   return { page, origin: server.origin };
 }
 
@@ -1230,6 +1231,27 @@ for (const [width, height] of [
   });
 }
 
+for (const { touch, fits } of [
+  { touch: false, fits: { icon: (h: number) => h >= 28 && h <= 32, row: (h: number) => h >= 28 } },
+  { touch: true, fits: { icon: (h: number) => h >= 44, row: (h: number) => h >= 44 } },
+]) {
+  test(`On a computer with ${touch ? "touch" : "a mouse"} the chats list takes its sizes from the pointer`, async (t) => {
+    const { page, origin } = await docChatFixture(
+      t,
+      () => Response.json({ conversations: [conversation], next_before: null }),
+      undefined,
+      { viewport: { width: 1280, height: 640 }, hasTouch: touch },
+    );
+    await page.goto(`${origin}/doc-chats?mode=live`);
+    const list = page.getByRole("complementary", { name: "Chats" });
+    const height = async (locator: Locator) => Math.round((await locator.boundingBox())?.height ?? 0);
+    const icon = await height(list.getByRole("link", { name: "New chat" }));
+    const row = await height(list.getByRole("link", { name: question }));
+    assert.ok(fits.icon(icon), `New chat is ${icon}px`);
+    assert.ok(fits.row(row), `a chat row is ${row}px`);
+  });
+}
+
 test("On a computer the chats list stays open, newest first, with each chat's Central time, day or date", async (t) => {
   const chats = [
     ["This morning's question", "2026-11-25T15:12:00Z", "9:12 AM"],
@@ -1241,11 +1263,13 @@ test("On a computer the chats list stays open, newest first, with each chat's Ce
     chat: { id: `00000000-0000-4000-8000-${String(400 + index).padStart(12, "0")}`, title, created_at: at },
     shown,
   }));
-  const { page, origin } = await docChatFixture(t, () =>
-    Response.json({ conversations: chats.map(({ chat }) => chat), next_before: null }),
+  const { page, origin } = await docChatFixture(
+    t,
+    () => Response.json({ conversations: chats.map(({ chat }) => chat), next_before: null }),
+    undefined,
+    { viewport: { width: 1440, height: 900 }, hasTouch: false },
   );
   await pausedClock(page, new Date("2026-11-25T18:00:00Z"));
-  await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`${origin}/doc-chats?mode=live`);
   const list = page.getByRole("complementary", { name: "Chats" });
   await expect(list.getByRole("link", { name: /^This morning's question/ })).toBeVisible();
