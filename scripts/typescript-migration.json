@@ -714,7 +714,6 @@
     "tests/regressions/qa-017-vendor-error-semantics.e2e.ts": "781ca214bd02876c8459ee3575690c50b6d4393733769f10da9ac49e08638f58",
     "tests/regressions/qa-019-client-failure-review.e2e.ts": "289840b3cdd379ffac9cf9e3115ca8a276a201758141f7344439d171b464d6ae",
     "tests/regressions/round2/qa-027-deal-owner-reload.e2e.ts": "38c29e319bc2303b9d3cfa66dbaf9a5a6eaba03abc2e4b292bfd4aa7bba0e8f8",
-    "tests/regressions/round2/qa-028-pipeline-default-label.e2e.ts": "65468a5d76e2d63f9c40be711f515c43edf9e92e865a7ec99a47d08327fabbc0",
     "tests/regressions/round2/qa-029-singular-client-count.e2e.ts": "7e5c7628b391a305842ace58592dd7c6e8708ad650d6418c5dab74e906a72b1d",
     "tests/regressions/round2/qa-034-national-market-agent.e2e.ts": "e1209e87bdc590b77088f5c5f9bba0d3c9fe6518f03619809f10da50ab754e7e",
     "tests/staging/calendar.spec.ts": "fde416b89cc2fc083087cd8cef2afc5a946d2744aaca8fc180b4098eeb301acc",
