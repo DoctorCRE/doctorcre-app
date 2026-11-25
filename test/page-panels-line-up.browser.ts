@@ -275,14 +275,21 @@ for (const width of [1280, 1440]) {
     assert.ok(Math.abs(tops.prospects - tops.phase) <= 1, `Prospects at ${tops.prospects}, phases at ${tops.phase}`);
   });
 
-  test(`Ask Doc's question box and Recent chats share one left edge at ${width}px`, async (t) => {
+  test(`Ask Doc's question box shares the conversation's left edge, right of the chats at ${width}px`, async (t) => {
     const { page } = await open(t, "/doc-chats", width, { "doctorcre:today:/doc-chats": "open" });
     const question = page.getByLabel("Question for Doc");
     await question.waitFor();
-    const recent = page.getByRole("heading", { name: "Recent chats" });
-    const [box, list] = await Promise.all([question.boundingBox(), recent.boundingBox()]);
-    assert.ok(box && list);
-    assert.ok(Math.abs(box.x - list.x) <= 1, `question box starts at ${box.x}, Recent chats at ${list.x}`);
+    const [box, conversation, chats] = await Promise.all([
+      question.boundingBox(),
+      page.getByRole("region", { name: "Conversation" }).boundingBox(),
+      page.getByRole("complementary", { name: "Chats" }).boundingBox(),
+    ]);
+    assert.ok(box && conversation && chats);
+    assert.ok(
+      Math.abs(box.x - conversation.x) <= 1,
+      `question box starts at ${box.x}, conversation at ${conversation.x}`,
+    );
+    assert.ok(chats.x + chats.width <= box.x, `chats end at ${chats.x + chats.width}, question box starts at ${box.x}`);
     await mkdir(shots, { recursive: true });
     await page.screenshot({ path: `${shots}/ask-doc-${width}.png` });
   });
