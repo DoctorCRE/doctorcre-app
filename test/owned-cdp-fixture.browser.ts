@@ -270,3 +270,24 @@ test("fixture closes owned resources when transport disposal fails", async () =>
   assert.throws(() => process.kill(pid, 0), /ESRCH/);
   await fixture.closed;
 });
+
+test("owned browser closes a page while its reload commits", { timeout: 20000 }, async (t) => {
+  const fixture = await ownedCdpFixture();
+  t.after(() => fixture.close());
+  const connection = await chromium.connectOverCDP(fixture.endpoint);
+  t.after(() => connection.close());
+  const context = connection.contexts()[0];
+  assert.ok(context);
+  await context.route("http://reload.test/", (route) => route.fulfill({ contentType: "text/html", body: "ok" }));
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const page = await context.newPage();
+    await page.goto("http://reload.test/");
+    await assert.rejects(
+      page.evaluate(() => {
+        location.reload();
+        return new Promise(() => {});
+      }),
+    );
+    await page.close();
+  }
+});
