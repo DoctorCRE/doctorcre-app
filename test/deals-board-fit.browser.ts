@@ -65,7 +65,10 @@ async function openBoard(page: Page, view: "board" | "list" = "board") {
   });
   await page.goto(`${server.origin}/deals?mode=live&view=${view}`);
   await page.locator("#prospectsLane h3").waitFor();
-  await page.locator(view === "list" ? ".deal-list .kanban-card" : ".kanban-column[data-column] .kanban-card").first().waitFor();
+  await page
+    .locator(view === "list" ? ".deal-list .kanban-card" : ".kanban-column[data-column] .kanban-card")
+    .first()
+    .waitFor();
   return server;
 }
 
