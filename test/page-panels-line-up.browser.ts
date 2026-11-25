@@ -126,7 +126,7 @@ for (const width of [360, 390])
     for (const [path, name] of [
       ["/deals", "Local Deals"],
       ["/deals?view=national", "National Accounts"],
-    ]) {
+    ] as const) {
       const { page } = await open(t, path, width);
       const current = page.getByRole("navigation", { name: "Deals pages" }).locator("[aria-current=page]");
       assert.equal(await current.textContent(), name);
