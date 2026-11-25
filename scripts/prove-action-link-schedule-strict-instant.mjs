@@ -42,7 +42,7 @@ export async function observeActionLink(assetUrl) {
       await until(() => !host.textContent.includes('Opening draft'));
       check(host.querySelector('button')?.textContent === 'Approve draft', `valid schedule ready ${value}`);
       const time = host.querySelector('time');
-      check(value === null ? !time : time?.getAttribute('datetime') === value && time.textContent === new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/Chicago' }).format(new Date(value)), `independent display zone ${value}`);
+      check(value === null ? !time : time?.getAttribute('datetime') === value && time.textContent === new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Chicago' }).format(new Date(value)), `independent display zone ${value}`);
       check(calls.join() === 'resolve-action-link', `no automatic approval ${value}`);
       mounted.dispose();
       check(host.textContent === '', 'ready disposal clears draft');

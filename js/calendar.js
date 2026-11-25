@@ -3,8 +3,7 @@ import { createLiveClient } from "./live-client.js";
 import { resolveDealroomBoot } from "./boot-mode.js";
 import { mountNotificationBadge, mountPrefs } from "./shell.js";
 import { formatCalendarDate } from "./visual-system.js";
-import { BUSINESS_TIME_ZONE } from "./business-date.js";
-import { meetingTime } from "./home-week.js";
+import { BUSINESS_TIME_ZONE, meetingTime } from "./business-date.js";
 import { mountAutoRefresh, updatedLabel } from "./auto-refresh.mjs";
 import {
   addDays, approach, calendarHref, calendarLayout, calendarPhase, centralMinutes, entriesByDay, localToday, motionDirection,

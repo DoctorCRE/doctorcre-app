@@ -101,10 +101,17 @@ for (const viewport of viewports) test(`V1 audit 15/21/25b: Updates uses human l
   // Updates shows no guidance text, collapsed or not.
   assert.equal(await page.locator('#vocabularyLine, #quietHoursEffect, #quietHoursScope, #activityBlock > p.caption, details.context-help').count(), 0);
 
-  // Quiet hours read and summarize in AM/PM; the version is not shown.
+  // Acknowledging is summarized without the notification identifier.
+  await deal.locator('[data-ack]').click();
+  const summaries = () => page.locator('#receiptDock .receipt b').allTextContents();
+  await settles(async () => assert.ok((await summaries()).includes('Acknowledge notification')));
+  for (const summary of await summaries()) assert.doesNotMatch(summary, /version|[0-9a-f]{8}-[0-9a-f]{4}-/i);
+
+  // Quiet hours read and summarize in AM/PM on Settings; the version is not shown.
+  await page.goto(origin + '/settings', { waitUntil: 'domcontentloaded' });
   await settles(async () => assert.equal(await page.locator('#quietStart').inputValue(), '10:00 PM'));
   assert.equal(await page.locator('#quietEnd').inputValue(), '7:30 AM');
-  assert.equal(await page.locator('#prefSummary').textContent(), 'Quiet hours 10:00 PM to 7:30 AM UTC · device push on');
+  assert.equal(await page.locator('#prefSummary').textContent(), 'Quiet hours 10:00 PM to 7:30 AM · device push on');
   assert.doesNotMatch(await page.locator('#prefForm').evaluate(node => {
     const copy = node.cloneNode(true); copy.querySelectorAll('details').forEach(d => d.remove()); return copy.textContent;
   }), /version/i);
@@ -128,37 +135,6 @@ for (const viewport of viewports) test(`V1 audit 15/21/25b: Updates uses human l
   await settles(async () => assert.match(await page.locator('#prefMessage').textContent(), /AM or PM/));
   assert.equal(await page.evaluate(() => window.prefWrites.length), 1);
 
-  // Acknowledging is summarized without the notification identifier.
-  await deal.locator('[data-ack]').click();
-  const summaries = () => page.locator('#receiptDock .receipt b').allTextContents();
-  await settles(async () => assert.ok((await summaries()).includes('Acknowledge notification')));
-  for (const summary of await summaries()) assert.doesNotMatch(summary, /version|[0-9a-f]{8}-[0-9a-f]{4}-/i);
-  assert.deepEqual(errors, []);
-});
-
-for (const viewport of viewports) test(`QA-010 the preferences anchor waits for the first successful read and reveals once at ${viewport.width}px`, async t => {
-  const { page, errors } = await open(t, { viewport, init: () => { window.refusePreferences = true; },
-    hooks: `const read=c.notificationPreferences;c.notificationPreferences=async()=>{if(window.refusePreferences)throw Object.assign(new Error('synthetic outage'),{status:503});window.preferenceReads=(window.preferenceReads||0)+1;return read();};` });
-  await page.goto(origin + '/updates#prefForm', { waitUntil: 'domcontentloaded' });
-  await settles(async () => assert.equal(await page.locator('#prefState').getAttribute('data-state'), 'unavailable'));
-  assert.equal(await page.locator('#prefForm').isHidden(), true);
-  assert.equal(await page.evaluate(() => scrollY), 0, 'a failed read does not move the page');
-  await page.evaluate(() => { window.refusePreferences = false; window.dispatchEvent(new Event('online')); });
-  await settles(async () => assert.equal(await page.locator('#deviceOptIn').isEnabled(), true));
-  const revealed = async () => page.evaluate(() => {
-    const box = document.querySelector('#deviceOptIn').getBoundingClientRect();
-    const bar = document.querySelector('.app-layout-tabbar')?.getBoundingClientRect();
-    return box.top >= (bar && bar.bottom < innerHeight / 2 ? bar.bottom : 0) && box.bottom <= innerHeight
-      && document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2) === document.querySelector('#deviceOptIn');
-  });
-  await settles(async () => assert.equal(await revealed(), true));
-  await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
-  assert.equal(await page.evaluate(() => scrollY), 0);
-  const reads = await page.evaluate(() => window.preferenceReads);
-  await page.evaluate(() => window.dispatchEvent(new Event('online')));
-  await settles(async () => assert.ok(await page.evaluate(() => window.preferenceReads) > reads));
-  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-  assert.equal(await page.evaluate(() => scrollY), 0, 'a later refresh does not anchor again');
   assert.deepEqual(errors, []);
 });
 

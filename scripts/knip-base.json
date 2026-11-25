@@ -150,6 +150,7 @@
     "js/routes.d.ts",
     "js/toast.d.ts",
     "js/touch-layout.d.ts",
+    "js/business-date.d.ts",
     "src/worker.d.ts",
     "scripts/prove-*.{mjs,ts}",
     "docs/statecharts/owned-cdp/Lifecycle.map.ts"

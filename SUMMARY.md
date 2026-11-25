@@ -32,7 +32,8 @@ fixture. Reviewed DoctorCRE production hosts boot the live adapter.
 | `pipeline.html` | V5-UX-B03 Deals at `/pipeline`: the eight-phase Kanban, moved by drag or keyboard, with the completion dialog, the crossed-edits chooser and the record panel |
 | `js/pipeline-model.js` | Pure board rules: the eight columns and their one-to-one phase map, grouping, the move intent, the ordered completion plan and the keyboard target |
 | `js/pipeline.js` | Deals DOM wiring over `deal-room-board` and `patch-deal-field`, through the board coordinator, the field-write kernel and the command dock |
-| `notifications.html` | V5-UX-B12a/B12 Notifications at `/notifications`: the items addressed to you, the delivery state per channel including what quiet hours held, a real quiet-hours and device opt-in preference form under a compare-and-swap on `version`, and the accountable activity stream beside them |
+| `notifications.html` | V5-UX-B12a/B12 Notifications at `/notifications`: the items addressed to you, the delivery state per channel including what quiet hours held, and the accountable activity stream beside them |
+| `settings.html` | Settings at `/settings`, opened from the account menu: the quiet-hours and device opt-in preference form under a compare-and-swap on `version`, Doc link, and phone notifications |
 | `js/notifications-model.js` | Pure notification rules: the feed payload's exact keys, the two-value severity vocabulary, the delivery phrases, the deep-link route lookup, the eight UX20 states and the one write's arguments |
 | `js/notifications.js` | Notifications DOM wiring over `notification-feed` and `GET /pipeline/changes`, with `acknowledge-notification` sent through the shared command kernel and dock |
 | `conversations.html` | V5-UX-B07 Doc conversations at `/conversations?id=…`: the record layer's list of conversations, one conversation's turns, who can read it, and create / rename / pin / archive / share through the record layer |

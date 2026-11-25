@@ -2,8 +2,7 @@
 // Names are absent from the feed contract: use human record labels rather than
 // guessing a name or fetching a second record. Identifiers stay in Details.
 import { routeContract, docRequestTarget } from "./routes.js";
-import { meetingTime } from "./home-week.js";
-import { BUSINESS_TIME_ZONE } from "./business-date.js";
+import { BUSINESS_TIME_ZONE, meetingTime } from "./business-date.js";
 
 import { REFUSAL_SENTENCE } from "./status-model.js";
 import { CONVERSATION_ID } from "./conversations-model.js";
@@ -435,8 +434,8 @@ export function preferenceView(payload) {
 export function preferenceSummary(view) {
   if (!view) return "";
   const window = view.quietHoursSet
-    ? `Quiet hours ${preferenceTimeLabel(view.start)} to ${preferenceTimeLabel(view.end)} ${view.timezone}`
-    : `No quiet hours set · ${view.timezone}`;
+    ? `Quiet hours ${preferenceTimeLabel(view.start)} to ${preferenceTimeLabel(view.end)}`
+    : "No quiet hours set";
   return `${window} · device push ${view.deviceOptIn ? "on" : "off"}`;
 }
 
@@ -479,12 +478,11 @@ export const TIME_REFUSAL =
 /**
  * The arguments for `set-notification-preference`, or the refusal.
  *
- * Two things are DELIBERATELY not checked here. A half pair — a start with no
- * end — is sent, because `notification_preference_quiet_hours_incomplete` is
- * the record layer's own refusal and rendering it by name is what proves the
- * page is reading the store's answer instead of guessing it. So is an unknown
- * timezone: `pg_timezone_names` is the list, and this page does not hold a copy
- * of it. `base_version` comes from the last READ, never from a caller.
+ * A half pair — a start with no end — is DELIBERATELY sent, because
+ * `notification_preference_quiet_hours_incomplete` is the record layer's own
+ * refusal and rendering it by name is what proves the page is reading the
+ * store's answer instead of guessing it. `base_version` comes from the last
+ * READ, never from a caller.
  */
 export function setPreferenceArgs(form = {}, view = null) {
   if (!view || !Number.isInteger(view.version)) return { ok: false, message: BASE_VERSION_REFUSAL };
@@ -501,8 +499,6 @@ export function setPreferenceArgs(form = {}, view = null) {
     if (!time) return { ok: false, message: TIME_REFUSAL };
     args[field] = time;
   }
-  const timezone = typeof form.timezone === "string" ? form.timezone.trim() : "";
-  if (timezone) args.timezone = timezone;
   return { ok: true, args };
 }
 
@@ -521,7 +517,7 @@ export function enginePreferenceArgs(form = {}, view = null) {
     return { ok: false, message: QUIET_PAIR_REFUSAL };
   return { ok: true, args: {
     base_version: view.version,
-    time_zone: (typeof form.timezone === "string" && form.timezone.trim()) || view.timezone,
+    time_zone: view.timezone,
     quiet_from,
     quiet_until,
     push_to_device: typeof form.device_opt_in === "boolean" ? form.device_opt_in : view.deviceOptIn,
