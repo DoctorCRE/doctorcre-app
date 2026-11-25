@@ -86,10 +86,11 @@ export function mountAppLayout(root, host, pathname) {
   const topbar = layout.querySelector('#appTopbar');
   const tabbar = layout.querySelector('.app-layout-tabbar');
   const crowded = node => node.scrollWidth > node.clientWidth + 1 || node.offsetHeight > topbar.clientHeight;
-  // A page can hand its title links to the phone's tab row, leaving its heading as the title.
+  // A page can hand its title links to the phone's tab row, leaving its heading as the title,
+  // unless that heading only repeats the current link and is hidden.
   const phoneTabs = [...slots.title.querySelectorAll('[data-phone-slot="tabs"]')];
   const placeTabs = () => {
-    const home = phone.matches ? pageViews : slots.title;
+    const home = phone.matches && !slots.title.querySelector('h1.repeats-page') ? pageViews : slots.title;
     for (const node of phoneTabs) if (node.parentNode !== home) home.prepend(node);
     if (!phone.matches) {
       slots.title.after(pageViews);
@@ -102,6 +103,7 @@ export function mountAppLayout(root, host, pathname) {
   // Moving the tabs never resizes the top bar, so watching it cannot loop; page scripts fill some tabs after mount.
   if (win.ResizeObserver) new win.ResizeObserver(placeTabs).observe(topbar);
   new win.MutationObserver(placeTabs).observe(pageViews, { childList: true, subtree: true, characterData: true });
+  if (phoneTabs.length) new win.MutationObserver(placeTabs).observe(slots.title, { attributeFilter: ['class'], subtree: true });
   // Today starts collapsed so each main view keeps the full width, and every page remembers its own choice.
   // National Accounts and Monday review share /deals with the board but are pages of their own.
   const view = pathname === '/deals' && { national: 'national', review: 'review', 'dropped-prospect': 'review' }[new URLSearchParams(win.location.search).get('view')];

@@ -83,6 +83,7 @@
 /* List: the board's screen-tall row and column cap would slide the list under Prospects or clip it. */
 .kanban:has(.deal-list) { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; }
 #prospectsLane .work-card { overflow-wrap: anywhere; }
+#prospectsLane > h3 { justify-content: flex-start; gap: var(--space-2); }
 #prospectsLane [role="alert"] .btn { max-width: 100%; padding-inline: var(--space-2); }
 @media (min-width: 651px) {
   .deal-list + #prospectsLane { max-height: none; padding-inline: 0; border-inline: 0; border-radius: 0; }
@@ -131,12 +132,7 @@
   :root:not([data-motion="reduced"]) .kanban-card.work-card--tile:hover { transform: translateY(-1px); }
 }
 .kanban-card.work-card--tile .work-card-meta .owner { display: inline-grid; flex: none; place-items: center; margin-left: auto; width: 22px; height: 22px; border-radius: 50%; background: var(--surface-3); color: var(--fg); font-size: 11px; font-weight: var(--font-weight-strong); }
-.kanban-card.work-card--tile .deal-board-badge { font-size: 11px; }
-.card-due { display: inline-flex; align-items: center; gap: 4px; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
-.card-due::before { content: ""; width: 12px; height: 12px; background: currentColor; -webkit-mask: var(--icon-calendar) center / contain no-repeat; mask: var(--icon-calendar) center / contain no-repeat; }
-.kanban { --icon-calendar: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5'%3E%3Crect x='2' y='3' width='12' height='11' rx='2'/%3E%3Cpath d='M2 7h12M5 1.5v3M11 1.5v3'/%3E%3C/svg%3E"); }
-.card-due--today { color: var(--status-warn-ink); }
-.card-due--late { color: var(--status-danger-ink); }
+.kanban-card.work-card--tile .deal-board-badge, #prospectsLane .work-card-status { font-size: 11px; white-space: nowrap; }
 .kanban-column > h3 button { display: flex; align-items: center; gap: var(--space-2); width: 100%; min-height: var(--touch); padding: 0; border: 0; background: transparent; color: var(--fg); font: inherit; text-align: left; cursor: pointer; }
 .kanban-column > h3 button:hover > span { text-decoration: underline; text-underline-offset: 3px; }
 .stage-preview { display: grid; gap: var(--space-2); margin: 0; color: var(--fg-muted); font-size: var(--font-size-1); overflow-wrap: anywhere; }
@@ -144,10 +140,11 @@
 .kanban-lane-label { display: none; }
 .next-line { white-space: normal; overflow-wrap: anywhere; margin: 0; font-size: var(--font-size-1); color: var(--fg-muted); }
 .auto-move button { justify-self: start; padding: 0 var(--space-2); min-height: var(--touch); }
-.kanban-card.work-card--tile .work-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); grid-column: 1 / -1; min-height: 22px; font-size: 12px; }
+.kanban-card.work-card--tile .work-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); grid-column: 1 / -1; min-height: 22px; font-size: 12px; }
 .deal-row .work-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
 .kanban-card.work-card--tile .card-open { display: flex; align-items: center; width: 100%; padding: 0; text-align: left; overflow-wrap: anywhere; }
-.deal-list-next-step { margin: 0; overflow-wrap: anywhere; }
+.deal-list-next-step { margin: 0; overflow-wrap: anywhere; color: var(--fg-muted); font-size: var(--font-size-1); }
+.deal-list-next-step > span { color: var(--fg); }
 .deal-attention-label { display: block; flex-basis: 100%; color: var(--status-warn-ink); }
 .deal-board-badge, #prospectsLane .work-card--tile .work-card-status { padding: 2px var(--space-1); border-radius: var(--radius-1); background: color-mix(in srgb, var(--status-warn) 12%, var(--surface-2)); color: var(--status-warn-ink); }
 .parked-card .deal-board-badge { background: color-mix(in srgb, var(--status-hold) 12%, var(--surface-2)); color: var(--status-hold-ink); }
