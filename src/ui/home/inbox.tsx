@@ -762,7 +762,12 @@ export function createInboxClient(
     ];
   }
   async function endStep({ action_id, action_version }: Cover, resolution: string, fields: object) {
-    const value = await rpc("end-engine-home-step", { id: action_id, base_version: action_version, resolution, ...fields });
+    const value = await rpc("end-engine-home-step", {
+      id: action_id,
+      base_version: action_version,
+      resolution,
+      ...fields,
+    });
     if (object(value) && typeof value.error === "string") throw Object.assign(Error(value.error), { payload: value });
     if (!object(value) || value.next_step_id !== action_id || value.status !== resolution)
       throw Error("Change could not be confirmed. Retry the same request.");
@@ -772,7 +777,9 @@ export function createInboxClient(
     const saves = await Promise.allSettled(
       request.covers.map((entry, index) => {
         if (request.change === "snooze")
-          return saveMark(markArgs(entry, { action: "snooze", until: request.until }, request.args.idempotency_key, index));
+          return saveMark(
+            markArgs(entry, { action: "snooze", until: request.until }, request.args.idempotency_key, index),
+          );
         const idempotency_key = cardKey(request.args.idempotency_key, index);
         return request.change === "complete"
           ? endStep(entry, "done", { idempotency_key })
