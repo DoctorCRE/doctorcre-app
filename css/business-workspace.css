@@ -49,11 +49,11 @@ a.tab[aria-current="page"] { border-color: var(--hairline-strong); background: v
 #searchChips { flex: 0 1 auto; min-width: 0; flex-wrap: nowrap; gap: var(--space-1); overflow-x: auto; scrollbar-width: none; }
 #searchChips .chip, #savedViewList .chip { min-height: var(--touch); flex: none; min-width: 0; border-color: transparent; background: transparent; color: var(--fg-muted); font-weight: var(--font-weight-regular); text-decoration: none; }
 #savedViewList a.chip { color: var(--fg); }
-#searchChips .chip::after { content: attr(data-count); color: var(--fg-quiet); font-variant-numeric: tabular-nums; }
+#searchChips .chip::after { content: attr(data-count) / ""; color: var(--fg-quiet); font-variant-numeric: tabular-nums; }
 #searchChips .chip[aria-pressed="true"] { background: var(--surface-1); color: var(--fg); }
 #searchChips .chip[aria-pressed="false"] { color: var(--fg-quiet); text-decoration: line-through; }
 @media (hover: hover) { :is(#searchChips, #savedViewList) .chip:hover { background: var(--surface-2); color: var(--fg); } }
-:is(#searchChips, #savedViewList) .chip:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 1px; }
+#searchChips .chip:focus, #savedViewList .chip:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 1px; }
 #searchCount { margin-inline-start: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .search-state { padding: var(--space-4) 0; color: var(--fg-muted); }
 .search-state p { margin: 0; }
