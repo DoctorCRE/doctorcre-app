@@ -7,7 +7,7 @@ import { COLUMNS, columnBySlug, columnByValue, noteText, PHASE_DATE_KIND } from 
 import { compareInstants, escapeText, fieldLabel, readableValue } from './change-receipts.mjs';
 import { sourceTime } from './email-source-line.js';
 import { concise, isEngineDealDetail, PARKING_REASONS } from './local-deals-model.js';
-import { ACTOR_LABEL, authorLabel, dealTypeLabel, knownAuthor } from './client.js';
+import { authorLabel, dealTypeLabel, knownAuthor, partnerName } from './client.js';
 
 const DAY = 86400000;
 const esc = escapeText;
@@ -234,10 +234,6 @@ const OLD_HISTORY_ACTION = new Map(Object.entries({
 }));
 
 const historicalActor = slug => timelineActor(slug) || 'Author unavailable';
-// Old history names owners by sign-in slug; a partner's machine sign-in acts as that partner.
-const PARTNER_SLUG = { joe: 'joe', dell: 'dell', 'joe-local': 'joe', 'dell-local': 'dell' };
-/** A partner's name, or undefined for an old automation or door owner that has none. */
-const historicalPartner = slug => Object.hasOwn(PARTNER_SLUG, slug) ? ACTOR_LABEL[PARTNER_SLUG[slug]] : undefined;
 const words = value => value.replace(/(^|[_-]+)([a-z])/g, (_, separator, letter) =>
   separator ? ' ' + letter : letter.toUpperCase());
 function historicalDay(value) {
@@ -270,8 +266,8 @@ const OLD_HISTORY_FACTS = {
   name: ['Deal name'], client_name: ['Client'],
   phase: ['Phase', value => value === 'dead' ? 'Lost' : columnBySlug(value)?.label || words(value)],
   deal_type: [fieldLabel('kind'), words], market: ['Market'], agent_name: ['Market agent'],
-  market_agent: ['Market agent'], lead: ['Deal owner', historicalPartner], owner: ['Assigned to', historicalPartner],
-  assignee: ['Assigned to', historicalPartner], set_by: ['Set by', historicalActor],
+  market_agent: ['Market agent'], lead: ['Deal owner', partnerName], owner: ['Assigned to', partnerName],
+  assignee: ['Assigned to', partnerName], set_by: ['Set by', historicalActor],
   lane: ['Board lane', words], next_action: ['Next step'], next_step: ['Next step'],
   description: ['Next step'], summary: ['Summary'], reason: ['Reason'], outcome: ['Outcome', words],
   status: ['Status', words], closed_on: ['Closing date', historicalDay], invoiced_on: ['Invoice date', historicalDay],
@@ -305,14 +301,15 @@ function importedFacts({ verb, old_value, new_value }) {
   return Object.entries(facts).flatMap(([key, [label, format]]) => {
     const had = Object.hasOwn(before, key);
     const has = Object.hasOwn(after, key);
-    if (!had && !has) return [];
-    const oldText = historicalValue(before[key], format);
-    const newText = historicalValue(after[key], format);
-    if ((had && oldText === undefined) || (has && newText === undefined)) return [];
-    if (had && has && oldText !== newText) {
+    const oldText = had ? historicalValue(before[key], format) : undefined;
+    const newText = has ? historicalValue(after[key], format) : undefined;
+    // A new value with no name drops the fact: the old name alone would read as current.
+    if (has && newText === undefined) return [];
+    if (oldText !== undefined && newText !== undefined && oldText !== newText) {
       return [after[key] === null ? `${label} cleared (was ${oldText})` : `${label}: ${oldText} to ${newText}`];
     }
-    return [`${label}: ${has ? newText : oldText}`];
+    const text = newText ?? oldText;
+    return text === undefined ? [] : [`${label}: ${text}`];
   }).join('\n');
 }
 

@@ -169,6 +169,7 @@ function DealDocumentUpload(props: Props & { signal: AbortSignal; fileInput: Ref
         className="deal-file-drop"
         data-dragging={dragging || undefined}
         onDragOver={(event) => {
+          if (!event.dataTransfer.types.includes("Files")) return;
           event.preventDefault();
           if (!busy) setDragging(true);
         }}
@@ -180,8 +181,13 @@ function DealDocumentUpload(props: Props & { signal: AbortSignal; fileInput: Ref
           event.preventDefault();
           setDragging(false);
           const input = fileInput.current;
-          if (busy || !input || !event.dataTransfer.files.length) return;
-          input.files = event.dataTransfer.files;
+          const { files } = event.dataTransfer;
+          if (busy || !input || !files.length) return;
+          if (files.length > 1) {
+            setMessage("Drop one file at a time.");
+            return;
+          }
+          input.files = files;
           choose();
         }}
       >

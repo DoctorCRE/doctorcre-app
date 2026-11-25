@@ -129,6 +129,31 @@ test("Documents takes a file by keyboard, click or drop and names it", async (t)
         await zone.getByText("Example lease.pdf").waitFor();
         await page.screenshot({ path: `${shots}/documents-upload-${width}-${theme}.png` });
 
+        const textDrag = await zone.evaluate((zone) => {
+          const text = new DataTransfer();
+          text.setData("text/plain", "https://example.com");
+          const accepted = !zone.dispatchEvent(
+            new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: text }),
+          );
+          return { accepted, lit: zone.hasAttribute("data-dragging") };
+        });
+        assert.deepEqual(textDrag, { accepted: false, lit: false }, "dragging text or a link leaves the zone alone");
+
+        await zone.evaluate((zone) => {
+          const files = new DataTransfer();
+          for (const name of ["Example one.pdf", "Example two.pdf"])
+            files.items.add(new File(["%PDF"], name, { type: "application/pdf" }));
+          for (const type of ["dragover", "drop"])
+            zone.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: files }));
+        });
+        await page.getByText("Drop one file at a time.").waitFor();
+        assert.deepEqual(
+          await input.evaluate((input: HTMLInputElement) => Array.from(input.files ?? [], (file) => file.name)),
+          ["Example lease.pdf"],
+          "dropping several files keeps the chosen file",
+        );
+        await zone.getByText("Example lease.pdf").waitFor();
+
         await zone.evaluate((zone) => {
           const files = new DataTransfer();
           files.items.add(new File(["%PDF"], "Example counter.pdf", { type: "application/pdf" }));

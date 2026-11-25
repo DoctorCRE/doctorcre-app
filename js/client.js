@@ -396,17 +396,24 @@ export const PHICON = {
 
 export const ACTOR_LABEL = { joe: 'Joe', dell: 'Dell' };
 
+// A partner's machine sign-in acts as that partner (carr-system LOCAL_SPONSOR).
+const SIGN_IN_PARTNER = { joe: 'joe', dell: 'dell', 'joe-local': 'joe', 'dell-local': 'dell' };
+
+/** The partner a sign-in acts as, by name, or undefined for any other sign-in. */
+export const partnerName = (/** @type {unknown} */ slug) =>
+  typeof slug === 'string' && Object.hasOwn(SIGN_IN_PARTNER, slug) ? ACTOR_LABEL[SIGN_IN_PARTNER[slug]] : undefined;
+
 // Jobs are said plainly so nobody takes the assistant's or the copy's writing for a partner's own.
-const KNOWN_AUTHOR = { ...ACTOR_LABEL, agent: 'Written by the assistant', old_system: 'Copied from the old system', mail_capture: 'Mail filing' };
+const JOB_LABEL = { agent: 'Written by the assistant', old_system: 'Copied from the old system', mail_capture: 'Mail filing' };
 
 /** A partner's name or an engine job's plain label, or undefined for any other author. */
 export const knownAuthor = (/** @type {unknown} */ slug) =>
-  typeof slug === 'string' && Object.hasOwn(KNOWN_AUTHOR, slug) ? KNOWN_AUTHOR[slug] : undefined;
+  partnerName(slug) ?? (typeof slug === 'string' && Object.hasOwn(JOB_LABEL, slug) ? JOB_LABEL[slug] : undefined);
 
-/** Who wrote a note or update, as a partner says it. Only the partners write by hand; joe-local acts as Joe, and every other author is an automation. */
+/** Who wrote a note or update, as a partner says it. Only the partners write by hand; every other author is an automation. */
 export function authorLabel(/** @type {string | null | undefined} */ slug) {
   if (!slug) return 'Author not recorded';
-  return knownAuthor(slug) ?? (slug === 'joe-local' ? 'Joe' : 'Doc (assistant)');
+  return knownAuthor(slug) ?? 'Doc (assistant)';
 }
 
 /**

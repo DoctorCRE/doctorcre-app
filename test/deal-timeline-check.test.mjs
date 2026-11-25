@@ -383,3 +383,12 @@ test('old deal history names partner owners and leaves out owners with no name',
   assert.match(text, /Changed the deal owner[\s\S]*Assigned to: Dell/, slug);
  }
 });
+
+test('old deal history keeps the named side of an owner change and names partner sign-ins as authors', () => {
+ const row = (event) => new JSDOM(view.renderImportedDealHistory([{ verb: 'set-lead', field: null, imported: true,
+  recorded_at: '2025-01-06T00:00:00Z', ...event }])).window.document.querySelector('li');
+ assert.match(row({ actor: 'joe', old_value: { lead: 'claude' }, new_value: { lead: 'dell' } }).textContent, /Deal owner: Dell/);
+ assert.doesNotMatch(row({ actor: 'joe', old_value: { lead: 'dell' }, new_value: { lead: 'claude' } }).textContent, /Deal owner/);
+ for (const [actor, name] of [['dell-local', 'Dell'], ['joe-local', 'Joe']])
+  assert.equal(row({ actor, new_value: { lead: 'dell' } }).querySelector('b').textContent, name);
+});
