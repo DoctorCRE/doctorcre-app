@@ -57,9 +57,18 @@ test("the approved map accounts for every original path with a permanent home", 
   }
 });
 
-test("the shell has four primary sections and secondary destinations", () => {
-  assert.deepEqual(navigationItems.filter(item => !item.secondary).map((item) => item.label),
-    ["Home", "Deals", "Leads", "Vendors"]);
+test("the menu shows Calendar once, between Leads and Vendors, and marks it current on Calendar", () => {
+  const shell = appShellMarkup("/calendar");
+  const menu = shell.slice(shell.indexOf('aria-label="Primary navigation"'), shell.indexOf('class="app-shell-more-list"'));
+  assert.deepEqual([...menu.matchAll(/(?:data-app-nav-item|app-shell-more-toggle)[^>]*aria-label="([^"]+)"/g)].map(match => match[1]),
+    ["Home", "Deals", "Leads", "Calendar", "Vendors", "More"]);
+  const calendar = [...shell.matchAll(/<a data-app-nav-item aria-label="Calendar"[^>]*>/g)].map(match => match[0]);
+  assert.equal(calendar.length, 1);
+  assert.match(calendar[0], /href="\/calendar" aria-current="page"/);
+  assert.doesNotMatch(shell, /app-shell-more-current/);
+});
+
+test("the shell lists secondary destinations under More", () => {
   const shell = appShellMarkup("/calendar");
   for (const name of ["Updates", "Phone capture", "Relationships", "Invoices", "Closing anniversaries"]) {
     assert.match(shell, new RegExp(`aria-label="${name}"[^>]*href="[^"]+".*?<span class="app-shell-nav-label">${name}</span>`));

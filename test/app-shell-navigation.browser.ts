@@ -44,6 +44,7 @@ test("Shared shell navigation and controls work on real fixture pages at desktop
             "Home",
             "Deals",
             "Leads",
+            "Calendar",
             "Vendors",
           ]);
           assert.equal(
@@ -72,14 +73,13 @@ test("Shared shell navigation and controls work on real fixture pages at desktop
           await page.screenshot({ path: `${captures}/${screen.name.toLowerCase()}-${width}-${theme}.png` });
 
           await links.first().focus();
-          for (const destination of ["Home", "Deals", "Leads", "Vendors", "More"]) {
+          for (const destination of ["Home", "Deals", "Leads", "Calendar", "Vendors", "More"]) {
             assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("aria-label")), destination);
             if (destination !== "More") await page.keyboard.press("Tab");
           }
           await page.keyboard.press("Enter");
           const more = primary.locator(".app-shell-more-list");
           assert.equal(await more.getByRole("link", { name: "Clients" }).getAttribute("href"), "/clients");
-          assert.equal(await more.getByRole("link", { name: "Calendar" }).getAttribute("href"), "/calendar");
           assert.equal(await primary.locator('a[href="/tours"]').count(), 0);
           assert.equal(await primary.locator("a:not(:has(svg))").count(), 0);
           if (screen.path === "/") {
