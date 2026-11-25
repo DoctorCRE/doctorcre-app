@@ -686,7 +686,24 @@ for (const [width, height] of [
       assert.equal(await box.inputValue(), "");
       assert.equal(await box.getAttribute("placeholder"), "Not set", "an empty box does not show a time");
       assert.ok((await widthOf(box)) <= 160, "a time box is sized for a time");
+      const height = (await box.boundingBox())?.height ?? Number.NaN;
+      if (width > 760) assert.equal(height, 32, "a time box is a computer-sized control");
+      else assert.ok(height >= 44, "a time box keeps its touch size on a phone");
     }
+    const push = page.getByRole("switch", { name: "Device push", exact: true });
+    assert.equal(await push.count(), 1, "the switch is named by its label alone");
+    const hint = await push.getAttribute("aria-describedby");
+    assert.equal(
+      await page.locator(`[id="${hint}"]`).textContent(),
+      "Send a device push when something is addressed to me",
+    );
+    assert.equal(
+      await page
+        .locator(".setting-text")
+        .first()
+        .evaluate((el) => getComputedStyle(el).rowGap),
+      "4px",
+    );
     assert.equal(await page.getByRole("button", { name: "Clear quiet hours" }).isVisible(), false);
     assert.equal(
       await page
@@ -721,6 +738,50 @@ test("Settings offers Clear quiet hours only once quiet hours are saved", async 
   await page.locator("#prefSummary").getByText("No quiet hours set · device push off", { exact: true }).waitFor();
   assert.equal(await clear.isVisible(), false);
   assert.equal(await page.getByLabel("Quiet hours start").inputValue(), "");
+});
+
+test("Settings rows answer the pointer", async (t) => {
+  const { page } = await open(t, 1440, "dark");
+  await page.goto(settingsPath);
+  await page.locator("#prefForm").waitFor();
+  const row = page.locator("label.setting-row");
+  const fill = () => row.evaluate((el) => getComputedStyle(el).backgroundColor);
+  const rest = await fill();
+  await row.hover();
+  const fillIs = (same: boolean) =>
+    page.waitForFunction(
+      ([before, same]) => {
+        const row = document.querySelector("label.setting-row");
+        return !!row && (getComputedStyle(row).backgroundColor === before) === same;
+      },
+      [rest, same] as const,
+    );
+  await fillIs(false);
+  await page.mouse.move(0, 0);
+  await fillIs(true);
+});
+
+test("keyboard focus stays on the Settings control that saved", async (t) => {
+  const { page } = await open(
+    t,
+    1440,
+    "dark",
+    preferenceStore({ ...preferences, quiet_from: "22:00", quiet_until: "07:00" }),
+  );
+  await page.goto(settingsPath);
+  const activeId = () => page.evaluate(() => document.activeElement?.id ?? "");
+  const save = saveButton(page);
+  await save.focus();
+  await save.press("Enter");
+  await page.locator("#prefMessage").getByText("Saved", { exact: true }).waitFor();
+  assert.equal(await activeId(), "prefSave", "Save keeps focus once it answers");
+
+  const clear = page.getByRole("button", { name: "Clear quiet hours" });
+  await clear.focus();
+  await clear.press("Enter");
+  await page.locator("#prefSummary").getByText("No quiet hours set · device push off", { exact: true }).waitFor();
+  assert.equal(await clear.isVisible(), false);
+  assert.equal(await activeId(), "quietStart", "focus moves to the first time box when Clear hides");
 });
 
 test("checking a settings save outcome keeps newer preferences on screen", async (t) => {

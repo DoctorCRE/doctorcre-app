@@ -550,6 +550,17 @@ function acknowledge(id) {
  * reads is true about the values now on screen.
  */
 async function savePreference(form) {
+  const origin = document.activeElement;
+  const heldFocus = origin instanceof HTMLElement && $("prefForm").contains(origin) ? origin : null;
+  try {
+    return await sendPreference(form);
+  } finally {
+    // The save disables the form and Clear hides when it lands, and either drops focus to the page.
+    if (heldFocus && document.activeElement === document.body) [heldFocus, $("quietStart"), $("prefSave")].find((el) => el.isConnected && !el.hidden && !el.disabled)?.focus();
+  }
+}
+
+async function sendPreference(form) {
   if (saving) return;
   const model = preferenceModel();
   const retained = commandState[PREFERENCE_OPERATION_KEY];

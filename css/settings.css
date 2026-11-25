@@ -16,8 +16,10 @@
 .settings .state-block { margin-top: var(--space-3); }
 
 .setting-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-5); padding: var(--space-3) 0; border-bottom: var(--hairline-width) solid var(--hairline); cursor: default; }
-label.setting-row { cursor: pointer; }
-.setting-text { display: grid; gap: 2px; flex: 1 1 240px; min-width: 0; }
+label.setting-row { cursor: pointer; transition: background-color var(--duration-hover) var(--ease-out), box-shadow var(--duration-hover) var(--ease-out); }
+/* The fill reaches past the column's side padding with a shadow, so the row's text and hairline stay on the column's edge. */
+@media (hover: hover) { label.setting-row:hover { background: var(--surface-1); box-shadow: calc(-1 * var(--space-3)) 0 0 var(--surface-1), var(--space-3) 0 0 var(--surface-1); } }
+.setting-text { display: grid; gap: var(--space-1); flex: 1 1 240px; min-width: 0; }
 .setting-name { color: var(--fg); font-size: var(--font-size-2); font-weight: var(--font-weight-strong); }
 .setting-hint { color: var(--fg-muted); font-size: var(--font-size-1); line-height: var(--line-height-body); }
 
@@ -32,7 +34,7 @@ label.setting-row { cursor: pointer; }
 .has-app-layout .settings .setting-switch { min-width: 0; min-height: 0; }
 
 .quiet-range { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--fg-muted); font-size: var(--font-size-1); }
-.quiet-range input { box-sizing: border-box; width: 7.5em; min-height: 36px; padding: var(--space-1) var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); background: var(--surface-1); color: var(--fg); font: var(--font-weight-regular) var(--font-size-2)/1.2 var(--font-text); font-variant-numeric: tabular-nums; transition: border-color var(--duration-hover) var(--ease-out); }
+.quiet-range input { box-sizing: border-box; width: 7.5em; min-height: 32px; padding: var(--space-1) var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); background: var(--surface-1); color: var(--fg); font: var(--font-weight-regular) var(--font-size-2)/1.2 var(--font-text); font-variant-numeric: tabular-nums; transition: border-color var(--duration-hover) var(--ease-out); }
 .quiet-range input::placeholder { color: var(--fg-quiet); }
 @media (hover: hover) { .quiet-range input:not(:disabled):hover { border-color: var(--fg-quiet); } }
 .quiet-range input:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 1px; }
