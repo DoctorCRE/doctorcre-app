@@ -13,7 +13,7 @@ import { shortDay, toDay } from './calendar-model.js';
 import { engagementWriterFor, engagementStorage } from './prospect-engagement.mjs';
 import { clearPrivateTextDrafts, privateTextDraft } from "./private-session.js";
 import {onDialogClosed} from './dialog-lifecycle.js';
-import { pageDocContext, publishDocRead, selectDocRecord, setDocFilters } from './doc-context.js';
+import { observeDocRead, pageDocContext, publishDocRead, selectDocRecord, setDocFilters } from './doc-context.js';
 import { createLeadBoardClient, hasLeadVersion, validateLeadWorkspace as validateWorkspace, validateLeadDetail as validateDetail } from "./leads-client.js";
 import { mountAutoRefresh, updatedLabel } from "./auto-refresh.mjs";
 import { BOARD_STAGES, FILTER_STAGES, stageLabel, normalizedStage, eligibleLead, leadTitle, leadMarket, marketKey, specialtyKey,
@@ -48,7 +48,8 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
   const $ = id => doc.getElementById(id), win = doc.defaultView || globalThis.window;
   const quietFilter = $("quietFilter");
   quietFilter.hidden = typeof client.getQuietFollowUps !== "function";
-  const reasons = $("contactReasons") && client.listPracticeOrigination ? mountContactReasons({host:$("contactReasons"),window:win,client}) : null;
+  const reasons = $("contactReasons") && client.listPracticeOrigination ? mountContactReasons({host:$("contactReasons"),window:win,client,
+    onPayload: payload => { $("reasonsCount").textContent = payload ? `(${payload.cards.length}${payload.next_cursor ? "+" : ""})` : ""; }}) : null;
   // Home's "All reasons" link lands here, so it opens the strip it points into.
   if (win.location.hash === "#contactReasons" && $("reasonsStrip")) $("reasonsStrip").open = true;
   const engagement = engagementWriterFor(client, engagementStorage(win));
@@ -189,7 +190,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
       $("leadBoard").innerHTML = `<div class="stage-columns">${BOARD_STAGES.map(([key, text]) => {
         const rows = shown.filter(lead => normalizedStage(lead) === key), expanded = rows.length > 5 && expandedStages.has(key);
         return `<section class="stage-column" data-expanded="${expanded}" data-mobile-current="${!currentStage || key === currentStage}"${!currentStage && !rows.length && !state.showEmptyStages ? ' data-hide-empty="true"' : ""} data-stage="${key}" aria-label="${text}"><h2 class="stage-head">${text}<span>${rows.length}</span>${rows.length > 5 ? `<button type="button" data-expand-stage="${key}" aria-expanded="${expanded}" aria-controls="leads-${key}" aria-label="${expanded ? `Collapse ${text} to 5 leads` : `Show all ${rows.length} ${text} leads`}">${expanded ? "Collapse" : "Show all"}</button>` : ""}</h2><div class="lead-stack" id="leads-${key}">${(expanded ? rows : rows.slice(0, 5)).map(card).join("") || `<p class="stage-empty">No leads in ${text}</p>`}</div></section>`;
-      }).join("")}${emptyStagesNote(currentStage ? 0 : BOARD_STAGES.filter(([key]) => !shown.some(lead => normalizedStage(lead) === key)).length)}</div>`;
+      }).join("")}${emptyStagesNote(currentStage ? 0 : BOARD_STAGES.filter(([key]) => !shown.some(lead => normalizedStage(lead) === key)).length)}</div><button type="button" class="lane-cue" data-lane-step="-1" hidden>‹</button><button type="button" class="lane-cue" data-lane-step="1" hidden></button>`;
     }
 
     // The time states the snapshot on screen, as Deals does: a failed refresh
@@ -197,13 +198,34 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     // only a failed read with nothing to show is "Unavailable".
     $("boardUpdated").textContent = state.board ? updatedLabel(state.board.generated_at, BUSINESS_TIME_ZONE) : state.readFailed ? "Unavailable" : "Updating…";
     $("boardUpdated").dateTime = state.board?.generated_at || "";
-    $("refreshBoard").title = `Refresh leads · ${$("boardUpdated").textContent}`;
     $("searchUpdated").textContent = state.board?.last_search_at ? `New-lead search ${stamp(state.board.last_search_at)}` : "";
     paintWriteControls();
     const columns = $("leadBoard").querySelector(".stage-columns");
     if (columns) columns.scrollLeft = boardScroll;
+    paintLaneCue();
     for (const node of $("leadBoard").querySelectorAll('[data-expanded="true"]')) node.querySelector(".lead-stack").scrollTop = laneScroll.get(node.dataset.stage) || 0;
     if (focused?.container) restoreFocus(focused);
+  }
+  // Names the stages scrolled off either side of the board, so none is missed.
+  function paintLaneCue() {
+    const columns = $("leadBoard").querySelector(".stage-columns"), [back, ahead] = $("leadBoard").querySelectorAll("[data-lane-step]");
+    if (!columns || !ahead) return;
+    const edge = columns.getBoundingClientRect();
+    const lanes = [...columns.querySelectorAll(".stage-column")].map(node => node.getBoundingClientRect()).filter(box => box.width);
+    const stages = count => count === 1 ? "stage" : "stages";
+    const before = lanes.filter(box => box.left < edge.left - 1).length, after = lanes.filter(box => box.right > edge.right + 1).length;
+    const handoff = doc.activeElement === back && !before ? ahead : doc.activeElement === ahead && !after ? back : null;
+    back.hidden = !before; back.setAttribute("aria-label", `${before} earlier ${stages(before)}`);
+    ahead.hidden = !after; ahead.innerHTML = `${after} more ${stages(after)} <span aria-hidden="true">›</span>`;
+    // A cue that runs out of stages hands focus to the other one instead of dropping it.
+    if (handoff && !handoff.hidden) handoff.focus({ preventScroll: true });
+  }
+  function scrollLanes(step) {
+    const columns = $("leadBoard").querySelector(".stage-columns");
+    const lane = [...columns.querySelectorAll(".stage-column")].find(node => node.offsetWidth);
+    if (!lane) return;
+    const reduce = win.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    columns.scrollBy({ left: step * (lane.offsetWidth + parseFloat(win.getComputedStyle(columns).columnGap || "0")), behavior: reduce ? "instant" : "smooth" });
   }
   function paintWriteControls() {
     const disabled = !state.identityReady || state.writing || Boolean(state.pending);
@@ -340,7 +362,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
       if (state.actor && actor !== state.actor) { clearPrivateView(); startQuietRead(epoch); }
       state.actor = actor;
       state.identityReady = true;
-      const response = await workspace;
+      const response = await observeDocRead("getWorkspace", [], () => workspace);
       if (epoch !== state.epoch) return;
       const next = validateLeadWorkspace(response);
       const leads = next.leads.map(lead => {
@@ -809,6 +831,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
       evidence_ids: p.review.evidence.map(entry => entry.id), ...(answer ? { human_quote: answer } : {}) } });
   });
   function clickLead(event) {
+    const step = event.target.closest("[data-lane-step]"); if (step) { scrollLanes(Number(step.dataset.laneStep)); return; }
     if (event.target.closest("[data-toggle-empty-stages]")) { state.showEmptyStages = !state.showEmptyStages; render(); return; }
     const expand = event.target.closest("[data-expand-stage]");
     if (expand) { const key = expand.dataset.expandStage; if (expandedStages.has(key)) expandedStages.delete(key); else expandedStages.add(key); render(); return; }
@@ -820,6 +843,9 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
   $("detailBody").addEventListener("click", clickLead);
   const board = $("leadBoard");
   board.addEventListener("click", clickLead);
+  board.addEventListener("scroll", paintLaneCue, { capture: true, passive: true });
+  const boardResize = win.ResizeObserver ? new win.ResizeObserver(paintLaneCue) : null;
+  boardResize?.observe(board);
   board.addEventListener("keydown", event => {
     if (event.target.closest("button:not([data-open])")) return;
     const card = event.target.closest("[data-lead-id]"); if (!card) return;
@@ -921,6 +947,6 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
   // eslint-disable-next-line no-restricted-syntax -- Hidden-state events only clear lead identity, document context, and drag state; they perform no HTTP reads.
   doc.addEventListener("visibilitychange", resume);
   auto.refresh();
-  return { state, refresh, openReview, readDetail, dispose() { if (disposed) return; disposed = true; suspendPrivateView(); reasons?.dispose(); auto.dispose(); win.removeEventListener("doctorcre-session-invalidated", suspendPrivateView); state.map?.dispose(); win.removeEventListener("pagehide", retireDetail); doc.removeEventListener("visibilitychange", resume); } };
+  return { state, refresh, openReview, readDetail, dispose() { if (disposed) return; disposed = true; suspendPrivateView(); reasons?.dispose(); boardResize?.disconnect(); auto.dispose(); win.removeEventListener("doctorcre-session-invalidated", suspendPrivateView); state.map?.dispose(); win.removeEventListener("pagehide", retireDetail); doc.removeEventListener("visibilitychange", resume); } };
 }
 if (typeof document !== "undefined" && document.getElementById("leadBoard")) mountLeadsWorkspace();

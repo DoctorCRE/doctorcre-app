@@ -192,16 +192,83 @@ test("Leads asks for leads without waiting for the identity check", async (t) =>
     await identity;
     return route.fallback();
   });
-  const boardRead = page.waitForRequest(
-    (request) => request.url() === "http://localhost/mcp" && request.postDataJSON()?.params?.name === "lead-board",
+  const boardRead = page.waitForResponse(
+    (response) =>
+      response.url() === "http://localhost/mcp" && response.request().postDataJSON()?.params?.name === "lead-board",
   );
   await page.goto("http://localhost/leads");
-  await boardRead;
+  await (await boardRead).finished();
   assert.equal(
     await page.locator("#leadBoard .lead-card").count(),
     0,
     "nothing renders before the identity check answers",
   );
+  assert.equal(
+    await page.evaluate(
+      async (path) => (await import(path)).pageDocContext.snapshot().records.length,
+      "/js/doc-context.js",
+    ),
+    0,
+    "Ask Doc gets no leads before the identity check answers",
+  );
   release();
   await page.locator("#leadBoard .lead-card").first().waitFor();
 });
+
+test("Leads names the stages off to the right and scrolls one lane per click", async (t) => {
+  const { browser, page } = await openBoard(1440, 900);
+  t.after(() => browser.close());
+  const ahead = page.locator('[data-lane-step="1"]');
+  const back = page.locator('[data-lane-step="-1"]');
+  assert.equal((await ahead.textContent())?.trim(), "3 more stages ›");
+  assert.equal(await back.isVisible(), false, "nothing to scroll back to at the start");
+  await capture(page, "leads-1440x900-more-stages");
+  await ahead.click();
+  await page.getByRole("button", { name: "2 more stages", exact: true }).waitFor();
+  assert.equal(
+    await page.evaluate(() => {
+      const edge = document.querySelector("#leadBoard .stage-columns")?.getBoundingClientRect() ?? new DOMRect();
+      const lane =
+        document.querySelector('.stage-column[data-stage="engaged"]')?.getBoundingClientRect() ?? new DOMRect();
+      return lane.left >= edge.left - 1 && lane.right <= edge.right + 1;
+    }),
+    true,
+    "one click brings Engaged into view",
+  );
+  assert.equal(await back.getAttribute("aria-label"), "1 earlier stage");
+  await back.focus();
+  await page.keyboard.press("Enter");
+  await back.waitFor({ state: "hidden" });
+  assert.equal(await ahead.evaluate((node) => node === document.activeElement), true, "focus stays on the cue");
+});
+
+for (const width of [1024, 1280, 1440])
+  test(`Leads filters show their whole selected text at ${width}`, async (t) => {
+    const { browser, page } = await openBoard(width, 800);
+    t.after(() => browser.close());
+    await capture(page, `leads-${width}x800-filters`);
+    const filters = await page.evaluate(() => {
+      const context = document.createElement("canvas").getContext("2d");
+      return [...document.querySelectorAll<HTMLSelectElement>(".leads-toolbar select")]
+        .filter((select) => select.offsetWidth)
+        .map((select) => {
+          const style = getComputedStyle(select);
+          if (context) context.font = style.font;
+          const text = select.selectedOptions[0]?.textContent ?? "";
+          return {
+            id: select.id,
+            text,
+            needed: (context?.measureText(text).width ?? 0) + Number.parseFloat(style.paddingLeft),
+            width: select.clientWidth,
+          };
+        });
+    });
+    assert.ok(filters.length >= 4, JSON.stringify(filters));
+    for (const filter of filters)
+      assert.ok(filter.width >= filter.needed, `${filter.id} fits "${filter.text}": ${JSON.stringify(filter)}`);
+    assert.equal(
+      await page.evaluate(() => document.documentElement.scrollHeight - innerHeight),
+      0,
+      "the page does not scroll",
+    );
+  });

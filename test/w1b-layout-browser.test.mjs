@@ -79,7 +79,7 @@ test('five regions, rail destinations, Leads filters and per-page sidebar memory
  const{page,goto,errors}=await open(t);
  await goto('/leads');assert.equal(await page.locator('#appLayout').getAttribute('data-sidebar'),'closed');
  assert.deepEqual(await page.locator('.app-shell-navigation > a').evaluateAll(nodes=>nodes.map(n=>n.title)),['Home','Deals','Leads','Vendors']);
- assert.equal(await page.locator('#appMainSlot #leadSearch').count(),1);assert.equal(await page.locator('#appMainSlot .board-status #boardUpdated').count(),1);
+ assert.equal(await page.locator('#appMainSlot #leadSearch').count(),1);assert.equal(await page.locator('.app-layout-topbar #boardUpdated').count(),1);
  await page.locator('#appSidebarToggle').click();await page.locator('#leadSearch').fill('Example 3');assert.equal(await page.locator('.lead-card').count(),1);
  await goto('/deals?view=board');assert.equal(await page.locator('#appLayout').getAttribute('data-sidebar'),'closed');
  await goto('/leads');assert.equal(await page.locator('#appLayout').getAttribute('data-sidebar'),'open');
@@ -263,7 +263,7 @@ for(const width of [1440,390]) test(`PR129 #3 sync failure is visibly distinct f
 
 for(const width of [1440,390]) test(`PR129 #3 Leads freshness shows above the board at ${width}`,async t=>{
  const {page,goto}=await open(t,{width});await goto('/leads');
- const freshness=page.locator('.board-status #boardUpdated');
+ const freshness=page.locator('.app-layout-topbar #boardUpdated');
  assert.equal(await freshness.isVisible(),true);
  assert.match(await freshness.textContent(), /^Updated /);
 });
