@@ -68,7 +68,7 @@ small, .small { font-size: var(--font-size-1); color: var(--fg-muted); }
 .card.unknown { border-style: dashed; }
 
 /* ------------------------------------------------------------- buttons */
-.btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); min-height: var(--touch); min-width: var(--touch); padding: var(--space-2) var(--space-4); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); background: var(--surface-1); color: var(--fg); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); text-decoration: none; white-space: nowrap; transition: background-color var(--duration-hover) var(--ease-out), border-color var(--duration-hover) var(--ease-out), transform var(--duration-press) var(--ease-out); }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); min-height: var(--touch); min-width: var(--touch); padding: 0 var(--space-4); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); background: var(--surface-1); color: var(--fg); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); text-decoration: none; white-space: nowrap; transition: background-color var(--duration-hover) var(--ease-out), border-color var(--duration-hover) var(--ease-out), transform var(--duration-press) var(--ease-out); }
 @media (hover: hover) { .btn:hover { background: var(--surface-2); } }
 .btn:active { transform: translateY(1px); }
 .btn-primary { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
@@ -87,15 +87,15 @@ small, .small { font-size: var(--font-size-1); color: var(--fg-muted); }
 .ring[data-tone="orange"] { border-top-color: var(--accent); }
 :root[data-motion="reduced"] .ring, :root[data-motion="reduced"] .btn[aria-busy="true"]::after { border-right-color: var(--fg); border-bottom-color: var(--fg); }
 .btn-group { display: inline-flex; gap: var(--space-1); padding: var(--space-1); border: var(--hairline-width) solid var(--hairline); border-radius: var(--radius-3); background: var(--surface-1); }
-.btn-group .btn { border-color: transparent; background: transparent; min-height: var(--touch); }
+.btn-group .btn { border-color: transparent; background: transparent; }
 .btn-group .btn[aria-pressed="true"] { background: var(--surface-3); }
 .icon-btn { padding: 0; width: var(--touch); }
 
 /* ------------------------------------------------------------- fields */
 .field { display: grid; gap: var(--space-1); min-width: 0; }
 .field label { color: var(--fg-muted); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); }
-.field input, .field select, .field textarea { min-height: var(--touch); width: 100%; padding: var(--space-2) var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); background: var(--surface-1); color: var(--fg); font-size: var(--font-size-2); transition: border-color var(--duration-hover) var(--ease-out); }
-.field textarea { min-height: 90px; resize: vertical; }
+.field input, .field select, .field textarea { min-height: var(--touch); width: 100%; padding: 0 var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); background: var(--surface-1); color: var(--fg); font-size: var(--font-size-2); transition: border-color var(--duration-hover) var(--ease-out); }
+.field textarea { min-height: 90px; padding-block: var(--space-2); resize: vertical; }
 @media (hover: hover) { .field input:hover, .field select:hover, .field textarea:hover { border-color: var(--fg-quiet); } }
 .field-hint { margin: 0; color: var(--fg-muted); font-size: var(--font-size-1); line-height: 1.4; }
 .field.invalid input, .field.invalid textarea { border-color: var(--status-danger); }
@@ -212,7 +212,6 @@ small, .small { font-size: var(--font-size-1); color: var(--fg-muted); }
 .receipt[data-state="undone"] { border-left-color: var(--hairline-strong); }
 .receipt b { display: block; font-size: var(--font-size-1); }
 .receipt small { display: block; color: var(--fg-muted); font-size: var(--font-size-1); }
-.receipt .btn { min-height: var(--touch); }
 .receipt-badge { padding: 2px var(--space-2); border: var(--hairline-width) solid var(--hairline); border-radius: var(--radius-round); color: var(--fg-muted); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); }
 .receipt[data-state="pending"] .receipt-badge { color: var(--status-info-ink); }
 .receipt[data-state="confirmed"] .receipt-badge { color: var(--status-ok-ink); }
@@ -321,7 +320,7 @@ small, .small { font-size: var(--font-size-1); color: var(--fg-muted); }
 .atlas-edge[data-flow="inferred"] { stroke-dasharray: 8 6; opacity: 0.7; }
 .atlas-marker { fill: var(--status-danger); stroke: var(--ground); stroke-width: 2; }
 .atlas-controls { position: absolute; right: var(--space-3); top: var(--space-3); display: flex; gap: var(--space-1); }
-.atlas-controls .btn { min-height: var(--touch); background: var(--surface-1); }
+.atlas-controls .btn { background: var(--surface-1); }
 .atlas[data-layer="data"] .atlas-node:not([data-cat="data"]) { opacity: 0.35; }
 .atlas[data-layer="execution"] .atlas-node:not([data-cat="execution"]) { opacity: 0.35; }
 .atlas[data-layer="rules"] .atlas-node:not([data-cat="rules"]) { opacity: 0.35; }

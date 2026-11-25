@@ -109,7 +109,7 @@
 .pref-grid { display: grid; gap: var(--space-3); grid-template-columns: minmax(0, 1fr); }
 .pref-form .field { display: grid; gap: var(--space-1); min-width: 0; }
 .pref-form label { color: var(--fg-muted); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); }
-.pref-form input[type="time"], .pref-form input[type="text"] { box-sizing: border-box; width: 100%; min-height: var(--touch); padding: var(--space-2) var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); background: var(--surface-2); color: var(--fg); font: var(--font-weight-regular) var(--font-size-2)/1.2 var(--font-text); font-variant-numeric: tabular-nums; }
+.pref-form input[type="time"], .pref-form input[type="text"] { box-sizing: border-box; width: 100%; min-height: var(--touch); padding: 0 var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); background: var(--surface-2); color: var(--fg); font: var(--font-weight-regular) var(--font-size-2)/1.2 var(--font-text); font-variant-numeric: tabular-nums; }
 .pref-form input[aria-invalid="true"] { outline: var(--focus-width) solid var(--status-danger); outline-offset: 2px; }
 .pref-form input:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 2px; }
 .pref-form input:disabled { color: var(--fg-quiet); border-style: dashed; }

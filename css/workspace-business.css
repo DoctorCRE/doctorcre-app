@@ -28,7 +28,7 @@
 .quiet-vendors.quiet-vendors-idle { margin-bottom: var(--space-2); }
 .field { display: grid; gap: var(--space-1); min-width: 0; }
 .field label { color: var(--fg-muted); font-size: var(--font-size-1); }
-.field input, .field select { width: 100%; min-height: var(--touch); padding: var(--space-2) var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); background: var(--surface-2); color: var(--fg); font: inherit; font-size: var(--font-size-1); transition: border-color var(--duration-hover) var(--ease-out); }
+.field input, .field select { width: 100%; min-height: var(--touch); padding: 0 var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); background: var(--surface-2); color: var(--fg); font: inherit; font-size: var(--font-size-1); transition: border-color var(--duration-hover) var(--ease-out); }
 .field input::placeholder { color: var(--fg-quiet); }
 .field input:hover, .field select:hover { border-color: var(--fg-quiet); }
 .field input:focus-visible, .field select:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 1px; }
@@ -337,7 +337,6 @@ dialog.party-editor::backdrop { background: var(--scrim); }
 }
 @container (min-width: 40rem) {
   .search-dock { margin-bottom: var(--space-2); padding: var(--space-1); }
-  :is(.search-dock, .quiet-vendors-idle) :is(input, select, button) { min-height: 36px; padding-block: var(--space-1); }
   .quiet-vendors-host:has(.quiet-vendors-idle) { position: sticky; top: 0; z-index: 20; flex: none; padding-block: var(--space-1); }
   .quiet-vendors.quiet-vendors-idle { margin: 0; }
   /* The filters take the free width so the toolbar stays one line wherever it fits. */
@@ -350,7 +349,10 @@ dialog.party-editor::backdrop { background: var(--scrim); }
   body[data-directory="clients"] #chipBar { display: none; }
   /* Each select is as wide as its current choice; the territory box takes what is left. */
   body[data-directory="vendors"] .filter-form .field:has(> select) { flex: none; }
-  body[data-directory="vendors"] .filter-form select { field-sizing: content; }
+  /* Tighter select sides and narrower search and territory starts keep Reset on the row with the longest sort choice at 1200. */
+  body[data-directory="vendors"] .filter-form select { field-sizing: content; padding-inline: var(--space-2); }
+  body[data-directory="vendors"] .field-search { flex-basis: 9rem; }
+  body[data-directory="vendors"] .territory-field { flex-basis: 6rem; }
 }
 body[data-directory="clients"] #applyFilters { display: none; }
 /* The count and owner chips sit in the top bar beside the page title. */

@@ -118,7 +118,8 @@ test("each partner stars deals that then lead their column and list", async (t) 
 
       const cedarStar = starButton(page, cedar);
       const box = await boxOf(cedarStar);
-      assert.ok(box.width >= 44 && box.height >= 44, "the star is a 44 px target");
+      const target = width < 761 ? 44 : 32;
+      assert.ok(box.width >= target && box.height >= target, `the star is a ${target} px target`);
       const card = await boxOf(page.locator(".kanban-card", { has: cedarStar }));
       assert.ok(box.x + box.width <= card.x + card.width + 1, "the star stays inside its card");
       const unstarredColor = await cedarStar.evaluate((b) => getComputedStyle(b).color);
@@ -148,7 +149,7 @@ test("each partner stars deals that then lead their column and list", async (t) 
       await starButton(page, cedar).click();
       await expectOrder(() => order(page, ".deal-list .kanban-card"), [birch, cedar, alder]);
       const rowStar = await boxOf(starButton(page, cedar));
-      assert.ok(rowStar.width >= 44 && rowStar.height >= 44);
+      assert.ok(rowStar.width >= target && rowStar.height >= target);
 
       const dellPage = await context.newPage();
       const dellServer = await openDeals(dellPage, "dell", stars, fail);
