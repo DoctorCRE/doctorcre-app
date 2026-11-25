@@ -1,3 +1,4 @@
+import { splitSignature } from "./email-signature.ts";
 import { type CardReview, type InboxItem, object, type ReviewItem, type ReviewRequest } from "./inbox.tsx";
 
 type Rpc = (name: string, args: unknown, signal?: AbortSignal) => Promise<unknown>;
@@ -89,7 +90,14 @@ export const hasEngineReview = (item: InboxItem) =>
 
 export type EmailThread = {
   subject: string | null;
-  messages: { id: string; sender: string | null; occurredAt: string; body: string; folded: string | null }[];
+  messages: {
+    id: string;
+    sender: string | null;
+    occurredAt: string;
+    body: string;
+    signature: string | null;
+    folded: string | null;
+  }[];
 };
 
 function emailThread(value: Record<string, unknown>): EmailThread {
@@ -105,11 +113,13 @@ function emailThread(value: Record<string, unknown>): EmailThread {
           typeof body !== "string"
         )
           return [];
+        const { text, signature } = splitSignature(body);
         return [
           {
             id,
             occurredAt,
-            body,
+            body: text,
+            signature,
             sender: string(sender_name)?.trim().split(/\s+/, 1)[0] || null,
             folded: string(message.folded),
           },
@@ -245,7 +255,18 @@ export type Suggestion = {
   canAccept: boolean;
   filingChoices: FilingChoice[] | undefined;
   filingEmailId: string | null;
+  /** Older next-step suggestions for the same person that this one settles. */
+  replaces: string[];
 };
+
+const mailHeader = /^(?:from|to|cc|sent|date|subject):/i;
+function firstLine(text: string) {
+  const line = text
+    .split("\n")
+    .map((row) => row.trim())
+    .find((row) => row && !mailHeader.test(row));
+  return line && line.length > 160 ? `${line.slice(0, 159)}…` : line || null;
+}
 
 function parseProposal(value: Record<string, unknown>, { id, emailId }: ProposalReference, canAccept: boolean) {
   const label = kinds.get(string(value.kind) ?? "");
@@ -256,12 +277,13 @@ function parseProposal(value: Record<string, unknown>, { id, emailId }: Proposal
   const thread =
     !leadCandidate && (Array.isArray(value.thread) || activity?.kind === "email") ? emailThread(value) : null;
   const choices = filingChoices(value.filing_choices);
+  const newDeal = value.kind === "possible_new_deal";
   const proposal: Suggestion = {
     id,
     label: choices ? "File this email" : label,
-    target: string(value.target_name),
+    target: string(value.target_name) || (newDeal ? string(activity?.sender_name) : null),
     // Imported proposals can store raw email quotes in evidence.
-    reason: thread ? string(value.reason) : value.evidence,
+    reason: thread ? string(value.reason) || (newDeal ? firstLine(value.evidence) : null) : value.evidence,
     emailLead: value.kind === "email_lead",
     senderAddress: leadCandidate ? string(activity?.sender) : null,
     source: thread ? null : source(activity),
@@ -272,8 +294,22 @@ function parseProposal(value: Record<string, unknown>, { id, emailId }: Proposal
     canAccept,
     filingChoices: choices,
     filingEmailId: choices?.length ? emailId : null,
+    replaces: [],
   };
   return { proposal, thread };
+}
+
+// One email can carry several next-step suggestions for one person; the latest due date is the current ask.
+function newestNextSteps(proposals: Suggestion[]) {
+  const groups = new Map<string, Suggestion[]>();
+  for (const row of proposals)
+    if (row.editable && row.canAccept && row.target) groups.set(row.target, [...(groups.get(row.target) ?? []), row]);
+  return proposals.flatMap((row) => {
+    const group = row.target ? groups.get(row.target) : undefined;
+    if (!group?.includes(row)) return [row];
+    const newest = group.reduce((kept, other) => ((other.dueOn ?? "") > (kept.dueOn ?? "") ? other : kept));
+    return newest === row ? [{ ...row, replaces: group.filter((other) => other !== row).map(({ id }) => id) }] : [];
+  });
 }
 
 export async function loadEngineReview(rpc: Rpc, item: ReviewItem, signal?: AbortSignal): Promise<CardReview> {
@@ -294,7 +330,7 @@ export async function loadEngineReview(rpc: Rpc, item: ReviewItem, signal?: Abor
     ),
   ]);
   const threads = details.flatMap(({ thread }) => (thread ? [thread] : []));
-  const proposals = details.map(({ proposal }) => proposal);
+  const proposals = newestNextSteps(details.map(({ proposal }) => proposal));
   if (reply) return { ...reply, proposals, thread: combineThreads([reply.thread, ...threads]) };
   return {
     kind: "suggestions",
@@ -379,15 +415,27 @@ function parseDraft(
   };
 }
 
+async function decide(rpc: Rpc, args: Record<string, unknown>) {
+  const result = await answer(rpc, "decide-engine-home-proposal", args);
+  if (result.error === "already_decided") return "already_decided";
+  if (result.proposal_id !== args.id || result.status !== (args.decision === "accept" ? "accepted" : "dismissed"))
+    throw unreadable();
+  return undefined;
+}
+
 export async function saveEngineReview(rpc: Rpc, item: ReviewItem, request: ReviewRequest) {
   const { args, verb } = request;
   if (verb === "decide-engine-home-proposal") {
-    if (typeof args.id !== "string" || !matchesProposal(item, args.id)) throw unreadable();
-    const result = await answer(rpc, verb, args);
-    if (result.error === "already_decided") return "already_decided";
-    if (result.proposal_id !== args.id || result.status !== (args.decision === "accept" ? "accepted" : "dismissed"))
-      throw unreadable();
-    return undefined;
+    const { replaces = [], ...decision } = args;
+    if (!Array.isArray(replaces)) throw unreadable();
+    const ids: unknown[] = [decision.id, ...replaces];
+    if (!ids.every((id) => typeof id === "string" && matchesProposal(item, id))) throw unreadable();
+    const outcome = await decide(rpc, decision);
+    const reason = (decision.decision === "dismiss" && decision.reason) || "Replaced by a newer suggestion.";
+    await Promise.all(
+      ids.slice(1).map((id) => decide(rpc, { id, decision: "dismiss", reason, idempotency_key: crypto.randomUUID() })),
+    );
+    return outcome;
   }
   const draft = draftReference(item);
   if (

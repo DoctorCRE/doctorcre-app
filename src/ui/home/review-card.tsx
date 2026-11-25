@@ -1,4 +1,6 @@
 import { type ReactNode, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { cardDueLabel } from "../card-due";
+import { centralToday } from "../central-time";
 import { type DocLinkRequest, type DocLinkStatus, docLinkMessages, readDocLinkStatus } from "../doc-link";
 import { submitOnEnter } from "../keyboard-input";
 import type { DraftEdit, DraftEdits } from "./draft-edits.ts";
@@ -48,13 +50,13 @@ const threadDate = new Intl.DateTimeFormat("en-US", {
   month: "short",
   day: "numeric",
 });
-function EarlierText({ text }: { text: string }) {
+function FoldedText({ name, text }: { name: "earlier text" | "signature"; text: string }) {
   const [expanded, setExpanded] = useState(false);
   const id = useId();
   return (
     <>
       <button type="button" aria-expanded={expanded} aria-controls={id} onClick={() => setExpanded(!expanded)}>
-        {expanded ? "Hide earlier text" : "Show earlier text"}
+        {expanded ? `Hide ${name}` : `Show ${name}`}
       </button>
       <p id={id} className="home-email-earlier-text" hidden={!expanded}>
         {expanded && sourceExcerptText(text)}
@@ -74,11 +76,14 @@ function TalkToDoc({ request, href }: { request: DocLinkRequest | undefined; hre
     return () => controller.abort();
   }, [request]);
 
+  const reasonId = useId();
   if (status === "ready")
     return (
-      <a className="btn" href={href}>
-        Talk to Doc about this draft
-      </a>
+      <div className="inbox-actions home-draft-doc">
+        <a className="btn" href={href}>
+          Talk to Doc about this draft
+        </a>
+      </div>
     );
 
   let reason = "Sign in with DoctorCRE to talk to Doc.";
@@ -87,9 +92,14 @@ function TalkToDoc({ request, href }: { request: DocLinkRequest | undefined; hre
     else reason = status === null ? "Couldn't check whether Doc is ready." : "Checking Doc status…";
   }
   return (
-    <p className="inbox-detail inbox-guidance" role="status">
-      {reason}
-    </p>
+    <div className="inbox-actions home-draft-doc">
+      <button type="button" disabled aria-describedby={reasonId}>
+        Talk to Doc about this draft
+      </button>
+      <p id={reasonId} className="inbox-detail" role="status">
+        {reason}
+      </p>
+    </div>
   );
 }
 
@@ -418,6 +428,7 @@ export function ReviewCard<Item extends ReviewItem>({
           decision,
           ...(reason && { reason }),
           ...destination,
+          ...(proposal.replaces.length && { replaces: proposal.replaces }),
           idempotency_key: crypto.randomUUID(),
           ...(edits && { edits: { what, due_on: fields.get(`${proposal.id}-date`) || null } }),
         },
@@ -432,6 +443,7 @@ export function ReviewCard<Item extends ReviewItem>({
     if (readOnly || proposal.filingChoices) return [];
     return !item.engine_marks || proposal.completion || item.home_proposal_drop ? ["accept", "dismiss"] : ["accept"];
   }
+  const today = centralToday(new Date());
   const suggestionFields = (
     <>
       {review?.kind === "reply_draft" && proposals.length > 0 && <h4>Suggestions</h4>}
@@ -486,6 +498,9 @@ export function ReviewCard<Item extends ReviewItem>({
                 <label>
                   Due date <input type="date" name={`${proposal.id}-date`} defaultValue={proposal.dueOn ?? ""} />
                 </label>
+                {proposal.dueOn && proposal.dueOn < today && (
+                  <p>Already late. {cardDueLabel(proposal.dueOn, today).text}.</p>
+                )}
               </>
             ) : (
               proposal.what && <p>{proposal.what}</p>
@@ -576,14 +591,15 @@ export function ReviewCard<Item extends ReviewItem>({
           <section className="home-email-thread" aria-label="Email thread">
             <h4>Email thread</h4>
             {thread.subject && <p>{sourceExcerptText(thread.subject)}</p>}
-            {thread.messages.map(({ id, sender, occurredAt, body, folded }) => (
+            {thread.messages.map(({ id, sender, occurredAt, body, signature, folded }) => (
               <article key={id}>
                 <h5>
                   From {sender || "unknown sender"} ·{" "}
                   <time dateTime={occurredAt}>{threadDate.format(new Date(occurredAt))}</time>
                 </h5>
                 <p>{sourceExcerptText(body)}</p>
-                {folded !== null && <EarlierText text={folded} />}
+                {signature !== null && <FoldedText name="signature" text={signature} />}
+                {folded !== null && <FoldedText name="earlier text" text={folded} />}
               </article>
             ))}
           </section>
@@ -748,6 +764,15 @@ export function ReviewCard<Item extends ReviewItem>({
                     )}
                   </div>
                 )}
+                {engineReply && editable && !draftEdits && editOperation && (
+                  <TalkToDoc
+                    request={docLinkRequest}
+                    href={`/doc-chats?${new URLSearchParams({
+                      draft: String(editOperation.args.proposal_id),
+                      version: String(editOperation.args.base_version),
+                    })}`}
+                  />
+                )}
                 {!item.engine_marks && canSaveDraft && (
                   <p>
                     Save draft sends nothing. Submit reply authorizes the existing sender to send this exact content to
@@ -789,15 +814,6 @@ export function ReviewCard<Item extends ReviewItem>({
                 </button>
               );
             })}
-            {engineReply && editable && !draftEdits && editOperation && (
-              <TalkToDoc
-                request={docLinkRequest}
-                href={`/doc-chats?${new URLSearchParams({
-                  draft: String(editOperation.args.proposal_id),
-                  version: String(editOperation.args.base_version),
-                })}`}
-              />
-            )}
           </div>
           {!proposalLed && proposals.length > 0 && <fieldset disabled={!editable}>{suggestionFields}</fieldset>}
         </form>

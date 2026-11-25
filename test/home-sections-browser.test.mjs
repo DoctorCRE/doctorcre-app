@@ -1073,6 +1073,7 @@ async function dashboard(t, width, theme, timezone) {
       what: args.id === id(42) ? state.proposalInstruction ?? 'Send the floor plan' : null,
       source_activity: mailSource, thread: state.thread,
       ...(args.id === id(41) && state.filingChoices && { filing_choices: state.filingChoices }),
+      ...state.proposals?.[args.id],
     };
     if (name === 'deal-room-board') result = { deals: [{ id: id(61), name: 'Sample clinic' }] };
     if (name === 'decide-engine-home-proposal' && state.filingWrites) {
@@ -1527,6 +1528,88 @@ test('Home shows the email once and keeps the reasons and targets of its suggest
   assert.equal(await review.getByText('From: maya@example.test', { exact: false }).count(), 0);
   await review.getByText('The email names the suite.', { exact: true }).waitFor();
   await review.getByText('The manager needs the floor plan.', { exact: true }).waitFor();
+});
+
+async function reviewShot(page, name) {
+  if (!process.env.HOME_THREAD_SCREENSHOTS) return;
+  await mkdir(process.env.HOME_THREAD_SCREENSHOTS, { recursive: true });
+  await page.setViewportSize({ width: page.viewportSize().width, height: 1400 });
+  await page.screenshot({ path: join(process.env.HOME_THREAD_SCREENSHOTS, `${name}.png`), fullPage: true });
+}
+
+test('Home folds the contact lines under a sign-off behind Show signature', async t => {
+  const { page, open, state } = await dashboard(t, 390, 'light');
+  const signature = 'Example Realty Group\nP: (555) 010-0100 | F: 555.010.0101\npat@example.test';
+  state.dashboard = true;
+  state.items = [mailCard];
+  state.thread = [{ ...mailThread[1], body: `The east suite also works.\n\nThanks,\nPat Example\n${signature}` }];
+  await open('/?mode=live');
+  await page.getByRole('link', { name: mailCard.title }).click();
+  const message = page.getByRole('region', { name: 'Email thread' }).getByRole('article');
+  await message.getByText('The east suite also works.', { exact: false }).waitFor();
+  assert.equal(await message.getByText(/555\) 010-0100/).isVisible(), false);
+  await reviewShot(page, 'signature-folded');
+  await message.getByRole('button', { name: 'Show signature', exact: true }).click();
+  assert.equal(await message.getByText(/555\) 010-0100/).isVisible(), true);
+});
+
+test('Home shows who and why for a possible new deal from an email', async t => {
+  const { page, open, state } = await dashboard(t, 390, 'light');
+  state.dashboard = true;
+  state.items = [mailCard];
+  state.proposals = { [id(41)]: {
+    kind: 'possible_new_deal', target_name: null, reason: null,
+    evidence: 'From: pat@example.test\nPat is opening a second clinic in the spring.\nMore quoted text.',
+    source_activity: { ...mailSource, sender_name: 'Pat Example' },
+  } };
+  await open('/?mode=live');
+  await page.getByRole('link', { name: mailCard.title }).click();
+  const suggestion = page.getByRole('region', { name: 'Possible new deal' });
+  await suggestion.getByRole('heading', { name: 'Possible new deal · Pat Example', exact: true }).waitFor();
+  assert.deepEqual(await suggestion.getByRole('paragraph').allTextContents(), ['Pat is opening a second clinic in the spring.']);
+  await reviewShot(page, 'possible-new-deal');
+});
+
+test('Home shows one next step per person and settles the older one with it', async t => {
+  const { page, open, state } = await dashboard(t, 1440, 'light');
+  const draft = { ...draftCard(), suggestions: [{ id: id(42) }, { id: id(43) }] };
+  state.dashboard = true;
+  state.items = [draft];
+  state.filingWrites = [];
+  state.proposals = {
+    [id(42)]: { what: 'Ask the broker contacts, then reply with names', due_on: '2026-11-01' },
+    [id(43)]: { what: 'Reply about the practice sale', due_on: '2026-10-20' },
+  };
+  await open('/?mode=live');
+  await page.getByRole('link', { name: draft.title }).click();
+  const review = page.getByRole('region', { name: `Details for ${draft.title}` });
+  await review.getByRole('button', { name: 'Edit', exact: true }).waitFor();
+  assert.equal(await review.getByRole('heading', { name: 'Next step · Example Dental' }).count(), 1);
+  assert.equal(await review.getByRole('textbox', { name: 'Next step' }).inputValue(), state.proposals[id(42)].what);
+  await review.getByText('Already late. Due Nov 1.', { exact: true }).waitFor();
+  await reviewShot(page, 'one-next-step-and-doc-status');
+  await review.getByRole('button', { name: 'Accept', exact: true }).click();
+  await review.getByText('Suggestion accepted.', { exact: true }).waitFor();
+  assert.deepEqual(state.filingWrites.map(({ id, decision, reason }) => [id, decision, reason]), [
+    [id(42), 'accept', undefined], [id(43), 'dismiss', 'Replaced by a newer suggestion.'],
+  ]);
+});
+
+test('Home keeps the Doc status beside Talk to Doc, apart from Send reply', async t => {
+  const { page, open, state } = await dashboard(t, 1440, 'dark');
+  const draft = draftCard();
+  state.dashboard = true;
+  state.items = [draft];
+  await open('/?mode=live');
+  await page.getByRole('link', { name: draft.title }).click();
+  const review = page.getByRole('region', { name: `Details for ${draft.title}` });
+  const talk = review.getByRole('button', { name: 'Talk to Doc about this draft', exact: true });
+  await talk.waitFor();
+  assert.equal(await talk.isDisabled(), true);
+  const reason = 'Sign in with DoctorCRE to talk to Doc.';
+  assert.equal(await talk.evaluate(node => document.getElementById(node.getAttribute('aria-describedby')).textContent), reason);
+  const sendRow = review.getByRole('button', { name: 'Send reply', exact: true }).locator('..');
+  assert.equal((await sendRow.textContent()).includes(reason), false);
 });
 
 for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Home draft Edit saves once at ${width}px in ${theme}`, async t => {
