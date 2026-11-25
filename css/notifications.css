@@ -39,13 +39,13 @@
 /* ---------------------------------------------------------------- the rows */
 .update-list { margin: 0; padding: 0; list-style: none; border: var(--hairline-width) solid var(--hairline); border-radius: var(--radius-3); background: var(--surface-1); }
 .update-list:empty { display: none; }
-.update-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; grid-template-areas: "title title meta act" "chip detail detail act" "more more more more"; align-items: center; gap: 2px var(--space-2); padding: 6px var(--space-3); border-left: 3px solid transparent; cursor: pointer; transition: background-color var(--duration-hover) var(--ease-out); }
+.update-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; grid-template-areas: "title title act meta" "chip detail act ." "more more more more"; align-items: center; gap: 2px var(--space-2); padding: 6px var(--space-3); border-left: 3px solid transparent; cursor: pointer; transition: background-color var(--duration-hover) var(--ease-out); }
 .update-row + .update-row { border-top: var(--hairline-width) solid var(--hairline); }
 /* Each day's rows sit under one quiet heading that stays in view while its rows scroll. */
 .day-head { position: sticky; top: 0; z-index: 1; padding: var(--space-2) var(--space-3) var(--space-1); border-left: 3px solid transparent; background: var(--surface-1); color: var(--fg-muted); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); }
 .day-head:not(:first-child) { border-top: var(--hairline-width) solid var(--hairline); }
 /* Unread is a dot beside the time, the way a mail list marks it, not a colored edge on every row. */
-[data-unread] > .row-meta::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.unread-dot { position: relative; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
 .update-row:not([data-row]) { cursor: default; }
 #feedList .update-row[data-priority="overdue"] { border-left: 4px double var(--status-danger); }
 #feedList .update-row[data-priority="deadline"] { border-left-color: var(--status-warn); }
@@ -56,7 +56,8 @@
 [data-unread] .row-title { font-weight: var(--font-weight-strong); }
 .row-toggle { display: block; width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .row-toggle:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 2px; border-radius: var(--radius-1); }
-.row-meta { grid-area: meta; display: flex; align-items: center; gap: var(--space-2); color: var(--fg-quiet); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* The time is the last column, so it ends at the same edge on every row whatever the actions hold. */
+.row-meta { grid-area: meta; display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); color: var(--fg-quiet); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .update-row > .severity-chip { grid-area: chip; }
 .note-subject { grid-area: detail; min-width: 0; margin: 0; color: var(--fg-muted); font-size: var(--font-size-1); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .row-act { grid-area: act; display: flex; align-items: center; justify-content: flex-end; gap: var(--space-3); }

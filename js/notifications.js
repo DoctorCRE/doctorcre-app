@@ -102,6 +102,7 @@ function recordDetailsHtml(details, path = null) {
     `<dt>${label}</dt><dd class="mono">${escapeHtml(value)}</dd>`).join("")}</dl></details>`;
 }
 
+const UNREAD_DOT = '<span class="unread-dot"><span class="sr-only">Unread</span></span>';
 const CHECK_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
 
 /** Each day's rows sit under one quiet heading, so a row's clock never needs its date. */
@@ -141,16 +142,17 @@ function cardHtml(card) {
   const readMark = card.reading
     ? unread ? "" : `<span class="read-mark" data-read="true">Read at ${escapeHtml(card.readClock)}</span>`
     : card.read ? `<span class="read-mark" data-read="true">Acknowledged${card.readClock ? ` at ${escapeHtml(card.readClock)}` : ""}</span>` : "";
+  const unreadRow = unread || (!card.reading && !card.read);
   const button = card.reading
     ? unread ? `<button class="btn icon-act" type="button" data-mark-read="${escapeHtml(card.id)}" aria-label="Mark read" title="Mark read">${CHECK_ICON}</button>` : ""
     : card.read ? "" : `<button class="btn" type="button" data-ack="${escapeHtml(card.id)}">Acknowledge</button>`;
   return rowHtml({
     key: card.id,
-    attrs: `${card.reading ? "" : `data-priority="${card.severity === "failure" ? "overdue" : "deadline"}" `}data-notification="${escapeHtml(card.id)}"${unread || (!card.reading && !card.read) ? " data-unread" : ""}`,
+    attrs: `${card.reading ? "" : `data-priority="${card.severity === "failure" ? "overdue" : "deadline"}" `}data-notification="${escapeHtml(card.id)}"${unreadRow ? " data-unread" : ""}`,
     chip: card.severityLabel ? `<span class="severity-chip" data-severity="${escapeHtml(card.severity || "")}">${escapeHtml(card.severityLabel)}</span>` : "",
     title: card.reason,
     detail: card.subject,
-    meta: `${quiet}<span class="row-clock">${escapeHtml(card.clock)}</span>`,
+    meta: `${unreadRow ? UNREAD_DOT : ""}${quiet}<span class="row-clock">${escapeHtml(card.clock)}</span>`,
     actions: `${link}${button}${readMark}`,
     more: `${delivery}${unrouted}${card.reading ? "" : recordDetailsHtml(card.details, card.link.path)}`,
   });

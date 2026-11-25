@@ -476,13 +476,35 @@ test("Updates groups rows by day, marks unread with a dot and keeps row controls
   const row = (title: string) =>
     page.locator("#feedList > .update-row").filter({ has: page.getByRole("heading", { name: title, exact: true }) });
   const edge = (title: string) => row(title).evaluate((node) => getComputedStyle(node).borderLeftColor);
-  const dot = (title: string) =>
-    row(title)
-      .locator(".row-meta")
-      .evaluate((node) => getComputedStyle(node, "::before").backgroundColor);
+  const dot = (title: string) => row(title).locator(".row-meta .unread-dot");
   assert.equal(await edge("Update 0"), "rgba(0, 0, 0, 0)", "unread is not a warning edge");
-  assert.notEqual(await dot("Update 0"), "rgba(0, 0, 0, 0)", "unread shows a dot");
-  assert.equal(await dot(seen.title), "rgba(0, 0, 0, 0)", "a read row has no dot");
+  assert.notEqual(
+    await dot("Update 0").evaluate((node) => getComputedStyle(node).backgroundColor),
+    "rgba(0, 0, 0, 0)",
+    "unread shows a dot",
+  );
+  assert.equal(await dot(seen.title).count(), 0, "a read row has no dot");
+  assert.equal(
+    await row("Update 0").locator(".row-meta").getByText("Unread", { exact: true }).count(),
+    1,
+    "a screen reader hears the dot as Unread",
+  );
+  assert.equal(await row(seen.title).getByText("Unread", { exact: true }).count(), 0);
+
+  const clockEdges = (list: string) =>
+    page
+      .locator(`${list} > .update-row .row-clock`)
+      .evaluateAll((clocks) => clocks.map((clock) => Math.round(clock.getBoundingClientRect().right)));
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 640 });
+    for (const list of ["#feedList", "#activityList"]) {
+      const edges = await clockEdges(list);
+      assert.ok(edges.length > 1, `${list} has rows to compare`);
+      assert.equal(new Set(edges).size, 1, `at ${width} every ${list} time ends at one edge, not ${edges}`);
+    }
+    await capture(page, "updates-days", width, "light");
+  }
+  await page.setViewportSize({ width: 1280, height: 640 });
 
   const markRead = await row("Update 0").getByRole("button", { name: "Mark read", exact: true }).boundingBox();
   assert.ok(
@@ -506,7 +528,6 @@ test("Updates groups rows by day, marks unread with a dot and keeps row controls
     "one As of for the page",
   );
   assert.equal(await page.getByRole("button", { name: "Refresh", exact: true }).textContent(), "↻");
-  await capture(page, "updates-days", 1280, "light");
 });
 
 test("Mark read by keyboard keeps focus on its row, or the next row when it leaves", async (t) => {
