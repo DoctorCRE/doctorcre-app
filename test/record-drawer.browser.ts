@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import { chromium } from "./browser-harness.mjs";
 import { ownedServer as startFixtureServer } from "./fixture-probe.ts";
 import { directoryFixture } from "./fixtures/vendor-directory.synthetic.mjs";
@@ -24,6 +24,32 @@ function heavy(url: string) {
   return body;
 }
 
+/** Opens a heavy record's drawer with the Clients and Vendors switch on. */
+async function openDrawer(t: TestContext, dataset: "clients" | "vendors", width: number, height: number) {
+  const server = await startFixtureServer();
+  t.after(() => server.stop());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width, height }, reducedMotion: "reduce" });
+  await page.route("https://**", (r) => r.abort());
+  await page.route("**/api/v1/business/**", (r) => r.fulfill({ json: heavy(r.request().url()) }));
+  await page.route("**/auth/session", (r) => r.fulfill({ json: { actor: { slug: "joe" }, csrf_token: "synthetic" } }));
+  // The record actions show once the Clients and Vendors switch reads from the engine.
+  await page.route(
+    (url) => url.pathname === `/${dataset}`,
+    async (route) => {
+      const response = await route.fetch();
+      const body = (await response.text()).replace("<html ", "<html data-clients-vendors-from-engine ");
+      return route.fulfill({ response, body });
+    },
+  );
+  await page.goto(`${server.url}/${dataset}?record=${recordId}&mode=live`);
+  const panel = page.locator("#recordPanel");
+  await panel.locator("#recordActions button", { hasText: "Edit" }).waitFor({ state: "attached" });
+  if (dataset === "clients") await panel.locator("#recordActivity [data-retry='activity']").waitFor();
+  return { page, panel };
+}
+
 for (const dataset of ["clients", "vendors"] as const)
   for (const [width, height] of [
     [1280, 640],
@@ -32,29 +58,7 @@ for (const dataset of ["clients", "vendors"] as const)
   ] as const)
     test(`the ${dataset} drawer keeps one header row, body-size text and compact controls at ${width}`, async (t) => {
       const phone = width < 768;
-      const server = await startFixtureServer();
-      t.after(() => server.stop());
-      const browser = await chromium.launch();
-      t.after(() => browser.close());
-      const page = await browser.newPage({ viewport: { width, height }, reducedMotion: "reduce" });
-      await page.route("https://**", (r) => r.abort());
-      await page.route("**/api/v1/business/**", (r) => r.fulfill({ json: heavy(r.request().url()) }));
-      await page.route("**/auth/session", (r) =>
-        r.fulfill({ json: { actor: { slug: "joe" }, csrf_token: "synthetic" } }),
-      );
-      // The record actions show once the Clients and Vendors switch reads from the engine.
-      await page.route(
-        (url) => url.pathname === `/${dataset}`,
-        async (route) => {
-          const response = await route.fetch();
-          const body = (await response.text()).replace("<html ", "<html data-clients-vendors-from-engine ");
-          return route.fulfill({ response, body });
-        },
-      );
-      await page.goto(`${server.url}/${dataset}?record=${recordId}&mode=live`);
-      const panel = page.locator("#recordPanel");
-      await panel.locator("#recordActions button", { hasText: "Edit" }).waitFor({ state: "attached" });
-      if (dataset === "clients") await panel.locator("#recordActivity [data-retry='activity']").waitFor();
+      const { page, panel } = await openDrawer(t, dataset, width, height);
       await page.screenshot({ path: `${shots}/${dataset}-${width}.png` });
 
       const drawer = await panel.evaluate((node) => {
@@ -132,3 +136,43 @@ for (const dataset of ["clients", "vendors"] as const)
         if (dataset === "clients") assert.equal(drawer.scrolls, false, "the client drawer fits one screen");
       }
     });
+
+test("on a phone the record actions menu says whether it is open, and Escape closes only the menu", async (t) => {
+  const { page, panel } = await openDrawer(t, "clients", 390, 844);
+  const more = panel.getByRole("button", { name: "Record actions" });
+  const menu = panel.locator("#recordActions");
+  const expanded = (state: "true" | "false") =>
+    page.waitForFunction(
+      (want) => document.querySelector("#recordMore")?.getAttribute("aria-expanded") === want,
+      state,
+    );
+
+  assert.equal(await more.getAttribute("aria-controls"), "recordActions", "the button names its menu");
+  assert.equal(await more.getAttribute("aria-expanded"), "false", "closed at first");
+  await more.click();
+  await expanded("true");
+
+  await page.keyboard.press("Escape");
+  await expanded("false");
+  assert.equal(await menu.evaluate((node) => node.matches(":popover-open")), false, "Escape closes the menu");
+  assert.equal(await panel.isVisible(), true, "the record stays open");
+  assert.equal(await page.evaluate(() => document.activeElement?.id), "recordMore", "focus returns to the menu button");
+
+  await more.click();
+  await expanded("true");
+  await panel.locator("#recordBody").click({ position: { x: 8, y: 8 } });
+  await expanded("false");
+
+  await more.click();
+  await expanded("true");
+  await menu.getByRole("button", { name: "Edit" }).click();
+  await expanded("false");
+});
+
+test("a second Escape after the menu closes leaves the record", async (t) => {
+  const { page, panel } = await openDrawer(t, "clients", 390, 844);
+  await panel.getByRole("button", { name: "Record actions" }).click();
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await panel.waitFor({ state: "hidden" });
+});

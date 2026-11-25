@@ -74,6 +74,7 @@ const dom = {
   panelEyebrow: document.querySelector("#recordEyebrow"),
   panelMeta: document.querySelector("#recordMeta"),
   panelActions: document.querySelector("#recordActions"),
+  panelMore: document.querySelector("#recordMore"),
   panelBody: document.querySelector("#recordBody"),
   panelClose: document.querySelector("#recordClose"),
   navClients: document.querySelector("#navClients"),
@@ -1173,6 +1174,10 @@ function wireControls() {
   });
 
   dom.panelClose?.addEventListener("click", () => closeRecord());
+  // Every way the menu opens or closes ends here, so the button always says which.
+  dom.panelActions?.addEventListener("toggle", (event) => {
+    dom.panelMore?.setAttribute("aria-expanded", String(event.newState === "open"));
+  });
   dom.panel?.addEventListener("click", (event) => {
     // A long name is cut to one line; a tap shows all of it.
     if (event.target.closest("#recordTitle")) dom.panelTitle.classList.toggle("full");
@@ -1194,6 +1199,12 @@ function wireControls() {
     if (event.key !== "Escape" || !view.recordId) return;
     // Escape leaves the panel, never the page, and never the reader's place.
     event.preventDefault();
+    // An open menu is the innermost layer: Escape closes only it.
+    if (dom.panelActions?.matches(":popover-open")) {
+      closePanelMenu();
+      dom.panelMore?.focus();
+      return;
+    }
     closeRecord();
   });
 
