@@ -4,8 +4,8 @@ import { mountWatchControl } from './ui-watches.generated.js';
 import { workCard } from './work-card.js';
 import { bindCardQuickMenu } from './ui-card-menu.generated.js';
 import {
-  autoHtml, automaticPhaseReceipt, dealDueDate, dealNextStep, dealTypeFacts, lossReasonLabel, renderDealFacts, renderDealItemButton,
-  renderDealItems, renderEndedDealList, renderInvoiceClose, renderOverdueFlag, renderPhaseReceipt, stepText,
+  attentionReasons, autoHtml, automaticPhaseReceipt, dealDueDate, dealNextStep, dealTypeFacts, lossReasonLabel, renderDealFacts, renderDealItemButton,
+  missingNextStep, renderDealItems, renderEndedDealList, renderInvoiceClose, renderOverdueFlag, renderPhaseReceipt, stepText,
 } from './deal-items.js';
 import { mountDealItemSheet } from './deal-item-sheet.js';
 import { OWNER_FILTERS } from './owner-filters.js';
@@ -78,7 +78,7 @@ const state = {
   receiptSignature: null,
   filter: ['joe','dell'].includes(incomingScope.get('owner')) ? incomingScope.get('owner') : 'all',
   personalScope: incomingScope.get('owner') === 'me',
-  scopeFilter: incomingScope.get('filter') === 'flagged' ? 'flagged' : 'all',
+  scopeFilter: ['flagged', 'no-next-step'].includes(incomingScope.get('filter')) ? incomingScope.get('filter') : 'all',
   view: ['list','closed','lost'].includes(incomingScope.get('view')) ? incomingScope.get('view') : 'board',
   closedDeals: null,
   lostDeals: null,
@@ -100,6 +100,8 @@ const state = {
 };
 
 let prospects;
+/** The phase Home linked to, focused once on the first painted board. */
+let linkedColumn = incomingScope.get('column');
 
 let commandState = {};
 let dock = { record: () => {}, mount: () => {}, render: () => {}, forget: () => {} };
@@ -180,18 +182,14 @@ function listNextStepHtml(deal) {
 function dealAttentionHtml(deal) {
   return state.boardFromEngine && deal.attention === true ? '<span class="deal-attention-label">Needs attention</span>' : '';
 }
-function cardDue(deal) {
-  const steps = ordinaryOpenSteps(deal.open_actions ?? []);
-  const step = steps.find(step => step.owner === deal.owner);
-  const legacyDue = !state.boardFromEngine && !steps.length && noteText(deal.next_step).trim() ? deal.next_date : null;
-  return dealDueDate(step?.due_on ?? legacyDue, businessDay());
+function legacyDue(deal) {
+  return !state.boardFromEngine && !ordinaryOpenSteps(deal.open_actions ?? []).length && noteText(deal.next_step).trim() ? deal.next_date : null;
 }
 function ownerMarkHtml(name) {
   return `<span class="owner" title="Owner: ${esc(name)}"><span aria-hidden="true">${esc(name === 'Unassigned' ? '?' : name.slice(0, 1))}</span><span class="sr-only">Owner: ${esc(name)}</span></span>`;
 }
 function cardAttentionHtml(deal) {
-  const late = cardDue(deal)?.late;
-  const reasons = [deal.attention === true && 'Flagged by a partner', late && `Step ${late}`].filter(Boolean);
+  const reasons = attentionReasons(deal, businessDay(), legacyDue(deal));
   if (!reasons.length) return '';
   const reason = esc(reasons.join('. '));
   const reasonId = `board-attention-${esc(deal.id)}`;
@@ -393,7 +391,8 @@ function renderHistoryStatus(status) {
 
 function visibleBoardDeals() {
   return localDeals([...state.deals.values()], state.personalScope ? state.selfActor : state.filter)
-    .filter(d => state.scopeFilter !== 'flagged' || (state.boardFromEngine ? d.attention === true : needsAttention(d)));
+    .filter(d => state.scopeFilter !== 'flagged' || (state.boardFromEngine ? d.attention === true : needsAttention(d)))
+    .filter(d => state.scopeFilter !== 'no-next-step' || missingNextStep(d));
 }
 function renderBoardMessage(status = state.boardSync?.status()) {
   if (status && (!status.online || [HEALTH.FAILED,HEALTH.RENDER_FAILED].includes(status.board_health))) {
@@ -402,7 +401,8 @@ function renderBoardMessage(status = state.boardSync?.status()) {
   }
   if (!state.boardRead) { say('Updating…'); return; }
   const headline = boardHeadline(groupByColumn(visibleBoardDeals()));
-  const count = state.prospectCount;
+  // Deals without a next step leave prospects out: they are not deals yet.
+  const count = state.scopeFilter === 'no-next-step' ? null : state.prospectCount;
   say(typeof count === 'number' ? `${headline} · ${count} prospect${count === 1 ? '' : 's'}` : headline);
 }
 
@@ -482,7 +482,9 @@ function renderBoard() {
       : '';
   }
   showProspects();
-  if (focusedStage) board.querySelector(`[data-collapse-stage="${CSS.escape(focusedStage)}"]`)?.focus();
+  const stage = focusedStage ?? linkedColumn;
+  linkedColumn = null;
+  if (stage) board.querySelector(`[data-collapse-stage="${CSS.escape(stage)}"]`)?.focus();
   renderPendingWrites();
 }
 
@@ -627,6 +629,8 @@ function applyBoardSnapshot(board) {
 }
 
 function showProspects() {
+  const lane = $('prospectsLane');
+  if (lane) lane.hidden = state.scopeFilter === 'no-next-step';
   prospects?.show(state.filter, state.scopeFilter === 'flagged', state.selfActor, state.nextDealSaves, state.view === 'list' ? 'row' : 'tile');
 }
 

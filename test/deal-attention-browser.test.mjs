@@ -59,3 +59,28 @@ test('Home counts overdue agenda dates while board badges retain next-step atten
   assert.match(await page.locator('#dealFlags').textContent(), /No overdue next steps/);
   assert.deepEqual(errors, []);
 });
+
+test('Home opens the Deals list at deals with no next step and the board at a phase', async t => {
+  const browser = await chromium.launch(); t.after(() => browser.close());
+  const page = await browser.newPage({ timezoneId: 'America/Chicago', reducedMotion: 'reduce' });
+  await page.clock.install({ time: now });
+  const seed = JSON.parse(await readFile(new URL('data/board-seed.json', root), 'utf8'));
+  seed.deals.forEach((deal, i) => Object.assign(deal, { id: `synthetic-plan-${i}`, name: `Demo Plan ${i}`, phase: i % 2 ? 'Legal' : 'Research',
+    owner: 'joe', attention: false, operating_state: 'active', workspace_kind: 'team', account_client_id: null, outcome: null,
+    invoiced_on: null, next_step_required: i === 5 || i === 6 }));
+  await page.route('**/*', async route => {
+    const url = new URL(route.request().url());
+    if (url.origin !== 'http://localhost') return route.abort();
+    if (url.pathname === '/data/board-seed.json') return route.fulfill({ json: seed });
+    if (url.pathname.startsWith('/api/') || url.pathname === '/app-release') return route.fulfill({ json: {} });
+    const file = url.pathname === '/deals' ? 'pipeline.html' : url.pathname.slice(1);
+    try { return route.fulfill({ body: await readFile(new URL(file, root)), contentType: /\.m?js$/.test(file) ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' }); }
+    catch { return route.fulfill({ status: 404, body: '' }); }
+  });
+  await page.goto('http://localhost/deals?view=list&filter=no-next-step');
+  await page.locator('.deal-row').first().waitFor();
+  assert.deepEqual((await page.locator('.deal-row h4').allTextContents()).sort(), ['Demo Plan 5', 'Demo Plan 6']);
+  await page.goto('http://localhost/deals?column=legal');
+  await page.locator('.kanban-card').first().waitFor();
+  assert.equal(await page.evaluate(() => document.activeElement?.closest('.kanban-column')?.dataset.column), 'legal');
+});

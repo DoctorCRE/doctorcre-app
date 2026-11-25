@@ -109,3 +109,30 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
 .skip:focus { min-width: 44px; min-height: 44px; align-content: center; }
 
 .inbox-snooze textarea{display:block;box-sizing:border-box;width:100%;min-height:76px;margin-block:6px 0;padding:8px;color:var(--fg);background:var(--surface-2);border:1px solid var(--hairline);border-radius:6px;font:inherit}
+/* Deals and Coming up: one-line rows that open the screen each number counts. */
+.home-deals ul, .home-coming-up ul { margin: 0; padding: 0; list-style: none; }
+.home-slice > header > a { color: var(--fg-muted); font-size: var(--font-size-1); text-decoration: none; }
+.home-phases { display: grid; grid-template-columns: 1fr 1fr; column-gap: var(--space-2); }
+.home-deals :is(li > a, .home-deals-line), .home-coming-up li > a, .inbox-shell .home-fold-line { display: flex; align-items: center; gap: var(--space-2); min-height: 34px; padding: 0 var(--space-2); border-radius: var(--radius-2); color: var(--fg); text-decoration: none; transition: background-color var(--duration-hover) var(--ease-out); }
+.home-deals :is(li > a, .home-deals-line):hover, .home-coming-up li > a:hover, .inbox-shell .home-fold-line:hover { background: var(--surface-2); }
+.home-phases a { justify-content: space-between; color: var(--fg-muted); font-size: var(--font-size-1); }
+.home-phases a span { color: var(--fg); font-weight: var(--font-weight-strong); font-variant-numeric: tabular-nums; }
+.home-fold h3 { margin: var(--space-2) var(--space-2) var(--space-1); color: var(--fg-muted); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); }
+.home-deals :is(li > a > span, .home-deals-line span) { margin-inline-start: auto; color: var(--fg-muted); font-size: var(--font-size-1); white-space: nowrap; }
+.home-deals li > a > span[data-late] { color: var(--status-danger-ink); }
+.home-deals li > a[data-flagged]::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: var(--radius-round); background: var(--status-warn-ink); }
+.home-coming-up li > a { display: grid; grid-template-columns: 88px minmax(0, 1fr); }
+.home-coming-up li time { color: var(--fg-muted); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; }
+.home-coming-up li > a > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-coming-up li span span { color: var(--fg-muted); }
+.inbox-shell .home-fold-line { display: none; width: 100%; border: 0; background: transparent; font: inherit; text-align: start; }
+.home-fold-line strong { margin-inline-end: auto; font-weight: var(--font-weight-strong); }
+/* A short computer screen folds the attention list and Coming up to one counted line each. */
+@media (min-width: 1000px) and (max-height: 720px) {
+  .inbox-shell .home-fold-line { display: flex; }
+  .home-fold:not([data-open]) > :not(.home-fold-line) { display: none; }
+  .home-coming-up:has(.home-fold:not([data-open])) > header { display: none; }
+}
+@media (pointer: coarse) {
+  .home-deals :is(li > a, .home-deals-line), .home-coming-up li > a { min-height: var(--touch); }
+}

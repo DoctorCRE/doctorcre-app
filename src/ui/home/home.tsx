@@ -6,7 +6,9 @@ import { showToast } from "../../../js/toast.js";
 import type { DocLinkRequest } from "../doc-link";
 import { HomeWatchDetail } from "../watches/home-detail.tsx";
 import { BulkControls } from "./bulk-controls";
+import { ComingUpTile } from "./coming-up-tile";
 import { readDashboard } from "./dashboard-read";
+import { DealsTile } from "./deals-tile";
 import { createDraftEdits, type DraftEdits, type PrivateReplyDraft } from "./draft-edits.ts";
 import { DropReason } from "./drop-reason.tsx";
 import { type MarkUndo, markTarget, restoreMark } from "./engine-marks.ts";
@@ -1299,6 +1301,8 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
               finish={finishMeeting}
             />
           )}
+          {engineHome && <DealsTile />}
+          {engineHome && <ComingUpTile />}
         </HomeGrid>
       )}
       {home && meetings.isError && (
