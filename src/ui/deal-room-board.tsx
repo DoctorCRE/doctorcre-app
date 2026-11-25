@@ -1,4 +1,3 @@
-import { Fragment } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 
@@ -116,11 +115,10 @@ function DealRoomBoard({ rows, phases, nationalAccountRows }: Props) {
                   {row.name}
                 </button>
                 <div className="deal-meta">
-                  {row.meta.map(([key, value], index) => (
-                    <Fragment key={key}>
-                      {index > 0 && <span>·</span>}
-                      <span>{value}</span>
-                    </Fragment>
+                  {row.meta.map(([key, value]) => (
+                    <span key={key} data-meta={key}>
+                      {value}
+                    </span>
                   ))}
                 </div>
                 {row.phaseMove && <PhaseMove receipt={row.phaseMove} deal={row.id} />}

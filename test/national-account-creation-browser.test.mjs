@@ -168,9 +168,9 @@ for (const width of [390, 1440]) test(`use a company on file as a national accou
   await page.getByText('This company is already a national account.',{exact:true}).waitFor();
   await promotedRow.getByRole('button',{name:'Open account'}).waitFor();
   await existingRow.getByRole('button',{name:'Open account',exact:true}).click();
-  await page.locator('#accountContextName').getByText(candidates[1].name,{exact:true}).waitFor();
+  await page.locator('#workspaceTitle').getByText(candidates[1].name,{exact:true}).waitFor();
   await page.goto(`${server.origin}/deals?view=national&account=${existing}&mode=live`);
-  await page.locator('#accountContextName').getByText(candidates[1].name,{exact:true}).waitFor();
+  await page.locator('#workspaceTitle').getByText(candidates[1].name,{exact:true}).waitFor();
   await page.locator('#accountBack').click();
 
   await start(candidates[0].name);
@@ -260,7 +260,7 @@ test('engine-backed national accounts confirm separate companies and save owner 
   await refusal.waitFor();
   assert.equal(await refusal.textContent(),'Choose Joe or Dell as the owner.');
   await saveOwner.click();
-  await page.locator('#accountContextOwner').getByText('Owned by Dell').waitFor();
+  await page.locator('#ownerButton').getByText('Owned by Dell').waitFor();
   const savedOwner = writes.at(-1);
   assert.equal(savedOwner.path,`/api/engine/national-accounts/${accountId}/owner`);
   assert.deepEqual(savedOwner.args, {owner:'dell',base_version:0,idempotency_key:savedOwner.args.idempotency_key});

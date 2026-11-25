@@ -52,12 +52,12 @@ for (const recovery of [false, true]) for (const interval of [60_000]) {
 test('Territory search hides the selected account context until the search is cleared', async t => {
   const page = await accountPage(t);
   await page.locator('.account-card').first().click();
-  assert.equal(await page.locator('#accountContext').isVisible(), true);
+  assert.equal(await page.locator('#ownerButton').isVisible(), true);
   await page.locator('#search').fill('Demo');
   await page.keyboard.press('Tab');
   await page.keyboard.press('Escape');
   assert.ok(await page.locator('#rows tr').count() > 0);
-  assert.equal(await page.locator('#accountContext').isVisible(), false, 'territory results must not be labeled as one account');
+  assert.equal(await page.locator('#ownerButton').isVisible(), false, 'territory results must not be labeled as one account');
 });
 
 for (const next_date of ['2026-10-18', '2026-10-20']) {
@@ -90,7 +90,7 @@ for (const query of ['Demo', 'zz-no-synthetic-match']) {
     await page.clock.fastForward(15000);
     assert.equal(await page.evaluate(() => document.activeElement.dataset.account), accountId);
     await page.keyboard.press('Enter');
-    assert.equal(await page.locator('#accountContext').isVisible(), true);
+    assert.equal(await page.locator('#ownerButton').isVisible(), true);
   });
 }
 

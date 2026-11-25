@@ -71,7 +71,8 @@ test('PR119 finding 8: a hung Home read expires and a late response cannot overw
 
 
 test('all legacy deal links open the shared addressable snapshot',async t=>{
- const {page,errors}=await open(t);await page.goto(origin+'/index.html',{waitUntil:'domcontentloaded'});
+ const {page,errors}=await open(t);await page.goto(origin+'/deals?view=national',{waitUntil:'domcontentloaded'});
+ await page.locator('.account-card').first().click();
  await page.locator('.deal-link').first().click();
  await page.waitForURL('**/deals?deal=*');
  await page.locator('#detailUpdateForm').waitFor();

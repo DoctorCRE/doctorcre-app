@@ -33,7 +33,7 @@ for (const [method, values, currentText] of [
  const context = vm.createContext({document,state,mountDealRoomForm,createRetainedCommands,uuidv4:randomUUID,FormData:dom.window.FormData,
    $:(selector,root=document)=>root.querySelector(selector),$$:(selector,root=document)=>[...root.querySelectorAll(selector)],
    esc:String,actorName:String,setTimeout:()=>0,account:()=>state.accounts[0],loadHome:async()=>{},showToast(){},renderBoardOnly(){},confirmLocalWrite:()=>deal});
- vm.runInContext(source.slice(source.indexOf('function appWrite('),source.indexOf('function addTeamDealForm(')) +
+ vm.runInContext(source.slice(source.indexOf('function appWrite('),source.indexOf('function accountOwnerField(')) +
    source.slice(source.indexOf('function accountOwnerForm('),source.indexOf('function showConflict(')) + `\nglobalThis.open = () => ${method}('synthetic-deal');`,context);
  const submit = () => document.querySelector('#dialogForm').onsubmit({preventDefault(){},currentTarget:document.querySelector('#dialogForm')});
  context.open();
@@ -64,10 +64,10 @@ for (const live of [true,false]) test(`agenda start retains its exact request un
    requests.push(JSON.parse(init.body).params.arguments);
    return Response.json({result:{content:[{type:'text',text:JSON.stringify(receipt())}]}});
  }}) : {startReview:async request=>{requests.push(structuredClone(request));return receipt();}};
- const state = {selfActor:'joe',workspace:'team',accountId:null,client};
+ const state = {selfActor:'joe',accountId:null,client};
  const screenActions = new Map();
  const context = vm.createContext({state,createRetainedCommands,...reviewModel,performCommand,pendingCommand,commandMessage,
-   screenCommands:{},screenActions,renderScreenActions(){},uuidv4:randomUUID,
+   screenCommands:{},screenActions,renderScreenActions(){},uuidv4:randomUUID,account:()=>null,
    agendaDeals:()=>[{id:'synthetic-deal'}],$:()=>({hidden:true,focus(){}}),showToast(){},renderAgenda(){renders++;}});
  vm.runInContext(source.slice(source.indexOf('function appWrite('),source.indexOf('function openForm(')) +
    source.slice(source.indexOf('async function runScreenAction('),source.indexOf('async function loadConfirms(')) +

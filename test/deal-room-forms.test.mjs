@@ -12,7 +12,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     const errors = []; page.on('pageerror', error => errors.push(error.message));
     const source = await readFile(new URL('../js/app.js', import.meta.url), 'utf8');
     await page.route('**/js/app.js', route => route.fulfill({ contentType: 'text/javascript', body: source + `
-      globalThis.formsApp = {state,nextStepForm,parkDealForm,marketAgentForm,addTeamDealForm,addAccountForm,addMarketDealForm,accountOwnerForm,showConflict};` }));
+      globalThis.formsApp = {state,nextStepForm,parkDealForm,marketAgentForm,addAccountForm,addMarketDealForm,accountOwnerForm,showConflict};` }));
     await page.route('**/api/**', route => route.fulfill({ json: {} }));
     await page.goto(`${server.origin}/deals?view=national&mode=fixture`);
     await page.locator('.account-card').first().click();
@@ -20,7 +20,6 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     const directory = process.env.DEAL_ROOM_FORMS_EVIDENCE || '/tmp/wr616-s4-j10-shots'; await mkdir(directory, { recursive: true });
     const expected = {
       nextStepForm: ['text', 'next_date'], parkDealForm: ['reason', 'note'], marketAgentForm: ['agent_name', 'market'],
-      addTeamDealForm: ['client', 'name', 'deal_type', 'phase', 'market', 'segment'],
       addAccountForm: ['name', 'owner', 'vertical', 'research_name', 'research_company', 'research_phone', 'research_specialty', 'research_market', 'research_observed_at', 'research_discrepancies'],
       addMarketDealForm: ['client_mode', 'client_name', 'deal_name', 'market', 'state', 'agent_name', 'segment', 'research_name', 'research_company', 'research_phone', 'research_specialty', 'research_market', 'research_observed_at', 'research_discrepancies'],
       accountOwnerForm: ['owner'], showConflict: ['winner', 'winner'],

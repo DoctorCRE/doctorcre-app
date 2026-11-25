@@ -129,88 +129,11 @@ test("PR111 #4: deal recovery retains creation receipt and exact lead request", 
   const lead=calls.filter(c=>c.name==="set-lead");assert.equal(lead.length,2);assert.deepEqual(lead[0].arguments,lead[1].arguments);assert.equal(lead[1].arguments.base_version,2);
 });
 
-test("PR111 #4: unchanged creation form retry keeps its outer key", async () => {
-  let form;const calls=[];
-  const h=handlers("js/app.js","function addTeamDealForm()","function addAccountForm()",{openForm:value=>{form=value;},PHASES:[],phaseLabel:value=>value,state:{client:{createDeal:async args=>{calls.push(args);if(calls.length===1)throw new Error("lost");}}},uuidv4:(()=>{let n=0;return()=>`key-${++n}`;})(),loadHome:async()=>{},showToast:noop},["addTeamDealForm"]);
-  h.addTeamDealForm();const data=new Map([["client","C-demo"],["name","Demo"]]);await assert.rejects(form.onSubmit(data));await form.onSubmit(data);
-  assert.equal(calls[0].idempotency_key,calls[1].idempotency_key);
-});
-
 test("PR111 #4: malformed creation receipt replays creation with the same key",async()=>{
   const calls=[];let creates=0;
   const client=createLiveClient({selfActor:"joe",fetchImpl:async(_path,init)=>{const req=JSON.parse(init.body).params;calls.push(req);return rpc(req.name==="new-deal" ? (++creates===1 ? {} : {deal_id:"demo"}) : req.name==="get-deal-room" ? {base_version:2} : {ok:true});}});
   const args={client:"C-demo",name:"Demo",idempotency_key:"same-key"};await assert.rejects(client.createDeal(args));await client.createDeal(args);
   assert.equal(creates,2);assert.equal(calls[0].arguments.idempotency_key,calls[1].arguments.idempotency_key);
-});
-
-test("PR111 #4: reopened creation form recovers the retained intent",async()=>{
-  let form;const calls=[];const state={client:{createDeal:async args=>{calls.push(args);if(calls.length===1)throw new Error("lost");}}};
-  const h=handlers("js/app.js","function addTeamDealForm()","function addAccountForm()",{state,openForm:value=>{form=value;},PHASES:[],phaseLabel:value=>value,uuidv4:()=>"key",esc:value=>String(value??""),loadHome:async()=>{},showToast:noop,$:elements()},["addTeamDealForm"]);
-  h.addTeamDealForm();await assert.rejects(form.onSubmit(new Map([["client","C-demo"],["name","Demo record"]])));
-  h.addTeamDealForm();assert.equal(form.submit,"Check creation outcome");assert.equal(form.form.pending.name,"Demo record");await form.onSubmit(new Map());assert.deepEqual(calls[1],calls[0]);
-});
-
-for (const refusal of ["not_a_client", "subject_not_found", "needs_disambiguation"])
-for (const reopen of [false,true]) test(`PR111 R1: ${refusal} permits corrected input${reopen ? " after reopen" : ""}`, async () => {
-  const calls=[];let form,keys=0;
-  const client=createLiveClient({selfActor:"joe",fetchImpl:async(_path,init)=>{
-    const req=JSON.parse(init.body).params;calls.push(req);
-    if(req.name==="new-deal" && req.arguments.client==="invalid-client") return new Response(JSON.stringify({result:{isError:true,content:[{text:JSON.stringify({error:refusal})}]}}));
-    return rpc(req.name==="new-deal" ? {deal_id:"demo"} : req.name==="get-deal-room" ? {base_version:2} : {ok:true});
-  }});
-  const state={client};
-  const h=handlers("js/app.js","function addTeamDealForm()","function addAccountForm()",{state,openForm:value=>{form=value;},PHASES:[],phaseLabel:value=>value,uuidv4:()=>`key-${++keys}`,esc:value=>String(value??""),loadHome:async()=>{},showToast:noop},["addTeamDealForm"]);
-  h.addTeamDealForm();await assert.rejects(form.onSubmit(new Map([["client","invalid-client"],["name","Demo"]])));
-  assert.equal(state.pendingDealCreation,null);
-  if(reopen){h.addTeamDealForm();assert.equal(form.submit,"Create deal");}
-  await form.onSubmit(new Map([["client","C-demo"],["name","Demo"]]));
-  const creates=calls.filter(req=>req.name==="new-deal");assert.equal(creates.length,2);
-  assert.equal(creates[1].arguments.client,"C-demo");assert.notEqual(creates[0].arguments.idempotency_key,creates[1].arguments.idempotency_key);
-  assert.equal(calls.filter(req=>req.name==="set-lead").length,1);
-});
-
-for (const errorCode of ["unhandled_verb_failure", "unknown_creation_failure"]) test(`PR111 R3: ${errorCode} after commit recovers one creation and its lead on reopen`, async () => {
-  const calls=[];let form,keys=0,committedKey=null,created=0,assigned=0;
-  const client=createLiveClient({selfActor:"joe",fetchImpl:async(_path,init)=>{
-    const req=JSON.parse(init.body).params;calls.push(req);
-    if(req.name==="new-deal") {
-      if(!committedKey) {
-        committedKey=req.arguments.idempotency_key;created++;
-        return new Response(JSON.stringify({result:{isError:true,content:[{type:"text",text:JSON.stringify({error:errorCode,verb:"new-deal",cause:"synthetic commit acknowledgment lost"})}]}}));
-      }
-      if(req.arguments.idempotency_key!==committedKey) return new Response(JSON.stringify({result:{isError:true,content:[{text:JSON.stringify({error:"deal_name_exists"})}]}}));
-      return rpc({ok:true,deal_id:"demo"});
-    }
-    if(req.name==="get-deal-room") return rpc({deal_id:"demo",base_version:2});
-    if(req.name==="set-lead") {assigned++;return rpc({ok:true});}
-    throw new Error(`Unexpected verb ${req.name}`);
-  }});
-  const state={client};
-  const h=handlers("js/app.js","function addTeamDealForm()","function addAccountForm()",{state,openForm:value=>{form=value;},PHASES:[],phaseLabel:value=>value,uuidv4:()=>`key-${++keys}`,esc:value=>String(value??""),loadHome:async()=>{},showToast:noop},["addTeamDealForm"]);
-  h.addTeamDealForm();const data=new Map([["client","C-demo"],["name","Demo record"]]);
-  await assert.rejects(form.onSubmit(data));
-  assert.ok(state.pendingDealCreation,"an internal or unknown failure cannot prove rollback");
-  h.addTeamDealForm();assert.equal(form.submit,"Check creation outcome");
-  await form.onSubmit(new Map());
-  const creates=calls.filter(req=>req.name==="new-deal");
-  assert.deepEqual(creates[1].arguments,creates[0].arguments);
-  assert.equal(created,1);assert.equal(assigned,1);assert.equal(state.pendingDealCreation,null);
-});
-
-for (const stage of ["uncertain creation","lead assignment"]) test(`PR111 R1: ${stage} refusal retains the creation intent`, async () => {
-  const calls=[];let form;
-  const refused=()=>new Response(JSON.stringify({result:{isError:true,content:[{text:JSON.stringify({error:"conflict"})}]}}));
-  const client=createLiveClient({selfActor:"joe",fetchImpl:async(_path,init)=>{
-    const req=JSON.parse(init.body).params;calls.push(req);
-    if(stage==="uncertain creation" && req.name==="new-deal") {if(calls.length===1)throw new Error("reply lost");return refused();}
-    return req.name==="new-deal" ? rpc({deal_id:"demo"}) : req.name==="get-deal-room" ? rpc({base_version:2}) : refused();
-  }});
-  const state={client};const h=handlers("js/app.js","function addTeamDealForm()","function addAccountForm()",{state,openForm:value=>{form=value;},PHASES:[],phaseLabel:value=>value,uuidv4:()=>"same-key",loadHome:async()=>{},showToast:noop},["addTeamDealForm"]);
-  h.addTeamDealForm();const data=new Map([["client","C-demo"],["name","Demo"]]);
-  await assert.rejects(form.onSubmit(data));const pending=state.pendingDealCreation;
-  await assert.rejects(form.onSubmit(data));assert.equal(state.pendingDealCreation,pending);
-  const writes=calls.filter(req=>req.name===(stage==="uncertain creation" ? "new-deal" : "set-lead"));
-  assert.deepEqual(writes[1].arguments,writes[0].arguments);
 });
 
 function tourHarness() {

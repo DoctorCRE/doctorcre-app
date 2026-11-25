@@ -16,6 +16,7 @@ import { selectDocRecord, setDocFilters, publishDocRead } from './doc-context.js
 import { createClient, PHASES, PHICON, ACTOR_LABEL, phaseLabel } from './client.js';
 import { dealsSaveToEngine, deploymentIdentity, resolveDealroomBoot } from './boot-mode.js';
 import { uuidv4 } from './uuid.js';
+import { TOUCH_LAYOUT } from './touch-layout.js';
 import { createPostCallClient } from './post-call-review-client.js';
 import { createCallMode, CALL_MODE_URL, CALL_MODE_HEADER } from './call-mode.js';
 import {
@@ -42,7 +43,7 @@ const state = {
   // snapshot, but never writes a value. See board-sync.mjs.
   boardSync: null,
   mode: 'fixture',
-  workspace: 'team', accountId: null, filter: 'active', query: '', deepLinkMine: false,
+  accountId: null, filter: 'active', query: '',
   changed: new Set(),
   // Per cell, the newest event this session has SEEN for it — `{id, recorded_at}`
   // — which is the base its next write will send. THREE sources and one rule:
@@ -340,8 +341,6 @@ function workspaceDeals() {
     const query = state.query.toLowerCase();
     deals = deals.filter((deal) => [deal.name,deal.client_name,deal.account_name,deal.market,
       deal.market_agent,deal.next_step,deal.segment].some((value) => String(value || '').toLowerCase().includes(query)));
-  } else if (state.workspace === 'team') {
-    deals = deals.filter((deal) => deal.workspace_kind === 'team');
   } else if (state.accountId) {
     deals = deals.filter((deal) => deal.account_client_id === state.accountId);
   } else {
@@ -351,7 +350,7 @@ function workspaceDeals() {
   else deals = deals.filter((deal) => (deal.operating_state || 'active') === 'active');
   if (state.filter === 'mine') deals = deals.filter((deal) => deal.owner === state.selfActor);
   if (state.filter === 'attention') deals = deals.filter((deal) => deal.attention === true || (!state.boardFromEngine && (daysFromNow(deal.next_date) ?? 0) < 0));
-  if (state.filter === 'flagged') deals = deals.filter((deal) => deal.attention === true && (!state.deepLinkMine || deal.owner === state.selfActor));
+  if (state.filter === 'flagged') deals = deals.filter((deal) => deal.attention === true);
   if (state.filter === 'stale') deals = deals.filter(isStale);
   if (state.filter === 'missing') deals = deals.filter((deal) => !deal.next_step);
   if (state.filter === 'delta') deals = deals.filter((deal) => state.changed.has(deal.id));
@@ -365,47 +364,31 @@ function render() {
 }
 
 function renderChrome() {
-  $$('.workspace').forEach((button) => {
-    const active = button.dataset.workspace === state.workspace;
-    button.classList.toggle('on', active);
-    if (active) button.setAttribute('aria-current', 'page');
-    else button.removeAttribute('aria-current');
-  });
-  $$('.filter').forEach((button) => button.classList.toggle('on', button.dataset.filter === state.filter));
+  $('#dealFilter').value = state.filter;
   const selected = account();
-  const isAccountHome = state.workspace === 'national_account' && !state.accountId && !state.query;
+  const isAccountHome = !state.accountId && !state.query;
   $('#accountBack').hidden = !state.accountId;
-  $('#accountContext').hidden = !state.accountId || Boolean(state.query);
-  $('#accountContextName').textContent = selected?.account_name || 'National account';
-  $('#accountContextOwner').textContent = selected ? `Owned by ${actorName(selected.account_owner)}` : '';
-  // Never print the partners' names as a label: the team is both partners by
-  // definition, so the combined list is just "Deals". The team view carries no
-  // description sentence under its title (2026-09-16 review).
-  $('#workspaceTitle').textContent = state.query ? 'Search results' : state.workspace === 'team' ? 'Deals'
-    : selected?.account_name || 'National Accounts';
-  $('#workspaceSubtitle').textContent = state.query ? 'Searching deals across the territory and every national account.' : '';
-  const addLabel = state.workspace === 'national_account' ? (selected ? 'Add market deal' : 'Add national account') : 'Add deal';
+  $('#workspaceTitle').textContent = state.query ? 'Search results' : selected?.account_name || 'National Accounts';
+  const addLabel = selected ? 'Add market deal' : 'Add national account';
   $('#stickyAddButton').textContent = `+ ${addLabel}`;
   $('#stickyAddButton').setAttribute('aria-label', addLabel);
-  $('#ownerButton').hidden = !selected;
+  $('#ownerButton').hidden = !selected || Boolean(state.query);
+  $('#ownerButton').textContent = selected ? `Owned by ${actorName(selected.account_owner)}` : '';
   renderAgendaView();
-  const agentHeading = state.workspace === 'national_account' ? 'Market agent' : 'Owner';
-  $('#agentHeading').textContent = agentHeading;
-  $('#stickyAgentHeading').textContent = agentHeading;
   $('#accountGrid').hidden = !isAccountHome;
   const showAccountViews = state.boardFromEngine && selected && !state.query;
   $('#accountDealViews').hidden = !showAccountViews;
   const closed = Boolean(showAccountViews && state.accountView === 'closed');
   $$('#accountDealViews button').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.accountView === state.accountView)));
   $('#closedDealsView').hidden = !closed;
-  $('#openDealPageViews').hidden = closed;
-  $('#openDealToolbar').hidden = closed;
+  // The filter and search narrow open deals; account cards and closed deals do not use them.
+  $('#dealFilter').hidden = isAccountHome || closed;
+  $('#search').closest('.search-wrap').hidden = closed;
   $('#boardSection').hidden = isAccountHome;
   $('#boardSection').classList.toggle('show-closed-deals', closed);
 }
 
 function openNationalAccount(id, view = 'open') {
-  state.workspace = 'national_account';
   state.accountId = id;
   setAccountDealView(view);
   $('#closedSearch').value = '';
@@ -416,8 +399,7 @@ function openNationalAccount(id, view = 'open') {
 
 function linkedNationalAccount(params) {
   const id = params.get('account');
-  return state.workspace === 'national_account'
-    && state.accounts.some(item => item.account_client_id === id) ? id : null;
+  return state.accounts.some(item => item.account_client_id === id) ? id : null;
 }
 
 function setAccountDealView(view) {
@@ -515,9 +497,9 @@ function renderBoardOnly() {
   if (!$('#closedDealsView').hidden) { renderNationalClosedDeals(); return; }
   if ($('#boardSection').hidden) return;
   const deals = workspaceDeals();
-  const accountDetail = state.workspace === 'national_account' && Boolean(state.accountId) && !state.query;
+  const accountDetail = Boolean(state.accountId) && !state.query;
   const nationalAccountRows = accountDetail && state.nextDealSaves;
-  setDocFilters({ workspace:state.workspace, account:state.accountId, filter:state.filter, query:state.query });
+  setDocFilters({ workspace:'national_account', account:state.accountId, filter:state.filter, query:state.query });
   if (state.boardSync?.status().board_health === 'ok' && !state.boardSync.status().board_read_in_flight) publishDocRead('getBoard', { deals }, []);
   renderStats(deals, accountDetail && state.filter !== 'parked');
   renderFocus(deals);
@@ -581,7 +563,7 @@ function renderStats(deals, accountDetail) {
 }
 
 function renderFocus(deals) {
-  if (state.filter === 'parked' || (state.workspace === 'national_account' && state.accountId && !state.query)) { $('#focusStrip').innerHTML = ''; return; }
+  if (state.filter === 'parked' || (state.accountId && !state.query)) { $('#focusStrip').innerHTML = ''; return; }
   const items = deals.filter((deal) => priority(deal) > 0).slice(0, 4);
   $('#focusStrip').innerHTML = items.length ? '<span class="focus-label">Focus first</span>' + items.map((deal) => `
     <button type="button" class="focus-item" data-open-deal="${esc(deal.id)}"><b>${esc(deal.name)}</b><span>${esc(reasonFor(deal))}</span></button>`).join('') : '';
@@ -599,6 +581,8 @@ function boardRow(deal, nationalAccountRows, accountDetail) {
     classes: [parked ? 'parked' : '', deal.attention ? 'attention' : '', days !== null && days < 0 ? 'overdue' : ''].join(' '),
     icon: deal.attention ? '⚠' : (PHICON[deal.phase] || '○'),
     meta: Object.entries({
+      // The row's own flag button waits for hover, so the flag itself shows here.
+      attention: nationalAccountRows && deal.attention ? 'Needs attention' : null,
       market,
       type: deal.type,
       account: state.query ? deal.account_name : null,
@@ -635,7 +619,7 @@ function installCallMode() {
     client: () => state.client,
     postCallClient: createPostCallClient({ loopbackUrl: CALL_MODE_URL, postHeaders: CALL_MODE_HEADER }),
     agendaDeals,
-    scope: () => ({ workspace_kind: state.workspace, ...(state.accountId ? { account_client_id: state.accountId } : {}) }),
+    scope: () => ({ workspace_kind: 'national_account', ...(state.accountId ? { account_client_id: state.accountId } : {}) }),
     dealName: (id) => state.deals.get(id)?.name,
     dateLabel: value => dateLabel(value, engineToday()),
     toast: (message) => showToast(message),
@@ -737,7 +721,7 @@ function renderAgendaView() {
   const deal = review && resolveCurrentRow(captured, state.deals);
   const engineSaves = state.nextDealSaves || dealsSaveToEngine();
   agendaView.render({
-    buttonHidden: state.nextDealSaves || (state.workspace === 'national_account' && !state.accountId && !state.query),
+    buttonHidden: state.nextDealSaves || (!state.accountId && !state.query),
     disabled: state.accessDenied || Object.values(screenCommands).some(command => command.status === 'pending'),
     review: review && deal ? { title: review.title, index: review.index, total: review.deals.length,
       deal: { id: deal.id, name: deal.name, context: deal.market || deal.client_name || '', reason: reasonFor(deal),
@@ -1532,25 +1516,6 @@ function marketAgentForm(dealId) {
   if (next) wireMarketAgentPicker();
 }
 
-function addTeamDealForm() {
-  const pending = state.pendingDealCreation?.request;
-  openForm({ title:'Add deal', submit:pending ? 'Check creation outcome' : 'Create deal', form:{ kind:'team-deal', pending:pending || null, phases:PHASES.map(value => [value, phaseLabel(value)]) },
-    onSubmit:async (data) => {
-      const args = Object.fromEntries(data.entries());
-      const signature = JSON.stringify(args);
-      if (!pending && state.pendingDealCreation && state.pendingDealCreation.signature !== signature) throw new Error('Reopen Add deal to check the retained creation before changing its fields.');
-      state.pendingDealCreation ||= { signature, request: { ...args, lane:'territory', idempotency_key:uuidv4() } };
-      const operation = state.pendingDealCreation;
-      try { await state.client.createDeal(operation.request); }
-      catch (error) {
-        if (error.creationRefused && state.pendingDealCreation === operation) state.pendingDealCreation = null;
-        throw error;
-      }
-      await loadHome(); showToast('Deal created');
-      state.pendingDealCreation = null;
-    } });
-}
-
 function accountOwnerField(id, owner) {
   return `<div class="field"><label for="${id}">Account owner</label><select id="${id}" name="owner">
     ${['joe','dell'].map(partner => `<option value="${partner}"${owner === partner ? ' selected' : ''}>${actorName(partner)}</option>`).join('')}
@@ -1713,8 +1678,7 @@ async function openDeal(dealId, { close = false } = {}) {
 
 function agendaDeals() {
   let deals = [...state.deals.values()].filter((deal) => (deal.operating_state || 'active') === 'active');
-  if (state.workspace === 'team') deals = deals.filter((deal) => deal.workspace_kind === 'team');
-  else if (state.accountId) deals = deals.filter((deal) => deal.account_client_id === state.accountId);
+  if (state.accountId) deals = deals.filter((deal) => deal.account_client_id === state.accountId);
   else deals = [];
   return deals.sort((a,b) => priority(b) - priority(a) || a.name.localeCompare(b.name));
 }
@@ -1723,8 +1687,8 @@ async function startAgenda() {
   if (state.review) { renderAgendaView(); return true; }
   const deals = agendaDeals();
   if (!deals.length) return showToast('No active work in this agenda');
-  const title = state.workspace === 'team' ? 'Deals' : account()?.account_name || 'National account';
-  return runScreenAction('agenda-start',{workspace_kind:state.workspace,
+  const title = account()?.account_name || 'National account';
+  return runScreenAction('agenda-start',{workspace_kind:'national_account',
     ...(state.accountId ? {account_client_id:state.accountId} : {})},'startReview','Start agenda',async result => {
     state.review = {sessionId:result.session_id,deals,index:0,reviewed:0,skipped:0,title};
     renderAgenda();
@@ -1768,17 +1732,10 @@ async function finishAgenda(status = 'completed') {
 function wireEvents() {
   document.addEventListener('click', async (event) => {
     try {
-    const workspace = event.target.closest('[data-workspace]');
-    if (workspace) {
-      state.workspace = workspace.dataset.workspace;
-      state.accountId = null; state.accountView = 'open'; state.filter = 'active'; state.deepLinkMine = false; state.query = ''; $('#search').value = '';
-      history.pushState({ dealView: state.workspace }, '', state.workspace === 'team' ? '/deals' : '/deals?view=national');
-      render(); return;
-    }
     if (event.target.closest('[data-clear-search]')) {
       state.query = ''; $('#search').value = '';
       render();
-      const target = state.accountId ? $('#accountContextName')
+      const target = state.accountId ? $('#workspaceTitle')
         : $('#accountGrid:not([hidden]) [data-account]') || $('#rows .deal-link') || $('#workspaceTitle');
       target.focus({ preventScroll: true });
       return;
@@ -1810,7 +1767,6 @@ function wireEvents() {
       return;
     }
     const agent = event.target.closest('[data-market-agent]'); if (agent) { marketAgentForm(agent.dataset.marketAgent); return; }
-    const filter = event.target.closest('[data-filter]'); if (filter) { state.filter=filter.dataset.filter; state.deepLinkMine = false; $$('.filter').forEach((b)=>b.classList.toggle('on',b===filter)); renderBoardOnly(); return; }
     if (event.target.closest('[data-close-deal]')) { $('#dealDialog').close(); return; }
     const undoButton = event.target.closest('[data-undo]'); if (undoButton) { await runUndo(undoButton.dataset.undo, undoButton); return; }
     const retry = event.target.closest('[data-screen-retry]'); if (retry) { await screenActions.get(retry.dataset.screenRetry)?.run(); return; }
@@ -1838,6 +1794,7 @@ function wireEvents() {
         await openDeal(id, { close: true });
       } else await patchField(id, 'phase', phase);
     }
+    if (event.target.id === 'dealFilter') { state.filter = event.target.value; renderBoardOnly(); }
     if (event.target.matches('[data-owner]')) await patchField(event.target.dataset.owner,'owner',event.target.value || null);
   });
 
@@ -1851,7 +1808,7 @@ function wireEvents() {
     render();
     if (accountId) $(`[data-account="${CSS.escape(accountId)}"]`)?.focus({ preventScroll: true });
   };
-  const openAddForm = () => state.workspace === 'team' ? addTeamDealForm() : state.accountId ? addMarketDealForm() : addAccountForm();
+  const openAddForm = () => state.accountId ? addMarketDealForm() : addAccountForm();
   $('#stickyAddButton').onclick = openAddForm;
   $('#receiptsJump').onclick = goToReceipts;
   $('#ownerButton').onclick = accountOwnerForm;
@@ -1881,17 +1838,13 @@ async function boot() {
   const bootConfig = resolveDealroomBoot(location);
   const params = new URLSearchParams(location.search);
   if (params.get('mode') === 'live') $('#mondayReviewLink').href = '/deals?view=review&mode=live';
-  if (params.get('workspace') === 'team') state.workspace = 'team';
-  if (params.get('view') === 'national') state.workspace = 'national_account';
   window.addEventListener('popstate', () => {
     const current = new URLSearchParams(location.search);
-    state.workspace = current.get('view') === 'national' ? 'national_account' : 'team';
     const id = linkedNationalAccount(current);
     if (id) { openNationalAccount(id, current.get('account_view') === 'closed' ? 'closed' : 'open'); return; }
     state.accountId = null;
     render();
   });
-  if (params.get('filter') === 'flagged') { state.filter = 'flagged'; state.deepLinkMine = params.get('owner') === 'me'; }
   const identity = deploymentIdentity(bootConfig.mode);
   state.mode = bootConfig.mode;
   const badge = $('#deploymentBadge');
@@ -1911,6 +1864,11 @@ async function boot() {
   });
   installCallMode();
   wireEvents();
+  // The update time sits in the top bar; the phone's tab row has no room, so there it ends the toolbar.
+  const touch = matchMedia(TOUCH_LAYOUT);
+  const placeStatus = () => (touch.matches ? $('#openDealToolbar') : $('#appTabsSlot')).append($('.deal-status'));
+  placeStatus();
+  touch.addEventListener('change', placeStatus);
   await loadHome();
   const linkedAccount = linkedNationalAccount(params);
   if (linkedAccount) openNationalAccount(linkedAccount, params.get('account_view') === 'closed' ? 'closed' : 'open');

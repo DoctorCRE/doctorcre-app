@@ -29,7 +29,7 @@ function forms({version=1,lost=false}={}){
  const context=vm.createContext({state,$,esc:x=>x,openForm:value=>{options=value;},account:()=>state.accounts[0],createRetainedCommands,structuredClone,classifyCommandOutcome,commandMessage,uuidv4:()=>crypto.randomUUID(),loadHome:async()=>{},confirmLocalWrite:()=>deal,renderBoardOnly(){},showToast(){}});
  const helperStart=source.indexOf('function reviewedReplacementVersion(');
  const start=helperStart<0?source.indexOf('function nextStepForm('):helperStart;
- vm.runInContext(source.slice(start,source.indexOf('function addTeamDealForm('))+'\nObject.assign(globalThis,{nextStepForm,marketAgentForm});',context);
+ vm.runInContext(source.slice(start,source.indexOf('function accountOwnerField('))+'\nObject.assign(globalThis,{nextStepForm,marketAgentForm});',context);
  vm.runInContext(source.slice(source.indexOf('function accountOwnerForm('),source.indexOf('function showConflict('))+'\nObject.assign(globalThis,{accountOwnerForm});',context);
  context.appWrite=(op,args,send)=>{state.commands??=createRetainedCommands({scope:()=>state.selfActor});return state.commands.send(op,args,send);};
  return {open:method=>{context[method](deal.id);return options;},writes,get reads(){return reads;}};

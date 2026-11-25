@@ -105,7 +105,7 @@ export function dealNextCaption(deal, { today = '', viewer = '', board = false, 
   const { text, dueOn: when, action, item } = dealNextStep(deal);
   if (!text) return null;
   const overdue = Boolean(when && when < today);
-  const date = overdue && action ? '' : shortDate(when, today);
+  const date = overdue ? dealDueDate(when, today).late : shortDate(when, today);
   const owner = !board && action?.owner && viewer && action.owner !== viewer ? ` · ${actorName(action.owner)}` : '';
   return { text, when, date, overdue, owner, item };
 }
