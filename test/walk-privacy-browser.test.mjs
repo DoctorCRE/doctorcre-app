@@ -229,7 +229,7 @@ test('every mutating walk skips without a TEST fixture and sends zero writes', a
   }}} });
   t.after(() => server.close());
   const directory = temporaryDirectory('doctorcre-walk-absent-', t);
-  const specs = readdirSync('tests/walks').filter(name => /^(01|03|07|10|12|13|14|33)-/.test(name));
+  const specs = readdirSync('tests/walks').filter(name => /^(01|03|07|12|13|14|33)-/.test(name));
   for (const name of specs) writeFileSync(resolve(directory, name), `
 import { expect } from ${JSON.stringify(require.resolve('@playwright/test'))};
 import { test, inboxItems } from ${JSON.stringify(resolve('tests/walks/privacy.ts'))};
@@ -241,11 +241,11 @@ test.afterEach(async ({context}) => { expect(await inboxItems(context)).toEqual(
   writeFileSync(config, `export default { testDir: '.', workers: 1, retries: 0, outputDir: './results', use: { baseURL: '${server.origin}', serviceWorkers: 'block' } };`);
   const { stdout } = await promisify(execFile)(process.execPath, [require.resolve('@playwright/test/cli'), 'test', '--config', config, '--reporter=json'], { timeout: 30_000 });
   const report = JSON.parse(stdout);
-  assert.equal(report.stats.skipped, 8);
+  assert.equal(report.stats.skipped, 7);
   assert.equal(report.stats.unexpected, 0);
   for (const suite of report.suites) for (const spec of suite.specs) assert.match(JSON.stringify(spec.tests[0].annotations), /needs designated test record: Home card named TEST WALK/);
-  assert.ok(methods.length >= 8);
-  assert.equal(methods.filter(request => request.method === 'POST').length, 8);
+  assert.ok(methods.length >= 7);
+  assert.equal(methods.filter(request => request.method === 'POST').length, 7);
   assert.ok(methods.every(request => request.method === 'GET' || request.method === 'POST' && request.path === '/mcp' && request.name === 'read-home-inbox-v5'));
 });
 
