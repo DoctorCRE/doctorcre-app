@@ -221,6 +221,8 @@ html[data-deals-from-engine] :is([data-layout-slot="moves"], #receiptsOpen, #rec
 .has-app-layout #appToday .receipt-line { display: flex; flex-wrap: wrap; }
 .has-app-layout #appToday .receipt-deal { font-size: var(--font-size-1); }
 @media (hover: hover) { .app-layout-item:hover { background: var(--surface-2); border-color: var(--hairline-strong); } }
+#appToday [aria-busy="true"] { display: grid; gap: var(--space-2); padding: var(--space-3) 0; }
+#appToday .skeleton-line { margin: 0; animation: none; }
 .app-layout-empty { display: block; padding: var(--space-3) 0; color: var(--fg-muted); font: var(--font-size-1) var(--font-text); }
 #appSyncTime, #appConnection, [data-layout-slot="status"] { color: var(--fg-muted); font-size: var(--font-size-1); }
 #appSyncTime { margin-inline-start: auto; }
@@ -434,10 +436,14 @@ body.has-app-layout:has(.toast) .receipt-dock { display: none; }
   :root { scroll-behavior: auto; }
 }
 
-/* Shared by every page: the two loading keyframes and the reduced-motion floor
-   (the same floor css/system.css carries for the pages that load it). */
+/* Shared by every page: the two loading keyframes, the skeleton line and the
+   reduced-motion floor (the same floor css/system.css carries for the pages that load it). */
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes skeleton-fade { from { opacity: 0.55; } to { opacity: 1; } }
+/* The skeleton is a static tone shaped like the line it stands in for; it
+   fades gently only while motion is on. */
+.skeleton-line { width: 70%; height: 10px; border-radius: var(--radius-round); background: var(--surface-3); animation: skeleton-fade 1.6s var(--ease-out) infinite alternate; }
+.skeleton-line.short { width: 42%; }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after { animation: none !important; transition: none !important; }

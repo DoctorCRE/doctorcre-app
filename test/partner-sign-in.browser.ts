@@ -873,6 +873,7 @@ test("Closing anniversaries shows all 21 engine matches and opens records with b
     await page.getByRole("link", { name: "Closing anniversaries", exact: true }).getAttribute("href"),
     "/leases",
   );
+  await page.keyboard.press("Escape");
   await panel.getByRole("link", { name: "Unnamed client", exact: true }).click();
   await page.getByRole("dialog", { name: anniversaryClientName }).waitFor({ timeout: 5000 });
   assert.equal(new URL(page.url()).searchParams.get("record"), anniversaryClientId);

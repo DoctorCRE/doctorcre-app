@@ -51,7 +51,7 @@ const sibling = (path: string) => import(new URL(path, import.meta.url).href);
 export async function mountHomeTodayPanel(
   rail: HTMLElement,
   readDeals: (signal: AbortSignal) => Promise<unknown[]>,
-  { hideEndedDealReminders = false } = {},
+  { hideEndedDealReminders = false, waiting }: { hideEndedDealReminders?: boolean; waiting: string },
 ) {
   const [transport, dates, clock, receipts, reviews]: [
     {
@@ -146,7 +146,13 @@ export async function mountHomeTodayPanel(
     node.innerHTML = html;
     rendered.set(node, html);
   };
-  const renderReminders = (message: string) => {
+  // The two loading slots: null shows the waiting skeleton and marks the slot busy.
+  const fill = (slot: Element, html: string | null) => {
+    slot.setAttribute("aria-busy", String(html === null));
+    paint(slot, html ?? waiting);
+  };
+  // A null message means the reminders are still loading.
+  const renderReminders = (message: string | null) => {
     const name = new Map(data?.partners.map((p) => [p.slug, p.name]));
     const rows = (items: Reminder[], today: string) =>
       items
@@ -171,10 +177,8 @@ export async function mountHomeTodayPanel(
     paint(late, lateRows);
     const upcomingRows = data ? rows(data.upcoming, data.today) : "";
     const upcomingHeading = lateRows && upcomingRows ? "<h4>Due today</h4>" : "";
-    paint(
-      upcoming,
-      upcomingHeading + (upcomingRows || (lateRows ? "" : status(data ? "No dated reminders." : message))),
-    );
+    const empty = data ? status("No dated reminders.") : message === null ? null : status(message);
+    fill(upcoming, upcomingRows || lateRows ? upcomingHeading + upcomingRows : empty);
   };
   owners.onclick = (event) => {
     if (!(event.target instanceof HTMLButtonElement)) return;
@@ -188,19 +192,15 @@ export async function mountHomeTodayPanel(
     meetingReviews.update({});
     owners.hidden = true;
     retry.hidden = state === "loading";
-    paint(
+    fill(
       schedule,
-      status(
-        state === "loading"
-          ? "Loading meetings…"
-          : state === "offline"
-            ? "Meetings unavailable while offline."
-            : "Couldn't load meetings.",
-      ),
+      state === "loading"
+        ? null
+        : status(state === "offline" ? "Meetings unavailable while offline." : "Couldn't load meetings."),
     );
     renderReminders(
       state === "loading"
-        ? "Loading dated reminders…"
+        ? null
         : state === "offline"
           ? "Dated reminders unavailable while offline."
           : "Couldn't load dated reminders.",
@@ -271,7 +271,7 @@ export async function mountHomeTodayPanel(
       }
       const calendar = readMeetings(answer.meetings);
       if (calendar) {
-        paint(
+        fill(
           schedule,
           calendar.items.length
             ? calendar.items.map(meetingRow).join("")
@@ -279,7 +279,7 @@ export async function mountHomeTodayPanel(
                 (calendar.meetingsMayBeMissing ? status("Calendar may be incomplete") : ""),
         );
       } else {
-        paint(schedule, status("Couldn't load meetings."));
+        fill(schedule, status("Couldn't load meetings."));
       }
       const dated = reminders({ ...answer, today: answer.today });
       const groups =
