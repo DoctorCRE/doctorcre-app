@@ -48,18 +48,11 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
   const $ = id => doc.getElementById(id), win = doc.defaultView || globalThis.window;
   const quietFilter = $("quietFilter");
   quietFilter.hidden = typeof client.getQuietFollowUps !== "function";
-  const reasons = $("contactReasons") && client.listPracticeOrigination ? mountContactReasons({host:$("contactReasons"),window:win,client:countedReasons()}) : null;
-  // The closed strip shows how many reasons have loaded; a first page restarts the count.
-  function countedReasons() {
-    const seen = new Set();
-    return { listPracticeOrigination: async args => {
-      const page = await client.listPracticeOrigination(args);
-      if (!args.before_id) seen.clear();
-      for (const card of page.cards || []) seen.add(card.id);
-      $("reasonsCount").textContent = `(${seen.size}${page.next_cursor ? "+" : ""})`;
-      return page;
-    } };
-  }
+  // The closed strip shows how many reasons the panel shows.
+  $("contactReasons")?.addEventListener("contact-reasons-shown", ({ detail }) => {
+    $("reasonsCount").textContent = detail ? `(${detail.count}${detail.more ? "+" : ""})` : "";
+  });
+  const reasons = $("contactReasons") && client.listPracticeOrigination ? mountContactReasons({host:$("contactReasons"),window:win,client}) : null;
   // Home's "All reasons" link lands here, so it opens the strip it points into.
   if (win.location.hash === "#contactReasons" && $("reasonsStrip")) $("reasonsStrip").open = true;
   const engagement = engagementWriterFor(client, engagementStorage(win));
@@ -221,12 +214,17 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     const columns = $("leadBoard").querySelector(".stage-columns"), [back, ahead] = $("leadBoard").querySelectorAll("[data-lane-step]");
     if (!columns || !ahead) return;
     const edge = columns.getBoundingClientRect();
-    const lanes = [...columns.querySelectorAll(".stage-column")].map(node => node.getBoundingClientRect()).filter(box => box.width);
+    const lanes = [...columns.querySelectorAll(".stage-column")].filter(node => node.offsetWidth), boxes = lanes.map(node => node.getBoundingClientRect());
     const stages = count => count === 1 ? "stage" : "stages";
-    const before = lanes.filter(box => box.left < edge.left - 1).length, after = lanes.filter(box => box.right > edge.right + 1).length;
+    const before = boxes.filter(box => box.left < edge.left - 1).length, after = boxes.filter(box => box.right > edge.right + 1).length;
     const handoff = doc.activeElement === back && !before ? ahead : doc.activeElement === ahead && !after ? back : null;
     back.hidden = !before; back.setAttribute("aria-label", `${before} earlier ${stages(before)}`);
-    ahead.hidden = !after; ahead.innerHTML = `${after} more ${stages(after)} <span aria-hidden="true">›</span>`;
+    ahead.hidden = !after; ahead.setAttribute("aria-label", `${after} more ${stages(after)}`); ahead.innerHTML = `${after} more <span aria-hidden="true">›</span>`;
+    columns.style.setProperty("--cue-ahead", `${ahead.offsetWidth}px`);
+    for (const [index, lane] of lanes.entries()) {
+      lane.toggleAttribute("data-under-back", Boolean(before) && index === before);
+      lane.toggleAttribute("data-under-ahead", Boolean(after) && index === lanes.length - after - 1);
+    }
     // A cue that runs out of stages hands focus to the other one instead of dropping it.
     if (handoff && !handoff.hidden) handoff.focus({ preventScroll: true });
   }

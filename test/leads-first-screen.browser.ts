@@ -14,6 +14,9 @@ const cities = [
   ["Destin", "FL"],
   ["Daphne", "AL"],
 ];
+const reasons = JSON.parse(
+  await readFile(new URL("./fixtures/reasons-evidence-window/recordings.json", import.meta.url), "utf8"),
+);
 const { reachability } = JSON.parse(
   await readFile(new URL("./fixtures/lead-reachability/producer.json", import.meta.url), "utf8"),
 ).cases.reachable;
@@ -220,7 +223,8 @@ test("Leads names the stages off to the right and scrolls one lane per click", a
   t.after(() => browser.close());
   const ahead = page.locator('[data-lane-step="1"]');
   const back = page.locator('[data-lane-step="-1"]');
-  assert.equal((await ahead.textContent())?.trim(), "3 more stages ›");
+  assert.equal(await ahead.getAttribute("aria-label"), "3 more stages");
+  assert.equal((await ahead.textContent())?.trim(), "3 more ›");
   assert.equal(await back.isVisible(), false, "nothing to scroll back to at the start");
   await capture(page, "leads-1440x900-more-stages");
   await ahead.click();
@@ -241,6 +245,49 @@ test("Leads names the stages off to the right and scrolls one lane per click", a
   await back.waitFor({ state: "hidden" });
   assert.equal(await ahead.evaluate((node) => node === document.activeElement), true, "focus stays on the cue");
 });
+
+test("Leads counts the reasons it shows and drops the count on sign-out", async (t) => {
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await routeLeads(page, {
+    getBoard: fullBoard,
+    getReasons: () => ({ ...reasons, cards: [...reasons.cards, { ...reasons.cards[0], id: "not-a-reason" }] }),
+  });
+  await page.goto("http://localhost/leads");
+  const count = page.locator("#reasonsCount");
+  await page.waitForFunction(() => document.getElementById("reasonsCount")?.textContent !== "");
+  assert.equal(await count.textContent(), `(${reasons.cards.length})`, "a reason the page refuses is not counted");
+  await page.evaluate(() => dispatchEvent(new Event("doctorcre-session-invalidated")));
+  assert.equal(await count.textContent(), "", "no count stays behind after sign-out");
+});
+
+for (const width of [1024, 1280, 1440])
+  test(`Leads stage cues never cover a card or a stage heading at ${width}`, async (t) => {
+    const { browser, page } = await openBoard(width, 800);
+    t.after(() => browser.close());
+    const overlaps = () =>
+      page.evaluate(() => {
+        const cues = [...document.querySelectorAll<HTMLElement>(".lane-cue")].filter((cue) => cue.offsetWidth);
+        const covered = [...document.querySelectorAll<HTMLElement>("#leadBoard :is(.lead-card, .stage-head > *)")]
+          .map((node) => ({ text: node.textContent?.trim(), box: node.getBoundingClientRect() }))
+          .filter(({ box }) => box.width);
+        const hit = (a: DOMRect, b: DOMRect) =>
+          a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+        return {
+          cues: cues.length,
+          hits: cues.flatMap((cue) =>
+            covered.filter(({ box }) => hit(cue.getBoundingClientRect(), box)).map(({ text }) => text),
+          ),
+        };
+      });
+    const start = await overlaps();
+    assert.deepEqual(start, { cues: 1, hits: [] }, "the more-stages cue sits clear of the board");
+    await page.locator('[data-lane-step="1"]').click();
+    await page.locator('[data-lane-step="-1"]').waitFor();
+    await capture(page, `leads-${width}x800-stage-cues`);
+    assert.deepEqual(await overlaps(), { cues: 2, hits: [] }, "both cues sit clear of the board");
+  });
 
 for (const width of [1024, 1280, 1440])
   test(`Leads filters show their whole selected text at ${width}`, async (t) => {
