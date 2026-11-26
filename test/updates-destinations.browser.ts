@@ -982,7 +982,7 @@ test("Who did what shows the engine's first page and Show more follows next_befo
   });
   await page.goto(updatesPath);
   await page.getByRole("heading", { name: "Example Dental · moved the deal to LOI" }).waitFor();
-  assert.equal(await page.locator("#activityList").getByText("Alex Example", { exact: true }).count(), 1);
+  assert.equal(await page.locator("#activityList").getByText("Alex", { exact: true }).count(), 1);
   assert.equal(
     await page.locator("#activityList").getByRole("link", { name: "Example Dental" }).getAttribute("href"),
     `/deals?deal=${deal}`,
