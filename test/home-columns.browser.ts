@@ -97,6 +97,16 @@ const dashboard = {
   ]),
 };
 
+const lead = (n: number, fields: Record<string, unknown> = {}) => ({
+  id: `lead-${n}`,
+  stage: "new",
+  suppressed: false,
+  doctor_name: `Sample Lead ${n}`,
+  possible_clients: [],
+  ...fields,
+});
+const leads = [lead(1, { new_from_email: true }), lead(2), lead(3, { new_from_email: true }), lead(4)];
+
 async function openHome(t: TestContext, width: number, height: number) {
   const browser = await chromium.launch();
   t.after(() => browser.close());
@@ -133,6 +143,24 @@ async function openHome(t: TestContext, width: number, height: number) {
       },
     }),
   );
+  await page.route("**/mcp", async (route) => {
+    const call = route.request().postDataJSON();
+    const payload =
+      call.params.name === "lead-board"
+        ? { schema_version: "lead-workspace.v1", generated_at: "2026-11-25T15:00:00Z", leads }
+        : {
+            schema_version: "quiet-follow-ups.v1",
+            cadence: { lead_days: 45, vendor_days: 90 },
+            proposals: [
+              { subject_type: "lead", subject_id: "lead-2", ref: null, name: "Sample Lead Two", basis: "created_at" },
+            ].map((row) => ({ ...row, anchor_on: "2026-10-01", due_on: "2026-11-15", days_overdue: 10 })),
+            sent: false,
+            tasks_created: false,
+          };
+    await route.fulfill({
+      json: { jsonrpc: "2.0", id: call.id, result: { content: [{ type: "text", text: JSON.stringify(payload) }] } },
+    });
+  });
   await page.goto(`${server.origin}/?mode=live`);
   await page.getByRole("region", { name: "Reminders", exact: true }).waitFor();
   return page;
@@ -157,14 +185,20 @@ for (const [width, height] of [
     assert.equal(await page.getByRole("checkbox").count(), 0);
     assert.equal(await page.getByRole("button", { name: "Snooze selected" }).count(), 0);
     const box = async (tile: typeof inbox) => (await tile.boundingBox()) ?? assert.fail("tile is not drawn");
-    const [left, middle, below, right] = [
+    const [left, middle, below, right, leadsLine] = [
       await box(reminders),
       await box(inbox),
       await box(waiting),
       await box(meetings),
+      await box(page.getByRole("region", { name: "Leads", exact: true })),
     ];
     assert.ok(left.x + left.width <= middle.x && middle.x + middle.width <= right.x, "three columns, left to right");
     assert.ok(Math.abs(below.x - middle.x) < 1 && below.y >= middle.y + middle.height, "waiting sits under Inbox");
+    assert.ok(
+      Math.abs(leadsLine.x - right.x) < 1 && leadsLine.y >= right.y + right.height,
+      "Leads sits under the meetings",
+    );
+    assert.ok(leadsLine.y + leadsLine.height <= height, "Leads is on the first screen");
     assert.equal(
       await page.evaluate(() => document.scrollingElement?.scrollHeight),
       height,
@@ -189,7 +223,7 @@ test("Reminders 15 or more days late fold into one line that opens in place", as
   assert.equal(await reminders.getByRole("heading", { level: 2 }).textContent(), "Reminders 5 · 2 late");
 });
 
-test("On a phone Today's meetings comes first and In motion and waiting last", async (t) => {
+test("On a phone Today's meetings comes first, Leads after Inbox, and In motion and waiting last", async (t) => {
   const page = await openHome(t, 390, 844);
   await page.getByRole("region", { name: "Today's meetings", exact: true }).waitFor();
   const tiles = await page.locator(".home-slice").evaluateAll((nodes) =>
@@ -198,7 +232,14 @@ test("On a phone Today's meetings comes first and In motion and waiting last", a
       .sort((a, b) => a.top - b.top)
       .map(({ name }) => name),
   );
-  assert.deepEqual(tiles, ["Today's meetings", "Reminders", "Inbox", "In motion and waiting"]);
+  assert.deepEqual(tiles, ["Today's meetings", "Reminders", "Inbox", "Leads", "In motion and waiting"]);
+});
+
+test("The Leads line counts new and late leads and opens Leads", async (t) => {
+  const page = await openHome(t, 1440, 900);
+  const line = page.getByRole("region", { name: "Leads", exact: true }).getByRole("link");
+  assert.equal(await line.textContent(), "Leads2 new from email · 1 follow-up late");
+  assert.equal(await line.getAttribute("href"), "/leads");
 });
 
 test("At 1440 a waiting row keeps its whole return date and gives the rest to the title", async (t) => {

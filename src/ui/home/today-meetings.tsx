@@ -6,13 +6,6 @@ import { ended, type MeetingRow, meetingRows, nextChange, nowLine } from "./toda
 
 const sibling = (path: string) => import(new URL(path, import.meta.url).href);
 const clock = new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", hour: "numeric", minute: "2-digit" });
-const synced = new Intl.DateTimeFormat("en-US", {
-  timeZone: "America/Chicago",
-  month: "short",
-  day: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-});
 const text = (value: unknown): value is string => typeof value === "string" && value.trim() !== "";
 const href = (value: unknown) =>
   typeof value === "string" &&
@@ -75,7 +68,7 @@ function MeetingLine({ row: { meeting }, now }: { row: MeetingRow; now: number }
 }
 
 /** The day's tours, then its meetings in time order, with a line at the current time. */
-export function TodayMeetings({ data, stale, today }: { data: MeetingRead; stale: boolean; today: string }) {
+export function TodayMeetings({ data, today }: { data: MeetingRead; today: string }) {
   const tours = useQuery({
     queryKey: ["home-tours", today],
     queryFn: () => readTours(today),
@@ -101,19 +94,8 @@ export function TodayMeetings({ data, stale, today }: { data: MeetingRead; stale
   }, [redraw]);
 
   const tourRows = tours.data ?? [];
-  const lastSync =
-    (stale || data.partial || data.readDay !== today) && data.lastSync
-      ? `Last synced ${synced.format(new Date(data.lastSync))}`
-      : null;
   const count = tourRows.length + rows.length;
-  if (!count && !tours.isError)
-    return (
-      lastSync && (
-        <p className="home-tile-status" role="status">
-          {lastSync}
-        </p>
-      )
-    );
+  if (!count && !tours.isError) return null;
 
   const calendar = `/calendar?${new URLSearchParams({ view: "day", d: today })}`;
   const line = nowLine(rows, now);
@@ -128,7 +110,6 @@ export function TodayMeetings({ data, stale, today }: { data: MeetingRead; stale
           Calendar
         </a>
       </header>
-      {lastSync && <p className="home-tile-status">{lastSync}</p>}
       {tours.isError && <p className="home-tile-status">Tours unavailable.</p>}
       <div className="home-today-list">
         {tourRows.map((tour) => {

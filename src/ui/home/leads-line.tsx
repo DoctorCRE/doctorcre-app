@@ -14,7 +14,7 @@ async function readLeadCounts(): Promise<Counts> {
   return model.leadBadgeCounts(workspace.leads, quiet.proposals);
 }
 
-export function leadsSummary({ newFromEmail, followUpsLate }: Counts) {
+function leadsSummary({ newFromEmail, followUpsLate }: Counts) {
   return [
     newFromEmail && `${newFromEmail} new from email`,
     followUpsLate && `${followUpsLate} ${followUpsLate === 1 ? "follow-up" : "follow-ups"} late`,

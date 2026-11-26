@@ -2091,8 +2091,8 @@ for (const [width, height] of [[1280, 800], [1440, 900]]) for (const theme of ['
   await page.clock.install({ time: now });
   await open('/?mode=live');
   const reminders = page.getByRole('region', { name: 'Reminders', exact: true });
-  const status = page.getByText(/^Last synced/);
-  await status.waitFor();
+  await reminders.getByRole('heading', { name: /^Reminders/ }).waitFor();
+  assert.equal(await page.getByText(/Last synced/).count(), 0);
   if (process.env.HOME_GRID_SCREENSHOTS) {
     await mkdir(process.env.HOME_GRID_SCREENSHOTS, { recursive: true });
     await page.screenshot({ path: join(process.env.HOME_GRID_SCREENSHOTS, `home-alone-${width}x${height}-${theme}.png`) });
@@ -2130,7 +2130,7 @@ for (const [width, height, withMeeting] of [[1280, 800, false], [1440, 900, fals
   for (const box of [first, second]) assert.equal(box.y + box.height, grid.y + grid.height, 'each column reaches the bottom');
   if (meetings.length) {
     const last = await meeting.boundingBox();
-    const [heading, row] = await Promise.all([meeting.getByRole('heading', { name: /^Today's meetings/ }), meeting.locator('.home-meeting')].map(node => node.boundingBox()));
+    const [heading, row] = await Promise.all([meeting.getByRole('heading', { name: /^Today's meetings/ }), meeting.locator('.home-today-row')].map(node => node.boundingBox()));
     assert.ok(row.y + row.height <= last.y + last.height, 'the meetings tile shows its heading and its meeting');
     assert.ok(heading.y >= last.y, 'the meetings heading is not cut off');
   }
@@ -2774,47 +2774,53 @@ async function meetingDashboard(t, calendar, time = NOW, items = []) {
   return { page, meetings: page.getByRole('region', { name: "Today's meetings", exact: true }) };
 }
 
-test('Home meetings rolls over at Central midnight even when the refresh fails', async t => {
+const inboxReview = (page, key) => page.getByRole('region', { name: 'Inbox', exact: true }).locator(`[data-review="${key}"]`);
+
+async function logMeeting(review) {
+  await review.getByRole('button', { name: /^Confirm / }).press('Enter');
+  await review.getByRole('combobox', { name: 'Deal', exact: true }).selectOption(meetingDeal.id);
+  await review.getByRole('button', { name: 'It happened', exact: true }).click();
+}
+
+test('Home meetings rolls over at Central midnight even when the refresh fails, with no sync note', async t => {
   const calendar = { items: [scheduledMeeting] };
   const { page, meetings } = await meetingDashboard(t, calendar, new Date('2026-11-04T05:59:50Z'));
-  await meetings.getByText(scheduledMeeting.title, { exact: true }).waitFor();
+  await meetings.locator('summary').filter({ hasText: scheduledMeeting.title }).waitFor();
   calendar.unavailable = true;
   await page.clock.fastForward(20_000);
   await meetings.waitFor({ state: 'detached' });
-  await page.getByText('Last synced Nov 3, 8:00 AM').waitFor();
   await page.clock.fastForward(60_000);
   await page.getByText('Meetings unavailable.', { exact: true }).waitFor();
-  await page.getByText('Last synced Nov 3, 8:00 AM').waitFor();
+  assert.equal(await page.getByText(/Last synced/).count(), 0);
 });
 
-test('Home keeps a review-only meeting after its outcome is saved and refreshed', async t => {
+test('Home reviews a review-only meeting in Inbox and keeps its row after the answer', async t => {
   const calendar = { follow_up_reviews: [meetingOutcome] };
   const { page, meetings } = await meetingDashboard(t, calendar);
   await page.route('**/api/engine/activities', route => {
     calendar.follow_up_reviews = [];
     return route.fulfill({ status: 201, json: { activity_id: id(91), existing: false } });
   });
-  await meetings.locator('summary').filter({ hasText: scheduledMeeting.title }).press('Enter');
-  await meetings.getByRole('combobox', { name: 'Deal', exact: true }).selectOption(meetingDeal.id);
-  await meetings.getByRole('button', { name: 'It happened', exact: true }).click();
+  const row = meetings.locator('summary').filter({ hasText: scheduledMeeting.title });
+  await row.getByText('Ended', { exact: true }).waitFor();
+  assert.equal(await meetings.getByRole('button', { name: 'It happened', exact: true }).count(), 0);
+  const review = inboxReview(page, scheduledMeeting.key);
+  await logMeeting(review);
   await page.getByText('Meeting logged on Example Dental.', { exact: true }).waitFor();
-  const title = meetings.getByText(scheduledMeeting.title, { exact: true });
-  await title.waitFor();
-  await meetings.getByRole('button', { name: 'It happened', exact: true }).waitFor({ state: 'detached' });
+  await review.waitFor({ state: 'detached' });
   calendar.state = 'partial';
   calendar.observed_at = '2026-11-03T14:01:00Z';
   await page.clock.fastForward(60_000);
-  await meetings.getByText('Last synced Nov 3, 8:01 AM').waitFor();
-  await title.waitFor();
+  await row.waitFor();
+  assert.equal(await page.getByText(/Last synced/).count(), 0);
 });
 
-test('Home replaces meeting details with the newest row for the same key', async t => {
+test('Home replaces meeting details with the newest row for the same key and reviews it in Inbox', async t => {
   const open_url = `/deals?deal=${meetingDeal.id}`;
   const location = 'Cedar Suite lobby';
   const calendar = { items: [{ ...scheduledMeeting, open_url, location, attendees: [{ name: 'Pat Example' }] }] };
   const { page, meetings } = await meetingDashboard(t, calendar);
-  const summary = meetings.locator('summary').filter({ hasText: scheduledMeeting.title });
-  await summary.press('Enter');
+  await meetings.locator('summary').filter({ hasText: scheduledMeeting.title }).press('Enter');
   await meetings.getByText('Pat Example', { exact: true }).waitFor();
 
   const { key, title, start, end } = {
@@ -2829,26 +2835,26 @@ test('Home replaces meeting details with the newest row for the same key', async
   calendar.follow_up_reviews = [{
     key, title, start, end, state: 'needs_review', prompt: 'Confirm whether this meeting happened.',
   }];
-  calendar.state = 'partial';
-  calendar.observed_at = '2026-11-03T15:00:00.000Z';
   await page.clock.fastForward(60_000);
 
   const updated = meetings.locator('details[open]').filter({ has: page.locator('summary').filter({ hasText: title }) });
-  await updated.getByRole('button', { name: 'It happened', exact: true }).waitFor();
+  await updated.waitFor();
   assert.equal(await updated.locator('summary time').getAttribute('datetime'), start);
   assert.equal(await updated.getByText('Pat Example', { exact: true }).count(), 0);
   assert.equal(await updated.getByText(location, { exact: true }).count(), 0);
   assert.equal(await updated.getByRole('link', { name: 'Open deal' }).count(), 0);
+  assert.equal(await meetings.getByRole('button', { name: 'It happened', exact: true }).count(), 0);
+  assert.equal(await inboxReview(page, key).locator('time').getAttribute('datetime'), start);
 });
 
-test('Home puts an overnight outcome on its meeting', async t => {
+test('Home reviews an overnight meeting in Inbox while the tile lists it', async t => {
   const overnight = { ...scheduledMeeting, start: '2026-11-03T05:30:00Z', end: '2026-11-03T06:30:00Z' };
   const { page, meetings } = await meetingDashboard(t, {
     items: [overnight], follow_up_reviews: [{ ...meetingOutcome, ...overnight }],
   });
+  await inboxReview(page, overnight.key).getByRole('button', { name: `Confirm ${overnight.title}` }).waitFor();
   await meetings.locator('summary').filter({ hasText: overnight.title }).press('Enter');
-  await meetings.getByRole('button', { name: 'It happened', exact: true }).waitFor();
-  assert.equal(await page.getByRole('button', { name: `Confirm ${overnight.title}` }).count(), 0);
+  assert.equal(await meetings.getByRole('button', { name: 'It happened', exact: true }).count(), 0);
 });
 
 test('Home keeps same-time Outlook invites separate when attendees and outcomes change', async t => {
@@ -2863,31 +2869,28 @@ test('Home keeps same-time Outlook invites separate when attendees and outcomes 
   calendar.items = [pat, { ...lee, attendees: [{ name: 'Sam Example' }] }];
   calendar.follow_up_reviews = [meetingOutcome];
   await page.clock.fastForward(60_000);
-  const samRow = meetings.locator('details').filter({ hasText: 'Sam Example' });
-  await samRow.getByRole('button', { name: 'It happened', exact: true }).waitFor();
+  await meetings.getByText('Sam Example', { exact: true }).waitFor();
+  await inboxReview(page, lee.key).waitFor();
+  assert.equal(await inboxReview(page, pat.key).count(), 0);
   assert.equal(await meetings.locator('summary').count(), 2);
-  assert.equal(await meetings.locator('details').filter({ hasText: 'Pat Example' })
-    .getByRole('button', { name: 'It happened', exact: true }).count(), 0);
 });
 
 test('Home keeps a legacy invite separate from an outcome with the same title and times', async t => {
   const legacy = { ...scheduledMeeting, key: undefined, attendees: [{ name: 'Pat Example' }] };
-  const { meetings } = await meetingDashboard(t, {
+  const { page, meetings } = await meetingDashboard(t, {
     items: [legacy], follow_up_reviews: [meetingOutcome],
   });
-  await meetings.locator('summary').first().waitFor();
-  for (const summary of await meetings.locator('summary').all()) await summary.press('Enter');
-  const legacyRow = meetings.locator('details').filter({ hasText: 'Pat Example' });
-  await meetings.getByRole('button', { name: 'It happened', exact: true }).waitFor();
-  assert.equal(await legacyRow.getByRole('button', { name: 'It happened', exact: true }).count(), 0);
+  await inboxReview(page, meetingOutcome.key).waitFor();
   assert.equal(await meetings.locator('summary').count(), 2);
+  assert.equal(await page.locator('[data-review]').count(), 1);
 });
 
 test('Home keeps the open meeting outcome and its focus when earlier meetings arrive', async t => {
   const calendar = { items: [scheduledMeeting], follow_up_reviews: [meetingOutcome] };
   const { page, meetings } = await meetingDashboard(t, calendar);
-  await meetings.locator('summary').filter({ hasText: scheduledMeeting.title }).press('Enter');
-  const choice = meetings.getByRole('combobox', { name: 'Deal', exact: true });
+  const review = inboxReview(page, scheduledMeeting.key);
+  await review.getByRole('button', { name: `Confirm ${scheduledMeeting.title}` }).press('Enter');
+  const choice = review.getByRole('combobox', { name: 'Deal', exact: true });
   await choice.selectOption(meetingDeal.id);
   await choice.focus();
   const earlier = Array.from({ length: 3 }, (_, index) => ({
@@ -2913,32 +2916,22 @@ async function meetingWrites(page) {
   return writes;
 }
 
-test('Home shows a meeting moved to today once, on its tile row, and logs the time the row shows', async t => {
+test('Home shows a meeting moved to today once, asks about it in Inbox once it starts, and logs the time the tile shows', async t => {
   const { key } = movedMeeting;
   const { page, meetings } = await meetingDashboard(t, { items: [movedMeeting], follow_up_reviews: [movedReview] });
   const writes = await meetingWrites(page);
-  const inbox = page.getByRole('region', { name: 'Inbox', exact: true });
   const summary = meetings.locator('summary').filter({ hasText: movedMeeting.title });
   await summary.waitFor();
   assert.equal(await summary.count(), 1);
   assert.equal(await summary.locator('time').getAttribute('datetime'), movedMeeting.start);
-  assert.equal(await inbox.locator(`[data-review="${key}"]`).count(), 0);
-  assert.equal(await inbox.getByText(/Tour Cedar Suite/).count(), 0);
   assert.equal(await page.locator(`[data-review="${key}"]`).count(), 0);
-  await summary.press('Enter');
-  const row = meetings.locator('details[open]');
-  await row.waitFor();
-  assert.equal(await row.getByRole('button', { name: 'It happened', exact: true }).count(), 0);
-  assert.equal(await row.getByRole('combobox', { name: 'Deal', exact: true }).count(), 0);
 
   await page.clock.fastForward('03:30:00');
-  const happened = row.getByRole('button', { name: 'It happened', exact: true });
-  await happened.waitFor();
-  assert.equal(await inbox.locator(`[data-review="${key}"]`).count(), 0);
-  assert.equal(await inbox.getByText(/Tour Cedar Suite/).count(), 0);
+  const review = inboxReview(page, key);
+  await review.waitFor();
   assert.equal(await page.locator(`[data-review="${key}"]`).count(), 1);
-  await row.getByRole('combobox', { name: 'Deal', exact: true }).selectOption(meetingDeal.id);
-  await happened.click();
+  assert.equal(await meetings.getByRole('button', { name: 'It happened', exact: true }).count(), 0);
+  await logMeeting(review);
   await page.getByText('Meeting logged on Example Dental.', { exact: true }).waitFor();
   assert.equal(writes.length, 1);
   assert.equal(writes[0].calendar_review_key, key);
@@ -2949,16 +2942,11 @@ test('Home logs the tile time when a meeting and its outcome are both today at d
   const item = { ...scheduledMeeting, start: '2026-11-03T15:00:00Z', end: '2026-11-03T16:00:00Z' };
   const { page, meetings } = await meetingDashboard(t, { items: [item], follow_up_reviews: [meetingOutcome] });
   const writes = await meetingWrites(page);
-  const inbox = page.getByRole('region', { name: 'Inbox', exact: true });
   const summary = meetings.locator('summary');
-  await summary.filter({ hasText: item.title }).press('Enter');
-  const happened = meetings.getByRole('button', { name: 'It happened', exact: true });
-  await happened.waitFor();
+  await summary.filter({ hasText: item.title }).waitFor();
   assert.equal(await summary.count(), 1);
   assert.equal(await summary.locator('time').getAttribute('datetime'), item.start);
-  assert.equal(await inbox.locator(`[data-review="${item.key}"]`).count(), 0);
-  await meetings.getByRole('combobox', { name: 'Deal', exact: true }).selectOption(meetingDeal.id);
-  await happened.click();
+  await logMeeting(inboxReview(page, item.key));
   await page.getByText('Meeting logged on Example Dental.', { exact: true }).waitFor();
   assert.equal(writes.length, 1);
   assert.equal(writes[0].happened_at, '2026-11-03T15:00:00.000Z');
@@ -2972,7 +2960,7 @@ test('Home keeps an earlier outcome in Inbox and a later one off Home', async t 
   const { page, meetings } = await meetingDashboard(t, { items: [scheduledMeeting], follow_up_reviews: [earlier, later] });
   const writes = await meetingWrites(page);
   const inbox = page.getByRole('region', { name: 'Inbox', exact: true });
-  const earlierReview = inbox.locator(`[data-review="${earlier.key}"]`);
+  const earlierReview = inboxReview(page, earlier.key);
   await earlierReview.waitFor();
   await meetings.locator('summary').filter({ hasText: scheduledMeeting.title }).waitFor();
   assert.equal(await page.locator(`[data-review="${earlier.key}"]`).count(), 1);
@@ -2980,28 +2968,24 @@ test('Home keeps an earlier outcome in Inbox and a later one off Home', async t 
   assert.equal(await page.locator(`[data-review="${later.key}"]`).count(), 0);
   assert.equal(await meetings.getByText(later.title).count(), 0);
   assert.equal(await inbox.getByText(later.title).count(), 0);
-  await earlierReview.getByRole('button', { name: `Confirm ${earlier.title}` }).press('Enter');
-  await earlierReview.getByRole('combobox', { name: 'Deal', exact: true }).selectOption(meetingDeal.id);
-  await earlierReview.getByRole('button', { name: 'It happened', exact: true }).click();
+  await logMeeting(earlierReview);
   await page.getByText('Meeting logged on Example Dental.', { exact: true }).waitFor();
   assert.equal(writes.length, 1);
   assert.equal(writes[0].calendar_review_key, earlier.key);
   assert.equal(writes[0].happened_at, '2026-11-02T19:00:00.000Z');
 });
 
-test('Home moves an unanswered moved meeting to Inbox after Central midnight', async t => {
+test('Home keeps an unanswered moved meeting in Inbox through Central midnight', async t => {
   const { key } = movedMeeting;
   const calendar = { items: [movedMeeting], follow_up_reviews: [movedReview] };
   const { page, meetings } = await meetingDashboard(t, calendar, new Date('2026-11-04T05:59:50Z'));
-  const inbox = page.getByRole('region', { name: 'Inbox', exact: true });
+  const review = inboxReview(page, key);
   await meetings.locator('summary').filter({ hasText: movedMeeting.title }).waitFor();
-  assert.equal(await inbox.locator(`[data-review="${key}"]`).count(), 0);
+  assert.equal(await review.locator('time').getAttribute('datetime'), movedMeeting.start);
   calendar.items = [];
   await page.clock.fastForward(20_000);
   await page.clock.fastForward(60_000);
   await meetings.waitFor({ state: 'detached' });
-  const review = inbox.locator(`[data-review="${key}"]`);
-  await review.waitFor();
   assert.equal(await page.locator(`[data-review="${key}"]`).count(), 1);
   assert.equal(await review.locator('time').getAttribute('datetime'), movedReview.start);
 });
@@ -3011,9 +2995,8 @@ test('Home with meetings and a late reminder keeps the Today rail hidden and nev
   const { page, meetings } = await meetingDashboard(t, { items: [movedMeeting], follow_up_reviews: [movedReview, earlier] },
     NOW, [step(1, 'Send the signed lease', { due_on: '2026-10-31', days_late: 3 })]);
   const reminders = page.getByRole('region', { name: 'Reminders', exact: true });
-  const inbox = page.getByRole('region', { name: 'Inbox', exact: true });
   await reminders.getByText(/3 days late/).waitFor();
-  await inbox.locator(`[data-review="${earlier.key}"]`).waitFor();
+  await inboxReview(page, earlier.key).waitFor();
   await meetings.locator('summary').filter({ hasText: movedMeeting.title }).waitFor();
   assert.equal(await page.locator('#appToday').isVisible(), false);
   assert.equal(await page.getByRole('heading', { name: 'Meetings', exact: true }).count(), 0);
@@ -3061,22 +3044,20 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   await page.clock.install({ time: NOW });
   await open('/?mode=live');
   const meetings = page.getByRole('region', { name: "Today's meetings", exact: true });
-  const reminders = page.getByRole('region', { name: 'Reminders', exact: true });
   const inbox = page.getByRole('region', { name: 'Inbox', exact: true });
+  const rows = meetings.locator('summary');
   await meetings.getByRole('heading', { name: "Today's meetings 6" }).waitFor();
-  await inbox.getByRole('heading', { name: 'Inbox 1', exact: true }).waitFor();
-  await meetings.getByText('Last synced Nov 3, 8:00 AM').waitFor();
-  assert.equal(await meetings.getByText(current.title, { exact: true }).count(), 1);
-  assert.equal(await meetings.getByText(laterDay.title, { exact: true }).count(), 0);
-  assert.equal(await meetings.locator('summary').count(), 5);
+  await inbox.getByRole('heading', { name: 'Inbox 2', exact: true }).waitFor();
+  assert.equal(await page.getByText(/Last synced/).count(), 0);
+  assert.equal(await rows.count(), 6);
+  assert.equal(await rows.filter({ hasText: current.title }).count(), 1);
+  assert.equal(await rows.filter({ hasText: laterDay.title }).count(), 0);
+  assert.equal(await rows.filter({ hasText: earlier.title }).count(), 0);
   assert.equal(await meetings.getByText('7:30 AM', { exact: true }).count(), 1);
-  const sixth = meetings.getByText(later[4].title, { exact: true });
-  assert.equal(await sixth.count(), 0);
-  await meetings.getByRole('button', { name: 'See all 6' }).click();
-  await sixth.waitFor();
-  await meetings.getByRole('button', { name: 'Show less' }).click();
-  await sixth.waitFor({ state: 'detached' });
-  assert.equal(await meetings.getByText(earlier.title, { exact: true }).count(), 0);
+  assert.equal(await meetings.getByRole('button', { name: 'It happened', exact: true }).count(), 0);
+  const day = `/calendar?view=day&d=2026-11-03`;
+  assert.equal(await meetings.getByRole('link', { name: "Today's meetings", exact: true }).getAttribute('href'), day);
+  assert.equal(await meetings.getByRole('link', { name: /^Calendar/ }).getAttribute('href'), day);
   assert.equal(await page.locator('#appToday').isVisible(), false);
   assert.equal(await page.locator('.app-shell-search').count(), 1);
   assert.equal(await page.getByRole('button', { name: 'Search and quick switcher' }).isVisible(), true);
@@ -3091,10 +3072,12 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
     await page.screenshot({ path: join(process.env.HOME_MEETING_SCREENSHOTS, `home-meetings-${width}-${theme}.png`), fullPage: true });
     if (width === 390) await page.setViewportSize({ width, height: 760 });
   }
-  await meetings.locator('summary').filter({ hasText: current.title }).press('Enter');
+  await rows.filter({ hasText: current.title }).press('Enter');
   await meetings.getByText('Pat Example', { exact: true }).waitFor();
   assert.equal(await meetings.getByRole('link', { name: 'Open deal' }).getAttribute('href'), current.open_url);
-  const choose = meetings.getByRole('combobox', { name: 'Deal', exact: true });
+  const review = inbox.locator(`[data-review="${completed.key}"]`);
+  await review.getByRole('button', { name: `Confirm ${current.title}` }).press('Enter');
+  const choose = review.getByRole('combobox', { name: 'Deal', exact: true });
   await choose.selectOption(deal.id);
   await choose.focus();
   meetingError = true;
@@ -3102,8 +3085,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   await page.getByText('Meetings unavailable.', { exact: true }).waitFor();
   assert.equal(await choose.inputValue(), deal.id);
   assert.equal(await choose.evaluate(node => node === document.activeElement), true);
-  assert.equal(await inbox.getByRole('heading', { name: 'Inbox 1', exact: true }).count(), 1);
-  await meetings.getByRole('button', { name: 'It happened', exact: true }).click();
+  await review.getByRole('button', { name: 'It happened', exact: true }).click();
   await page.getByText('Meeting logged on Example Dental.', { exact: true }).waitFor();
   assert.equal(writes.length, 1);
   assert.equal(writes[0].calendar_review_key, completed.key);
@@ -3119,9 +3101,9 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   await page.clock.fastForward(60_000);
   await page.getByText('Meetings unavailable.', { exact: true }).waitFor({ state: 'detached' });
   await meetings.getByRole('heading', { name: "Today's meetings 1" }).waitFor();
-  await meetings.getByText(current.title, { exact: true }).waitFor();
-  assert.equal(await meetings.getByText(laterDay.title, { exact: true }).count(), 0);
-  assert.equal(await inbox.count(), 0, 'the dismissed review leaves Inbox empty');
+  await rows.filter({ hasText: current.title }).waitFor();
+  assert.equal(await rows.filter({ hasText: laterDay.title }).count(), 0);
+  assert.equal(await inbox.count(), 0, 'the answered and dismissed reviews leave Inbox empty');
 });
 
 async function homeDropFixture(t, width, { items, invalidDrop = false, theme, path = '/' } = {}) {

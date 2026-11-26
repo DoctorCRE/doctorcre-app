@@ -27,7 +27,8 @@ import {
   type TaskReceipt,
   taskCommand,
 } from "./inbox";
-import { earlierMeetingReviews, MeetingReview, MeetingTile, readMeetings } from "./meetings";
+import { LeadsLine } from "./leads-line.tsx";
+import { MeetingReview, readMeetings, useMeetingOutcomes } from "./meetings";
 import { ReviewCard, reviewDispositionLabel } from "./review-card";
 import { recordPages, recordRoutes } from "./routes";
 import {
@@ -42,6 +43,7 @@ import {
   tileOf,
 } from "./sections";
 import { sourceExcerptText } from "./source-excerpt.ts";
+import { TodayMeetings } from "./today-meetings.tsx";
 
 type SnoozePreview = Readonly<{
   items: readonly InboxItem[];
@@ -201,6 +203,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     setNoticeAlert(false);
     setNotice(message);
   }, []);
+  const meetingOutcomes = useMeetingOutcomes(meetings.data, meetingDay, handledMeetings);
   useEffect(() => {
     const host = document.getElementById("homeRoot");
     if (home && !query.isPending && host) markHomeReady(host);
@@ -1344,7 +1347,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
               items={tiles.inbox}
               pinned={pinnedTile === "inbox" ? reviewing : null}
               current={reviewing?.item_id || item_id}
-              after={earlierMeetingReviews(meetings.data, meetingDay, handledMeetings).map((review) => (
+              after={meetingOutcomes.map((review) => (
                 <MeetingReview key={review.key} data={meetings.data} review={review} finish={finishMeeting} />
               ))}
               row={row}
@@ -1359,15 +1362,8 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
           </div>
           <div className="home-column home-side">
             {engineHome && meetings.isPending && <PlaceholderTile />}
-            {meetings.data && (
-              <MeetingTile
-                data={meetings.data}
-                stale={meetings.isError}
-                today={meetingDay}
-                handled={handledMeetings}
-                finish={finishMeeting}
-              />
-            )}
+            {meetings.data && <TodayMeetings data={meetings.data} today={meetingDay} />}
+            {engineHome && <LeadsLine />}
           </div>
         </HomeGrid>
       )}
