@@ -1300,7 +1300,11 @@ test("The conversation is one column: the question boxed on the right, Doc's ans
     { ref: { kind: "email", id }, label: "Lease draft timing", href: "/inbox" },
   ];
   const turns = [
-    turn(1, { answer: { ...answeredTurn.answer, sources }, answered_by: "backup" }),
+    turn(1, {
+      question: `${question} And which of them still need a signed lease, an updated rent roll or a tenant estoppel before they can close?`,
+      answer: { ...answeredTurn.answer, sources },
+      answered_by: "backup",
+    }),
     turn(2, { state: "failed", answer: null }),
     turn(3, { state: "queued", answer: null, waiting_reason: "Doc answers when your Mac is on." }),
     turn(4, { state: "working", answer: null }),
@@ -1318,6 +1322,7 @@ test("The conversation is one column: the question boxed on the right, Doc's ans
   await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
   const working = page.getByText(/^Doc is working · /);
   await expect(working).toHaveText("Doc is working · 12s");
+  await expect(working).toHaveAttribute("aria-live", "off");
   await page.clock.runFor(3000);
   await expect(working).toHaveText("Doc is working · 15s");
   await expect(page.getByText("Doc couldn’t answer.")).toBeVisible();
@@ -1339,10 +1344,38 @@ test("The conversation is one column: the question boxed on the right, Doc's ans
   const answer = page.getByText(answeredTurn.answer.text, { exact: true });
   assert.equal(column.width, 728, "the conversation is a 728px column");
   assert.ok(Math.abs(asking.x + asking.width - (column.x + column.width)) <= 1, "the question sits on the right");
+  assert.ok(asking.width > column.width * 0.7, "the question is long enough to need the cap");
   assert.ok(asking.width <= column.width * 0.8, "the question box is at most 80% of the column");
   assert.ok(Math.abs((await box(answer)).x - column.x) <= 1, "the answer starts at the column's left edge");
   await expect(answer).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await expect(answer).toHaveCSS("padding-left", "0px");
+});
+
+test("A failed answer has its Retry on the same line, and a short chat starts at the top", async (t) => {
+  const { page, origin } = await docChatFixture(
+    t,
+    (request) =>
+      new URL(request.url).pathname === "/api/engine/doc/conversations"
+        ? Response.json({ conversations: [conversation], next_before: null })
+        : Response.json({
+            conversation,
+            turns: [{ ...answeredTurn, idempotency_key: id, state: "failed", answer: null }],
+          }),
+    undefined,
+    { viewport: { width: 1440, height: 900 }, hasTouch: false },
+  );
+  await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
+  const failed = page.getByText("Doc couldn’t answer.");
+  const retry = page.getByRole("button", { name: "Retry", exact: true });
+  await expect(retry).toBeVisible();
+  const line = await failed.boundingBox();
+  const button = await retry.boundingBox();
+  const pane = await page.locator(".doc-chat__scroll").boundingBox();
+  assert.ok(line && button && pane);
+  assert.ok(button.y < line.y + line.height && button.y + button.height > line.y, "Retry shares the failed line");
+  assert.ok(button.x - (line.x + line.width) < 80, "Retry sits next to the failed line, not at the far edge");
+  const asking = await page.locator(".doc-chat__question").boundingBox();
+  assert.ok(asking && asking.y - pane.y < 24, "a short chat starts at the top of the conversation");
 });
 
 test("On a phone the chats slide in over the conversation and close from the dimmed side", async (t) => {

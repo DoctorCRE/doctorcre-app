@@ -328,16 +328,31 @@ function Sources({ sources }: { sources: z.infer<typeof source>[] }) {
 }
 
 // Where the answer will land: a spinner while Doc works, a still dot with the reason while it waits or failed.
-function TurnStatus({ turn, now }: { turn: Turn; now: number }) {
+function TurnStatus({
+  turn,
+  now,
+  onResend,
+  busy,
+}: {
+  turn: Turn;
+  now: number;
+  onResend?: (() => void) | undefined;
+  busy: boolean;
+}) {
   if (turn.state === "failed")
     return (
       <p className="doc-chat__status" data-tone="failed">
         Doc couldn’t answer.
+        {onResend && (
+          <button className="btn" type="button" disabled={busy} onClick={onResend}>
+            Retry
+          </button>
+        )}
       </p>
     );
   if (turn.waiting_reason) return <p className="doc-chat__status">{turn.waiting_reason}</p>;
   return (
-    <p className="doc-chat__status" data-tone="working">
+    <p className="doc-chat__status" data-tone="working" aria-live="off">
       <Icon path={icons.spinner} />
       Doc is working · {elapsed(turn.created_at, now)}
     </p>
@@ -639,6 +654,8 @@ function DocChat() {
             : latest.context && { context: latest.context }),
         }
       : null);
+  const canRetry = retry && !reviewReason && status !== "loadFailed";
+  const inlineResend = canRetry && !pendingAsk ? () => send(retry) : undefined;
   const questionLength = [...question].length;
   const canSend =
     ready &&
@@ -977,7 +994,14 @@ function DocChat() {
                         )}
                       </>
                     ) : (
-                      turn.state !== "answered" && <TurnStatus turn={turn} now={now} />
+                      turn.state !== "answered" && (
+                        <TurnStatus
+                          turn={turn}
+                          now={now}
+                          onResend={turn === latest ? inlineResend : undefined}
+                          busy={busy}
+                        />
+                      )
                     )}
                     {turn.confirmation ? (
                       <SavedProposal result={turn.confirmation} />
@@ -1013,7 +1037,7 @@ function DocChat() {
                 Retry loading
               </button>
             )}
-            {retry && !reviewReason && status !== "loadFailed" && (
+            {canRetry && pendingAsk && (
               <button className="btn" type="button" disabled={busy} onClick={() => send(retry)}>
                 Retry
               </button>
