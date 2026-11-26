@@ -131,9 +131,9 @@ test("Calendar month grid marks today, marks chips by kind, folds overflow and t
           await expect(chips).toHaveCount(6);
           await expect(page.locator(".cal-pulse").filter({ visible: true })).toHaveCount(0);
 
-          const late = grid.getByRole("button", { name: "1 late step", exact: true });
-          await expect(late).toHaveAttribute("data-kind", "late");
-          await expect(late).toHaveText("1 late");
+          const late = today.getByRole("button", { name: /^Next step · Synthetic late step/ });
+          await expect(late).toHaveAttribute("data-band", "overdue");
+          await expect(late).toHaveText("Synthetic late step");
           const danger = await page.evaluate(() => {
             const probe = document.body.appendChild(document.createElement("i"));
             probe.style.color = "var(--status-danger-ink)";
