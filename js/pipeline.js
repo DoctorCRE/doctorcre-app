@@ -4,6 +4,7 @@ import { mountWatchControl } from './ui-watches.generated.js';
 import { redactEmailAddresses, suggestionEmail } from './ui-deal-suggestion-email.generated.js';
 import { createMcpRequests } from './mcp-requests.mjs';
 import { dealPathHtml, pathQuestionHtml } from './ui-deal-path.generated.js';
+import { clientPortalHtml, copyClientLink } from './ui-deal-client-portal.generated.js';
 import { workCard } from './work-card.js';
 import { bindCardQuickMenu } from './ui-card-menu.generated.js';
 import {
@@ -1942,7 +1943,6 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
     : parkingNote ? `<p>${esc(parkingNote)}</p>${parker}` : parker || '<p>Parked</p>';
   const controlsAvailable = (state.deals.has(d.id) || (state.nextDealSaves && Number.isSafeInteger(d.seen))) && !ended;
   const canAddCriticalDate = detail.next_deal_saves === true && Number.isSafeInteger(d.seen);
-  const websiteLink = fromEngine ? renderClientPortalLink(d.client_portal_url, d.id) || '<p>No client website linked.</p>' : '';
   const phaseMove = detailPhaseMoveHtml(detail);
   const websiteSetup = !d.client_portal_url && (fromEngine ? detail.next_deal_saves && d.client_id : controlsAvailable)
     ? clientPortalSetupHtml() : '';
@@ -1952,7 +1952,6 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
     ${fromEngine ? `<p id="detailStepStatus" role="status"></p><div class="deal-parked-line" data-detail-read="parked">${parked ? `${parkingSummary}${controlsAvailable ? `<button type="button" class="btn" data-revive="${esc(d.id)}">Revive</button>` : ''}` : ''}</div>` : ''}
     <div data-detail-read="path">${dealPathHtml({ phases: COLUMNS, current: columnByValue(d.phase)?.slug ?? null, checklist: detail.checklist, showTodos: fromEngine, today, canMove: controlsAvailable && !parked, receiptHtml: fromEngine ? phaseMove : '', focusedItem: focusedChecklistItem(d.id) })}</div><section class="deal-opening-snapshot" aria-label="Deal snapshot">
       <div data-detail-read="step-overview">
-      ${websiteLink}
       ${renderInvoiceClose(d, state.nextDealSaves)}
       ${!fromEngine && phaseMove ? `<div data-phase-move aria-live="polite">${phaseMove}</div>` : ''}
       ${!fromEngine && ended && (nextStep || otherActions.length) ? `<section aria-labelledby="ended-deal-steps"><h3 id="ended-deal-steps">Open before this deal ended</h3>${stepSummary}</section>` : stepSummary}
@@ -1982,7 +1981,7 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
     <div data-detail-read="updates">${renderDealUpdates(detail, Date.now(), { engineSignIn: engineMode, noteHtml: text => linkRecordNames(text, detail.record_links) })}</div>
     ${fromEngine ? `<div class="deal-park-line" data-detail-read="parking" data-parked="${parked}" data-next-parking="${nextParking}" data-available="${controlsAvailable}">${controlsAvailable && !parked ? parkFormHtml(nextParking) : ''}</div>` : ''}</section>
     <section id="workspace-documents" role="tabpanel" aria-labelledby="tab-documents" hidden>${fromEngine ? `<h2>Documents</h2>${detail.next_deal_saves ? '<div id="deal-document-upload"></div>' : ''}<div data-detail-read="filed-documents">${filedDocumentsHtml(detail.documents)}</div>` : ''}</section>
-    <section id="workspace-client-portal" role="tabpanel" aria-labelledby="tab-client-portal" hidden>${fromEngine ? `<div data-detail-read="client-website">${websiteLink}</div>` : ''}</section>
+    <section id="workspace-client-portal" role="tabpanel" aria-labelledby="tab-client-portal" hidden>${fromEngine ? `<div data-detail-read="client-website">${clientPortalHtml({ deal: d.id, url: d.client_portal_url, clientName: d.client_name })}</div>` : ''}</section>
     <section id="workspace-tours" role="tabpanel" aria-labelledby="tab-tours" hidden>${engineMode ? '<p>Not available yet</p>' : ''}</section>
     <section id="workspace-activity" role="tabpanel" aria-labelledby="tab-activity" hidden><div data-detail-read="events">${workspaceEventsHtml(detail, nextItem, fromEngine, planTours)}</div>${fromEngine ? `<div data-detail-read="old-history">${renderImportedDealHistory(detail.imported_deal_history)}</div>` : renderDealTimeline(detail)}
       <h2>Correspondence &amp; notes</h2>
@@ -2746,6 +2745,8 @@ function wire() {
       const interactive = event.target.closest('button, a, input, select, textarea, summary, [tabindex]:not([tabindex="-1"])');
       closePathQuestion({ focus: !interactive });
     }
+    const copyLink = event.target.closest('button[data-copy-client-link]');
+    if (copyLink) { copyClientLink(copyLink, navigator.clipboard); return; }
     const website = event.target.closest('[data-open-client-website]');
     if (website) {
       const id = website.dataset.openClientWebsite;

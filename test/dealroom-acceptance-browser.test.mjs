@@ -2469,7 +2469,6 @@ test('switched-on Deals sets up a client website and opens it unlocked in a new 
 
   await page.goto(`${origin}/deals?deal=${deal}&mode=live`);
   const overview = page.getByRole('tabpanel', { name: 'Overview' });
-  await overview.getByText('No client website linked.', { exact: true }).waitFor();
   await overview.getByText('Set up client website', { exact: true }).click();
   const passwordInput = overview.getByLabel('Password', { exact: true });
   const nameInput = overview.getByLabel('Website name', { exact: true });
@@ -2483,13 +2482,13 @@ test('switched-on Deals sets up a client website and opens it unlocked in a new 
   await passwordInput.fill(password);
   await save.click();
 
-  const open = overview.getByRole('button', { name: /Client website.*opens in a new tab/ });
+  await overview.getByText('Set up client website', { exact: true }).waitFor({ state: 'detached' });
+  assert.equal(await overview.getByText(/Client website/).count(), 0, 'the Overview has no website link');
+  await page.getByRole('tab', { name: 'Client portal', exact: true }).click();
+  const portal = page.getByRole('tabpanel', { name: 'Client portal' });
+  const open = portal.getByRole('button', { name: /^Open as client/ });
   await open.waitFor();
-  assert.equal(await open.count(), 1);
-  assert.equal(await open.evaluate(button => getComputedStyle(button).textDecorationLine), 'underline');
-  await overview.getByRole('region', { name: 'Deal snapshot' }).screenshot({ path: join(evidence, 'client-website-deal.png') });
-  assert.equal(await overview.getByText('Set up client website', { exact: true }).count(), 0);
-  assert.equal(await overview.getByText('No client website linked.', { exact: true }).count(), 0);
+  await portal.screenshot({ path: join(evidence, 'client-website-deal.png') });
   const popupOpened = page.waitForEvent('popup');
   await open.click();
   const popup = await popupOpened;
@@ -2559,8 +2558,8 @@ for (const [blocked, toast] of [
       requests.push(route.request().method());
       return route.fulfill({ status: 404, json: { error: 'not_found' } });
     });
-    await page.goto(`${origin}/deals?deal=${deal}&mode=live`);
-    await page.getByRole('tabpanel', { name: 'Overview' }).getByRole('button', { name: /Client website/ }).click();
+    await page.goto(`${origin}/deals?deal=${deal}&tab=client-portal&mode=live`);
+    await page.getByRole('tabpanel', { name: 'Client portal' }).getByRole('button', { name: /^Open as client/ }).click();
     await page.getByText(toast, { exact: true }).waitFor();
     assert.deepEqual(requests, blocked ? [] : ['POST']);
     assert.equal(page.context().pages().length, 1);
@@ -2583,7 +2582,10 @@ for (const [width, readsOn, savesOn] of [
     const grants = () => enginePaths.filter(path => path.endsWith('/client-website/open'));
     assert.deepEqual(grants(), []);
     await card.click();
-    const open = page.getByRole('region', { name: 'Deal snapshot' }).getByRole(readsOn ? 'button' : 'link', { name: /Client website/ });
+    if (readsOn) await page.getByRole('tab', { name: 'Client portal', exact: true }).click();
+    const open = readsOn
+      ? page.getByRole('tabpanel', { name: 'Client portal' }).getByRole('button', { name: /^Open as client/ })
+      : page.getByRole('region', { name: 'Deal snapshot' }).getByRole('link', { name: /Client website/ });
     await open.focus();
     const popupOpened = page.waitForEvent('popup');
     await page.keyboard.press('Enter');
@@ -3620,9 +3622,9 @@ for (const width of [1440, 390]) {
       route.fulfill({ body: '<h1>Example client website</h1>', contentType: 'text/html' }));
     await page.goto(`${fixtureOrigin}/deals?deal=${deal}&tab=client-portal&mode=live`);
     const view = page.getByRole('tabpanel', { name: 'Client portal' });
-    const open = view.getByRole('button', { name: /Client website/ });
+    const open = view.getByRole('button', { name: /^Open as client/ });
     await open.waitFor();
-    assert.deepEqual(await view.getByRole('button').allTextContents(), ['Client website (opens in a new tab)']);
+    assert.deepEqual((await view.getByRole('button').allTextContents()).slice(0, 2), ['Copy client link', 'Open as client (opens in a new tab)']);
     await page.route('http://127.0.0.1:4682/api/state', route => route.fulfill({ json: { state: 'idle' } }));
     await page.getByRole('button', { name: /account and settings/i }).click();
     await page.getByRole('button', { name: 'Check call recorder status' }).click();
@@ -3654,7 +3656,7 @@ for (const [width, savesOn] of [[1440, true], [390, true], [390, false]]) {
     const { page, deal } = await clientWebsitePage(t, { closed: true, savesOn, linked: false, width, fixtureOrigin });
     await page.goto(`${fixtureOrigin}/deals?deal=${deal}&mode=live`);
     const overview = page.getByRole('tabpanel', { name: 'Overview' });
-    await overview.getByText('No client website linked.', { exact: true }).waitFor();
+    await overview.locator('[data-detail-read="path"]').waitFor();
     const setup = overview.getByText('Set up client website', { exact: true });
     if (savesOn) {
       await setup.click();
