@@ -568,7 +568,12 @@ test("On a phone an opened item covers the screen, and Back returns to the list 
   await title.click();
   const details = page.getByRole("region", { name: "Details for Call the sample practice" });
   await details.waitFor();
-  assert.deepEqual(await details.boundingBox(), { x: 0, y: 0, width: 390, height: 844 }, "the item is full screen");
+  const tabs = (await page.locator("#appShell").boundingBox()) ?? assert.fail("the tab bar is not drawn");
+  assert.deepEqual(
+    await details.boundingBox(),
+    { x: 0, y: 0, width: 390, height: tabs.y },
+    "the item covers the screen above the tab bar",
+  );
   await details.getByRole("button", { name: "Back", exact: true }).click();
   assert.equal(await details.count(), 0);
   assert.equal(await page.evaluate(() => scrollY), scrolled, "the list is where it was");

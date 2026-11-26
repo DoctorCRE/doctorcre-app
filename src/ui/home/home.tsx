@@ -862,8 +862,8 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
       </button>
     );
     const tile = home ? tileOf(item) : null;
-    // The pane's Mark done is the same save as the row's circle.
-    const paneDone = tile === "reminders" && completable && !tourDone && (
+    // The pane's Mark done is the same save as the row's circle; a loaded review offers its own.
+    const paneDone = tile === "reminders" && completable && !tourDone && !reviewClient && (
       <button type="button" className="inbox-primary" disabled={busy} onClick={() => finish(item, "complete")}>
         Mark done
       </button>

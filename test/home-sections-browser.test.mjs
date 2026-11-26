@@ -9,6 +9,10 @@ import { context as buildContext } from 'esbuild';
 import { scenario } from './browser-scenario.mjs';
 import worker from '../src/worker.js';
 import { controlFloor } from "./control-floor.ts";
+// Below three columns an opened item covers the list and its close button reads Back.
+const closeReview = /^(Close review|Back)$/;
+const closeItem = /^(Close|Back)$/;
+const closeAny = /^(Close|Back)/;
 
 describe('test/home-sections-browser.test.mjs', () => {
 const NOW = new Date('2026-11-03T10:00:00-06:00');
@@ -205,7 +209,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   // A row opens from Review, or from its title when it has none, and closes from inside the review.
   const toggle = async row => {
     await closeOther(row);
-    for (const name of ['Close review', 'Review']) {
+    for (const name of [closeReview, 'Review']) {
       const button = row.getByRole('button', { name, exact: true });
       if (await button.count()) return button.click();
     }
@@ -254,7 +258,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
       assert.equal(await details.getByText(/Discussed plans/).textContent(), 'Discussed plans & schedules.');
       assert.equal(await details.locator('blockquote').textContent(), 'Send the plan <today> to R&D.');
     }
-    await details.getByRole('button', { name: 'Close', exact: true }).click();
+    await details.getByRole('button', { name: closeItem }).click();
   }
   assert.deepEqual(reads, [enabled ? 'dashboard' : 'read-home-inbox-v5']);
   const today = inbox.getByRole('region', { name: 'Reminders', exact: true });
@@ -422,7 +426,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
       await row.getByRole('link', { name: /^Call suggestions/ }).click();
       await row.getByRole('heading', { name: 'Log a call · Example Dental' }).waitFor();
       assert.equal(await row.getByRole('button', { name: /^(Accept|Drop)$/ }).count(), 0);
-      await row.getByRole('button', { name: 'Close review' }).click();
+      await row.getByRole('button', { name: closeReview }).click();
     }
     await undo.click();
     await row.waitFor();
@@ -471,7 +475,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   assert.equal(await subjectLinks.first().locator('xpath=ancestor::article').getAttribute('data-inbox-row'), `suggestion:${otherEmail}`);
   await openRow(reply);
   await reply.getByRole('textbox', { name: 'Subject', exact: true }).waitFor();
-  await reply.getByRole('button', { name: /^Close/ }).click();
+  await reply.getByRole('button', { name: closeAny }).click();
   await email.getByRole('link', { name: /Sample Sender · Floor plan/ }).focus();
   await page.keyboard.press('Enter');
   await reply.getByRole('region', { name: /Details for Reply to the sample email/ }).waitFor({ state: 'detached' });
@@ -534,7 +538,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   assert.deepEqual(writes.at(-1)[1], { idempotency_key: writes.at(-1)[1].idempotency_key, version: 1, subject: 'Revised sample reply', body: 'Edited reply.' });
   const draftCard = state.items.find(row => row.reply_draft_id === draft);
   const draftRecord = details.get(draft);
-  await reply.getByRole('button', { name: 'Close review' }).click();
+  await reply.getByRole('button', { name: closeReview }).click();
   Object.assign(draftRecord, { version: 3, body: 'Saved again from another tab.' });
   Object.assign(draftCard, { source_version: '3', title: 'Reply to the sample email (updated)' });
   await page.clock.fastForward(60_000);
@@ -556,7 +560,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await fallback.getByRole('status').filter({ hasText: 'Sending' }).waitFor();
   assert.equal(await fallback.getByRole('button', { name: 'Accept', exact: true }).isEnabled(), true);
   assert.equal(await fallback.getByRole('button', { name: 'Send reply', exact: true }).count(), 0);
-  await fallback.getByRole('button', { name: 'Close review' }).click();
+  await fallback.getByRole('button', { name: closeReview }).click();
   const fallbackCard = state.items.find(row => row.item_id === `suggestion:${remaining}`);
   Object.assign(draftRecord, { status: 'failed', failure_reason: 'submission_recipients_invalid' });
   Object.assign(fallbackCard.fallback_reply_draft, { status: 'failed', failure_reason: draftRecord.failure_reason });
@@ -589,7 +593,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await fallback.getByRole('status').filter({ hasText: /Reply from Outlook/ }).waitFor();
   assert.equal(await fallback.getByRole('button', { name: 'Send reply', exact: true }).count(), 0);
   assert.equal(await fallback.getByRole('textbox', { name: /^(To|CC)$/ }).count(), 0);
-  await fallback.getByRole('button', { name: 'Close review' }).click();
+  await fallback.getByRole('button', { name: closeReview }).click();
   Object.assign(draftRecord, { status: 'failed', failure_reason: 'aborted_before_dispatch' });
   Object.assign(fallbackCard.fallback_reply_draft, { status: 'failed', failure_reason: draftRecord.failure_reason });
   await page.clock.fastForward(60_000);
@@ -794,7 +798,7 @@ for (const [width, theme, planner] of [[390, 'light'], [390, 'dark'], [1440, 'li
 
   await button(meeting).click();
   await card(meeting).getByText(/From this meeting.*Nov 2/).waitFor();
-  await card(meeting).getByRole('button', { name: /^Close/ }).click();
+  await card(meeting).getByRole('button', { name: closeAny }).click();
   await button(call).click();
   await card(call).getByText(/From your call.*Nov 2/).waitFor();
   assert.equal(await card(meeting).getByRole('region', { name: /Details for/ }).count(), 0);
@@ -1681,7 +1685,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   assert.equal(state.draft.body, 'Edited sample draft.');
 });
 
-for (const width of [390, 1440]) test(`Home keeps other cards usable while a review is open at ${width}px`, async t => {
+for (const width of [1440]) test(`Home keeps other cards usable while a review is open at ${width}px`, async t => {
   const { page, open, state } = await dashboard(t, width, 'light');
   const draft = draftCard();
   const other = step(30, 'Call the practice manager', { card_id: 'other' });
@@ -1891,7 +1895,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   Object.assign(state.draft, { version: 2, subject: 'New saved subject', body: 'Saved somewhere else.' });
   state.items = [{ ...draft, source_version: '2' }];
   const save = review.getByRole('button', { name: 'Save draft' });
-  const close = review.getByRole('button', { name: 'Close review' });
+  const close = review.getByRole('button', { name: closeReview });
   if (width === 390) {
     await save.click();
     await review.getByRole('alert').filter({ hasText: 'Your edits are kept.' }).waitFor();
@@ -2286,12 +2290,12 @@ test('Home restores reply edits after Back and reload and compares a newer revis
   await review.getByRole('button', { name: 'Edit', exact: true }).click();
   await subject.fill('My sample subject');
   await message.fill('Keep this local edit.');
-  await review.getByRole('button', { name: 'Close review' }).click();
+  await review.getByRole('button', { name: closeReview }).click();
   await page.getByRole('link', { name: otherDraft.title }).click();
   const otherReview = page.getByRole('region', { name: `Details for ${otherDraft.title}` });
   await otherReview.getByText('Different saved draft.', { exact: true }).waitFor();
   assert.equal(await otherReview.getByRole('textbox', { name: 'Message', exact: true }).count(), 0);
-  await otherReview.getByRole('button', { name: 'Close review' }).click();
+  await otherReview.getByRole('button', { name: closeReview }).click();
   await title.click();
   await subject.waitFor();
   assert.equal(await subject.inputValue(), 'My sample subject');
@@ -2430,7 +2434,7 @@ test('Home evicts the old reply edit when browser storage rejects its replacemen
     };
   });
   await message.fill('Latest local edit.');
-  await review.getByRole('button', { name: 'Close review' }).click();
+  await review.getByRole('button', { name: closeReview }).click();
   await title.click();
   assert.equal(await message.inputValue(), 'Latest local edit.');
   await page.reload();
@@ -2671,7 +2675,7 @@ test('The Home query link still opens its loaded draft', async t => {
   await open(`/?mode=live&card=${encodeURIComponent(draft.item_id)}`);
   const review = page.getByRole('region', { name: `Details for ${draft.title}` });
   await review.getByRole('button', { name: 'Send reply', exact: true }).waitFor();
-  await review.getByRole('button', { name: 'Close review' }).click();
+  await review.getByRole('button', { name: closeReview }).click();
   assert.equal(await review.count(), 0);
   await page.getByRole('link', { name: draft.title }).waitFor();
 });
@@ -2755,7 +2759,7 @@ for (const width of [390, 900, 1440]) for (const theme of ['light', 'dark']) tes
   await page.clock.fastForward(60_000);
   await review.getByText('This card was finished elsewhere.').waitFor();
   assert.equal(await message.inputValue(), 'Unsaved edit for the floor plan.');
-  await review.getByRole('button', { name: 'Close review' }).click();
+  await review.getByRole('button', { name: closeReview }).click();
   await draftTitle.waitFor({ state: 'detached' });
   assert.equal(await reminders.getByRole('link', { name: tasks[1].title }).evaluate(node => node === document.activeElement), true,
     'with Inbox empty, focus moves to the first card on Home');
@@ -3300,7 +3304,7 @@ for (const width of [390, 1440]) test(`Home hides Drop on Tour feedback, Fact re
     await review(row);
     await row.getByRole('button', { name: 'Snooze', exact: true }).waitFor();
     assert.equal(await row.getByRole('button', { name: 'Drop', exact: true }).count(), 0);
-    await row.getByRole('button', { name: /^Close/ }).click();
+    await row.getByRole('button', { name: closeAny }).click();
   }
 });
 

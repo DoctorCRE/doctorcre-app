@@ -7,6 +7,9 @@ import { buildArtifact } from '../scripts/artifact.mjs';
 import { temporaryDirectory } from '../scripts/temp-directory.mjs';
 import { chromium } from './browser-harness.mjs';
 import { ownedFixtureServer as fixtureServer } from './fixture-probe.ts';
+// Below three columns an opened item covers the list and its close button reads Back.
+const closeReview = /^(Close review|Back)$/;
+const closeItem = /^(Close|Back)$/;
 const test = (name, run) => nodeTest(name, async t => { try { await run(t); } catch (error) { console.error(error); throw error; } });
 let outDir;
 before(async () => { outDir = temporaryDirectory('inline-review-'); await buildArtifact({ root: process.cwd(), outDir }); await mkdir('test-artifacts/inline-review', { recursive: true }); });
@@ -89,7 +92,7 @@ for (const [name, options, expectedLink, expectedName] of [
     if (name === 'call follow-up') assert.equal(await panel.getByRole('link', { name: 'Demo practice', exact: true }).getAttribute('href'), `/deals?deal=${id}`);
     if (options.dueOn) assert.equal(await panel.getByText('Oct 1, 2026', { exact: true }).count(), 1);
   } else {
-    assert.equal(await panel.getByRole('button', { name: 'Close', exact: true }).count(), 1);
+    assert.equal(await panel.getByRole('button', { name: closeItem }).count(), 1);
     assert.equal(await panel.getByText('No linked record.', { exact: true }).count(), 1);
     assert.equal(await panel.getByRole('link').count(), 0);
     assert.equal(await panel.getByText('Synthetic review', { exact: true }).count(), 1);
@@ -139,7 +142,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`in
   assert.deepEqual(writes[0].args.to, ['demo@example.test']); assert.deepEqual(writes[0].args.cc, ['copy@example.test']);
   assert.equal(writes[0].args.subject, 'Reviewed exact subject'); assert.equal(writes[0].args.body, 'Reviewed exact body');
   assert.equal(page.url().includes('/inbox'), false);
-  await panel.getByRole('button', { name: 'Close review', exact: true }).click();
+  await panel.getByRole('button', { name: closeReview }).click();
   await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Inbox cards');
 });
 test('conflict keeps text and reload binds a fresh version before another deliberate save', async t => {
@@ -177,7 +180,7 @@ test('task review completes one canonical action and retains Undo receipt', asyn
   await page.locator('[data-inbox-row] h3 a').click();
   await panel.getByRole('button', { name: 'Mark done', exact: true }).click();
   await panel.getByText('This card is confirmed. Its current state is shown in your inbox.', { exact: true }).waitFor();
-  await panel.getByRole('button', { name: 'Close', exact: true }).click();
+  await panel.getByRole('button', { name: closeItem }).click();
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await page.getByText('Undone.', { exact: false }).waitFor();
   assert.equal(calls.filter(c => c.name === 'complete-one-action').length, 1);
@@ -186,7 +189,7 @@ test('task review completes one canonical action and retains Undo receipt', asyn
 for (const dealId of [null, id]) test(`a fact review card ${dealId ? 'with' : 'without'} a deal offers no inline review, whose old save is gone`, async t => {
   const { page, panel, calls } = await setup(t, { kind: 'fact_review', dealId });
   await page.locator('[data-inbox-row] h3 a').click();
-  await panel.getByRole('button', { name: 'Close', exact: true }).waitFor();
+  await panel.getByRole('button', { name: closeItem }).waitFor();
   if (dealId) assert.equal(await panel.locator(`a[href="/deals?deal=${id}"]`).count(), 1);
   assert.equal(await panel.getByText('No linked record.', { exact: true }).count(), dealId ? 0 : 1);
   assert.equal(await panel.getByText('Review this card', { exact: true }).count(), 0);
