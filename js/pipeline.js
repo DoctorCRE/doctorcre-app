@@ -1,7 +1,7 @@
 import { hasTourDrafts, legacyTourDraftScope, TOUR_DRAFT_KEYS } from './offline-tour-session.js';
 import { createDayStore } from '../tours/day-store.js';
 import { mountWatchControl } from './ui-watches.generated.js';
-import { redactEmailAddresses, suggestionEmailHtml } from './ui-deal-suggestion-email.generated.js';
+import { redactEmailAddresses, suggestionEmail } from './ui-deal-suggestion-email.generated.js';
 import { createMcpRequests } from './mcp-requests.mjs';
 import { workCard } from './work-card.js';
 import { bindCardQuickMenu } from './ui-card-menu.generated.js';
@@ -1676,30 +1676,38 @@ function suggestionSource({ sender_name, sender, happened_at }) {
   return Number.isFinite(date) ? `${from}, ${emailDay.format(date)}` : from;
 }
 
-// Cleaned emails by suggestion; '' marks one that could not be read.
+// Cleaned email HTML by suggestion: null while its one read runs, '' when unreadable.
 const suggestionEmails = new Map();
 const mcpRequest = createMcpRequests();
 async function readSuggestionEmail(id) {
   const result = await mcpRequest('read-engine-home-proposal', { id }, { timeoutMs: 10000 });
   return result.kind === 'payload' && !result.isError ? result.payload : null;
 }
-async function loadSuggestionEmails(detail) {
+function cleanedEmailHtml(email) {
+  return email ? `<p class="deal-suggestion-from">From ${esc(email.sender)} · <time datetime="${esc(email.occurredAt)}">${esc(email.sent)}</time></p>${
+    email.paragraphs.map(paragraph => `<p>${esc(paragraph)}</p>`).join('')}` : '';
+}
+function loadSuggestionEmails(detail) {
   if (!isEngineDealDetail(detail)) return;
   const slot = id => $('panelBody').querySelector(`[data-suggestion-email="${CSS.escape(id)}"]`);
-  await Promise.all(detail.email_follow_ups.filter(row => !suggestionEmails.has(row.proposal_id) && slot(row.proposal_id))
-    .map(async ({ proposal_id: id, email }) => {
-      const read = await readSuggestionEmail(id).catch(() => null);
-      suggestionEmails.set(id, suggestionEmailHtml(read, email?.activity_id));
+  for (const { proposal_id: id, email } of detail.email_follow_ups) {
+    if (suggestionEmails.has(id) || !slot(id)) continue;
+    suggestionEmails.set(id, null);
+    void readSuggestionEmail(id).catch(() => null).then(read => {
+      suggestionEmails.set(id, cleanedEmailHtml(suggestionEmail(read, email?.activity_id)));
       const shown = slot(id);
       if (shown) shown.outerHTML = suggestionEmailSlot(shown.dataset.fallback, id);
-    }));
+    });
+  }
 }
-function showSuggestionEdit(form, focus = true) {
+function setSuggestionEdit(form, editing, focus = true) {
   const fields = form?.querySelector('[data-suggestion-edit]');
   if (!fields) return;
-  fields.hidden = false;
-  form.querySelector('[data-edit-suggestion]').hidden = true;
-  if (focus) form.elements.what.focus();
+  fields.hidden = !editing;
+  form.querySelector('[data-edit-suggestion]').hidden = editing;
+  form.querySelector('[data-cancel-edit]').hidden = !editing;
+  if (!editing) for (const input of fields.querySelectorAll('input')) input.value = input.defaultValue;
+  if (focus) (editing ? form.elements.what : form.querySelector('[data-edit-suggestion]')).focus();
 }
 function suggestionEmailSlot(fallback, id) {
   const cleaned = suggestionEmails.get(id);
@@ -1720,13 +1728,16 @@ function suggestionHtml(row, today, canDecide, showEmail) {
     row.due_on && dueDateHtml(row.due_on, today)].filter(Boolean).join(' · ');
   const id = esc(row.proposal_id);
   const actions = canDecide ? `<form class="deal-suggestion-actions" data-email-decision="${id}">
+      <div class="deal-suggestion-buttons">
+        <button class="btn" type="submit" value="accept" data-detail-focus="accept-${id}">Accept</button>
+        ${step ? `<button class="btn btn-quiet" type="button" data-edit-suggestion data-detail-focus="edit-${id}">Edit</button>
+        <button class="btn btn-quiet" type="button" data-cancel-edit data-detail-focus="cancel-${id}" hidden>Cancel</button>` : ''}
+        <button class="btn btn-quiet" type="submit" value="dismiss" formnovalidate data-detail-focus="dismiss-${id}">Dismiss</button>
+      </div>
       ${step ? `<div class="deal-next-step-fields" data-suggestion-edit hidden>
         <label>Next step<input name="what" value="${esc(row.what)}" maxlength="10000" data-detail-focus="step-${id}"></label>
         <label>Due date<input type="date" name="due_on" value="${esc(row.due_on)}" data-detail-focus="date-${id}"></label>
       </div>` : ''}
-      <button class="btn" type="submit" value="accept" data-detail-focus="accept-${id}">Accept</button>
-      ${step ? `<button class="btn btn-quiet" type="button" data-edit-suggestion data-detail-focus="edit-${id}">Edit</button>` : ''}
-      <button class="btn btn-quiet" type="submit" value="dismiss" formnovalidate data-detail-focus="dismiss-${id}">Dismiss</button>
     </form>` : '';
   return `<li class="deal-suggestion" aria-labelledby="suggestion-${id}"><div class="deal-suggestion-row">
       <div><h3 id="suggestion-${id}">${esc(title)}</h3><p>${line}</p></div>${actions}
@@ -2082,7 +2093,7 @@ async function readPanel(id) {
               if (replacement && replacement.defaultValue === input.defaultValue) replacement.value = input.value;
             }
             for (const edit of current.querySelectorAll('[data-email-decision] [data-suggestion-edit]:not([hidden])'))
-              showSuggestionEdit(fresh.querySelector(`[data-email-decision="${CSS.escape(edit.closest('form').dataset.emailDecision)}"]`), false);
+              setSuggestionEdit(fresh.querySelector(`[data-email-decision="${CSS.escape(edit.closest('form').dataset.emailDecision)}"]`), true, false);
           }
           if (fresh.dataset.detailRead === 'updates') disposeActivityAttribution();
           current.replaceWith(fresh);
@@ -2108,7 +2119,7 @@ async function readPanel(id) {
       }
       void dealToursPanel?.refresh();
       void dealDocumentsPanel?.refresh();
-      void loadSuggestionEmails(detail);
+      loadSuggestionEmails(detail);
       if ($('panelEvidenceSection')?.open) await refreshEvidence(detail, id, seq);
     }
     if (state.panelDeal !== id || seq !== panelReadSequence) return false;
@@ -2152,7 +2163,7 @@ function paintPanel(detail) {
   disposePanelCallReview();
   $('panelBody').innerHTML = workspaceHtml(detail, engineMode);
   mountChecklist(detail);
-  void loadSuggestionEmails(detail);
+  loadSuggestionEmails(detail);
   const overview = $('workspace-overview');
   if (watchSubject !== detail.deal.id) disposeWatchControl();
   watchElement ||= document.createElement('div');
@@ -2693,8 +2704,8 @@ function wire() {
     }
     const item = event.target.closest('[data-deal-item]');
     if (item) { itemSheet.open(item.dataset.itemDeal,item.dataset.dealItem,item); return; }
-    const editSuggestion = event.target.closest('button[data-edit-suggestion]');
-    if (editSuggestion) { showSuggestionEdit(editSuggestion.form); return; }
+    const editSuggestion = event.target.closest('button[data-edit-suggestion], button[data-cancel-edit]');
+    if (editSuggestion) { setSuggestionEdit(editSuggestion.form, editSuggestion.hasAttribute('data-edit-suggestion')); return; }
     const revive = event.target.closest('button[data-revive]');
     if (revive) { setOperatingState(revive.dataset.revive, {state:'active'}); return; }
     const open = event.target.closest('button[data-open]');
@@ -2920,6 +2931,11 @@ function wire() {
 
   });
   $('panelBody').addEventListener('keydown', event => {
+    if (event.key === 'Escape' && event.target.closest('[data-suggestion-edit]')) {
+      event.preventDefault();
+      setSuggestionEdit(event.target.form, false);
+      return;
+    }
     if (event.target.id !== 'dealUpdateStep') return;
     const form = event.target.form;
     const submit = form.querySelector('button[type="submit"]:enabled');
@@ -2971,7 +2987,7 @@ function wire() {
         const what = String(form.get('what')).trim();
         if (!what) {
           showToast('Enter a next step before accepting.', {error:true});
-          showSuggestionEdit(e.target);
+          setSuggestionEdit(e.target, true);
           return;
         }
         edits = { what, due_on: form.get('due_on') || null };

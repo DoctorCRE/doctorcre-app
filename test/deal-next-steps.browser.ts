@@ -21,7 +21,12 @@ const body = [
   "From: Joe <joe@example.test>\nSent: Monday\nSubject: Offers",
 ].join("\n\n");
 
-async function openDeal(t: TestContext, viewport: { width: number; height: number }, theme: "light" | "dark") {
+async function openDeal(
+  t: TestContext,
+  viewport: { width: number; height: number },
+  theme: "light" | "dark",
+  { holdEmail = false } = {},
+) {
   const server = await startWorkerFixture({
     assets: await appAssetSnapshot(),
     env: { CARR: { fetch: async () => Response.json(session) }, ENGINE_ROUTING: { get: async () => "on" } },
@@ -36,6 +41,9 @@ async function openDeal(t: TestContext, viewport: { width: number; height: numbe
   );
   await page.clock.setFixedTime(new Date("2026-11-25T17:00:00Z"));
   const writes: [string, unknown][] = [];
+  const emailReads: string[] = [];
+  let releaseEmail = () => {};
+  const emailHeld = holdEmail ? new Promise<void>((resolve) => (releaseEmail = resolve)) : Promise.resolve();
   const email = {
     activity_id: emailId,
     sender_name: "Morgan Example",
@@ -107,11 +115,14 @@ async function openDeal(t: TestContext, viewport: { width: number; height: numbe
           steps = [];
           return Response.json({ next_step_id: stepId, status: "done", change_id: 4 });
         }
-        if (path === `/api/engine/proposals/${suggestionId}` || path === `/api/engine/proposals/${filingId}`)
+        if (path === `/api/engine/proposals/${suggestionId}` || path === `/api/engine/proposals/${filingId}`) {
+          emailReads.push(path);
+          await emailHeld;
           return Response.json({
             thread: [{ activity_id: emailId, happened_at: email.happened_at, sender_name: email.sender_name, body }],
             source_activity: { subject: email.subject },
           });
+        }
         if (path === `/api/engine/deals/${dealId}`) return Response.json(deal());
         if (path === "/api/engine/deals")
           return Response.json({ schema_version: "local-deals-board.v2", actor: "joe", deals: [deal()] });
@@ -138,8 +149,9 @@ async function openDeal(t: TestContext, viewport: { width: number; height: numbe
   });
   await page.goto(`${server.origin}/deals?mode=live&deal=${dealId}`);
   const tile = page.getByRole("region", { name: "Next steps", exact: true });
-  await tile.getByText("Our lender cannot fund until late February", { exact: false }).first().waitFor();
-  return { page, tile, writes };
+  if (!holdEmail)
+    await tile.getByText("Our lender cannot fund until late February", { exact: false }).first().waitFor();
+  return { page, tile, writes, emailReads, releaseEmail };
 }
 
 for (const [width, height] of [
@@ -209,4 +221,65 @@ test("Edit changes a suggestion's wording and date before Accept, and the circle
     [`/api/engine/proposals/${filingId}/decision`, { decision: "dismiss" }],
     [`/api/engine/next-steps/${stepId}/end`, { resolution: "done", base_version: 3 }],
   ]);
+});
+
+for (const [width, height] of [
+  [1440, 772],
+  [500, 900],
+] as const)
+  test(`Edit opens the wording across the row at ${width}, and Cancel or Escape put the suggestion back`, async (t) => {
+    const { page, tile } = await openDeal(t, { width, height }, "light");
+    const suggestion = tile.getByRole("listitem", { name: "Ask the landlord whether rent can start in March" });
+    const titleBox = () =>
+      suggestion.evaluate((element) => {
+        const [row, title] = [element, element.querySelector("h3")].map((node) => node?.getBoundingClientRect());
+        return row && title && [title.x - row.x, title.y - row.y, title.width, title.height];
+      });
+    const before = await titleBox();
+    await suggestion.getByRole("button", { name: "Edit" }).click();
+    const wording = suggestion.getByLabel("Next step");
+    await suggestion.evaluate((element) => element.scrollIntoView({ block: "center" }));
+    await page.screenshot({ path: `${shots}/edit-${width}.png` });
+    const [field, row] = [await wording.boundingBox(), await suggestion.boundingBox()];
+    assert.ok(field && row && field.width >= row.width * 0.55, "the wording gets the row");
+    assert.ok(
+      await wording.evaluate((input: HTMLInputElement) => input.scrollWidth <= input.clientWidth),
+      "wording not cut",
+    );
+    assert.deepEqual(await titleBox(), before, "the title stays put");
+    assert.deepEqual(await suggestion.getByRole("button").allTextContents(), ["Accept", "Cancel", "Dismiss"]);
+    await wording.fill("Something else");
+    await suggestion.getByRole("button", { name: "Cancel" }).click();
+    assert.equal(await wording.isVisible(), false, "Cancel closes the editor");
+    assert.deepEqual(await suggestion.getByRole("button").allTextContents(), ["Accept", "Edit", "Dismiss"]);
+    await suggestion.getByRole("button", { name: "Edit" }).click();
+    assert.equal(
+      await wording.inputValue(),
+      "Ask the landlord whether rent can start in March",
+      "Cancel keeps the wording",
+    );
+    await wording.fill("Something else");
+    await suggestion.getByLabel("Due date").fill("2026-12-04");
+    await wording.press("Escape");
+    assert.equal(await wording.isVisible(), false, "Escape closes the editor");
+    assert.equal(await page.evaluate(() => document.activeElement?.textContent), "Edit", "focus returns to Edit");
+    await suggestion.getByRole("button", { name: "Edit" }).click();
+    assert.equal(
+      await wording.inputValue(),
+      "Ask the landlord whether rent can start in March",
+      "Escape keeps the wording",
+    );
+    assert.equal(await suggestion.getByLabel("Due date").inputValue(), "2026-11-27", "Escape keeps the date");
+  });
+
+test("A suggestion's email is read once while the deal reads again", async (t) => {
+  const { tile, emailReads, releaseEmail } = await openDeal(t, { width: 1440, height: 772 }, "light", {
+    holdEmail: true,
+  });
+  const filing = tile.getByRole("listitem", { name: "File Morgan's email" });
+  await filing.getByRole("button", { name: "Dismiss" }).click();
+  await filing.waitFor({ state: "detached" });
+  releaseEmail();
+  await tile.getByText("Our lender cannot fund until late February", { exact: false }).waitFor();
+  assert.deepEqual(emailReads, [`/api/engine/proposals/${suggestionId}`]);
 });

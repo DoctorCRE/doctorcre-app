@@ -22,10 +22,14 @@
 .deal-suggestion-row > div { flex: 1 1 16rem; min-width: 0; }
 .deal-suggestion h3 { margin: 0; font-size: var(--font-size-2); font-weight: var(--font-weight-strong); }
 .deal-suggestion-row p { margin: 2px 0 0; color: var(--fg-quiet); font-size: var(--font-size-1); }
-.deal-suggestion-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
-.deal-suggestion-actions .deal-next-step-fields { flex-basis: 100%; }
+.deal-suggestion-actions { display: contents; }
+.deal-suggestion-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
+.deal-suggestion-buttons > [data-edit-suggestion], .deal-suggestion-buttons > [data-cancel-edit] { min-width: 6.5em; }
+.deal-suggestion-actions .deal-next-step-fields { flex-basis: 100%; padding-top: var(--space-1); }
+.deal-suggestion-actions .deal-next-step-fields input { display: block; width: 100%; min-height: var(--touch); }
 .deal-suggestion-email { margin: var(--space-2) 0 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius-3); background: var(--surface-2); }
 .deal-suggestion-email p { margin: 0; max-width: 72ch; }
 .deal-suggestion-email p + p { margin-top: var(--space-2); }
 .deal-suggestion-email .deal-suggestion-from { color: var(--fg-quiet); font-size: var(--font-size-1); }
 .deal-next-steps > #panelCallReview { margin: var(--space-2) var(--space-4) 0; }
+@media (min-width: 720px) { .deal-suggestion-actions .deal-next-step-fields { grid-template-columns: minmax(0, 1fr) auto; } }

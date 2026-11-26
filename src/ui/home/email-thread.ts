@@ -1,8 +1,7 @@
 import { foldEmailBody } from "./email-signature.ts";
+import { object } from "./inbox.tsx";
 
 const string = (value: unknown) => (typeof value === "string" ? value : null);
-export const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === "object" && !Array.isArray(value);
 
 export type EmailThread = {
   subject: string | null;
@@ -12,7 +11,7 @@ export type EmailThread = {
 export function emailThread(value: Record<string, unknown>): EmailThread {
   const messages = Array.isArray(value.thread)
     ? value.thread.flatMap((message: unknown) => {
-        if (!isRecord(message)) return [];
+        if (!object(message)) return [];
         const { activity_id: id, happened_at: occurredAt, body, sender_name } = message;
         if (
           typeof id !== "string" ||
@@ -37,6 +36,6 @@ export function emailThread(value: Record<string, unknown>): EmailThread {
     : [];
   return {
     messages,
-    subject: messages.length && isRecord(value.source_activity) ? string(value.source_activity.subject) : null,
+    subject: messages.length && object(value.source_activity) ? string(value.source_activity.subject) : null,
   };
 }

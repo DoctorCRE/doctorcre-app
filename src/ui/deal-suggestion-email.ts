@@ -1,4 +1,5 @@
-import { emailThread, isRecord } from "./home/email-thread.ts";
+import { emailThread } from "./home/email-thread.ts";
+import { object } from "./home/inbox.tsx";
 import { sourceExcerptText } from "./home/source-excerpt.ts";
 
 const bareEmailAddress =
@@ -15,23 +16,23 @@ const sentAt = new Intl.DateTimeFormat("en-US", {
   hour: "numeric",
   minute: "2-digit",
 });
-const escapes: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
-const esc = (text: string) => text.replace(/[&<>"']/g, (char) => escapes[char] ?? char);
 
 /** Drops addresses from text partners read, keeping a quoted display name. */
 export function redactEmailAddresses(text: string) {
   return text.replace(emailAddressInText, (_, name?: string) => name?.replace(bareEmailAddress, "") ?? "");
 }
 
-/** The suggestion's email as Home cleans it: sender and time, then its paragraphs. Empty when unreadable. */
-export function suggestionEmailHtml(read: unknown, emailId: string): string {
-  const { messages } = isRecord(read) ? emailThread(read) : { messages: [] };
+type SuggestionEmail = { sender: string; occurredAt: string; sent: string; paragraphs: string[] };
+
+/** The suggestion's email as Home cleans it: sender and time, then its paragraphs. Null when unreadable. */
+export function suggestionEmail(read: unknown, emailId: string): SuggestionEmail | null {
+  const { messages } = object(read) ? emailThread(read) : { messages: [] };
   const message = messages.find(({ id }) => id === emailId) ?? messages.at(-1);
   const paragraphs = redactEmailAddresses(sourceExcerptText(message?.body ?? ""))
     .split(/\n\s*\n/)
     .map((paragraph) => paragraph.trim())
     .filter(Boolean);
-  if (!message || !paragraphs.length) return "";
-  const from = `From ${esc(message.sender ?? "an unknown sender")} · <time datetime="${esc(message.occurredAt)}">${sentAt.format(new Date(message.occurredAt))}</time>`;
-  return `<p class="deal-suggestion-from">${from}</p>${paragraphs.map((paragraph) => `<p>${esc(paragraph)}</p>`).join("")}`;
+  if (!message || !paragraphs.length) return null;
+  const { sender, occurredAt } = message;
+  return { sender: sender ?? "an unknown sender", occurredAt, sent: sentAt.format(new Date(occurredAt)), paragraphs };
 }
