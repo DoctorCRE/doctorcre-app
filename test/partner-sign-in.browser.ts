@@ -536,12 +536,13 @@ async function app(
             filing_choices: [],
           };
           const items = tourFeedback ? (feedbackOpen ? [feedback] : []) : [filingCard];
+          const dashboard = url.searchParams.get("view") === "dashboard";
           return Response.json({
             ok: true,
-            schema_version: "home-inbox.v5",
+            schema_version: dashboard ? "home-inbox.v6" : "home-inbox.v5",
             ...(tourFeedback && { home_mark_drop: true }),
-            ...(url.searchParams.get("view") === "dashboard"
-              ? { reminders: { count: items.length, items }, waiting: empty }
+            ...(dashboard
+              ? { reminders: empty, inbox: { count: items.length, items }, waiting: empty }
               : { items, truncated: false, limit: 1000, working_collapsed: true }),
           });
         }
@@ -785,8 +786,9 @@ for (const lookup of ["stalled", "unknown", "on"]) {
                 ? Response.json({ error: "engine_unavailable" }, { status: 503 })
                 : Response.json({
                     ok: true,
-                    schema_version: "home-inbox.v5",
-                    reminders: { count: 1, items: [filingCard] },
+                    schema_version: "home-inbox.v6",
+                    reminders: { count: 0, items: [] },
+                    inbox: { count: 1, items: [filingCard] },
                     waiting: { count: 0, items: [] },
                   });
             return new Response(null, { status: 404 });
@@ -807,7 +809,7 @@ for (const lookup of ["stalled", "unknown", "on"]) {
     if (lookup === "on") await page.clock.install();
     assert.ok((await page.goto(server.origin + "/?mode=live", { timeout: 5000 }))?.ok());
     if (unavailable) {
-      const failure = page.getByRole("alert").filter({ hasText: "Reminders and waiting items unavailable" });
+      const failure = page.getByRole("alert").filter({ hasText: "Reminders and Inbox unavailable" });
       await failure.waitFor({ timeout: 5000 });
       unavailable = false;
       await failure.getByRole("button", { name: "Retry", exact: true }).click({ timeout: 5000 });
@@ -818,7 +820,7 @@ for (const lookup of ["stalled", "unknown", "on"]) {
     if (lookup === "on") {
       unavailable = true;
       await page.clock.fastForward(60_001);
-      const failure = page.getByRole("status").filter({ hasText: "Reminders and waiting items unavailable" });
+      const failure = page.getByRole("status").filter({ hasText: "Reminders and Inbox unavailable" });
       await failure.waitFor({ timeout: 5000 });
       assert.ok(await page.getByText(filingTitle, { exact: true }).isVisible());
       unavailable = false;
@@ -994,7 +996,7 @@ test("Home and the old Updates link load on the engine session and handle expiry
       legacyReads.push(name);
   });
   for (const [path, reads] of [
-    ["/?mode=live", ["/api/engine/home/inbox?view=dashboard", "/api/engine/home/today"]],
+    ["/?mode=live", ["/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6", "/api/engine/home/today"]],
     ["/notifications?mode=live", ["/api/engine/updates", "/api/engine/updates/changes", "/api/engine/preferences"]],
   ] as const) {
     const pending = reads.map((read) =>
@@ -1185,7 +1187,7 @@ test("an engine action link opens the successor reply with Home review controls"
   assert.equal(await page.getByRole("textbox", { name: "Subject", exact: true }).inputValue(), "Re: Demo relocation");
   assert.equal(partnerReads.get(actionResolver + carrReply.ref), `${cookieName}=first`);
   assert.equal(partnerReads.get(linkedCardRead), `${cookieName}=first`);
-  assert.equal(partnerReads.has("/api/engine/home/inbox?view=dashboard"), false);
+  assert.equal(partnerReads.has("/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6"), false);
   assert.equal(carrChecks(), 0);
 });
 
@@ -1252,7 +1254,7 @@ test("Home filing searches vendors on the engine session", async (t) => {
   ]);
   const page = await context.newPage();
   await page.goto(server.origin + "/?mode=live");
-  await page.getByRole("button", { name: "Review filing", exact: true }).click();
+  await page.getByRole("button", { name: "Review", exact: true }).click();
   const filing = page.getByRole("region", { name: "File this email", exact: true });
   await filing.getByRole("button", { name: "Choose vendor", exact: true }).click();
   const name = "Demo Partner 62";
@@ -1335,6 +1337,50 @@ test("Doc settings show each Mac status and keep link codes private", async (t) 
 
   await settings.getByRole("button", { name: "Revoke link code" }).click();
   await settings.getByText("Doc isn't set up on your Mac yet.").waitFor();
+});
+
+async function showDocLinkCode(t: TestContext, width: number) {
+  const { server, context } = await app(t, { width, touch: width === 390 });
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: server.origin });
+  const page = await context.newPage();
+  await page.goto(server.origin + "/settings?mode=live");
+  const settings = page.getByRole("region", { name: "Doc link" });
+  await settings.getByRole("button", { name: "Make link code" }).click();
+  const code = "1".padStart(43, "a");
+  await settings.getByText(code, { exact: true }).waitFor();
+  return { page, settings, code };
+}
+
+for (const width of [1280, 390]) {
+  test(`Copy puts the shown Doc link code on the clipboard at ${width}px`, async (t) => {
+    const { page, settings, code } = await showDocLinkCode(t, width);
+    const copy = settings.getByRole("button", { name: "Copy", exact: true });
+    const done = settings.getByRole("button", { name: "Done", exact: true });
+    const [copyBox, doneBox] = await Promise.all([copy.boundingBox(), done.boundingBox()]);
+    assert.equal(copyBox?.height, doneBox?.height, "Copy is the same size as Done");
+    await page.screenshot({ path: `${artifacts}/doc-link-copy-${width}.png` });
+
+    await copy.click();
+    await settings.getByRole("button", { name: "Copied", exact: true }).waitFor();
+    assert.equal((await done.boundingBox())?.x, doneBox?.x, "Done stays put when Copy reads Copied");
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), code);
+    await settings.getByRole("button", { name: "Copy", exact: true }).waitFor({ timeout: 4000 });
+    await done.click();
+    assert.equal(await settings.getByText(code, { exact: true }).count(), 0);
+  });
+}
+
+test("A refused clipboard selects the Doc link code for Cmd+C", async (t) => {
+  const { page, settings, code } = await showDocLinkCode(t, 1280);
+  await page.evaluate(() => {
+    navigator.clipboard.writeText = () => Promise.reject(new DOMException("blocked", "NotAllowedError"));
+  });
+  await settings.getByRole("button", { name: "Copy", exact: true }).click();
+  await settings.getByText("Press Cmd+C to copy.", { exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => getSelection()?.toString()), code);
+  assert.equal(await settings.getByRole("button", { name: "Copied", exact: true }).count(), 0);
+  await settings.getByRole("button", { name: "Done", exact: true }).click();
+  assert.equal(await settings.getByText("Press Cmd+C to copy.", { exact: true }).count(), 0);
 });
 
 test("phone notifications are available only with CARR sign-in", async (t) => {
@@ -1698,7 +1744,7 @@ async function followTourFeedbackLink(page: Page, origin: string, engineTours = 
     });
   }
   await page.goto(`${origin}/?mode=live`);
-  await page.getByRole("button", { name: "Review feedback", exact: true }).click();
+  await page.getByRole("button", { name: "Review", exact: true }).click();
   const card = page.getByRole("region", { name: `Details for ${feedbackTitle}` });
   await card.getByText(feedbackText, { exact: true }).waitFor();
   await card.getByRole("link", { name: "Open property", exact: true }).click();
@@ -1721,11 +1767,11 @@ test("engine sign-in opens the linked property from Home and finishes the feedba
   assert.equal(await property.getByText(annex.address, { exact: true }).count(), 0);
 
   await page.goto(`${server.origin}/?mode=live`);
-  const review = page.getByRole("button", { name: "Review feedback", exact: true });
+  const review = page.getByRole("button", { name: "Review", exact: true });
   await review.click();
   const card = page.getByRole("region", { name: `Details for ${feedbackTitle}` });
   await card.getByRole("button", { name: "Done", exact: true }).click();
-  await review.waitFor({ state: "detached" });
+  await page.getByRole("link", { name: feedbackTitle, exact: true }).waitFor({ state: "detached" });
   assert.equal(partnerReads.has("/api/engine/home/marks"), true);
 });
 

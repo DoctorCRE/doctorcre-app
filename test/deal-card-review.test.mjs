@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile, mkdir, access} from 'node:fs/promises';
 import {chromium, waitForAsync, animationsSettled} from './browser-harness.mjs';
+import { controlFloor } from "./control-floor.ts";
 const root=new URL('../',import.meta.url);
 const longestNextStep='Confirm the Demo Clinic appointment and send notes';
 async function open(t,width=1280,{theme='dark',sparse=false,showDetail=true,height=960,nextStep='Prior status that must not prefill',closedOn=null,manyUpdates=false,denseBoard=false}={}) {
@@ -364,7 +365,7 @@ test('deal card controls meet the 44px target floor at phone and desktop widths'
     return {control:n.id||n.getAttribute('aria-label')||n.getAttribute('name')||n.textContent.trim().slice(0,60),width,height};
    }));
    assert.ok(controls.length>0,'card exercises its controls');
-   undersized.push(...controls.filter(n=>n.width<44||n.height<44));
+   undersized.push(...controls.filter(n=>n.width<controlFloor(width)||n.height<controlFloor(width)));
   }
   assert.deepEqual(undersized,[]);
  });
@@ -459,7 +460,7 @@ for (const width of [390, 1440]) for (const theme of ['light','dark']) test(`dea
  const {page}=await open(t,width,{theme,showDetail:false,height:900});
  const controls=page.locator('.kanban-card .card-open:visible');
  assert.ok(await controls.count());
- for(const control of await controls.all()) { const box=await control.boundingBox(); assert.ok(box.width>=44 && box.height>=44); }
+ for(const control of await controls.all()) { const box=await control.boundingBox(); assert.ok(box.width>=controlFloor(width) && box.height>=controlFloor(width)); }
  await mkdir('out/test-artifacts/WR572.S6.J1',{recursive:true});
  await page.screenshot({path:`out/test-artifacts/WR572.S6.J1/deals-${width}-${theme}.png`});
  if(width===390) { const note=page.locator('.stages-hidden'); await note.scrollIntoViewIfNeeded(); await page.screenshot({path:`out/test-artifacts/WR572.S6.J1/stages-hidden-deals-390-${theme}.png`}); }

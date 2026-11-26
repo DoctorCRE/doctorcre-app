@@ -8,6 +8,7 @@ import { temporaryDirectory } from '../scripts/temp-directory.mjs';
 import { context as buildContext } from 'esbuild';
 import { scenario } from './browser-scenario.mjs';
 import worker from '../src/worker.js';
+import { controlFloor } from "./control-floor.ts";
 
 describe('test/home-sections-browser.test.mjs', () => {
 const NOW = new Date('2026-11-03T10:00:00-06:00');
@@ -38,7 +39,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
       const source = task.call ? 'capture_post_call_action' : 'next_action';
       return {
         item_id: `${source}:${id}`, source_type: source, source_id: id, source_version: enabled ? '2147483648' : '7',
-        source_state: 'needs_attention', base_version: enabled ? '2147483648:0:inbox' : 'legacy:7', title: index === 0 ? `**${task.title}**` : task.title,
+        source_state: 'needs_attention', base_version: enabled ? '2147483648:0:inbox' : 'legacy:7', title: index === 0 && !enabled ? `**${task.title}**` : task.title,
         activity_at: '2026-11-02T12:00:00.000Z', completed_at: null, due_on: '2026-11-03',
         hold_until: null, snoozed_until: null, disposition: 'inbox', section: 'inbox', unseen: false,
         ...(!enabled && { explicit_unsettle: false, auto_settled: false }), context_label: task.call ? 'Example Dental' : task.label,
@@ -179,7 +180,10 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   };
   await page.route('**/mcp', routeWorker);
 
-  await page.route('**/api/engine/home/inbox?view=dashboard', route => route.fulfill({ status: 404 }));
+  await page.route('**/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6', route => {
+    reads.push('dashboard');
+    return route.fulfill({ json: dashboardOf(snapshot('new inbox').items.map(item => ({ why: null, ...item }))) });
+  });
   if (enabled) await page.route(/\/\?mode=live$/, async route => {
     const response = await route.fetch();
     const html = (await response.text()).replace('<html ', '<html data-home-today-from-engine ');
@@ -189,6 +193,14 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await open(enabled ? '/?mode=live#homeEmailFollowups' : '/?mode=live');
   const reader = enabled ? 'new inbox' : 'current inbox';
   const inbox = page.getByRole('region', { name: 'Inbox cards', exact: true });
+  // A row opens from Review, or from its title when it has none, and closes from inside the review.
+  const toggle = async row => {
+    for (const name of ['Close review', 'Review']) {
+      const button = row.getByRole('button', { name, exact: true });
+      if (await button.count()) return button.click();
+    }
+    return row.locator('h3 a').click();
+  };
   const waiting = inbox.getByRole('region', { name: 'In motion and waiting', exact: true });
   const confirmDrop = async (reason) => {
     const dialog = page.getByRole('dialog', { name: 'Drop with a reason' });
@@ -215,21 +227,20 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   }
   assert.equal(await inbox.locator('[data-inbox-row]').count(), state.items.length);
   assert.equal(await inbox.getByText('needs attention', { exact: true }).count(), 0);
-  assert.equal(await inbox.getByText('Ready for your attention', { exact: true }).count(), enabled ? 0 : tasks.length);
+  assert.equal(await inbox.getByText(/Ready for your attention/).count(), enabled ? 0 : tasks.length);
   for (const task of tasks) {
     const title = `${task.title} (${reader})`;
     const link = inbox.getByRole('link', { name: title, exact: true });
     assert.equal(await link.count(), 1);
     const card = inbox.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: title, exact: true }) });
     assert.deepEqual(await card.getByRole('button').allTextContents(), enabled
-      ? ['Open', 'Mark done', 'Snooze', 'Drop']
-      : ['Open', 'Mark done', 'Snooze']);
-    assert.match(await card.locator('.inbox-context time').textContent(), /Nov 3/);
+      ? ['Mark done', 'Snooze', 'Drop']
+      : ['Mark done', 'Snooze']);
+    assert.equal(await card.getByText('Today', { exact: true }).count(), 1);
     if (enabled && !task.call) {
       assert.equal(await link.getAttribute('href'), task.path);
       continue;
     }
-    if (enabled && task.call) await card.getByText('From your call with Example Contact on Mon, Nov 2').waitFor();
     await link.click();
     const details = card.getByRole('region', { name: `Details for ${title}` });
     assert.equal(await details.getByRole('link', { name: task.label, exact: true }).getAttribute('href'), task.path);
@@ -239,7 +250,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
     }
     await details.getByRole('button', { name: 'Close', exact: true }).click();
   }
-  assert.deepEqual(reads, [enabled ? 'GET /api/engine/home/inbox' : 'read-home-inbox-v5']);
+  assert.deepEqual(reads, [enabled ? 'dashboard' : 'read-home-inbox-v5']);
   const today = inbox.getByRole('region', { name: 'Reminders', exact: true });
   const card = today.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: /^Read the sample lease/ }) });
   const undo = page.getByRole('button', { name: 'Undo', exact: true });
@@ -260,7 +271,6 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
     const snoozed = waiting.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: /^Read the sample lease/ }) });
     await snoozed.getByText(/^Snoozed until .* [AP]M$/).waitFor();
     assert.deepEqual(await snoozed.getByRole('button').allTextContents(), ['Wake']);
-    assert.equal(await snoozed.getByRole('checkbox').isDisabled(), true);
   }
   const snoozedVersion = state.items[0].base_version;
   await undo.click();
@@ -273,43 +283,23 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
     return;
   }
   assert.deepEqual(writes[1][1], { item_id: id, base_version: snoozedVersion, action: 'unsnooze', idempotency_key: writes[1][1].idempotency_key });
-  for (const task of tasks.slice(0, 2)) await inbox.getByRole('checkbox', { name: `Select ${task.title} (${reader})` }).check();
-  const before = reads.length;
-  assert.equal(await page.getByRole('button', { name: 'Settle selected', exact: true }).count(), 0);
-  await page.getByRole('button', { name: 'Snooze selected', exact: true }).click();
-  await page.getByRole('button', { name: /^Not now · Tomorrow/ }).click();
-  await page.locator('[data-batch-state="results"]').waitFor();
-  assert.equal(reads.length, before + 1);
-  assert.equal(writes.length, 4);
-  assert.deepEqual(new Set(writes.slice(2).map(([, args]) => args.item_id)), new Set(state.items.slice(0, 2).map(item => item.item_id)));
-  assert.equal(new Set(writes.slice(2).map(([, args]) => args.idempotency_key)).size, 2);
-  await card.waitFor({ state: 'detached' });
-  const batchVersions = new Map(state.items.slice(0, 2).map(item => [item.item_id, item.base_version]));
-  await page.getByRole('button', { name: 'Undo whole batch' }).click();
-  await page.locator('[data-batch-state="undone"]').waitFor();
-  await card.waitFor();
-  assert.equal(writes.length, 6);
-  for (const [, args] of writes.slice(4)) {
-    assert.equal(args.base_version, batchVersions.get(args.item_id));
-    assert.equal(args.action, 'unsnooze');
-    assert.equal('until' in args, false);
-  }
-  assert.equal(new Set(writes.slice(2).map(([, args]) => args.idempotency_key)).size, 4);
-  await page.getByRole('button', { name: 'Finish reviewing batch' }).click();
+  assert.equal(await inbox.getByRole('checkbox').count(), 0);
+  assert.equal(await page.getByRole('button', { name: 'Snooze selected', exact: true }).count(), 0);
   conflict = true;
   await clickSnooze();
   await page.getByText('This card changed. Refreshing your inbox. Your change was not saved.', { exact: true }).waitFor();
   await today.getByRole('link', { name: /Read the revised sample lease/ }).waitFor();
-  assert.equal(writes.length, 7);
+  assert.equal(writes.length, 3);
   const notice = { ...state.items[3] };
-  const update = inbox.getByRole('region', { name: 'Reminders', exact: true }).locator('[data-inbox-row]')
+  const update = inbox.getByRole('region', { name: 'Inbox', exact: true }).locator('[data-inbox-row]')
     .filter({ has: page.getByRole('link', { name: /The sample deal moved ahead/ }) });
+  await update.getByRole('button', { name: 'Review', exact: true }).click();
   await update.getByRole('button', { name: 'Drop', exact: true }).click();
   await confirmDrop('Already reviewed.');
   await update.waitFor({ state: 'detached' });
-  assert.equal(writes[7][1].action, 'drop');
-  assert.equal(writes[7][1].item_id, `notification:${partyId}`);
-  assert.equal(writes[7][1].reason, 'Already reviewed.');
+  assert.equal(writes[3][1].action, 'drop');
+  assert.equal(writes[3][1].item_id, `notification:${partyId}`);
+  assert.equal(writes[3][1].reason, 'Already reviewed.');
   assert.equal(await undo.count(), 0);
 
   const revised = today.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: /Read the revised sample lease/ }) });
@@ -383,7 +373,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await page.clock.fastForward(60_000);
   const cardFor = name => inbox.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name }) });
   const leadCard = inbox.locator(`[data-inbox-row="suggestion:${lead}"]`);
-  await leadCard.getByRole('button', { name: 'Open', exact: true }).click();
+  await toggle(leadCard);
   await leadCard.getByRole('heading', { name: 'Possible lead · New Example' }).waitFor();
   await leadCard.getByText('Asked about leasing a suite.', { exact: true }).waitFor();
   assert.equal(await leadCard.getByText('I am looking to lease a suite.', { exact: true }).count(), 0);
@@ -396,12 +386,13 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await leadCard.waitFor({ state: 'detached' });
   assert.equal(writes.at(-1)[1].decision, 'accept');
   const review = cardFor(/Did this happen\? Review the sample site/);
+  await toggle(review);
   await review.getByRole('button', { name: 'Snooze', exact: true }).click();
   await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
   await review.waitFor({ state: 'detached' });
   assert.equal(writes.at(-1)[1].item_id, state.items[2].item_id);
   await undo.click();
-  await review.getByRole('button', { name: 'Open', exact: true }).click();
+  await toggle(review);
   await review.getByText('Discussed next steps.', { exact: true }).waitFor();
   await review.getByText(/From your call on/).waitFor();
   await review.getByText('Words that prompted this suggestion', { exact: true }).waitFor();
@@ -414,6 +405,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   const reply = cardFor(/Reply to the sample email/);
   for (const [row, id] of [[suggestions, `suggestion:${log}`], [reply, `reply_draft:${draft}`]]) {
     const base_version = state.items.find(card => card.item_id === id).base_version;
+    await toggle(row);
     await row.getByRole('button', { name: 'Snooze', exact: true }).click();
     await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
     await today.locator(`[data-inbox-row="${id}"]`).waitFor({ state: 'detached' });
@@ -429,24 +421,24 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
     await row.waitFor();
   }
   const writesBeforeReview = writes.length;
-  await suggestions.getByRole('button', { name: 'Review suggestions', exact: true }).click();
+  await suggestions.getByRole('button', { name: 'Review', exact: true }).click();
   await suggestions.getByRole('heading', { name: 'Log a call · Example Dental' }).waitFor();
-  await reply.getByRole('button', { name: 'Review reply', exact: true }).click();
+  await reply.getByRole('button', { name: 'Review', exact: true }).click();
   await reply.getByRole('region', { name: 'Email thread', exact: true }).waitFor();
   await reply.getByRole('button', { name: 'Edit', exact: true }).click();
   assert.equal(await suggestions.getByRole('region', { name: /Details for Call suggestions/ }).count(), 0);
   await reply.getByRole('textbox', { name: 'Subject', exact: true }).fill('Revised sample reply');
   await reply.getByRole('textbox', { name: 'Message', exact: true }).fill('Edited reply.');
-  await suggestions.getByRole('button', { name: 'Open', exact: true }).click();
+  await toggle(suggestions);
   await suggestions.getByRole('heading', { name: 'Log a call · Example Dental' }).waitFor();
-  await reply.getByRole('button', { name: 'Review reply', exact: true }).click();
+  await reply.getByRole('button', { name: 'Review', exact: true }).click();
   assert.equal(await reply.getByRole('textbox', { name: 'Subject', exact: true }).inputValue(), 'Revised sample reply');
   assert.equal(await reply.getByRole('textbox', { name: 'Message', exact: true }).inputValue(), 'Edited reply.');
   assert.equal(writes.length, writesBeforeReview);
-  await suggestions.getByRole('button', { name: 'Open', exact: true }).click();
+  await toggle(suggestions);
   await suggestions.getByRole('heading', { name: 'Log a call · Example Dental' }).waitFor();
   await suggestions.getByRole('button', { name: 'Accept', exact: true }).first().click();
-  await suggestions.getByRole('button', { name: 'Open', exact: true }).click();
+  await suggestions.getByRole('button', { name: 'Review', exact: true }).click();
   assert.equal(writes.at(-1)[1].decision, 'accept');
   proposalRefusals.set(phase, ['version_conflict', 409]);
   await suggestions.getByRole('button', { name: 'Accept', exact: true }).click();
@@ -472,7 +464,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   assert.equal(await subjectLinks.first().locator('xpath=ancestor::article').getAttribute('data-inbox-row'), `suggestion:${otherEmail}`);
   const draftRead = await hold(request => new URL(request.url()).pathname === '/mcp' &&
     request.postDataJSON()?.params?.name === 'read-engine-home-draft');
-  await reply.getByRole('button', { name: 'Review reply', exact: true }).click();
+  await reply.getByRole('button', { name: 'Review', exact: true }).click();
   await draftRead.requested;
   const emailTitle = email.getByRole('link', { name: /Sample Sender · Floor plan/ });
   await emailTitle.focus();
@@ -500,7 +492,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
     await email.getByRole('alert').filter({ hasText: message }).waitFor();
     assert.equal(await email.getByRole('button', { name: 'Retry same review request' }).count(), 0);
     await page.keyboard.press('Escape');
-    await email.getByRole('button', { name: 'Open', exact: true }).click();
+    await toggle(email);
   }
   await step.getByRole('textbox', { name: 'Next step', exact: true }).fill('Share the revised plan');
   await step.getByRole('button', { name: 'Accept', exact: true }).click();
@@ -508,7 +500,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   assert.ok(writes.at(-1)[0].includes(next));
   assert.deepEqual(writes.at(-1)[1].edits, { what: 'Share the revised plan', due_on: '2026-11-04' });
   assert.equal(await reply.getByText(/days late/).count(), 0);
-  await reply.getByRole('button', { name: 'Open', exact: true }).click();
+  await toggle(reply);
   const replyExcerpt = reply.getByRole('region', { name: 'Email thread', exact: true }).getByText(/Tom & Pat/);
   await replyExcerpt.waitFor();
   assert.equal(await replyExcerpt.textContent(), "Tom & Pat's <sample>\u00a0plan.");
@@ -544,20 +536,20 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   Object.assign(draftCard, { source_version: '3', title: 'Reply to the sample email (updated)' });
   await page.clock.fastForward(60_000);
   await reply.getByRole('link', { name: `Reply to the sample email (updated) (${reader})`, exact: true }).waitFor();
-  await reply.getByRole('button', { name: 'Review reply', exact: true }).click();
+  await reply.getByRole('button', { name: 'Review', exact: true }).click();
   const message = reply.getByRole('textbox', { name: 'Message', exact: true });
   await reply.getByText('Saved again from another tab.', { exact: true }).waitFor();
   await reply.getByRole('button', { name: 'Edit', exact: true }).click();
   await message.fill('Final edited reply.');
-  await email.getByRole('button', { name: 'Open', exact: true }).click();
-  await reply.getByRole('button', { name: 'Review reply', exact: true }).click();
+  await toggle(email);
+  await reply.getByRole('button', { name: 'Review', exact: true }).click();
   await reply.getByRole('button', { name: 'Send reply', exact: true }).click();
   const fallback = cardFor(/Remaining email suggestion/);
-  await fallback.getByText('Sending', { exact: true }).waitFor();
+  await fallback.locator('.inbox-why').getByText(/(^| · )Sending( · |$)/).waitFor();
   assert.equal(await reply.count(), 0);
   assert.deepEqual(writes.at(-1)[1], { idempotency_key: writes.at(-1)[1].idempotency_key, version: 3, subject: 'Revised sample reply',
     body: 'Final edited reply.', to: 'sender@example.test', cc: 'partner@example.test', document_ids: [dealId] });
-  await fallback.getByRole('button', { name: 'Open', exact: true }).click();
+  await toggle(fallback);
   await fallback.getByRole('status').filter({ hasText: 'Sending' }).waitFor();
   assert.equal(await fallback.getByRole('button', { name: 'Accept', exact: true }).isEnabled(), true);
   assert.equal(await fallback.getByRole('button', { name: 'Send reply', exact: true }).count(), 0);
@@ -566,8 +558,8 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   Object.assign(draftRecord, { status: 'failed', failure_reason: 'submission_recipients_invalid' });
   Object.assign(fallbackCard.fallback_reply_draft, { status: 'failed', failure_reason: draftRecord.failure_reason });
   await page.clock.fastForward(60_000);
-  await fallback.getByText(/^Didn't send/).waitFor();
-  await fallback.getByRole('button', { name: 'Open', exact: true }).click();
+  await fallback.locator('.inbox-why').getByText(/Didn't send/).waitFor();
+  await toggle(fallback);
   await fallback.getByRole('status').filter({ hasText: /^Didn't send/ }).waitFor();
   await fallback.getByRole('status').filter({ hasText: /Correct them and send again/ }).waitFor();
   assert.equal(await fallback.getByRole('textbox', { name: 'Reason for declining' }).count(), 0);
@@ -583,14 +575,14 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   assert.equal(writes.at(-1)[1].version, 3);
   await cc.fill('partner@example.org');
   await fallback.getByRole('button', { name: 'Send reply', exact: true }).click();
-  await fallback.getByText('Sending', { exact: true }).waitFor();
+  await fallback.locator('.inbox-why').getByText(/(^| · )Sending( · |$)/).waitFor();
   assert.deepEqual(writes.at(-1)[1], { idempotency_key: writes.at(-1)[1].idempotency_key, version: 4, subject: 'Revised sample reply',
     body: 'Final edited reply.', to: 'sender@example.org', cc: 'partner@example.org', document_ids: [dealId] });
   Object.assign(draftRecord, { status: 'failed', failure_reason: 'mailbox_rejected' });
   Object.assign(fallbackCard.fallback_reply_draft, { status: 'failed', failure_reason: draftRecord.failure_reason });
   await page.clock.fastForward(60_000);
-  await fallback.getByText(/^Didn't send/).waitFor();
-  await fallback.getByRole('button', { name: 'Open', exact: true }).click();
+  await fallback.locator('.inbox-why').getByText(/Didn't send/).waitFor();
+  await toggle(fallback);
   await fallback.getByRole('status').filter({ hasText: /Reply from Outlook/ }).waitFor();
   assert.equal(await fallback.getByRole('button', { name: 'Send reply', exact: true }).count(), 0);
   assert.equal(await fallback.getByRole('textbox', { name: /^(To|CC)$/ }).count(), 0);
@@ -599,19 +591,19 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   Object.assign(fallbackCard.fallback_reply_draft, { status: 'failed', failure_reason: draftRecord.failure_reason });
   await page.clock.fastForward(60_000);
   await fallback.getByText(/Sending stopped before delivery/).waitFor();
-  await fallback.getByRole('button', { name: 'Open', exact: true }).click();
+  await toggle(fallback);
   await fallback.getByRole('button', { name: 'Send reply', exact: true }).click();
   // Home pauses polling while the reply is saving.
   const fallbackReview = fallback.getByRole('region', { name: /Details for Remaining email suggestion/ });
   await fallbackReview.waitFor({ state: 'detached' });
-  await fallback.getByText('Sending', { exact: true }).waitFor();
+  await fallback.locator('.inbox-why').getByText(/(^| · )Sending( · |$)/).waitFor();
   assert.equal(writes.at(-1)[1].version, 5);
   details.set(decline, { ...details.get(draft), draft_id: decline, version: 1, status: 'pending' });
   state.items.push({ ...notice, title: 'Another sample draft', item_id: `reply_draft:${decline}`, source_id: decline,
     source_type: 'email_proposal', deal_id: null, kind_label: 'Reply draft', source_version: '1', reply_draft_id: decline, reply_draft_status: 'pending' });
   await page.clock.fastForward(60_000);
   const declined = cardFor(/Another sample draft/);
-  await declined.getByRole('button', { name: 'Open', exact: true }).click();
+  await toggle(declined);
   await declined.getByRole('button', { name: 'Edit', exact: true }).click();
   const declinedMessage = declined.getByRole('textbox', { name: 'Message', exact: true });
   assert.equal(await declinedMessage.inputValue(), 'Final edited reply.');
@@ -632,7 +624,8 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
   const earlierUntil = writes.at(-1)[1].until;
   async function undoRestore(label, action, until, advanceClock = false) {
-    await lease.getByRole('button', { name: label, exact: true }).click();
+    // The bottom toast sits over In motion and waiting at 1440px, so this uses the keyboard.
+    await lease.getByRole('button', { name: label, exact: true }).press('Enter');
     await today.getByRole('link', { name: /Read the revised sample lease/ }).waitFor();
     const version = state.items[0].base_version;
     const key = writes.at(-1)[1].idempotency_key;
@@ -647,7 +640,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await undoRestore('Wake', 'snooze', earlierUntil);
   await undoRestore('Wake', 'unsnooze', undefined, true);
   assert.equal(await lease.getByRole('button', { name: 'Hide from inbox', exact: true }).count(), 0);
-  await lease.getByRole('button', { name: 'Open', exact: true }).click();
+  await toggle(lease);
   await page.waitForURL(url => url.pathname === '/deals' && url.searchParams.get('step') === state.items[0].action_id);
 });
 
@@ -763,9 +756,9 @@ for (const [width, theme, planner] of [[390, 'light'], [390, 'dark'], [1440, 'li
   await open('/?mode=live');
   const card = item => page.locator(`[data-inbox-row="${item.item_id}"]`);
   const section = name => page.getByRole('region', { name, exact: true });
-  const button = (item, name = item.primary_action) => card(item).getByRole('button', { name, exact: true });
+  const reminder_ = item => item.action_id !== null;
+  const button = item => card(item).getByRole('button', { name: reminder_(item) ? 'Mark done' : 'Review', exact: true });
   await card(task).waitFor();
-  await section('Reminders').getByRole('button', { name: 'See all 9', exact: true }).click();
   if (process.env.HOME_CARD_SCREENSHOTS) {
     await mkdir(process.env.HOME_CARD_SCREENSHOTS, { recursive: true });
     await page.evaluate(() => window.scrollTo(0, 0));
@@ -774,9 +767,9 @@ for (const [width, theme, planner] of [[390, 'light'], [390, 'dark'], [1440, 'li
 
   for (const item of [task, followUp, reminder, requirement, completion, meeting, call, feedback]) {
     const title = card(item).getByRole('heading', { name: item.title, exact: true });
-    assert.equal(await title.evaluate(heading => heading.nextElementSibling?.textContent), item.why);
+    assert.ok((await title.evaluate(heading => heading.nextElementSibling?.textContent)).endsWith(item.why));
     const box = await button(item).boundingBox();
-    assert.ok(box?.width >= 44 && box?.height >= 44, `${item.primary_action} touch target`);
+    assert.ok(box?.width >= controlFloor(width) && box?.height >= controlFloor(width), `${item.primary_action} touch target`);
   }
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   if (width === 390) {
@@ -785,14 +778,13 @@ for (const [width, theme, planner] of [[390, 'light'], [390, 'dark'], [1440, 'li
       (await window.axe.run(root, { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21aa'] } })).violations);
     assert.deepEqual(violations, []);
   }
-  for (const item of [task, followUp, reminder, requirement, completion, meeting, call]) {
-    assert.deepEqual(await card(item).getByRole('button').allTextContents(), [item.primary_action, 'Snooze', 'Drop']);
+  for (const item of [task, followUp, reminder, requirement, completion, meeting, call, feedback]) {
+    assert.deepEqual(await card(item).getByRole('button').allTextContents(), reminder_(item) ? ['Mark done', 'Snooze', 'Drop'] : ['Review']);
   }
-  assert.deepEqual(await card(feedback).getByRole('button').allTextContents(), [feedback.primary_action, 'Snooze']);
   await card(task).getByText('1 day late', { exact: false }).waitFor();
   assert.equal(await card(ownDone).count(), 0);
   assert.equal(await card(otherDone).count(), 0);
-  assert.deepEqual(await card(legacy).getByRole('button').allTextContents(), ['Open', 'Review suggestions', 'Snooze', 'Drop']);
+  assert.deepEqual(await card(legacy).getByRole('button').allTextContents(), ['Review']);
 
   await button(meeting).click();
   await card(meeting).getByText(/From this meeting.*Nov 2/).waitFor();
@@ -990,14 +982,22 @@ const step = (number, title, fields = {}) => ({
 const dashboardAnswer = (reminders, waiting) => {
   const group = items => ({ count: items.length, items });
   return {
-    ok: true, schema_version: 'home-inbox.v5', home_mark_drop: true, home_proposal_drop: true,
-    reminders: group(reminders), waiting: group(waiting),
+    ok: true, schema_version: 'home-inbox.v6', home_mark_drop: true, home_proposal_drop: true,
+    reminders: group(reminders.filter(item => item.action_id)), inbox: group(reminders.filter(item => !item.action_id)),
+    waiting: group(waiting),
   };
 };
-const snapshot = (items, legacy = false) => ({
-  ok: true, schema_version: 'home-inbox.v5', truncated: false, limit: 1000, working_collapsed: true,
-  ...(legacy ? { auto_settle_enabled: true } : { engine_marks: true }),
-  items: legacy ? items.map(item => ({ ...item, explicit_unsettle: false, auto_settled: false })) : items,
+const dashboardOf = items => {
+  const cards = items.filter(item => item.section !== 'done').map(item => ({
+    card_id: item.item_id, why: 'The practice requested an update.', primary_action: item.section === 'inbox' ? 'Mark done' : null,
+    source_activity: null, undo_completion: false, returns_at: item.snoozed_until,
+    waiting_reason: item.section === 'snoozed' ? 'Snoozed' : null, days_late: null, late_label: null, ...item,
+  }));
+  return dashboardAnswer(cards.filter(item => item.section === 'inbox'),
+    cards.filter(item => ['working', 'held', 'snoozed'].includes(item.section)));
+};
+const snapshot = items => ({
+  ok: true, schema_version: 'home-inbox.v5', truncated: false, limit: 1000, working_collapsed: true, engine_marks: true, items,
 });
 async function dashboard(t, width, theme, timezone) {
   const { page, open } = await scenario(t, { root: join(outDir, 'site'), now, timezone, page: { viewport: { width, height: 760 } } });
@@ -1022,9 +1022,6 @@ async function dashboard(t, width, theme, timezone) {
       step(8, 'Send the earlier note', { section: 'done', source_state: 'done', completed_at: now.toISOString() }),
       step(9, 'Call the snoozed prospect', { deal_id: null, open_url: `/deals?prospect=${id(55)}&focus=follow-up`, section: 'snoozed', disposition: 'snoozed' }),
     ],
-    dashboard: false,
-    oldEngine: false,
-    legacy: false,
     dashboardReads: 0,
     draft: { draft_id: id(20), version: 1, status: 'pending', subject: 'Sample reply', body: 'First draft.' },
     thread: mailThread,
@@ -1033,27 +1030,16 @@ async function dashboard(t, width, theme, timezone) {
     draftWrites: [],
     unavailable: false,
   };
-  await page.route('**/api/engine/home/inbox?view=dashboard', route => {
+  await page.route('**/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6', route => {
     state.dashboardReads++;
     if (state.unavailable) return route.fulfill({ status: 400, json: { error: 'unregistered_operation_fields', fields: ['other'] } });
-    if (state.oldEngine) return route.fulfill({ status: 400, json: { error: 'unregistered_operation_fields', fields: ['view'] } });
-    if (!state.dashboard) return route.fulfill(width === 390
-      ? { status: 404 }
-      : { json: snapshot(state.items) });
-    const cards = state.items.filter(item => item.section !== 'done').map(item => ({
-      why: 'The practice requested an update.', primary_action: item.section === 'inbox' ? 'Mark done' : null,
-      source_activity: null, undo_completion: false, returns_at: item.snoozed_until,
-      waiting_reason: item.section === 'snoozed' ? 'Snoozed' : null, days_late: null, late_label: null, ...item,
-    }));
-    return route.fulfill({ json: dashboardAnswer(
-      cards.filter(item => item.section === 'inbox'), cards.filter(item => item.section === 'snoozed'),
-    ) });
+    return route.fulfill({ json: dashboardOf(state.items) });
   });
   await page.route('**/mcp', async route => {
     const request = route.request().postDataJSON();
     const { name, arguments: args } = request.params;
     let result = { ok: true, items: [], deals: [] };
-    if (name === 'read-home-inbox-v5') result = snapshot(state.items.map(({ card_id, ...item }) => item), state.legacy);
+    if (name === 'read-home-inbox-v5') result = snapshot(state.items.map(({ card_id, ...item }) => item));
     if (name === 'read-engine-home-card') result = { item_id: args.item_id, ...state.linkedDisposition };
     if (name === 'read-engine-home-proposal' && args.deal_id) {
       state.filingChecks.push(args);
@@ -1139,9 +1125,8 @@ const mailCard = { ...step(40, 'Review the floor plan request'), item_id: `sugge
   source_type: 'email_proposal', kind_label: 'Suggestion', suggestions: mailSuggestions, card_id: 'conversation:2',
   action_id: null, action_version: null, open_url: null, deal_id: null, primary_action: null };
 
-for (const grouped of [true, false]) test(`Home uses reported lateness on the ${grouped ? 'grouped' : 'fallback'} read`, async t => {
+test('Home uses reported lateness', async t => {
   const { page, open, state } = await dashboard(t, 390, 'light', 'UTC');
-  state.dashboard = grouped;
   await page.clock.setSystemTime(new Date('2026-11-04T02:00:00Z'));
   state.items = [
     step(1, 'Send the signed lease', { card_id: 'lease', due_on: '2026-10-31', days_late: 3 }),
@@ -1156,22 +1141,20 @@ for (const grouped of [true, false]) test(`Home uses reported lateness on the ${
   ];
   await open('/?mode=live');
   const reminders = page.getByRole('region', { name: 'Reminders', exact: true });
-  const filing = reminders.getByRole('link', { name: 'Review where to file the email' });
-  await filing.waitFor();
-  assert.ok(await filing.evaluate(node => node.getBoundingClientRect().top >
-    node.closest('.home-slice').querySelector('section[aria-label="Late"]').getBoundingClientRect().bottom), 'Late leads the tile');
-  const late = reminders.getByRole('region', { name: 'Late', exact: true });
-  assert.deepEqual(await late.locator('article h3').allTextContents(), [
-    'Send the signed lease', 'Check in with the surveyor', 'Review the completed site visit',
+  const inbox = page.getByRole('region', { name: 'Inbox', exact: true });
+  await inbox.getByRole('link', { name: 'Review where to file the email' }).waitFor();
+  assert.deepEqual(await inbox.locator('article h3').allTextContents(), [
+    'Review the completed site visit', 'Review where to file the email',
   ]);
-  for (const label of ['3 days late', '2 days late', '1 day late']) {
+  const late = reminders.getByRole('region', { name: 'Late', exact: true });
+  assert.deepEqual(await late.locator('article h3').allTextContents(), ['Send the signed lease', 'Check in with the surveyor']);
+  for (const label of ['3 days late', '2 days late']) {
     assert.ok(await late.getByText(new RegExp(`${label}$`)).isVisible(), await reminders.innerText());
   }
 });
 
 for (const width of [390, 1440]) test(`Home review shows the whole next-step instruction at ${width}px`, async t => {
   const { page, open, state } = await dashboard(t, width, 'light');
-  state.dashboard = true;
   state.items = [mailCard];
   state.proposalInstruction = 'Check the dimensions and send the revised floor plan to the practice manager. '.repeat(8).trim();
   await open('/?mode=live');
@@ -1187,7 +1170,6 @@ for (const width of [390, 1440]) test(`Home review shows the whole next-step ins
 
 test('Home suggestion instructions submit on Enter and add a line on Shift+Enter', async t => {
   const { page, open, state } = await dashboard(t, 390, 'light');
-  state.dashboard = true;
   state.items = [mailCard];
   state.filingWrites = [];
   await open('/?mode=live');
@@ -1207,7 +1189,6 @@ test('Home suggestion instructions submit on Enter and add a line on Shift+Enter
 
 for (const available of [true, false]) test(`Home email suggestions ${available ? 'share one thread' : 'hide a missing mailbox source'}`, async t => {
   const { page, open, state } = await dashboard(t, 390, 'light');
-  state.dashboard = true;
   state.items = [mailCard];
   if (!available) state.thread = [];
   await open('/?mode=live');
@@ -1246,7 +1227,6 @@ for (const { name, choices, kind, focus, dismiss, reasonRefused, reasonRequired,
   { name: 'an older filing keeps Accept', choices: undefined },
 ]) test(`Home filing: ${name}`, async t => {
   const { page, open, state } = await dashboard(t, 390, 'light');
-  state.dashboard = true;
   state.items = [{ ...mailCard, suggestions: [{ id: id(41) }], ...(choices && {
     filing_choices: choices, primary_action: choices.length === 1 ? choices[0].label : 'Review filing',
   }) }];
@@ -1261,8 +1241,10 @@ for (const { name, choices, kind, focus, dismiss, reasonRefused, reasonRequired,
     state.waitForFilingCheck = new Promise(resolve => { finishFilingCheck = resolve; });
   }
   state.filingWrites = [];
-  const previous = step(63, 'Review the sample project', { card_id: 'project:63' });
-  const next = step(64, 'Check the sample space', { card_id: 'project:64' });
+  // Focus moves within the Inbox tile, so the neighbours are Inbox cards.
+  const update = { source_type: 'notification', action_id: null, action_version: null, kind_label: 'Update' };
+  const previous = step(63, 'Review the sample project', { ...update, item_id: `notification:${id(63)}`, card_id: 'project:63' });
+  const next = step(64, 'Check the sample space', { ...update, item_id: `notification:${id(64)}`, card_id: 'project:64' });
   if (focus) state.items.unshift(previous);
   if (focus === 'next') state.items.push(next);
   await page.route('**/api/v1/business/vendors?**', route => route.fulfill({
@@ -1270,7 +1252,7 @@ for (const { name, choices, kind, focus, dismiss, reasonRefused, reasonRequired,
   }));
   await open('/?mode=live');
   const card = page.getByRole('link', { name: mailCard.title });
-  if (choices) await page.getByRole('button', { name: 'Review filing', exact: true }).click();
+  if (choices) await page.locator('[data-inbox-row]').filter({ has: card }).getByRole('button', { name: 'Review', exact: true }).click();
   else await card.click();
   const review = page.getByRole('region', { name: `Details for ${mailCard.title}` });
   const filing = review.getByRole('region', { name: 'File this email' });
@@ -1379,7 +1361,6 @@ for (const { name, choices, kind, focus, dismiss, reasonRefused, reasonRequired,
 
 for (const width of [390, 1440]) test(`Home preserves authored lines and empty message disclosures at ${width}px`, async t => {
   const { page, open, state } = await dashboard(t, width, 'light');
-  state.dashboard = true;
   state.items = [mailCard];
   state.thread = [
     { ...mailThread[0], body: 'First line\nSecond line\n\nA postscript.', folded: null },
@@ -1409,7 +1390,6 @@ for (const width of [390, 1440]) test(`Home preserves authored lines and empty m
 test('Home reveals earlier text only for the selected email message', async t => {
   const { page, open, state } = await dashboard(t, 390, 'light');
   const earlier = ['Can we use the east entrance?\n\nPat Example', 'The sample suite is open.'];
-  state.dashboard = true;
   state.items = [mailCard];
   state.thread = [
     ...mailThread.map((message, index) => ({ ...message, folded: earlier[index] })),
@@ -1460,7 +1440,6 @@ test('Home reveals earlier text only for the selected email message', async t =>
 for (const width of [390, 1280, 1440]) test(`Home names the person the reply answers above the draft at ${width}px`, async t => {
   const { page, open, state } = await dashboard(t, width, 'light');
   const draft = { ...draftCard(), title: 'Review the reply to Pat Example' };
-  state.dashboard = true;
   state.items = [draft];
   state.draftSource = { ...mailSource, id: mailThread[1].activity_id };
   await open('/?mode=live');
@@ -1479,7 +1458,6 @@ for (const width of [390, 1280, 1440]) test(`Home names the person the reply ans
 test('Home separates Your reply from the email thread', async t => {
   const { page, open, state } = await dashboard(t, 1440, 'dark');
   const draft = draftCard();
-  state.dashboard = true;
   state.items = [draft];
   await open('/?mode=live');
   await page.getByRole('link', { name: draft.title }).click();
@@ -1499,7 +1477,6 @@ for (const draftHasMail of [false, true]) test(`Home combines a draft with its p
   const { page, open, state } = await dashboard(t, 390, 'light');
   const draft = { ...draftCard(), suggestions: mailSuggestions };
   const extra = { ...mailThread[0], activity_id: id(43), happened_at: '2026-11-02T16:00:00Z', body: 'The draft source.' };
-  state.dashboard = true;
   state.items = [draft];
   state.draftThread = draftHasMail ? [mailThread[1], extra] : [];
   await open('/?mode=live');
@@ -1515,7 +1492,6 @@ for (const draftHasMail of [false, true]) test(`Home combines a draft with its p
 
 test('Home shows the email once and keeps the reasons and targets of its suggestions', async t => {
   const { page, open, state } = await dashboard(t, 390, 'light');
-  state.dashboard = true;
   state.items = [mailCard];
   state.proposalEvidence = 'From: maya@example.test\n' + mailThread[0].body;
   await open('/?mode=live');
@@ -1538,7 +1514,6 @@ async function reviewShot(page, name) {
 test('Home puts a trailing signature under Show earlier text with the quoted history', async t => {
   const { page, open, state } = await dashboard(t, 390, 'light');
   const signature = 'Example Realty Group\nP: (555) 010-0100 | F: 555.010.0101\npat@example.test';
-  state.dashboard = true;
   state.items = [mailCard];
   state.thread = [{ ...mailThread[1], body: `The east suite also works.\n\nThanks,\nPat Example\n${signature}`,
     folded: 'On Nov 2, Maya Example wrote:\nCan you send the plan?' }];
@@ -1556,7 +1531,6 @@ test('Home puts a trailing signature under Show earlier text with the quoted his
 
 test('Home folds the contact details at the end of a one-line email with no sign-off', async t => {
   const { page, open, state } = await dashboard(t, 390, 'light');
-  state.dashboard = true;
   state.items = [mailCard];
   state.thread = [{ ...mailThread[1], folded: null,
     body: 'The east suite also works. Pat Example Example Realty Group P: (555) 010-0100 F: 555.010.0101 pat@example.test' }];
@@ -1571,7 +1545,6 @@ test('Home folds the contact details at the end of a one-line email with no sign
 
 test('Home shows who and why for a possible new deal from an email', async t => {
   const { page, open, state } = await dashboard(t, 390, 'light');
-  state.dashboard = true;
   state.items = [mailCard];
   state.proposals = { [id(41)]: {
     kind: 'possible_new_deal', target_name: null, reason: null,
@@ -1589,7 +1562,6 @@ test('Home shows who and why for a possible new deal from an email', async t => 
 test('Home shows every next step and settles only the one the partner decides', async t => {
   const { page, open, state } = await dashboard(t, 1440, 'light');
   const draft = { ...draftCard(), suggestions: [{ id: id(42) }, { id: id(43) }] };
-  state.dashboard = true;
   state.items = [draft];
   state.filingWrites = [];
   state.proposals = {
@@ -1619,7 +1591,6 @@ test('Home shows every next step and settles only the one the partner decides', 
 test('Home keeps the Doc status beside Talk to Doc, apart from Send reply', async t => {
   const { page, open, state } = await dashboard(t, 1440, 'dark');
   const draft = draftCard();
-  state.dashboard = true;
   state.items = [draft];
   await open('/?mode=live');
   await page.getByRole('link', { name: draft.title }).click();
@@ -1636,18 +1607,23 @@ test('Home keeps the Doc status beside Talk to Doc, apart from Send reply', asyn
 for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Home draft Edit saves once at ${width}px in ${theme}`, async t => {
   const { page, open, state } = await dashboard(t, width, theme);
   const draft = { ...draftCard(), suggestions: mailSuggestions };
-  state.dashboard = true;
   state.items = [draft];
   await open('/?mode=live');
   const background = locator => locator.evaluate(node => getComputedStyle(node).backgroundColor);
-  const opener = page.getByRole('button', { name: 'Review reply', exact: true });
-  const accent = await background(opener);
+  const opener = page.getByRole('button', { name: 'Review', exact: true });
+  const accent = await page.evaluate(() => {
+    const probe = document.body.appendChild(document.createElement('i'));
+    probe.style.background = 'var(--accent)';
+    const color = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return color;
+  });
+  assert.notEqual(await background(opener), accent, 'Review is a quiet button');
   await page.getByRole('link', { name: draft.title }).click();
   const review = page.getByRole('region', { name: `Details for ${draft.title}` });
   const edit = review.getByRole('button', { name: 'Edit', exact: true });
   await edit.waitFor();
   assert.equal(await background(review.getByRole('button', { name: 'Send reply', exact: true })), accent, 'Send reply is the primary button');
-  assert.notEqual(await background(opener), accent, 'the open card gives the primary look to Send reply');
   const primaries = await page.getByRole('button').evaluateAll((nodes, accent) =>
     nodes.filter(node => getComputedStyle(node).backgroundColor === accent).map(node => node.textContent), accent);
   assert.deepEqual(primaries, ['Send reply'], 'one primary button in view');
@@ -1681,14 +1657,14 @@ for (const width of [390, 1440]) test(`Home keeps other cards usable while a rev
   const draft = draftCard();
   const other = step(30, 'Call the practice manager', { card_id: 'other' });
   const swiped = step(31, 'Ask the surveyor for pricing', { card_id: 'swiped' });
-  state.dashboard = true;
   state.items = [draft, other, swiped];
   await open('/?mode=live');
   await page.getByRole('link', { name: draft.title }).click();
   const review = page.getByRole('region', { name: `Details for ${draft.title}` });
   await review.getByRole('button', { name: 'Send reply', exact: true }).waitFor();
   const card = title => page.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: title }) });
-  const button = (title, name) => card(title).locator(':scope > .inbox-actions').getByRole('button', { name, exact: true });
+  const button = (title, name) => card(title).locator(':scope > .inbox-actions > button, :scope > button.home-done')
+    .and(page.getByRole('button', { name, exact: true }));
   for (const name of ['Snooze', 'Drop']) assert.equal(await button(draft.title, name).count(), 0, `the card under review shows no ${name} of its own`);
   if (process.env.HOME_THREAD_SCREENSHOTS) {
     await mkdir(process.env.HOME_THREAD_SCREENSHOTS, { recursive: true });
@@ -1715,7 +1691,6 @@ for (const [width, height] of [[1280, 800], [1440, 900]]) test(`Home keeps other
   const snoozed = step(30, 'Call the practice manager', { card_id: 'snoozed' });
   const finished = step(31, 'Ask the surveyor for pricing', { card_id: 'finished' });
   const dropped = step(32, 'Send the sample floor plan', { card_id: 'dropped' });
-  state.dashboard = true;
   state.items = [draft, snoozed, finished, dropped];
   state.filingWrites = [];
   let decide;
@@ -1729,7 +1704,8 @@ for (const [width, height] of [[1280, 800], [1440, 900]]) test(`Home keeps other
   const review = page.getByRole('region', { name: `Details for ${draft.title}` });
   await review.getByRole('button', { name: 'Send reply', exact: true }).waitFor();
   const card = title => page.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: title }) });
-  const button = (title, name) => card(title).locator(':scope > .inbox-actions').getByRole('button', { name, exact: true });
+  const button = (title, name) => card(title).locator(':scope > .inbox-actions > button, :scope > button.home-done')
+    .and(page.getByRole('button', { name, exact: true }));
   for (const name of ['Snooze', 'Drop', 'Mark done'])
     assert.equal(await button(draft.title, name).count(), 0, `the card under review shows no ${name} of its own`);
   assert.equal(await card(draft.title).locator(':scope > .inbox-actions .inbox-guidance').count(), 0, 'no explainer under the card');
@@ -1763,7 +1739,6 @@ for (const [width, height] of [[1280, 800], [1440, 900]]) test(`Home keeps other
 test('Home pauses its minute refresh exactly while a review save runs', async t => {
   const { page, open, state } = await dashboard(t, 1440, 'light');
   const draft = { ...draftCard(), suggestions: [{ id: id(42) }] };
-  state.dashboard = true;
   state.items = [draft, step(30, 'Call the practice manager', { card_id: 'other' })];
   state.filingWrites = [];
   await page.clock.install({ time: now });
@@ -1785,7 +1760,7 @@ test('Home pauses its minute refresh exactly while a review save runs', async t 
 
   const reads = state.dashboardReads;
   // The counting route runs after the request event, so wait for the answer.
-  const dashboardRead = () => page.waitForResponse('**/api/engine/home/inbox?view=dashboard');
+  const dashboardRead = () => page.waitForResponse('**/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6');
   const read = dashboardRead();
   await page.clock.fastForward(60_000);
   await read;
@@ -1814,14 +1789,13 @@ test('Home moves a snoozed card while the open review saves', async t => {
   const { page, open, state } = await dashboard(t, 1440, 'light');
   const draft = { ...draftCard(), suggestions: [{ id: id(42) }] };
   const snoozed = step(30, 'Call the practice manager', { card_id: 'snoozed' });
-  state.dashboard = true;
   state.items = [draft, snoozed];
   state.filingWrites = [];
   let release;
   let hold;
   let decide;
   const decided = new Promise(resolve => { decide = resolve; });
-  await page.route('**/api/engine/home/inbox?view=dashboard', async route => {
+  await page.route('**/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6', async route => {
     await hold;
     await route.fallback().catch(() => {});
   });
@@ -1837,7 +1811,7 @@ test('Home moves a snoozed card while the open review saves', async t => {
   const snoozedRow = reminders.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: snoozed.title }) });
 
   hold = new Promise(resolve => { release = resolve; });
-  const followUp = page.waitForRequest('**/api/engine/home/inbox?view=dashboard');
+  const followUp = page.waitForRequest('**/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6');
   await snoozedRow.locator(':scope > .inbox-actions').getByRole('button', { name: 'Snooze', exact: true }).click();
   await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
   await followUp;
@@ -1873,7 +1847,6 @@ test('Inbox keeps Undo on another finished card usable while a review is open', 
 for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Home shows a stale edit alongside the saved draft at ${width}px in ${theme}`, async t => {
   const { page, open, state } = await dashboard(t, width, theme);
   const draft = draftCard();
-  state.dashboard = true;
   state.items = [draft];
   await open('/?mode=live');
   const title = page.getByRole('link', { name: draft.title });
@@ -1947,18 +1920,10 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   assert.equal(state.draft.body, 'Keep this local edit.');
 });
 
-test('Home uses the flat inbox when the older engine refuses the dashboard view', async t => {
-  const { page, open, state } = await dashboard(t, 390, 'light');
-  state.oldEngine = true;
-  await open('/?mode=live');
-  await page.getByRole('region', { name: 'Reminders', exact: true }).getByRole('link', { name: 'Send the signed lease' }).waitFor();
-});
-
 for (const width of [390, 1440]) {
   test(`Home shows all 90 characters of an action on the first card view at ${width}px`, async t => {
     const { page, open, state } = await dashboard(t, width, 'light');
     const title = 'Send the revised floor plan to the practice manager before the lease review next Thursday.';
-    state.oldEngine = true;
     state.items[0] = step(1, title);
     await open('/?mode=live');
     const heading = page.getByRole('region', { name: 'Reminders', exact: true })
@@ -1971,29 +1936,25 @@ for (const width of [390, 1440]) {
     }), { lineClamp: 'none', textOverflow: 'clip', textFits: true });
   });
 
-  test(`Home explains when a legacy next step failed at ${width}px`, async t => {
+  test(`Home explains when a next step failed at ${width}px`, async t => {
     const { page, open, state } = await dashboard(t, width, 'light');
-    state.oldEngine = true;
-    state.legacy = true;
     state.items = ['Floor plan failed to send', 'Failed to save the floor plan']
-      .map((title, index) => step(index + 1, title, { source_state: 'failed' }));
+      .map((title, index) => step(index + 1, title, { source_state: 'failed', why: null }));
     await open('/?mode=live');
     for (const item of state.items) {
       const title = page.getByRole('heading', { level: 3, name: item.title, exact: true });
       await title.waitFor();
       const card = page.locator('[data-inbox-row]').filter({ has: title });
       assert.deepEqual({
-        cue: await card.getByText("Didn't go through", { exact: true }).isVisible(),
-        detail: await card.getByText('Open the card to review the failed action.', { exact: true }).isVisible(),
-        genericDetail: await card.getByText('Ready for your attention', { exact: true }).isVisible(),
+        cue: await card.getByText(/Didn't go through/).isVisible(),
+        detail: await card.getByText(/Open the card to review the failed action\./).isVisible(),
+        genericDetail: await card.getByText(/Ready for your attention/).isVisible(),
       }, { cue: true, detail: true, genericDetail: false }, item.title);
     }
   });
 
   test(`Home identifies a subject-only legacy reply as a draft at ${width}px`, async t => {
     const { page, open, state } = await dashboard(t, width, 'light');
-    state.oldEngine = true;
-    state.legacy = true;
     const draft = step(20, 'Floor plan', {
       item_id: `email_proposal:${id(20)}`, source_type: 'email_proposal', kind_label: 'Reply draft',
       action_id: null, action_version: null, open_url: null, deal_id: null,
@@ -2003,38 +1964,37 @@ for (const width of [390, 1440]) {
     const title = page.getByRole('heading', { level: 3, name: draft.title, exact: true });
     await title.waitFor();
     const card = page.locator('[data-inbox-row]').filter({ has: title });
-    assert.equal(await card.getByText('Draft ready', { exact: true }).isVisible(), true);
+    assert.equal(await card.getByText(/Draft ready/).isVisible(), true);
   });
 
   test(`Home shows the draft cue when the title asks for reply review at ${width}px`, async t => {
     const { page, open, state } = await dashboard(t, width, 'light');
-    state.dashboard = true;
     const draft = { ...draftCard(), title: 'Review the reply to the practice manager', primary_action: 'Review reply' };
     state.items = [draft];
     await open('/?mode=live');
     const title = page.getByRole('heading', { level: 3, name: draft.title, exact: true });
     await title.waitFor();
     const card = page.locator('[data-inbox-row]').filter({ has: title });
-    assert.equal(await card.getByText('Draft ready', { exact: true }).isVisible(), true);
+    assert.equal(await card.getByText(/Draft ready/).isVisible(), true);
   });
 
   test(`Home leaves the type label and cues off an ordinary action card at ${width}px`, async t => {
     const { page, open, state } = await dashboard(t, width, 'light');
-    state.dashboard = true;
     state.items = [{ ...mailCard, primary_action: 'Review suggestions' }];
     await open('/?mode=live');
     const action = page.getByRole('heading', { level: 3, name: mailCard.title, exact: true });
     await action.waitFor();
     const card = page.locator('[data-inbox-row]').filter({ has: action });
     assert.equal(await card.getByText(mailCard.kind_label, { exact: true }).isVisible(), false);
-    assert.equal(await card.getByText(/^(?:Draft ready|Didn't go through)$/).count(), 0);
+    assert.equal(await card.getByText(/Draft ready|Didn't go through/).count(), 0);
   });
 }
 
 for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Home dashboard at ${width}px in ${theme}`, async t => {
   const { page, open, state } = await dashboard(t, width, theme);
-  const extra = [step(10, 'Review the draft site plan'), step(11, 'Confirm the tour address')];
-  state.items.push(...extra);
+  // The engine leaves prospects and later reminders off the dashboard.
+  state.items = [...state.items.filter(item => !/prospect|next week/.test(item.title)),
+    step(10, 'Review the draft site plan'), step(11, 'Confirm the tour address')];
   let meetingItems = [scheduledMeeting];
   await page.route('**/api/engine/home/today', route => route.fulfill({ json: {
     ok: true, schema_version: 'home-today.v1', today: '2026-11-03', viewer: 'joe',
@@ -2062,7 +2022,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
     if (width === 390) await page.setViewportSize(viewport);
   }
   for (const name of ['Today', 'Needs your attention', 'Done today', 'Earlier and undated completions', 'Mail priorities']) {
-    assert.equal(await tile(name).count(), 0, name);
+    assert.equal(await page.locator(`.home-slice[aria-label="${name}"]`).count(), 0, name);
   }
   for (const forbidden of ['Welcome home.', 'Refresh inbox', 'Search inbox', 'Today sidebar']) {
     assert.equal(await page.getByText(forbidden, { exact: true }).count(), 0, forbidden);
@@ -2078,26 +2038,27 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
     assert.equal(first.x, second.x);
     assert.ok(second.y >= first.y + first.height);
     assert.equal(third.x, second.x);
-    assert.ok(third.y >= second.y + second.height);
+    assert.ok(first.y >= third.y + third.height, "Today's meetings leads on a phone");
   } else {
-    assert.equal(first.y, second.y);
-    assert.ok(second.x >= first.x + first.width);
-    assert.ok(first.width > 1.8 * second.width, 'Reminders takes the wide column');
-    assert.equal(third.x, second.x);
-    assert.ok(third.y >= second.y + second.height, 'the other tiles stack beside Reminders');
+    assert.ok(second.x >= first.x + first.width, 'In motion and waiting sits right of Reminders');
+    assert.ok(third.x >= second.x + second.width, "Today's meetings takes the right column");
     const bar = await page.locator('.app-layout-topbar').boundingBox();
     assert.ok(second.y >= bar.y + bar.height, 'the top bar never covers the In motion and waiting title');
     assert.equal(await page.evaluate(() => [document.scrollingElement, document.getElementById('appMainSlot')].every(node => node.scrollHeight <= node.clientHeight)), true, 'the page itself does not scroll');
   }
   await reminders.getByRole('heading', { name: 'Late', exact: true }).waitFor();
   await reminders.getByText(/3 days late/).waitFor();
-  assert.equal(await page.getByText(/Call the (new|snoozed) prospect|Follow up next week|Send the earlier note/).count(), 0);
+  assert.equal(await page.getByText('Send the earlier note').count(), 0);
   const wake = waiting.getByRole('button', { name: 'Wake', exact: true });
   await wake.waitFor();
   await waiting.getByText(/Snoozed until/).waitFor();
   const lease = reminders.getByRole('link', { name: 'Send the signed lease' });
   assert.match(await lease.getAttribute('href'), /focus=next-step&step=/);
-  assert.equal(await reminders.locator('[data-inbox-row]').count(), 6, 'Reminders previews up to eight cards');
+  if (width === 390) {
+    assert.equal(await reminders.locator('[data-inbox-row]').count(), 4, 'a phone previews four reminders');
+    await reminders.getByRole('button', { name: 'See all 6', exact: true }).click();
+  }
+  assert.equal(await reminders.locator('[data-inbox-row]').count(), 6);
   assert.equal(await reminders.getByRole('button', { name: /^See all/ }).count(), 0);
   await reminders.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: 'Send the signed lease' }) }).getByRole('button', { name: 'Mark done' }).click();
   await lease.waitFor({ state: 'detached' });
@@ -2106,7 +2067,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   assert.equal(await reminders.getByRole('button', { name: /^See all/ }).count(), 0);
   state.unavailable = true;
   await page.clock.fastForward(60_000);
-  await page.getByText('Reminders and waiting items unavailable.', { exact: true }).waitFor();
+  await page.getByText('Reminders and Inbox unavailable.', { exact: true }).waitFor();
   assert.equal(await reminders.getByRole('heading', { name: 'Reminders 5' }).count(), 1);
   state.unavailable = false;
   state.items = [];
@@ -2133,14 +2094,13 @@ for (const [width, height] of [[1280, 800], [1440, 900]]) for (const theme of ['
   const reminders = page.getByRole('region', { name: 'Reminders', exact: true });
   const status = page.getByText(/^Last synced/);
   await status.waitFor();
-  await reminders.getByRole('button', { name: /^See all/ }).click();
   if (process.env.HOME_GRID_SCREENSHOTS) {
     await mkdir(process.env.HOME_GRID_SCREENSHOTS, { recursive: true });
     await page.screenshot({ path: join(process.env.HOME_GRID_SCREENSHOTS, `home-alone-${width}x${height}-${theme}.png`) });
   }
   const [tile, grid, band] = await Promise.all([reminders, page.locator('.home-sections'), page.locator('.app-layout-topbar')]
     .map(node => node.boundingBox()));
-  assert.equal(tile.width, grid.width, 'a lone Reminders tile fills the row');
+  assert.equal(tile.x, grid.x, 'Reminders keeps the left column');
   assert.ok(band.y + band.height <= 60, 'the page controls take one compact band');
   assert.ok(tile.y >= band.y + band.height, 'the top bar never covers the tile title');
   assert.deepEqual(await page.evaluate(() => [document.scrollingElement, document.getElementById('appMainSlot')].every(node => node.scrollHeight <= node.clientHeight)), true, 'the page itself does not scroll');
@@ -2154,7 +2114,7 @@ for (const [width, height, withMeeting] of [[1280, 800, false], [1440, 900, fals
   await page.setViewportSize({ width, height });
   state.items = [
     ...Array.from({ length: 16 }, (_, index) => step(70 + index, `Check the sample document ${index + 1}`)),
-    ...Array.from({ length: 12 }, (_, index) => step(110 + index, `Wait on the sample survey ${index + 1}`, { section: 'snoozed', disposition: 'snoozed', snoozed_until: '2026-11-04T16:00:00Z' })),
+    ...Array.from({ length: 30 }, (_, index) => step(110 + index, `Wait on the sample survey ${index + 1}`, { section: 'snoozed', disposition: 'snoozed', snoozed_until: '2026-11-04T16:00:00Z' })),
   ];
   await page.route('**/api/engine/home/today', route => route.fulfill({ json: {
     ok: true, schema_version: 'home-today.v1', today: '2026-11-03', viewer: 'joe', meetings: { state: meetings.length ? 'ready' : 'empty', items: meetings },
@@ -2165,13 +2125,12 @@ for (const [width, height, withMeeting] of [[1280, 800, false], [1440, 900, fals
   const waiting = page.getByRole('region', { name: 'In motion and waiting', exact: true });
   const meeting = page.getByRole('region', { name: "Today's meetings", exact: true });
   if (meetings.length) await meeting.getByRole('heading', { name: "Today's meetings 1" }).waitFor();
-  for (const tile of [reminders, waiting]) await tile.getByRole('button', { name: /^See all/ }).click();
   const [first, second, grid] = await Promise.all([reminders, waiting, page.locator('.home-sections')].map(node => node.boundingBox()));
   assert.deepEqual(await page.evaluate(() => [document.scrollingElement, document.getElementById('appMainSlot')].every(node => node.scrollHeight <= node.clientHeight)), true, 'the page itself does not scroll');
   assert.equal(grid.y + grid.height, height - 12, 'the grid ends at the bottom of the screen');
-  const last = meetings.length ? await meeting.boundingBox() : second;
-  for (const box of [first, last]) assert.equal(box.y + box.height, grid.y + grid.height, 'each column reaches the bottom');
+  for (const box of [first, second]) assert.equal(box.y + box.height, grid.y + grid.height, 'each column reaches the bottom');
   if (meetings.length) {
+    const last = await meeting.boundingBox();
     const [heading, row] = await Promise.all([meeting.getByRole('heading', { name: /^Today's meetings/ }), meeting.locator('.home-meeting')].map(node => node.boundingBox()));
     assert.ok(row.y + row.height <= last.y + last.height, 'the meetings tile shows its heading and its meeting');
     assert.ok(heading.y >= last.y, 'the meetings heading is not cut off');
@@ -2182,7 +2141,6 @@ for (const [width, height, withMeeting] of [[1280, 800, false], [1440, 900, fals
 for (const [width, height] of [[1280, 800], [1440, 779]]) test(`Home shows a grouped reminder once and saves each step it covers at ${width}x${height}`, async t => {
   const { page, open, state } = await dashboard(t, width, 'light');
   await page.setViewportSize({ width, height });
-  state.dashboard = true;
   const card = (number, title, fields) => step(number, title, { card_id: `step:${id(number)}`, ...fields });
   const cover = (number, record_name) => ({ item_id: `next_action:${id(number)}`, base_version: '1:0:inbox',
     action_id: id(number), action_version: 1, ...(record_name !== undefined && { record_name }) });
@@ -2200,15 +2158,15 @@ for (const [width, height] of [[1280, 800], [1440, 779]]) test(`Home shows a gro
   await page.clock.install({ time: now });
   await open('/?mode=live');
   const reminders = page.getByRole('region', { name: 'Reminders', exact: true });
-  await reminders.getByRole('heading', { name: 'Reminders 11', exact: true }).waitFor();
+  await reminders.getByRole('heading', { name: 'Reminders 11 · 1 late', exact: true }).waitFor();
   const row = title => reminders.locator('[data-inbox-row]').filter({ has: page.getByRole('heading', { name: title, exact: true }) });
-  await row(meeting).getByText('Maya Example, Sam Example and 2 more', { exact: true }).waitFor();
+  await row(meeting).getByText(/Maya Example, Sam Example and 2 more/).waitFor();
   await row(meeting).getByText(/Covers 4 reminders/).waitFor();
-  await row(meeting).getByText('Send the site visit notes.', { exact: true }).waitFor();
+  await row(meeting).getByText(/Send the site visit notes\./).waitFor();
   await row('Follow up with Pat Example').getByText(/Covers 2 reminders/).waitFor();
   assert.equal(await row('Follow up with Pat Example').locator('.inbox-detail').count(), 0, 'covered steps without names list none');
-  await row('Send the tour notes').getByText('Maya Example, Sam Example and 1 more', { exact: true }).waitFor();
-  await row('Send the parking survey').getByText('Maya Example and 2 more', { exact: true }).waitFor();
+  await row('Send the tour notes').getByText(/Maya Example, Sam Example and 1 more/).waitFor();
+  await row('Send the parking survey').getByText(/Maya Example and 2 more/).waitFor();
   assert.equal(await reminders.getByText(/Covers \d+ reminders/).count(), 4, 'a card without covers is one reminder');
   assert.deepEqual(await page.evaluate(() => [document.scrollingElement, document.getElementById('appMainSlot')]
     .every(node => node.scrollHeight <= node.clientHeight)), true, 'the page itself does not scroll');
@@ -2246,7 +2204,6 @@ for (const [width, height] of [[1280, 720], [1440, 779], [1440, 900]]) test(`the
   const { page, open, state } = await dashboard(t, width, 'light');
   await page.addInitScript(() => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ theme: 'light' })));
   await page.setViewportSize({ width, height });
-  state.dashboard = true;
   state.items = Array.from({ length: 8 }, (_, index) => step(90 + index, `Send the sample lease summary ${index + 1}`, { card_id: `step:${id(90 + index)}` }));
   await page.clock.install({ time: now });
   await open('/?mode=live');
@@ -2288,7 +2245,6 @@ test('Home restores reply edits after Back and reload and compares a newer revis
     ...draft, item_id: `reply_draft:${id(21)}`, source_id: id(21), reply_draft_id: id(21), title: 'Reply to a different email',
     card_id: 'conversation:2',
   };
-  state.dashboard = true;
   state.items = [draft, otherDraft];
   state.otherDraft = { ...state.draft, draft_id: id(21), body: 'Different saved draft.' };
   await open('/?mode=live');
@@ -2340,7 +2296,6 @@ for (const event of ['sign-out', 'partner change', 'drop']) test(`Home clears re
   const draft = draftCard();
   const localEdit = 'My private sample reply.';
   let actor = 'joe';
-  state.dashboard = true;
   state.items = [draft];
   await page.route('**/auth/session', route => route.fulfill({
     status: actor ? 200 : 401,
@@ -2361,8 +2316,7 @@ for (const event of ['sign-out', 'partner change', 'drop']) test(`Home clears re
   assert.equal(await sessionHasReplyEdit(page, localEdit), true);
 
   if (event === 'drop') {
-    await review.getByRole('button', { name: 'Close review' }).click();
-    await page.locator('[data-inbox-row]').filter({ hasText: draft.title }).getByRole('button', { name: 'Drop', exact: true }).click();
+    await review.getByRole('button', { name: 'Drop', exact: true }).click();
     const reason = page.getByRole('dialog', { name: 'Drop with a reason' });
     await reason.getByRole('textbox', { name: 'Reason for dropping' }).fill('Handled elsewhere');
     await reason.getByRole('button', { name: 'Drop', exact: true }).click();
@@ -2386,7 +2340,6 @@ test('Home skips edits from a retired session when the same partner signs back i
   const { page, open, state } = await dashboard(t, 1440, 'light');
   const draft = draftCard();
   const edit = 'Sample edit from the retired session.';
-  state.dashboard = true;
   state.items = [draft];
   let signedIn = true;
   const auth = route => route.fulfill({
@@ -2431,7 +2384,6 @@ test('Home skips edits from a retired session when the same partner signs back i
 test('Home evicts the old reply edit when browser storage rejects its replacement', async t => {
   const { page, open, state } = await dashboard(t, 1440, 'light');
   const draft = draftCard();
-  state.dashboard = true;
   state.items = [draft];
   await open('/?mode=live');
   const title = page.getByRole('link', { name: draft.title });
@@ -2686,7 +2638,6 @@ test('A link to a dropped or replaced Home draft shows its saved outcome', async
 test('The Home query link still opens its loaded draft', async t => {
   const { page, open, state } = await dashboard(t, 1440, 'light');
   const draft = draftCard();
-  state.dashboard = true;
   state.items = [draft];
   await open(`/?mode=live&card=${encodeURIComponent(draft.item_id)}`);
   const review = page.getByRole('region', { name: `Details for ${draft.title}` });
@@ -2696,13 +2647,12 @@ test('The Home query link still opens its loaded draft', async t => {
   await page.getByRole('link', { name: draft.title }).waitFor();
 });
 
-for (const save of ['single', 'bulk', 'review']) test(`Home keeps grouped cards after a ${save} save`, async t => {
+for (const save of ['single', 'review']) test(`Home keeps grouped cards after a ${save} save`, async t => {
   const { page, open, state } = await dashboard(t, 1440, 'light');
   const draft = draftCard();
   const done = step(1, 'Send the signed lease', { card_id: 'lease:1' });
   const next = step(2, 'Call the practice manager', { card_id: 'lease:2' });
   const untouched = step(3, 'Confirm the site visit', { card_id: 'lease:3', due_on: '2026-11-09' });
-  state.dashboard = true;
   state.items = [untouched, draft, done, next];
   await page.clock.install({ time: now });
   await open('/?mode=live');
@@ -2717,18 +2667,10 @@ for (const save of ['single', 'bulk', 'review']) test(`Home keeps grouped cards 
     await page.getByText(/Marked done: Send the signed lease/).waitFor();
     assert.equal(await reminders.getByRole('link', { name: done.title }).count(), 0);
   }
-  if (save === 'bulk') {
-    for (const task of [done, next])
-      await reminders.locator('[data-inbox-row]').filter({ hasText: task.title }).getByRole('checkbox').check();
-    await page.getByRole('button', { name: 'Snooze selected' }).click();
-    await page.getByRole('button', { name: /^Not now · Tomorrow/ }).click();
-    await page.locator('[data-batch-state="results"]').waitFor();
-    await page.getByRole('region', { name: 'In motion and waiting', exact: true })
-      .getByRole('heading', { name: 'In motion and waiting 2' }).waitFor();
-  }
   if (save === 'review') {
-    await reminders.getByRole('link', { name: draft.title }).click();
-    const review = reminders.getByRole('region', { name: `Details for ${draft.title}` });
+    const inbox = page.getByRole('region', { name: 'Inbox', exact: true });
+    await inbox.getByRole('link', { name: draft.title }).click();
+    const review = inbox.getByRole('region', { name: `Details for ${draft.title}` });
     await review.getByRole('button', { name: 'Edit', exact: true }).click();
     await review.getByRole('textbox', { name: 'Message', exact: true }).fill('Edited sample draft.');
     await review.getByRole('button', { name: 'Save draft', exact: true }).click();
@@ -2749,15 +2691,15 @@ for (const width of [390, 900, 1440]) for (const theme of ['light', 'dark']) tes
   const tasks = Array.from({ length: 10 }, (_, index) => ({
     ...step(21 + index, `Call about sample suite ${index + 1}`), card_id: `suite:${index}`,
   }));
-  state.dashboard = true;
   state.items = [...tasks.slice(0, 5), draft, ...tasks.slice(5)];
   await page.clock.install({ time: now });
   await open('/?mode=live');
   const reminders = page.getByRole('region', { name: 'Reminders', exact: true });
-  await reminders.getByRole('button', { name: 'See all 11' }).click();
-  const draftTitle = reminders.getByRole('link', { name: draft.title });
+  const inbox = page.getByRole('region', { name: 'Inbox', exact: true });
+  if (width < 1000) await reminders.getByRole('button', { name: 'See all 10' }).click();
+  const draftTitle = inbox.getByRole('link', { name: draft.title });
   await draftTitle.click();
-  const review = reminders.getByRole('region', { name: `Details for ${draft.title}` });
+  const review = inbox.getByRole('region', { name: `Details for ${draft.title}` });
   await review.getByRole('button', { name: 'Edit', exact: true }).click();
   const originalCard = await draftTitle.elementHandle();
   const message = review.getByRole('textbox', { name: 'Message', exact: true });
@@ -2778,7 +2720,7 @@ for (const width of [390, 900, 1440]) for (const theme of ['light', 'dark']) tes
   const after = await message.evaluate(node => ({ y: scrollY + document.getElementById('appMainSlot').scrollTop, top: node.getBoundingClientRect().top }));
   assert.ok(Math.abs(after.top - before.top) <= 2, JSON.stringify({ before, after }));
   assert.deepEqual(await reminders.locator('article > .inbox-copy h3 a').allTextContents(),
-    [...tasks.slice(1, 5), draft, ...tasks.slice(5), added].map(item => item.title));
+    [...tasks.slice(1), added].map(item => item.title));
 
   state.items = state.items.filter(item => item !== draft);
   await page.clock.fastForward(60_000);
@@ -2786,7 +2728,8 @@ for (const width of [390, 900, 1440]) for (const theme of ['light', 'dark']) tes
   assert.equal(await message.inputValue(), 'Unsaved edit for the floor plan.');
   await review.getByRole('button', { name: 'Close review' }).click();
   await draftTitle.waitFor({ state: 'detached' });
-  assert.equal(await reminders.getByRole('link', { name: tasks[5].title }).evaluate(node => node === document.activeElement), true);
+  assert.equal(await reminders.getByRole('link', { name: tasks[1].title }).evaluate(node => node === document.activeElement), true,
+    'with Inbox empty, focus moves to the first card on Home');
   const readCount = state.dashboardReads;
   for (const property of ['hidden', 'offline']) {
     await page.evaluate(property => {
@@ -2975,13 +2918,13 @@ test('Home shows a meeting moved to today once, on its tile row, and logs the ti
   const { key } = movedMeeting;
   const { page, meetings } = await meetingDashboard(t, { items: [movedMeeting], follow_up_reviews: [movedReview] });
   const writes = await meetingWrites(page);
-  const reminders = page.getByRole('region', { name: 'Reminders', exact: true });
+  const inbox = page.getByRole('region', { name: 'Inbox', exact: true });
   const summary = meetings.locator('summary').filter({ hasText: movedMeeting.title });
   await summary.waitFor();
   assert.equal(await summary.count(), 1);
   assert.equal(await summary.locator('time').getAttribute('datetime'), movedMeeting.start);
-  assert.equal(await reminders.locator(`[data-review="${key}"]`).count(), 0);
-  assert.equal(await reminders.getByText(/Tour Cedar Suite/).count(), 0);
+  assert.equal(await inbox.locator(`[data-review="${key}"]`).count(), 0);
+  assert.equal(await inbox.getByText(/Tour Cedar Suite/).count(), 0);
   assert.equal(await page.locator(`[data-review="${key}"]`).count(), 0);
   await summary.press('Enter');
   const row = meetings.locator('details[open]');
@@ -2992,8 +2935,8 @@ test('Home shows a meeting moved to today once, on its tile row, and logs the ti
   await page.clock.fastForward('03:30:00');
   const happened = row.getByRole('button', { name: 'It happened', exact: true });
   await happened.waitFor();
-  assert.equal(await reminders.locator(`[data-review="${key}"]`).count(), 0);
-  assert.equal(await reminders.getByText(/Tour Cedar Suite/).count(), 0);
+  assert.equal(await inbox.locator(`[data-review="${key}"]`).count(), 0);
+  assert.equal(await inbox.getByText(/Tour Cedar Suite/).count(), 0);
   assert.equal(await page.locator(`[data-review="${key}"]`).count(), 1);
   await row.getByRole('combobox', { name: 'Deal', exact: true }).selectOption(meetingDeal.id);
   await happened.click();
@@ -3007,14 +2950,14 @@ test('Home logs the tile time when a meeting and its outcome are both today at d
   const item = { ...scheduledMeeting, start: '2026-11-03T15:00:00Z', end: '2026-11-03T16:00:00Z' };
   const { page, meetings } = await meetingDashboard(t, { items: [item], follow_up_reviews: [meetingOutcome] });
   const writes = await meetingWrites(page);
-  const reminders = page.getByRole('region', { name: 'Reminders', exact: true });
+  const inbox = page.getByRole('region', { name: 'Inbox', exact: true });
   const summary = meetings.locator('summary');
   await summary.filter({ hasText: item.title }).press('Enter');
   const happened = meetings.getByRole('button', { name: 'It happened', exact: true });
   await happened.waitFor();
   assert.equal(await summary.count(), 1);
   assert.equal(await summary.locator('time').getAttribute('datetime'), item.start);
-  assert.equal(await reminders.locator(`[data-review="${item.key}"]`).count(), 0);
+  assert.equal(await inbox.locator(`[data-review="${item.key}"]`).count(), 0);
   await meetings.getByRole('combobox', { name: 'Deal', exact: true }).selectOption(meetingDeal.id);
   await happened.click();
   await page.getByText('Meeting logged on Example Dental.', { exact: true }).waitFor();
@@ -3022,22 +2965,22 @@ test('Home logs the tile time when a meeting and its outcome are both today at d
   assert.equal(writes[0].happened_at, '2026-11-03T15:00:00.000Z');
 });
 
-test('Home keeps an earlier outcome in Reminders and a later one off Home', async t => {
+test('Home keeps an earlier outcome in Inbox and a later one off Home', async t => {
   const earlier = { key: 'bbbbbbbbbbbbbbbb', title: 'Visit Elm Suite',
     start: '2026-11-02T19:00:00Z', end: '2026-11-02T20:00:00Z', state: 'needs_review' };
   const later = { key: 'cccccccccccccccc', title: 'Tour Pine Suite',
     start: '2026-11-04T19:00:00Z', end: '2026-11-04T20:00:00Z', state: 'needs_review' };
   const { page, meetings } = await meetingDashboard(t, { items: [scheduledMeeting], follow_up_reviews: [earlier, later] });
   const writes = await meetingWrites(page);
-  const reminders = page.getByRole('region', { name: 'Reminders', exact: true });
-  const earlierReview = reminders.locator(`[data-review="${earlier.key}"]`);
+  const inbox = page.getByRole('region', { name: 'Inbox', exact: true });
+  const earlierReview = inbox.locator(`[data-review="${earlier.key}"]`);
   await earlierReview.waitFor();
   await meetings.locator('summary').filter({ hasText: scheduledMeeting.title }).waitFor();
   assert.equal(await page.locator(`[data-review="${earlier.key}"]`).count(), 1);
   assert.equal(await meetings.getByText(earlier.title).count(), 0);
   assert.equal(await page.locator(`[data-review="${later.key}"]`).count(), 0);
   assert.equal(await meetings.getByText(later.title).count(), 0);
-  assert.equal(await reminders.getByText(later.title).count(), 0);
+  assert.equal(await inbox.getByText(later.title).count(), 0);
   await earlierReview.getByRole('button', { name: `Confirm ${earlier.title}` }).press('Enter');
   await earlierReview.getByRole('combobox', { name: 'Deal', exact: true }).selectOption(meetingDeal.id);
   await earlierReview.getByRole('button', { name: 'It happened', exact: true }).click();
@@ -3047,18 +2990,18 @@ test('Home keeps an earlier outcome in Reminders and a later one off Home', asyn
   assert.equal(writes[0].happened_at, '2026-11-02T19:00:00.000Z');
 });
 
-test('Home moves an unanswered moved meeting to Reminders after Central midnight', async t => {
+test('Home moves an unanswered moved meeting to Inbox after Central midnight', async t => {
   const { key } = movedMeeting;
   const calendar = { items: [movedMeeting], follow_up_reviews: [movedReview] };
   const { page, meetings } = await meetingDashboard(t, calendar, new Date('2026-11-04T05:59:50Z'));
-  const reminders = page.getByRole('region', { name: 'Reminders', exact: true });
+  const inbox = page.getByRole('region', { name: 'Inbox', exact: true });
   await meetings.locator('summary').filter({ hasText: movedMeeting.title }).waitFor();
-  assert.equal(await reminders.locator(`[data-review="${key}"]`).count(), 0);
+  assert.equal(await inbox.locator(`[data-review="${key}"]`).count(), 0);
   calendar.items = [];
   await page.clock.fastForward(20_000);
   await page.clock.fastForward(60_000);
   await meetings.waitFor({ state: 'detached' });
-  const review = reminders.locator(`[data-review="${key}"]`);
+  const review = inbox.locator(`[data-review="${key}"]`);
   await review.waitFor();
   assert.equal(await page.locator(`[data-review="${key}"]`).count(), 1);
   assert.equal(await review.locator('time').getAttribute('datetime'), movedReview.start);
@@ -3069,8 +3012,9 @@ test('Home with meetings and a late reminder keeps the Today rail hidden and nev
   const { page, meetings } = await meetingDashboard(t, { items: [movedMeeting], follow_up_reviews: [movedReview, earlier] },
     NOW, [step(1, 'Send the signed lease', { due_on: '2026-10-31', days_late: 3 })]);
   const reminders = page.getByRole('region', { name: 'Reminders', exact: true });
+  const inbox = page.getByRole('region', { name: 'Inbox', exact: true });
   await reminders.getByText(/3 days late/).waitFor();
-  await reminders.locator(`[data-review="${earlier.key}"]`).waitFor();
+  await inbox.locator(`[data-review="${earlier.key}"]`).waitFor();
   await meetings.locator('summary').filter({ hasText: movedMeeting.title }).waitFor();
   assert.equal(await page.locator('#appToday').isVisible(), false);
   assert.equal(await page.getByRole('heading', { name: 'Meetings', exact: true }).count(), 0);
@@ -3119,8 +3063,9 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   await open('/?mode=live');
   const meetings = page.getByRole('region', { name: "Today's meetings", exact: true });
   const reminders = page.getByRole('region', { name: 'Reminders', exact: true });
+  const inbox = page.getByRole('region', { name: 'Inbox', exact: true });
   await meetings.getByRole('heading', { name: "Today's meetings 6" }).waitFor();
-  await reminders.getByRole('heading', { name: 'Reminders 5' }).waitFor();
+  await inbox.getByRole('heading', { name: 'Inbox 1', exact: true }).waitFor();
   await meetings.getByText('Last synced Nov 3, 8:00 AM').waitFor();
   assert.equal(await meetings.getByText(current.title, { exact: true }).count(), 1);
   assert.equal(await meetings.getByText(laterDay.title, { exact: true }).count(), 0);
@@ -3158,14 +3103,14 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   await page.getByText('Meetings unavailable.', { exact: true }).waitFor();
   assert.equal(await choose.inputValue(), deal.id);
   assert.equal(await choose.evaluate(node => node === document.activeElement), true);
-  assert.equal(await reminders.getByRole('heading', { name: 'Reminders 5' }).count(), 1);
+  assert.equal(await inbox.getByRole('heading', { name: 'Inbox 1', exact: true }).count(), 1);
   await meetings.getByRole('button', { name: 'It happened', exact: true }).click();
   await page.getByText('Meeting logged on Example Dental.', { exact: true }).waitFor();
   assert.equal(writes.length, 1);
   assert.equal(writes[0].calendar_review_key, completed.key);
   assert.deepEqual(writes[0].about, [{ deal_id: deal.id }]);
 
-  const earlierReview = reminders.locator(`[data-review="${earlier.key}"]`);
+  const earlierReview = inbox.locator(`[data-review="${earlier.key}"]`);
   await earlierReview.getByRole('heading', { name: /Yesterday’s site visit/ }).waitFor();
   await earlierReview.getByRole('button', { name: /Confirm Yesterday’s site visit/ }).press('Enter');
   await earlierReview.getByRole('button', { name: 'Dismiss', exact: true }).click();
@@ -3177,10 +3122,10 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   await meetings.getByRole('heading', { name: "Today's meetings 1" }).waitFor();
   await meetings.getByText(current.title, { exact: true }).waitFor();
   assert.equal(await meetings.getByText(laterDay.title, { exact: true }).count(), 0);
-  assert.equal(await reminders.getByRole('heading', { name: 'Reminders 4' }).count(), 1);
+  assert.equal(await inbox.count(), 0, 'the dismissed review leaves Inbox empty');
 });
 
-async function homeDropFixture(t, width, { items, markDrop = true, proposalDrop = true, invalidDrop = false, theme } = {}) {
+async function homeDropFixture(t, width, { items, invalidDrop = false, theme, path = '/' } = {}) {
   const { page, open } = await scenario(t, { root: join(outDir, 'site'), now: NOW, page: { viewport: { width, height: 900 } } });
   page.setDefaultTimeout(5000);
   await page.addInitScript(theme => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ theme, walkthroughSeen: { joe: true } })), theme);
@@ -3193,7 +3138,7 @@ async function homeDropFixture(t, width, { items, markDrop = true, proposalDrop 
       const path = new URL(request.url).pathname;
       if (path === '/api/engine/home/inbox') return Response.json({
         ok: true, schema_version: 'home-inbox.v5', truncated: false, limit: 1000, working_collapsed: true,
-        ...(proposalDrop && { home_proposal_drop: true }), ...(markDrop && { home_mark_drop: true }), items: state.items,
+        home_proposal_drop: true, home_mark_drop: true, items: state.items,
       });
       assert.equal(request.method, 'POST');
       const body = await request.json();
@@ -3243,21 +3188,28 @@ async function homeDropFixture(t, width, { items, markDrop = true, proposalDrop 
     const response = await worker.fetch(new Request(request.url(), { method: request.method(), headers: request.headers(), body: request.postData() }), env);
     await route.fulfill({ status: response.status, headers: Object.fromEntries(response.headers), body: await response.text() });
   });
-  await page.route('**/api/engine/home/inbox?view=dashboard', route => route.fulfill({ status: 404 }));
+  await page.route('**/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6', route => route.fulfill({ json: dashboardOf(state.items) }));
   await page.route(url => url.pathname === '/' && url.searchParams.get('mode') === 'live', async route => {
     const response = await route.fetch();
     await route.fulfill({ response, body: (await response.text()).replace('<html ', '<html data-home-today-from-engine ') });
   });
   await page.clock.install({ time: NOW });
-  await open('/?mode=live');
+  await open(`${path}?mode=live`);
   const rows = items.map(card => page.locator(`[data-inbox-row="${card.item_id}"]`));
   for (const row of rows) await row.waitFor();
+  // Inbox rows offer Snooze and Drop inside the open review.
+  const review = async row => {
+    const opener = row.getByRole('button', { name: 'Review', exact: true });
+    if (!(await opener.count())) return;
+    await opener.click();
+    await row.getByRole('region', { name: /^Details for/ }).waitFor();
+  };
   const dialog = page.getByRole('dialog', { name: 'Drop with a reason' });
   const confirm = async (reason) => {
     await dialog.getByRole('textbox', { name: 'Reason for dropping' }).fill(reason);
     await dialog.getByRole('button', { name: 'Drop', exact: true }).click();
   };
-  return { page, state, rows, writes, dialog, confirm, confirmation: page.locator('.toast[role="status"]'), alert: page.locator('.inbox-notice[role="alert"]') };
+  return { page, state, rows, review, writes, dialog, confirm, confirmation: page.locator('.toast[role="status"]'), alert: page.locator('.inbox-notice[role="alert"]') };
 }
 
 const dropCard = (number, fields) => ({
@@ -3268,7 +3220,8 @@ const dropCard = (number, fields) => ({
   merged_source_ids: [id(number)], waiting_version: 0, waiting_on: null, source_activity: null, ...fields,
 });
 
-for (const [label, card, expectedPath, expectedBody] of [
+// On Home a suggestion or reply draft is dropped from its loaded review; the card route stays on the Inbox page.
+for (const [label, card, expectedPath, expectedBody, path = '/'] of [
   [
     'follow-up',
     dropCard(70, { item_id: `capture_post_call_action:${id(70)}`, source_type: 'capture_post_call_action',
@@ -3287,6 +3240,7 @@ for (const [label, card, expectedPath, expectedBody] of [
     dropCard(72, { item_id: `suggestion:${id(72)}`, source_type: 'email_proposal', kind_label: 'Suggestion', title: 'Review the sample email' }),
     `/api/engine/proposals/${id(72)}/decision`,
     (body) => ({ decision: 'dismiss', reason: 'Already handled.', idempotency_key: body.idempotency_key }),
+    '/inbox',
   ],
   [
     'reply draft',
@@ -3294,9 +3248,11 @@ for (const [label, card, expectedPath, expectedBody] of [
       title: 'Reply to the sample landlord', reply_draft_id: id(73), reply_draft_status: 'pending' }),
     `/api/engine/reply-drafts/${id(73)}/dismissal`,
     (body) => ({ version: 2, reason: 'Already handled.', idempotency_key: body.idempotency_key }),
+    '/inbox',
   ],
-]) for (const width of [390, 1440]) test(`Home drops a ${label} card through its engine route with a trimmed reason at ${width}px`, async t => {
-  const { page, rows: [row], writes, dialog, confirm, confirmation } = await homeDropFixture(t, width, { items: [card] });
+]) for (const width of [390, 1440]) test(`${path === '/' ? 'Home' : 'Inbox'} drops a ${label} card through its engine route with a trimmed reason at ${width}px`, async t => {
+  const { page, rows: [row], review, writes, dialog, confirm, confirmation } = await homeDropFixture(t, width, { items: [card], path });
+  await review(row);
   const buttons = await row.getByRole('button').allTextContents();
   assert.equal(buttons[buttons.indexOf('Snooze') + 1], 'Drop', buttons.join(', '));
   const drop = row.getByRole('button', { name: 'Drop', exact: true });
@@ -3328,8 +3284,9 @@ for (const width of [390, 1440]) test(`Home hides Drop on Tour feedback, Fact re
     dropCard(76, { item_id: `reply_draft:${id(76)}`, source_type: 'email_proposal', kind_label: 'Reply draft',
       title: 'Failed reply to the sample landlord', source_state: 'failed', reply_draft_id: id(76), reply_draft_status: 'failed' }),
   ];
-  const { rows } = await homeDropFixture(t, width, { items });
+  const { rows, review } = await homeDropFixture(t, width, { items });
   for (const row of rows) {
+    await review(row);
     await row.getByRole('button', { name: 'Snooze', exact: true }).waitFor();
     assert.equal(await row.getByRole('button', { name: 'Drop', exact: true }).count(), 0);
   }
@@ -3337,7 +3294,8 @@ for (const width of [390, 1440]) test(`Home hides Drop on Tour feedback, Fact re
 
 for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Home confirms a snooze at the bottom with Undo at ${width}px in ${theme}`, async t => {
   const card = dropCard(78, { item_id: `notification:${id(78)}`, source_type: 'notification', kind_label: 'Update', title: 'Sample reminder to snooze' });
-  const { page, rows: [row], writes } = await homeDropFixture(t, width, { items: [card], theme });
+  const { page, rows: [row], review, writes } = await homeDropFixture(t, width, { items: [card], theme });
+  await review(row);
   await row.getByRole('button', { name: 'Snooze', exact: true }).click();
   await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
   const toast = page.getByRole('status').filter({ hasText: 'Snoozed: Sample reminder to snooze.' });
@@ -3355,15 +3313,16 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   await undone.waitFor();
   assert.deepEqual(writes.map(write => write.body.action), ['snooze', 'unsnooze']);
   assert.equal(await undone.getByRole('button').count(), 0, 'an undo is not itself offered for undo');
-  await row.getByRole('button', { name: 'Snooze', exact: true }).waitFor();
+  await row.getByRole('button', { name: 'Review', exact: true }).waitFor();
   await page.clock.runFor(5_000);
   await undone.waitFor({ state: 'detached' });
 });
 
 test('Home keeps the bottom Undo unusable while a later save is unresolved', async t => {
   const cards = [80, 81].map(n => dropCard(n, { item_id: `notification:${id(n)}`, source_type: 'notification', kind_label: 'Update', title: `Sample reminder ${n}` }));
-  const { page, state, rows: [first, second], writes } = await homeDropFixture(t, 1440, { items: cards });
+  const { page, state, rows: [first, second], review, writes } = await homeDropFixture(t, 1440, { items: cards });
   const snooze = async row => {
+    await review(row);
     await row.getByRole('button', { name: 'Snooze', exact: true }).click();
     await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
   };
@@ -3383,7 +3342,8 @@ test('Home keeps the bottom Undo unusable while a later save is unresolved', asy
 
 for (const width of [390, 1440]) test(`Home alerts and keeps a card when the engine refuses Drop with 400 invalid_field_value at ${width}px`, async t => {
   const card = dropCard(77, { item_id: `notification:${id(77)}`, source_type: 'notification', kind_label: 'Update', title: 'Reminder the server refuses to drop' });
-  const { page, rows: [row], writes, confirm, alert } = await homeDropFixture(t, width, { items: [card], invalidDrop: true });
+  const { page, rows: [row], review, writes, confirm, alert } = await homeDropFixture(t, width, { items: [card], invalidDrop: true });
+  await review(row);
   await row.getByRole('button', { name: 'Drop', exact: true }).click();
   await confirm('Already handled.');
   await alert.getByText("This card can't be dropped. Nothing was saved.", { exact: true }).waitFor();

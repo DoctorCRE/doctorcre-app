@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, mkdir } from 'node:fs/promises';
 import { chromium } from './browser-harness.mjs';
+import { controlFloor } from "./control-floor.ts";
 const root = new URL('../', import.meta.url);
 
 for (const width of [390, 1280]) test(`a checklist item opens its own sheet and preserves an unsent instruction at ${width}px`, async t => {
@@ -34,11 +35,11 @@ for (const width of [390, 1280]) test(`a checklist item opens its own sheet and 
   const snapshot = page.getByRole('region', { name: 'Deal snapshot' });
   await snapshot.waitFor();
   assert.equal(await snapshot.locator('ol li').count(), 3);
-  const itemsFit = await snapshot.locator('ol button').evaluateAll(buttons => buttons.every(button => {
+  const itemsFit = await snapshot.locator('ol button').evaluateAll((buttons, floor) => buttons.every(button => {
     const { width, height } = button.getBoundingClientRect();
-    return width >= 44 && height >= 44 && button.scrollWidth <= button.clientWidth;
-  }));
-  assert.ok(itemsFit, 'item titles wrap inside their buttons and keep a 44px target');
+    return width >= floor && height >= floor && button.scrollWidth <= button.clientWidth;
+  }), controlFloor(width));
+  assert.ok(itemsFit, 'item titles wrap inside their buttons and keep a full-size target');
   assert.equal(await card.locator('.owner').getAttribute('title'), 'Owner: Joe');
   assert.equal(await card.locator('.next-line,.vendor-pills,.auto-move').count(), 0);
   await mkdir(new URL('out/test-artifacts/deal-items/', root), { recursive: true });

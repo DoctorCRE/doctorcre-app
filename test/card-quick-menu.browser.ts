@@ -288,7 +288,7 @@ async function openHome(page: Page, origin: string, theme: string) {
 const homeRow = (page: Page, id: string) => page.locator(`[data-inbox-row="${id}"]`);
 const rowLabels = (row: Locator) =>
   row
-    .locator(":scope > .inbox-actions > button:not(:disabled)")
+    .locator(":scope > button.home-done:not(:disabled), :scope > .inbox-actions > button:not(:disabled)")
     .evaluateAll((buttons) => buttons.map((button) => button.textContent?.trim() ?? ""));
 const focusedIsTitleOf = (page: Page, id: string) =>
   page.evaluate((id) => document.activeElement === document.querySelector(`[data-inbox-row="${id}"] h3 a`), id);
@@ -313,7 +313,7 @@ test("right-click on a Home card opens a menu of that card's own actions", async
         await openHome(page, server.origin, theme);
         const row = homeRow(page, REVIEW.id);
         const labels = await rowLabels(row);
-        assert.deepEqual(labels, ["Open", "Mark done", "Snooze"]);
+        assert.deepEqual(labels, ["Mark done", "Snooze"]);
 
         // Right-click opens the row's own actions, in its order, focused on the first.
         await rightClick(page, row);
@@ -321,16 +321,14 @@ test("right-click on a Home card opens a menu of that card's own actions", async
         await menu.waitFor();
         assert.equal(await page.getByRole("menu").count(), 1);
         assert.deepEqual(await menu.getByRole("menuitem").allInnerTexts(), labels);
-        assert.equal(await focusedText(page), "Open");
+        assert.equal(await focusedText(page), "Mark done");
         await assertInsideViewport(page, menu);
 
         // Arrow keys move inside the menu and wrap; they never move between rows.
         await page.keyboard.press("ArrowDown");
-        assert.equal(await focusedText(page), "Mark done");
-        await page.keyboard.press("ArrowDown");
         assert.equal(await focusedText(page), "Snooze");
         await page.keyboard.press("ArrowDown");
-        assert.equal(await focusedText(page), "Open");
+        assert.equal(await focusedText(page), "Mark done");
         await page.keyboard.press("ArrowUp");
         assert.equal(await focusedText(page), "Snooze");
         assert.equal(await menu.isVisible(), true);
@@ -341,7 +339,7 @@ test("right-click on a Home card opens a menu of that card's own actions", async
         assert.equal(await focusedIsTitleOf(page, REVIEW.id), true);
 
         // The keyboard menu key opens the same menu from a focused row control.
-        await row.getByRole("button", { name: "Snooze", exact: true }).focus();
+        await row.getByRole("button", { name: "Mark done", exact: true }).focus();
         await page.keyboard.press("ContextMenu");
         await menu.waitFor();
         assert.deepEqual(await menu.getByRole("menuitem").allInnerTexts(), labels);
@@ -371,7 +369,6 @@ test("right-click on a Home card opens a menu of that card's own actions", async
         const call = homeRow(page, CALL.id);
         await rightClick(page, call);
         await menuFor(page, CALL.title).waitFor();
-        await page.keyboard.press("ArrowDown");
         assert.equal(await focusedText(page), "Mark done");
         await page.keyboard.press("Enter");
         const toast = page.locator(".toast").filter({ hasText: `Marked done: ${CALL.title}.` });
@@ -452,7 +449,7 @@ test("a long-press on a Home card opens its menu without opening, completing or 
       // The press lands on the detail line, clear of the links that touch adjustment snaps to.
       await page.keyboard.press("Escape");
       await page.getByRole("dialog", { name: "Snooze cards" }).waitFor({ state: "detached" });
-      const detail = await call.locator(".inbox-detail").boundingBox();
+      const detail = await call.locator(".inbox-why").boundingBox();
       assert.ok(detail);
       const line = Math.round(detail.y + detail.height / 2);
       await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: 340, y: line }] });
@@ -490,7 +487,7 @@ test("a long-press never turns into a swipe, a slow one included, and lets later
   // the settle time and slides left before it lifts.
   const call = homeRow(page, CALL.id);
   await call.scrollIntoViewIfNeeded();
-  const detail = await call.locator(".inbox-detail").boundingBox();
+  const detail = await call.locator(".inbox-why").boundingBox();
   assert.ok(detail);
   const line = Math.round(detail.y + detail.height / 2);
   const cdp = await context.newCDPSession(page);
@@ -508,7 +505,7 @@ test("a long-press never turns into a swipe, a slow one included, and lets later
   // dragstart; the menu opens there, and the finger lifts after.
   const row = homeRow(page, REVIEW.id);
   await row.scrollIntoViewIfNeeded();
-  await row.locator(".inbox-detail").evaluate((target) => {
+  await row.locator(".inbox-why").evaluate((target) => {
     const pointer = { bubbles: true, pointerId: 41, pointerType: "touch", isPrimary: true };
     target.dispatchEvent(new PointerEvent("pointerdown", pointer));
     target.dispatchEvent(new PointerEvent("pointercancel", pointer));
@@ -591,6 +588,8 @@ async function openEngineHome(page: Page, origin: string) {
   });
   await page.goto(`${origin}/?mode=live`);
   const row = homeRow(page, card.item_id);
+  // Snooze and Drop show while the pointer is on the row.
+  await row.hover();
   await row.getByRole("button", { name: "Drop", exact: true }).waitFor();
   return row;
 }

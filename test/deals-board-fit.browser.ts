@@ -313,6 +313,7 @@ test("a sideways board scroll shows no thumb", async (t) => {
   // A short window leaves the board itself scrolling both ways; a fixed height stands in for it.
   await board.evaluate((k) => {
     k.style.flex = "none";
+    k.style.minHeight = "0";
     k.style.height = "240px";
   });
   const scroll = (axis: "scrollLeft" | "scrollTop") =>

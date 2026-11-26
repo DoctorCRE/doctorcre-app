@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { chromium } from './browser-harness.mjs';
+import { controlFloor } from './control-floor.ts';
 import { ownedFixtureServer as fixtureServer } from './fixture-probe.ts';
 const ref='al1_bGQ6MTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTEx';
 const id='11111111-1111-4111-8111-111111111111';
@@ -28,7 +29,7 @@ test('linked draft opens directly, reads safely and approves at phone and deskto
   await page.getByRole('heading',{name:'Draft approved',level:1,exact:true}).waitFor();
   const leads=page.getByRole('link',{name:'Go to Leads',exact:true});
   assert.equal(await leads.getAttribute('href'),'/leads');
-  assert.ok((await leads.boundingBox()).height >= 44);
+  assert.ok((await leads.boundingBox()).height >= controlFloor(width));
   assert.notEqual(await leads.evaluate(el=>getComputedStyle(el).display),'inline');
   assert.equal(await page.getByText('Read the message before approving it.').count(),0);
   assert.match(await page.locator('#actionLink').textContent(),/Nothing was sent/);

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile, mkdir } from 'node:fs/promises';
 import { chromium, componentDocument, waitForAsync } from './browser-harness.mjs';
 import { ownedFixtureServer as fixtureServer } from './fixture-probe.ts';
+import { controlFloor } from "./control-floor.ts";
 const id='11111111-1111-4111-8111-111111111111';
 const recordings=JSON.parse(await readFile(new URL('./fixtures/activity-attribution-panel/recordings.json',import.meta.url)));
 const provenance=JSON.parse(await readFile(new URL('./fixtures/activity-attribution-panel/provenance.json',import.meta.url)));
@@ -71,7 +72,7 @@ for(const width of [390,1280])for(const theme of ['light','dark'])test(`recorded
   if(row.response.activity)assert.match(await page.locator('[aria-label="Activity deal attribution"]').textContent(),/version 3/);
   assert.equal(await page.locator('main').evaluate(n=>n.scrollWidth<=n.clientWidth),true);
   if(row.name==='direct'){
-   assert.ok((await page.getByRole('button',{name:'Close attribution'}).boundingBox()).height>=44);
+   assert.ok((await page.getByRole('button',{name:'Close attribution'}).boundingBox()).height>=controlFloor(width));
    await mkdir('out/test-artifacts/activity-attribution',{recursive:true});
    await page.screenshot({path:`out/test-artifacts/activity-attribution/${width}-${theme}.png`});
   }
