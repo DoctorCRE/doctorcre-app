@@ -1339,6 +1339,50 @@ test("Doc settings show each Mac status and keep link codes private", async (t) 
   await settings.getByText("Doc isn't set up on your Mac yet.").waitFor();
 });
 
+async function showDocLinkCode(t: TestContext, width: number) {
+  const { server, context } = await app(t, { width, touch: width === 390 });
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: server.origin });
+  const page = await context.newPage();
+  await page.goto(server.origin + "/settings?mode=live");
+  const settings = page.getByRole("region", { name: "Doc link" });
+  await settings.getByRole("button", { name: "Make link code" }).click();
+  const code = "1".padStart(43, "a");
+  await settings.getByText(code, { exact: true }).waitFor();
+  return { page, settings, code };
+}
+
+for (const width of [1280, 390]) {
+  test(`Copy puts the shown Doc link code on the clipboard at ${width}px`, async (t) => {
+    const { page, settings, code } = await showDocLinkCode(t, width);
+    const copy = settings.getByRole("button", { name: "Copy", exact: true });
+    const done = settings.getByRole("button", { name: "Done", exact: true });
+    const [copyBox, doneBox] = await Promise.all([copy.boundingBox(), done.boundingBox()]);
+    assert.equal(copyBox?.height, doneBox?.height, "Copy is the same size as Done");
+    await page.screenshot({ path: `${artifacts}/doc-link-copy-${width}.png` });
+
+    await copy.click();
+    await settings.getByRole("button", { name: "Copied", exact: true }).waitFor();
+    assert.equal((await done.boundingBox())?.x, doneBox?.x, "Done stays put when Copy reads Copied");
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), code);
+    await settings.getByRole("button", { name: "Copy", exact: true }).waitFor({ timeout: 4000 });
+    await done.click();
+    assert.equal(await settings.getByText(code, { exact: true }).count(), 0);
+  });
+}
+
+test("A refused clipboard selects the Doc link code for Cmd+C", async (t) => {
+  const { page, settings, code } = await showDocLinkCode(t, 1280);
+  await page.evaluate(() => {
+    navigator.clipboard.writeText = () => Promise.reject(new DOMException("blocked", "NotAllowedError"));
+  });
+  await settings.getByRole("button", { name: "Copy", exact: true }).click();
+  await settings.getByText("Press Cmd+C to copy.", { exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => getSelection()?.toString()), code);
+  assert.equal(await settings.getByRole("button", { name: "Copied", exact: true }).count(), 0);
+  await settings.getByRole("button", { name: "Done", exact: true }).click();
+  assert.equal(await settings.getByText("Press Cmd+C to copy.", { exact: true }).count(), 0);
+});
+
 test("phone notifications are available only with CARR sign-in", async (t) => {
   for (const signIn of ["engine", "carr"] as const) {
     const { server, context } = await app(t, { signIn });
