@@ -43,6 +43,7 @@ import {
   lateDays,
   PlaceholderTile,
   tileOf,
+  useStacked,
   wholeInstruction,
 } from "./sections";
 import { sourceExcerptText } from "./source-excerpt.ts";
@@ -230,7 +231,15 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     );
   }
   const [reviewing, setReviewing] = useState<InboxItem | null>(null);
-  const reviewFocus = useRef<{ opener: HTMLElement; tile: Element | null; preceding: Set<HTMLElement> }>(null);
+  const reviewFocus = useRef<{
+    opener: HTMLElement;
+    tile: Element | null;
+    preceding: Set<HTMLElement>;
+    scrollY: number;
+  }>(null);
+  // Below three columns an opened item covers the screen, and Back returns to the list where it was.
+  const stacked = useStacked();
+  const covering = home && stacked;
   const [switchingBlocked, blockSwitching] = useState(false);
   const openedLink = useRef<string | null>(null);
   useLayoutEffect(() => {
@@ -250,8 +259,9 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
           visibleRow,
         ));
     (target || root.current)?.focus({ preventScroll: true });
+    if (covering) scrollTo({ top: focus.scrollY });
     reviewFocus.current = null;
-  }, [reviewing]);
+  }, [reviewing, covering]);
   const [selected, select] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState<Pending | null>(null);
   const busy = saving.has("card");
@@ -674,7 +684,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     const tile = opener.closest(".home-slice");
     const links = Array.from(tile?.querySelectorAll<HTMLElement>(`[data-inbox-row] ${cardTitle}`) ?? []);
     const index = links.findIndex((link) => link.closest("[data-inbox-row]") === opener.closest("[data-inbox-row]"));
-    reviewFocus.current = { opener, tile, preceding: new Set(links.slice(0, Math.max(0, index))) };
+    reviewFocus.current = { opener, tile, preceding: new Set(links.slice(0, Math.max(0, index))), scrollY };
     setReviewing(item);
   }, []);
   const openingLocked = busy || !!pending || switchingBlocked || !!dropping || !!snooze;
@@ -684,12 +694,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     const opener = root.current?.querySelector<HTMLElement>(`[data-current="true"] ${cardTitle}`);
     if (!opener) return;
     openedLink.current = route.key;
-    if (isEngineStep(item) && !isDoneStep(item)) {
-      opener.focus();
-      opener.scrollIntoView({ block: "center" });
-    } else {
-      openCard(item, opener);
-    }
+    openCard(item, opener);
   }, [home, openCard, openingLocked, placed.current, route.key]);
   function row(item: InboxItem) {
     if (home && reviewing && cardKey(reviewing) === cardKey(item)) item = reviewing;
@@ -744,7 +749,8 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     const deal = item.deal_id ? `/deals?deal=${encodeURIComponent(item.deal_id)}` : null;
     const recordedSource = recordRoutes.source(item);
     const checklistUrl = namedAction === "Open checklist item" ? recordRoutes.checklist(item) : null;
-    const directUrl = checklistUrl ?? (isEngineStep(item) && !isDoneStep(item) ? recordedSource : null);
+    // On Home every item opens beside the list, with its record linked inside the pane.
+    const directUrl = home ? null : (checklistUrl ?? (isEngineStep(item) && !isDoneStep(item) ? recordedSource : null));
     const canOpen = home || Boolean(presentation) || isDoneStep(item) || !isEngineStep(item) || directUrl !== null;
     function openDetails(opener: HTMLElement) {
       if (directUrl) location.assign(directUrl);
@@ -752,7 +758,8 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     }
     const recordedUrl = recordedSource ? new URL(recordedSource, "https://doctorcre.invalid") : null;
     const opensEditor = recordedUrl?.searchParams.get("focus") === "next-step" && !recordedUrl.searchParams.get("step");
-    const source = (isDoneStep(item) && isEngineStep(item) && opensEditor ? null : recordedSource) ?? deal;
+    const source =
+      checklistUrl ?? (isDoneStep(item) && isEngineStep(item) && opensEditor ? null : recordedSource) ?? deal;
     const sourcePage = source ? recordPages.get(new URL(source, "https://doctorcre.invalid").pathname) : null;
     const namedRecord = sourcePage === "deal" || sourcePage === "client" || sourcePage === "contact";
     const due = item.due_on && <time dateTime={item.due_on}>{cardDate.format(new Date(item.due_on))}</time>;
@@ -855,6 +862,12 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
       </button>
     );
     const tile = home ? tileOf(item) : null;
+    // The pane's Mark done is the same save as the row's circle; a loaded review offers its own.
+    const paneDone = tile === "reminders" && completable && !tourDone && !reviewClient && (
+      <button type="button" className="inbox-primary" disabled={busy} onClick={() => finish(item, "complete")}>
+        Mark done
+      </button>
+    );
     const edge =
       tile === "reminders" &&
       (daysLate
@@ -1098,6 +1111,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             client={reviewClient}
             drafts={drafts}
             blockSwitching={blockSwitching}
+            closeLabel={covering ? "Back" : undefined}
             close={() => setReviewing(null)}
             busy={(value) => (value ? void beginSave("review") : endSave("review"))}
             confirmed={async (current, receipt, snapshot) => {
@@ -1112,8 +1126,9 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             }}
           >
             {finishedElsewhere && <p role="status">This card was finished elsewhere.</p>}
-            {home && !waitingCard && !finishedElsewhere && (snoozeButton || dropButton) && (
+            {home && !waitingCard && !finishedElsewhere && (paneDone || snoozeButton || dropButton) && (
               <div className="inbox-actions">
+                {paneDone}
                 {snoozeButton}
                 {/* A loaded review offers its own Drop for each decision. */}
                 {!reviewClient && dropButton}

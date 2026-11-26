@@ -1,4 +1,4 @@
-import { splitSignature } from "./email-signature.ts";
+import { foldEmailBody } from "./email-signature.ts";
 import { type CardReview, type InboxItem, object, type ReviewItem, type ReviewRequest } from "./inbox.tsx";
 
 type Rpc = (name: string, args: unknown, signal?: AbortSignal) => Promise<unknown>;
@@ -106,7 +106,7 @@ function emailThread(value: Record<string, unknown>): EmailThread {
           typeof body !== "string"
         )
           return [];
-        const { text, signature } = splitSignature(body, string(sender_name));
+        const { text, folded } = foldEmailBody(body, string(sender_name));
         const earlier = string(message.folded);
         return [
           {
@@ -114,7 +114,7 @@ function emailThread(value: Record<string, unknown>): EmailThread {
             occurredAt,
             body: text,
             sender: string(sender_name)?.trim().split(/\s+/, 1)[0] || null,
-            folded: signature === null ? earlier : [signature, earlier].filter(Boolean).join("\n\n"),
+            folded: folded === null ? earlier : [folded, earlier].filter(Boolean).join("\n\n"),
           },
         ];
       })

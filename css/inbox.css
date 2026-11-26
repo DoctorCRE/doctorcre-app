@@ -93,6 +93,10 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
   .home-sections .home-slice .inbox-row:has(> .home-inline-review) { position: static; }
   .home-sections .home-inline-review { visibility: visible; position: absolute; z-index: 2; inset-block: 0; inset-inline-end: 0; inset-inline-start: calc((100% - 2 * var(--space-4)) * 1.15 / 2.9 + var(--space-4)); overflow-y: auto; overscroll-behavior: contain; padding: var(--space-3) var(--space-4); border-top: 0; background: var(--surface-1); border-radius: var(--panel-radius); }
 }
+/* Below three columns an opened item covers the screen until Back. */
+@media (max-width: 999px) {
+  .home-sections .home-inline-review { position: fixed; inset: 0 0 var(--layout-bottom) var(--layout-rail); z-index: 1150; overflow-y: auto; overscroll-behavior: contain; padding: calc(var(--space-4) + env(safe-area-inset-top)) var(--space-4) var(--space-4); border-top: 0; background: var(--surface-1); }
+}
 @media (min-width: 1000px) and (min-height: 600px) {
   .has-app-layout main:has(.home-inbox) .inbox-shell { padding-bottom: 0; }
   .home-sections { height: calc(100dvh - var(--topbar-height) - 2 * var(--pad)); }

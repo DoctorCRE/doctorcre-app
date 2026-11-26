@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { splitSignature } from "../src/ui/home/email-signature.ts";
+import { foldEmailBody, splitSignature } from "../src/ui/home/email-signature.ts";
 
 const contacts = "P: (555) 010-0100 | F: 555.010.0101";
 
@@ -190,4 +190,70 @@ test("writing after the legal notice stays visible, even a remark that starts wi
 test("a remark that starts with Confidential right under a signature is not folded as a notice", () => {
   const body = `Can you send the plan?\n\nFollow us\n${bankSignature}\nConfidential: price is 40/ft.`;
   assert.equal(splitSignature(body, "Pat Example").text.includes("Confidential: price is 40/ft."), true);
+});
+
+const lead = "What's the story on this building?\n\n12 Example Ln, Town, FL 00000 - Office for Lease";
+const quoted = "12 Example Ln, Town, FL 00000 - Office for Lease\n\nPat Example";
+
+const quotedHistory: [shape: string, history: string][] = [
+  [
+    "an Outlook header",
+    "From: Pat Example <pat@example.test>\nSent: Monday, November 23, 2026 3:23 PM\nTo: Sam Example <sam@example.test>\nSubject: Building",
+  ],
+  [
+    "bold labels and Cc under the divider line",
+    "________________________________\n*From:* Pat Example\n*Sent:* Monday, November 23, 2026 3:23 PM\n*To:* Sam Example\n*Cc:* Lee Example\n*Subject:* RE: Building",
+  ],
+  [
+    "an Importance line",
+    "From: Pat Example\nSent: Monday, November 23, 2026 3:23 PM\nTo: Sam Example\nImportance: High\nSubject: Building",
+  ],
+  [
+    "a To list wrapped over lines",
+    "From: Pat Example\nSent: Monday, November 23, 2026 3:23 PM\nTo: Sam Example <sam@example.test>; Lee Example\n<lee@example.test>; Kim Example <kim@example.test>\nSubject: Building",
+  ],
+  [
+    "non-breaking spaces after the colons",
+    "From: Pat Example\nSent: Monday, November 23, 2026 3:23 PM\nTo: Sam Example\nSubject: Building",
+  ],
+  ["no Subject line", "From: Pat Example\nSent: Monday, November 23, 2026 3:23 PM\nTo: Sam Example"],
+  ["Gmail's order", "From: Pat Example\nDate: Mon, Nov 23, 2026 at 3:23 PM\nSubject: Building\nTo: Sam Example"],
+  ["a quoted header", "> From: Pat Example\n> Sent: Monday, November 23, 2026 3:23 PM\n> Subject: Building"],
+  ["an 'On <date>, <name> wrote:' line", "On Mon, Nov 23, 2026 at 3:23 PM, Pat Example <pat@example.test> wrote:"],
+  ["a wrapped 'On … wrote:' line", "On Mon, Nov 23, 2026 at 3:23 PM Pat Example <pat@example.test>\nwrote:"],
+  ["an 'On <day>, <name> wrote:' line without digits", "On Monday, Pat Example wrote:"],
+  ["an Original Message divider", "-----Original Message-----\nFrom: Pat Example\nSent: Monday"],
+];
+
+for (const [shape, history] of quotedHistory)
+  test(`quoted history after ${shape} folds with everything below it`, () => {
+    for (const eol of ["\n", "\r\n"]) {
+      const body = `${lead}\n\n${history}\n\n> ${quoted}`.replaceAll("\n", eol);
+      assert.deepEqual(foldEmailBody(body, "Sam Example"), {
+        text: lead.replaceAll("\n", eol),
+        folded: `${history}\n\n> ${quoted}`.replaceAll("\n", eol),
+      });
+    }
+  });
+
+const authored = [
+  "From: Pat Example\nSent: Monday\nTo: Sam Example\nSubject: Building",
+  "Send it from: the east office.\nSubject: to approval.",
+  "Date: Tuesday works.\nTo: confirm, the tour is at 10.",
+  "From: our side, the price holds.\n\nSent: the lease yesterday.",
+  "On Monday, Pat Example wrote: the lease is ready.",
+  "> Can you send the lease?\nYes, attached.\n\n> And the floor plan?\nComing tomorrow.",
+];
+
+test("a header that is the whole message and lines a person wrote stay visible", () => {
+  for (const body of authored) assert.deepEqual(foldEmailBody(body, null), { text: body, folded: null }, body);
+});
+
+test("the signature above quoted history folds first, then the history", () => {
+  const signed = `The lease is signed.\n\nPat Example\nExample Realty Group\n555-010-0100 (o)\nexamplerealty.com`;
+  const header = "From: Sam Example\nSent: Monday\nTo: Pat Example\nSubject: Lease";
+  assert.deepEqual(foldEmailBody(`${signed}\n\n${header}\n\nIs it signed?`, "Pat Example"), {
+    text: "The lease is signed.\n\nPat Example",
+    folded: `Example Realty Group\n555-010-0100 (o)\nexamplerealty.com\n\n${header}\n\nIs it signed?`,
+  });
 });

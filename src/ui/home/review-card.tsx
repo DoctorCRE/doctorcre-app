@@ -130,6 +130,8 @@ type Props<Item extends ReviewItem> = {
   client: ReviewClient<Item> | undefined;
   drafts: DraftEdits;
   children?: ReactNode;
+  /** The close button's name when the pane covers the list, as on a phone. */
+  closeLabel?: string | undefined;
   close(): void;
   blockSwitching?(value: boolean): void;
   busy?(value: boolean): void;
@@ -152,6 +154,7 @@ export function ReviewCard<Item extends ReviewItem>({
   docLinkRequest,
   client,
   drafts,
+  closeLabel,
   close,
   blockSwitching,
   busy,
@@ -595,7 +598,7 @@ export function ReviewCard<Item extends ReviewItem>({
       <header>
         <h4>{client ? "Review this card" : item.title}</h4>
         <button type="button" disabled={holding} onClick={close}>
-          {client && item.review_reference?.kind !== "action" ? "Close review" : "Close"}
+          {closeLabel ?? (client && item.review_reference?.kind !== "action" ? "Close review" : "Close")}
         </button>
       </header>
       {children}

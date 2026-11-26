@@ -130,7 +130,23 @@ const deals = [
   deal(4, "Research", { operating_state: "parked", attention: true }),
   deal(5, "Research", { workspace_kind: "national_account" }),
 ];
-const reviewItems = [{ reviewed: { by: "joe" } }, ...Array.from({ length: 6 }, () => ({ reviewed: null }))];
+const reviewDeal = (state: string, workspace_kind: string, operating_state: string) => ({
+  deal_id: id(500),
+  state,
+  workspace_kind,
+  operating_state,
+  reviewed: null,
+});
+const reviewItems = [
+  { ...reviewDeal("open", "team", "active"), reviewed: { by: "joe" } },
+  reviewDeal("open", "team", "active"),
+  reviewDeal("open", "team", "active"),
+  reviewDeal("open", "team", "parked"),
+  reviewDeal("open", "national_account", "active"),
+  reviewDeal("lost", "team", "active"),
+  { party_id: id(401), state: "open", reviewed: null },
+  { party_id: id(402), state: "open", reviewed: null },
+];
 const criticalDate = (n: number, due_on: string) => ({
   id: id(300 + n),
   deal_id: id(101),
@@ -140,8 +156,6 @@ const criticalDate = (n: number, due_on: string) => ({
   done: false,
 });
 const comingUpDates = [criticalDate(1, "2026-11-27"), criticalDate(2, today), criticalDate(3, "2026-12-10")];
-
-const prospects = [{ party_id: id(401) }, { party_id: id(402) }, { party_id: id(401) }];
 
 async function openHome(
   t: TestContext,
@@ -199,7 +213,6 @@ async function openHome(
   await page.route("**/api/engine/weekly-reviews?week_of=2026-11-23", (route) =>
     route.fulfill({ json: { items: reviewItems } }),
   );
-  await page.route("**/api/engine/prospects", (route) => route.fulfill({ json: { prospects } }));
   await page.route("**/api/engine/calendar/critical-dates", (route) =>
     route.fulfill({ json: { schema_version: "calendar-critical-dates.v1", critical_dates: dates } }),
   );
@@ -359,20 +372,21 @@ for (const [width, height] of [
     assert.equal(drawn.titleCut, false, "the title is not cut off");
   });
 
-test("Deals counts the board's open deals and Coming up lists the next 14 days, each opening what it counts", async (t) => {
+test("Deals counts the Monday review's items and the board's phases, and Coming up lists the next 14 days, each opening what it counts", async (t) => {
   const page = await openHome(t, 1440, 900);
   const tile = page.getByRole("region", { name: "Deals", exact: true });
-  assert.equal(
-    await tile.getByRole("heading", { level: 2 }).textContent(),
-    "Deals 3 open · 1 parked · 1 in national accounts · 2 prospects",
-  );
-  assert.equal(await tile.getByRole("link", { name: "3 open", exact: true }).getAttribute("href"), "/deals");
   const link = (name: string) => tile.getByRole("link", { name, exact: true }).getAttribute("href");
+  assert.equal(
+    (await tile.locator(".home-deals-counts").textContent())?.replaceAll("\u00a0", " "),
+    "3 open · 1 parked · 1 national · 2 prospects",
+  );
+  assert.equal(await tile.getByRole("heading", { level: 2 }).textContent(), "Deals");
+  assert.equal(await link("3 open · 1 parked · 1 national · 2 prospects"), "/deals");
   assert.equal(await link("Research 1"), "/deals?column=research");
   assert.equal(await link("Example Deal 1 Step 3 days late"), `/deals?deal=${id(101)}`);
   assert.equal(await link("Example Deal 2 Flagged by a partner"), `/deals?deal=${id(102)}`);
   assert.equal(await link("1 has no next step"), "/deals?view=list&filter=no-next-step");
-  assert.equal(await link("Monday review 1 of 7"), "/deals?view=review");
+  assert.equal(await link("Monday review 1 of 8 includes 1 closed or lost this week"), "/deals?view=review");
   const comingUp = page.getByRole("region", { name: "Coming up", exact: true });
   assert.deepEqual(await comingUp.getByRole("link").allTextContents(), [
     "2",
@@ -382,6 +396,57 @@ test("Deals counts the board's open deals and Coming up lists the next 14 days, 
   assert.equal(await comingUp.getByRole("link", { name: "2", exact: true }).getAttribute("href"), "/calendar");
   assert.equal(await comingUp.getByRole("link").nth(1).getAttribute("href"), `/calendar?day=${today}`);
 });
+
+for (const [width, height] of [
+  [1440, 900],
+  [1280, 640],
+] as const)
+  test(`At ${width}x${height} the Deals heading shows a practice's counts on one line under it, and the week's closings sit on the Monday review line`, async (t) => {
+    const page = await openHome(t, width, height);
+    await page.addInitScript(() =>
+      localStorage.setItem(
+        "doctorcre.visual-preferences",
+        JSON.stringify({ theme: "light", walkthroughSeen: { joe: true } }),
+      ),
+    );
+    const items = (count: number, state: string, workspace: string, operating: string) =>
+      Array.from({ length: count }, () => reviewDeal(state, workspace, operating));
+    const parties = Array.from({ length: 12 }, (_, n) => ({ party_id: id(410 + n), state: "open", reviewed: null }));
+    const review = [
+      ...items(37, "open", "team", "active"),
+      ...items(27, "open", "team", "parked"),
+      ...items(16, "open", "national_account", "active"),
+      ...items(1, "lost", "team", "active"),
+      ...parties,
+      { party_id: id(430), state: "dropped", reviewed: null },
+    ];
+    await page.route("**/api/engine/weekly-reviews?week_of=2026-11-23", (route) =>
+      route.fulfill({ json: { items: review } }),
+    );
+    await page.reload();
+    const tile = page.getByRole("region", { name: "Deals", exact: true });
+    const counts = tile.locator(".home-deals-counts");
+    await counts.getByText("37 open").waitFor();
+    assert.equal(
+      (await counts.textContent())?.replaceAll("\u00a0", " "),
+      "37 open · 27 parked · 16 national · 12 prospects",
+    );
+    assert.ok(
+      await counts.evaluate(
+        (node) => node.getBoundingClientRect().height < 1.5 * parseFloat(getComputedStyle(node).lineHeight),
+      ),
+      "the counts are one line",
+    );
+    assert.ok(await counts.evaluate((node) => node.scrollWidth <= node.clientWidth), "the counts are not clipped");
+    assert.equal(
+      (await tile.getByRole("link", { name: /^Monday review/ }).textContent())?.replaceAll("\u00a0", " "),
+      "Monday review 0 of 94 includes 1 closed or lost and 1 dropped this week",
+    );
+    assert.ok(
+      await tile.evaluate((node) => node.scrollWidth <= node.clientWidth),
+      "nothing in Deals runs past the tile",
+    );
+  });
 
 test("At 1280x640 the attention list and Coming up fold to one line each that opens in place", async (t) => {
   const page = await openHome(t, 1280, 640);
@@ -439,6 +504,87 @@ test("An opened Inbox item shows beside Reminders over the middle and right colu
   await details.getByRole("button", { name: /^Close/ }).click();
   await inbox.waitFor();
   assert.equal(await details.count(), 0);
+});
+
+for (const [kind, fields] of [
+  [
+    "a vendor check-in",
+    {
+      title: "Check in with Sample Signs",
+      context_label: "Sample Signs",
+      open_url: `/relationships?node=party:${id(600)}&focus=next-step`,
+      deal_id: null,
+      record: `/relationships?node=party:${id(600)}&focus=next-step`,
+    },
+  ],
+  [
+    "a deal's next step",
+    { title: "Send the sample site plan", record: `/deals?deal=${id(99)}&focus=next-step&step=${id(30)}` },
+  ],
+  [
+    "a checklist item",
+    {
+      title: "Order the sample survey",
+      primary_action: "Open checklist item",
+      checklist_item_ref: `deal-item:${id(601)}`,
+      record: `/deals?deal=${id(99)}&item=${id(601)}`,
+    },
+  ],
+] as const)
+  test(`Clicking ${kind} in Reminders opens it beside the list with a link to its record, never another page`, async (t) => {
+    const reminder = card(30, fields.title, fields);
+    const page = await openHome(t, 1440, 900, [], comingUpDates, {
+      ...dashboard,
+      reminders: group([...dashboard.reminders.items, reminder]),
+    });
+    const home = page.url();
+    await page
+      .getByRole("region", { name: "Reminders", exact: true })
+      .getByRole("link", { name: fields.title })
+      .click();
+    const details = page.getByRole("region", { name: `Details for ${fields.title}` });
+    await details.waitFor();
+    assert.equal(new URL(page.url()).pathname, new URL(home).pathname, "Home stays on screen");
+    const left = (await page.getByRole("region", { name: "Reminders", exact: true }).boundingBox()) ?? assert.fail();
+    assert.ok(((await details.boundingBox()) ?? assert.fail()).x >= left.x + left.width, "it opens right of Reminders");
+    const links = await details
+      .locator("a.inbox-source")
+      .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("href")));
+    assert.ok(links.includes(fields.record), `the pane links to ${fields.record}, not ${links}`);
+  });
+
+test("An opened reminder has its own Mark done, which saves it as the row's circle does", async (t) => {
+  const page = await openHome(t, 1440, 900);
+  const reminders = page.getByRole("region", { name: "Reminders", exact: true });
+  assert.equal(await reminders.locator("button.home-done").first().isEnabled(), true, "the circle works while closed");
+  await reminders.getByRole("link", { name: "Call the sample practice" }).click();
+  const details = page.getByRole("region", { name: "Details for Call the sample practice" });
+  const saved = page.waitForRequest((request) => request.method() === "POST" && !!request.postData()?.includes(id(1)));
+  await details.getByRole("button", { name: "Mark done", exact: true }).click();
+  await saved;
+});
+
+test("On a phone an opened item covers the screen, and Back returns to the list where it was", async (t) => {
+  const page = await openHome(t, 390, 844);
+  const title = page
+    .getByRole("region", { name: "Reminders", exact: true })
+    .getByRole("link", { name: "Call the sample practice" });
+  await title.scrollIntoViewIfNeeded();
+  await page.evaluate(() => scrollBy(0, 120));
+  const scrolled = await page.evaluate(() => scrollY);
+  assert.ok(scrolled > 0, "the list is scrolled");
+  await title.click();
+  const details = page.getByRole("region", { name: "Details for Call the sample practice" });
+  await details.waitFor();
+  const tabs = (await page.locator("#appShell").boundingBox()) ?? assert.fail("the tab bar is not drawn");
+  assert.deepEqual(
+    await details.boundingBox(),
+    { x: 0, y: 0, width: 390, height: tabs.y },
+    "the item covers the screen above the tab bar",
+  );
+  await details.getByRole("button", { name: "Back", exact: true }).click();
+  assert.equal(await details.count(), 0);
+  assert.equal(await page.evaluate(() => scrollY), scrolled, "the list is where it was");
 });
 
 test("Escape closes an opened Inbox item and focus returns to its row", async (t) => {

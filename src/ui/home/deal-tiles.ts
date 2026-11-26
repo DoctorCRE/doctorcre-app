@@ -46,18 +46,31 @@ export function reviewWeek(today: string) {
   return addDays(today, -((new Date(Date.parse(today)).getUTCDay() + 6) % 7));
 }
 
-/** "31 of 47": how many of this week's review items carry a mark. */
-export function reviewProgress(answer: unknown) {
+type ReviewGroup = "open" | "parked" | "national" | "prospects" | "closed" | "dropped";
+const reviewGroup = (item: Record<string, unknown>): ReviewGroup =>
+  "party_id" in item
+    ? item.state === "open"
+      ? "prospects"
+      : "dropped"
+    : item.state !== "open"
+      ? "closed"
+      : item.workspace_kind === "national_account"
+        ? "national"
+        : item.operating_state === "parked"
+          ? "parked"
+          : "open";
+
+/** The Monday review's items by what the Deals heading calls them, and how many carry this week's mark. */
+export function reviewCounts(answer: unknown) {
   if (!record(answer) || !Array.isArray(answer.items) || !answer.items.every(record))
     throw Error("Monday review unavailable");
-  return { reviewed: answer.items.filter((item) => record(item.reviewed)).length, total: answer.items.length };
-}
-
-/** How many prospects the Deals board's Prospects lane lists, counting a prospect once. */
-export function prospectCount(answer: unknown) {
-  if (!record(answer) || !Array.isArray(answer.prospects) || !answer.prospects.every(record))
-    throw Error("Prospects unavailable");
-  return new Set(answer.prospects.map((prospect) => prospect.party_id)).size;
+  const counts: Record<ReviewGroup, number> = { open: 0, parked: 0, national: 0, prospects: 0, closed: 0, dropped: 0 };
+  for (const item of answer.items) counts[reviewGroup(item)]++;
+  return {
+    ...counts,
+    reviewed: answer.items.filter((item) => record(item.reviewed)).length,
+    total: answer.items.length,
+  };
 }
 
 type BoardDeal = { id: string; name: unknown; attention?: unknown };
@@ -66,27 +79,18 @@ export type BoardRules = {
   localDeals: (deals: unknown[]) => BoardDeal[];
   groupByColumn: (deals: BoardDeal[]) => {
     columns: { slug: string; label: string; deals: BoardDeal[] }[];
-    parked: BoardDeal[];
   };
   attentionReasons: (deal: BoardDeal, today: string) => string[];
   missingNextStep: (deal: BoardDeal) => boolean;
   dealName: (name: unknown) => string;
-  isClosedDeal: (deal: BoardDeal) => boolean;
 };
 
-/** Local Deals' open deals: per phase, needing attention by name and reason, and missing a next step. */
+/** Local Deals' open deals per phase, those needing attention by name and reason, and how many miss a next step. */
 export function dealsAtAGlance(board: unknown, today: string, rules: BoardRules) {
   if (!record(board) || !Array.isArray(board.deals)) throw Error("Deals unavailable");
-  const { columns, parked } = rules.groupByColumn(rules.localDeals(board.deals));
+  const { columns } = rules.groupByColumn(rules.localDeals(board.deals));
   const open = columns.flatMap((column) => column.deals);
   return {
-    open: open.length,
-    parked: parked.length,
-    // The Monday review also walks National Accounts' deals, which Local Deals leaves out.
-    national: board.deals.filter(
-      (deal: BoardDeal & { workspace_kind?: unknown; account_client_id?: unknown }) =>
-        (deal.workspace_kind === "national_account" || deal.account_client_id) && !rules.isClosedDeal(deal),
-    ).length,
     phases: columns.map(({ slug, label, deals }) => ({ slug, label, count: deals.length })),
     attention: open.flatMap((deal) => {
       const reasons = rules.attentionReasons(deal, today);
