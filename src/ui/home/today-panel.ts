@@ -27,11 +27,7 @@ function readMeetings(section: unknown) {
     !section.items.every(meeting)
   )
     return null;
-
-  const meetingsMayBeMissing = "meetings_may_be_missing" in section ? section.meetings_may_be_missing : false;
-  if (typeof meetingsMayBeMissing !== "boolean") return null;
-
-  return { items: section.items, meetingsMayBeMissing, follow_up_reviews: section.follow_up_reviews };
+  return { items: section.items, follow_up_reviews: section.follow_up_reviews };
 }
 
 type Reminder = Record<string, unknown> & {
@@ -271,13 +267,7 @@ export async function mountHomeTodayPanel(
       }
       const calendar = readMeetings(answer.meetings);
       if (calendar) {
-        fill(
-          schedule,
-          calendar.items.length
-            ? calendar.items.map(meetingRow).join("")
-            : status("No meetings today.") +
-                (calendar.meetingsMayBeMissing ? status("Calendar may be incomplete") : ""),
-        );
+        fill(schedule, calendar.items.length ? calendar.items.map(meetingRow).join("") : status("No meetings today."));
       } else {
         fill(schedule, status("Couldn't load meetings."));
       }

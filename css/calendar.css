@@ -69,7 +69,7 @@
 .cal-grid[data-enter="zoom-in"] { animation: cal-zoom-in var(--duration-panel) var(--ease-out); }
 .cal-grid[data-enter="zoom-out"] { animation: cal-zoom-out var(--duration-panel) var(--ease-out); }
 
-.cal-day { --cal-chip: 24px; display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; padding: var(--space-1) 6px 6px; background: transparent; transition: background-color var(--duration-hover) var(--ease-out); }
+.cal-day { --cal-chip: 24px; display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; padding: var(--space-1) 6px 6px; background: transparent; cursor: pointer; transition: background-color var(--duration-hover) var(--ease-out); }
 .cal-grid[data-view="month"] .cal-day { min-height: 0; overflow: hidden; }
 .cal-day + .cal-day { border-left: var(--hairline-width) solid var(--hairline); }
 @media (hover: hover) { .cal-day:hover { background: var(--surface-2); } }
