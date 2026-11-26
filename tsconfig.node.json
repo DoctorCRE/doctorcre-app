@@ -18,6 +18,9 @@
       "/js/invoice-tracker-model.js": [
         "./js/invoice-tracker-model.d.ts"
       ],
+      "/js/ui-timeline.generated.js": [
+        "./src/ui/timeline.tsx"
+      ],
       "/js/ui-deal-tours.generated.js": [
         "./src/ui/deal-tours.tsx"
 

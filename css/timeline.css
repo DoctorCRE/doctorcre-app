@@ -1,0 +1,46 @@
+/* The timeline chart: one canvas that scrolls both ways under a sticky date header and list column. */
+.timeline { --list: 296px; --row: 34px; --head: 44px; --fade: 24px; display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--surface-1); border-radius: var(--radius-3); overflow: hidden; color: var(--fg); font: var(--font-weight-regular) var(--font-size-2) / 1.35 var(--font-text); }
+.timeline, .timeline * { box-sizing: border-box; }
+.timeline button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+.timeline svg { flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; }
+
+.timeline-tools { height: 44px; flex: none; display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); padding: 0 var(--space-2); }
+.timeline-zoom { display: flex; gap: 2px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.timeline-tools button { height: var(--touch); padding: 0 10px; border-radius: var(--radius-2); display: flex; align-items: center; gap: 6px; color: var(--fg-quiet); font-size: var(--font-size-1); white-space: nowrap; transition: background var(--duration-hover), color var(--duration-hover); }
+.timeline-tools button:hover, .timeline-zoom [aria-pressed="true"] { background: var(--surface-3); color: var(--fg); }
+.timeline button:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: -2px; }
+
+.timeline-scroll { position: relative; flex: 1 1 0; min-height: 0; overflow: auto; scrollbar-width: none; }
+.timeline-scroll::-webkit-scrollbar { display: none; }
+.timeline-canvas { position: relative; width: max-content; min-width: 100%; min-height: 100%; display: flex; flex-direction: column; }
+
+.timeline-head { position: sticky; top: 0; z-index: 4; height: var(--head); flex: none; display: flex; background: var(--surface-1); }
+.timeline-corner { position: sticky; left: 0; z-index: 1; width: var(--list); flex: none; background: var(--surface-1); }
+.timeline-dates { position: relative; flex: none; }
+.timeline-month { position: absolute; top: 4px; padding-left: 6px; font-size: var(--font-size-1); font-weight: var(--font-weight-strong); color: var(--fg-muted); white-space: nowrap; }
+.timeline-date { position: absolute; top: 23px; transform: translateX(-50%); font-size: var(--font-size-1); color: var(--fg-quiet); white-space: nowrap; }
+.timeline-today { position: absolute; top: 21px; height: 20px; padding: 0 var(--space-2); border-radius: var(--radius-round); transform: translateX(-50%); background: var(--accent); color: var(--on-accent); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); line-height: 20px; white-space: nowrap; }
+
+.timeline-body { position: relative; flex: 1; display: flex; flex-direction: column; }
+.timeline-grid { position: absolute; inset: 0 0 0 var(--list); pointer-events: none; }
+.timeline-weekend { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--fg) 4%, transparent); }
+.timeline-month-line { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--hairline); }
+.timeline-now { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--accent); z-index: 2; }
+
+.timeline-row { position: relative; height: var(--row); display: flex; box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--hairline) 38%, transparent); }
+.timeline .timeline-label { position: sticky; left: 0; z-index: 3; width: var(--list); flex: none; display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-3) 0 36px; background: var(--surface-1); text-align: left; min-width: 0; }
+.timeline .timeline-group .timeline-label { padding-left: var(--space-2); gap: var(--space-1); font-weight: var(--font-weight-strong); transition: background var(--duration-hover); }
+.timeline .timeline-group .timeline-label:hover { background: var(--surface-2); }
+/* The bottom fade is stepped solid bands: the design system allows no gradients. */
+.timeline-fade { position: sticky; left: 0; bottom: 0; z-index: 5; height: var(--fade); margin-top: calc(-1 * var(--fade)); flex: none; display: flex; flex-direction: column; pointer-events: none; }
+.timeline-fade i { flex: 1; background: var(--surface-1); }
+.timeline-fade i:nth-child(1) { opacity: 0.15; } .timeline-fade i:nth-child(2) { opacity: 0.35; } .timeline-fade i:nth-child(3) { opacity: 0.55; } .timeline-fade i:nth-child(4) { opacity: 0.75; } .timeline-fade i:nth-child(5) { opacity: 0.9; }
+.timeline .timeline-fill { flex: 1 0 var(--fade); height: auto; box-shadow: none; }
+.timeline-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.timeline-when { font-size: var(--font-size-1); font-weight: var(--font-weight-regular); color: var(--fg-quiet); white-space: nowrap; }
+.timeline-chevron { color: var(--fg-quiet); transition: transform var(--duration-hover) var(--ease-out); }
+.timeline-label[aria-expanded="true"] .timeline-chevron { transform: rotate(90deg); }
+
+@media (max-width: 1300px) { .timeline { --list: 252px; } }
+@media (max-width: 760px) { .timeline { --list: 164px; --row: 40px; } .timeline .timeline-label { padding-left: var(--space-2); } .timeline [data-row] .timeline-when { display: none; } }
+@media (prefers-reduced-motion: reduce) { .timeline * { transition: none; } }
