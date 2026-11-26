@@ -3,8 +3,9 @@
  * pattern; nothing pulses. The accent stays chrome (focus only). */
 .deal-freshness { display:flex; justify-content:flex-end; align-items:center; gap:var(--space-1); color:var(--fg-muted); font-size:var(--font-size-1); }
 .deal-freshness button { border:0; background:transparent; }
-/* The freshness line overlaps a tab's first heading, but never the dates row. */
+/* The freshness line overlaps a tab's first heading; on Overview it takes its own line under the dates row. */
 .deal-workspace .deal-freshness:has(~ #workspace-overview:not([hidden])) { margin-block-end:0; }
+.deal-workspace .critical-dates:has(~ #workspace-overview[hidden]) { display:none; }
 .deal-detail #detailReadStatus:empty { display:none; }
 
 .phase-rail { display:grid; grid-template-columns:repeat(8,minmax(0,1fr)); gap:var(--space-4) 0; list-style:none; padding:0 0 var(--space-2); margin:var(--space-2) 0 var(--space-5); }
@@ -14,9 +15,9 @@
 .phase-rail li[aria-current]::before { background:var(--fg); }
 .phase-rail li span { border:0; padding:0; color:inherit; }
 .phase-rail time,.phase-rail small { display:block; color:var(--fg-muted); font-size:var(--font-size-1); font-weight:var(--font-weight-regular); margin-top:var(--space-1); font-variant-numeric:tabular-nums; }
-/* Critical dates: one row that never wraps and scrolls sideways when full. */
+/* Critical dates: one row that never wraps; a tile is never narrower than its text, so a full row scrolls sideways. */
 .critical-dates { display:flex; gap:var(--space-2); overflow-x:auto; scrollbar-width:none; margin-bottom:var(--space-3); }
-.critical-date { position:relative; flex:1 1 0; min-width:9.5rem; min-height:56px; padding:var(--space-2) var(--space-3); border-radius:var(--radius-3); background:var(--surface-2); color:var(--fg); display:grid; align-content:center; gap:2px; transition:background-color var(--duration-hover) var(--ease-out); }
+.critical-date { position:relative; flex:1 0 9.5rem; min-width:max-content; min-height:56px; padding:var(--space-2) var(--space-3); border-radius:var(--radius-3); background:var(--surface-2); color:var(--fg); display:grid; align-content:center; gap:2px; transition:background-color var(--duration-hover) var(--ease-out); }
 @media (hover:hover) { .critical-date:hover,.critical-date-add:hover { background:var(--surface-3); } .deal-note:hover { border-color:var(--hairline-strong); } }
 .critical-date h3 { display:flex; align-items:baseline; gap:var(--space-1); min-width:0; margin:0; font-size:var(--font-size-1); line-height:var(--line-height-heading); font-weight:var(--font-weight-regular); color:var(--fg-muted); white-space:nowrap; }
 .critical-date h3 .date-open { min-width:0; min-height:0; padding:0; border:0; background:none; color:inherit; font:inherit; text-align:left; overflow:hidden; text-overflow:ellipsis; cursor:pointer; }
@@ -27,6 +28,7 @@
 .date-proposed::before { content:'· '; color:var(--fg-muted); }
 .critical-date > p { display:flex; align-items:baseline; justify-content:space-between; gap:var(--space-2); margin:0; white-space:nowrap; }
 .critical-date > p time { font-weight:var(--font-weight-strong); font-variant-numeric:tabular-nums; }
+.critical-date > p > span { display:flex; align-items:baseline; gap:var(--space-2); }
 .critical-date > p :is(strong,small) { font-size:var(--font-size-1); font-weight:var(--font-weight-regular); color:var(--fg-muted); font-variant-numeric:tabular-nums; }
 .critical-date[data-state='unknown'] { border-left:3px dashed var(--status-warn); }
 .critical-date[data-state='unknown'] strong { color:var(--status-warn-ink); }

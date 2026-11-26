@@ -97,6 +97,7 @@ export function dealTimeline(detail, now = Date.now(), dateDecisions = false) {
 const isSavedDate = row => /^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(row.id);
 // Settled dates no longer matter for what is coming; Activity keeps their history.
 const SETTLED = new Set(['cleared', 'done', 'dropped', 'passed']);
+const unsettled = d => !SETTLED.has(d.status);
 const DATE_STATES = new Map([['proposed','Proposed'], ['open','Confirmed'], ['cleared','Done'], ['done','Done'], ['dropped','Dropped'], ['passed','Passed']]);
 const DATE_RESOLUTIONS = new Map([['done', 'Mark done'], ['dropped', 'Drop'], ['passed', 'Mark passed']]);
 const dateAsk = resolution => `<button type="button" class="btn" data-date-ask="${resolution}">${DATE_RESOLUTIONS.get(resolution)}</button>`;
@@ -156,10 +157,9 @@ function datedTile(d, now, dateDecisions) {
   const proposed = decided && d.status === 'proposed';
   const count = countdown(d, now);
   const day = `<time datetime="${esc(d.day)}">${esc(tileDay(d.day, now))}</time>`;
-  const end = proposed
-    ? `<button type="submit" class="btn date-confirm" form="${esc(dateFormId(d.id))}" value="confirm" formnovalidate>Confirm</button>`
-    : `<strong data-countdown="${esc(d.day)}" data-deadline="${Boolean(d.deadline)}" data-date-status="${esc(d.status || '')}">${esc(count.text)}</strong>`;
-  return dateTile(d, { state: count.state, html: `<p>${day}${end}</p>` },
+  const until = `<strong data-countdown="${esc(d.day)}" data-deadline="${Boolean(d.deadline)}" data-date-status="${esc(d.status || '')}">${esc(count.text)}</strong>`;
+  const confirm = proposed ? `<button type="submit" class="btn date-confirm" form="${esc(dateFormId(d.id))}" value="confirm" formnovalidate>Confirm</button>` : '';
+  return dateTile(d, { state: count.state, html: `<p>${day}<span>${until}${confirm}</span></p>` },
     { proposed, panel: datePanel(d, decided && DATE_STATES.get(d.status), decided) });
 }
 function undatedTile(d) {
@@ -172,8 +172,8 @@ function undatedTile(d) {
 export function renderCriticalDates(detail, now = Date.now(), dateDecisions = false, canAdd = false) {
   const view = dealTimeline(detail, now, dateDecisions);
   const tiles = [
-    ...view.dates.filter(d => !SETTLED.has(d.status)).map(d => datedTile(d, now, dateDecisions)),
-    ...view.undated.map(undatedTile),
+    ...view.dates.filter(unsettled).map(d => datedTile(d, now, dateDecisions)),
+    ...view.undated.filter(unsettled).map(undatedTile),
   ];
   const body = tiles.length
     ? `${tiles.join('')}${canAdd ? '<button type="button" class="critical-date-add" popovertarget="addDatePanel" aria-label="Add date">+</button>' : ''}`

@@ -99,6 +99,21 @@ test('settled dates leave the row and raise no deadline alarm',()=>{
   if(status!=='open') assert.equal(root.querySelector('.critical-dates-empty').textContent,'No critical dates+ Add date');
  }
 });
+test('settled undated dates leave the row too',()=>{
+ for (const status of ['cleared','done','dropped','passed','open']) {
+  const value={deal:detail.deal,critical_dates:[{id:'undated',kind:'loi_expiry',due_on:null,status}]};
+  const tile=new JSDOM(renderCriticalDates(value,now)).window.document.querySelector('[data-date-id="undated"]');
+  assert.equal(Boolean(tile),status==='open',status);
+ }
+});
+test('a proposed date keeps its count beside Confirm and turns amber within a week',()=>{
+ const id='00000000-0000-4000-8000-0000000000d1';
+ const value={deal:detail.deal,critical_dates:[{id,kind:'loi_expiry',due_on:'2026-10-09',status:'proposed'}]};
+ const tile=new JSDOM(renderCriticalDates(value,now,true)).window.document.querySelector(`[data-date-id="${id}"]`);
+ assert.equal(tile.querySelector('[data-countdown]').textContent,'in 5 days');
+ assert.equal(tile.dataset.state,'soon');
+ assert.equal(tile.querySelector('.date-confirm').textContent,'Confirm');
+});
 test('review 2: recorded and projected lease expiration share urgency while commencement stays a milestone',()=>{
  for(const day of ['2026-10-03','2026-10-07']) {
   const expected=day==='2026-10-03'?'overdue':'soon';
@@ -255,14 +270,15 @@ test('undated originals keep their identities, status and evidence alongside con
  assert.equal(model.undated.some(d=>d.kind==='lease_commencement'),false);
  const root=new JSDOM(renderCriticalDates(value,now)).window.document;
  assert.equal(root.querySelectorAll('[data-countdown]').length,2);
- for (const row of value.critical_dates) {
+ for (const row of value.critical_dates.filter(row=>!row.status)) {
   const card=root.querySelector(`[data-date-id="${row.id}"]`);
   assert.match(card.textContent,new RegExp(row.note.replace(/[<>]/g,'.')));
   if(row.source) assert.ok(card.textContent.includes(row.source));
  }
  assert.equal(root.querySelector('[data-date-id="unknown"] .date-open').textContent,'Custom notice');
- assert.match(root.querySelector('[data-date-id="invalid"]').textContent,/Date unavailable/);
- assert.match(root.querySelector('[data-date-id="missing"]').textContent,/cleared/);
+ assert.match(root.querySelector('[data-date-id="unknown"]').textContent,/Date unavailable/);
+ assert.equal(root.querySelector('[data-date-id="missing"]'),null,'a cleared undated date leaves the row');
+ assert.equal(root.querySelector('[data-date-id="invalid"]'),null,'a passed undated date leaves the row');
  const undatedBefore=[...root.querySelectorAll('[data-state="unknown"]')].map(n=>n.outerHTML);
  updateCountdowns(root,now+86400000);
  assert.deepEqual([...root.querySelectorAll('[data-state="unknown"]')].map(n=>n.outerHTML),undatedBefore);

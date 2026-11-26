@@ -41,7 +41,7 @@ for (const width of [1280, 390]) for (const theme of ['light', 'dark']) test(`cr
   const content=body.result.content.find(c=>c.type==='text');const detail=JSON.parse(content.text);
   content.text=JSON.stringify({...detail,lease:null,critical_dates:probe.empty?[]:[
    {id:'undated-loi',kind:'loi_expiry',due_on:null,status:'open',note:'Synthetic LOI requirement. '+ 'Original clause text. '.repeat(35),source:probe.changed?'Synthetic refreshed clause 4':'Synthetic clause 4'},
-   {id:'invalid-loi',kind:'loi_expiry',due_on:'2026-02-30',status:'passed',note:'Synthetic malformed date original',source:'Synthetic clause 5'},
+   {id:'invalid-loi',kind:'loi_expiry',due_on:'2026-02-30',status:'open',note:'Synthetic malformed date original',source:'Synthetic clause 5'},
    {id:'dated-loi',kind:'loi_expiry',due_on:'2026-10-05',status:'open',note:'Synthetic dated original'},
    {id:'unknown',kind:'custom_notice',due_on:null,note:'Synthetic custom original'},
   ]});
@@ -56,7 +56,7 @@ for (const width of [1280, 390]) for (const theme of ['light', 'dark']) test(`cr
  assert.match(await card.textContent(),/Date not recorded/);
  assert.match(await card.locator('small').textContent(),/Status: open/);
  assert.equal(await card.locator('[data-countdown]').count(),0);
- assert.match(await page.locator('[data-date-id="invalid-loi"]').textContent(),/Date unavailable.*passed/);
+ assert.match(await page.locator('[data-date-id="invalid-loi"]').textContent(),/Date unavailable.*open/);
  assert.equal(await page.locator('[data-date-id="unknown"] .date-open').textContent(),'Custom notice');
  assert.equal(await page.locator('.critical-date').getByText('Not recorded',{exact:true}).count(),0);
  await card.evaluate(n=>n.scrollIntoView({block:'center'}));
