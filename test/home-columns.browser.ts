@@ -97,7 +97,17 @@ const dashboard = {
   ]),
 };
 
-async function openHome(t: TestContext, width: number, height: number) {
+const lead = (n: number, fields: Record<string, unknown> = {}) => ({
+  id: `lead-${n}`,
+  stage: "new",
+  suppressed: false,
+  doctor_name: `Sample Lead ${n}`,
+  possible_clients: [],
+  ...fields,
+});
+const leads = [lead(1, { new_from_email: true }), lead(2), lead(3, { new_from_email: true }), lead(4)];
+
+async function openHome(t: TestContext, width: number, height: number, tours: unknown[] = []) {
   const browser = await chromium.launch();
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width, height }, timezoneId: "America/Chicago" });
@@ -133,6 +143,34 @@ async function openHome(t: TestContext, width: number, height: number) {
       },
     }),
   );
+  if (tours.length)
+    await page.route("**/api/engine/calendar/meetings?*", (route) =>
+      route.fulfill({
+        json: {
+          schema_version: "calendar-meetings.v1",
+          meetings: [{ partner: "joe", name: "Joe", state: "empty", items: [] }],
+          tours: { state: "ready", reason: null, items: tours },
+        },
+      }),
+    );
+  await page.route("**/mcp", async (route) => {
+    const call = route.request().postDataJSON();
+    const payload =
+      call.params.name === "lead-board"
+        ? { schema_version: "lead-workspace.v1", generated_at: "2026-11-25T15:00:00Z", leads }
+        : {
+            schema_version: "quiet-follow-ups.v1",
+            cadence: { lead_days: 45, vendor_days: 90 },
+            proposals: [
+              { subject_type: "lead", subject_id: "lead-2", ref: null, name: "Sample Lead Two", basis: "created_at" },
+            ].map((row) => ({ ...row, anchor_on: "2026-10-01", due_on: "2026-11-15", days_overdue: 10 })),
+            sent: false,
+            tasks_created: false,
+          };
+    await route.fulfill({
+      json: { jsonrpc: "2.0", id: call.id, result: { content: [{ type: "text", text: JSON.stringify(payload) }] } },
+    });
+  });
   await page.goto(`${server.origin}/?mode=live`);
   await page.getByRole("region", { name: "Reminders", exact: true }).waitFor();
   return page;
@@ -157,14 +195,20 @@ for (const [width, height] of [
     assert.equal(await page.getByRole("checkbox").count(), 0);
     assert.equal(await page.getByRole("button", { name: "Snooze selected" }).count(), 0);
     const box = async (tile: typeof inbox) => (await tile.boundingBox()) ?? assert.fail("tile is not drawn");
-    const [left, middle, below, right] = [
+    const [left, middle, below, right, leadsLine] = [
       await box(reminders),
       await box(inbox),
       await box(waiting),
       await box(meetings),
+      await box(page.getByRole("region", { name: "Leads", exact: true })),
     ];
     assert.ok(left.x + left.width <= middle.x && middle.x + middle.width <= right.x, "three columns, left to right");
     assert.ok(Math.abs(below.x - middle.x) < 1 && below.y >= middle.y + middle.height, "waiting sits under Inbox");
+    assert.ok(
+      Math.abs(leadsLine.x - right.x) < 1 && leadsLine.y >= right.y + right.height,
+      "Leads sits under the meetings",
+    );
+    assert.ok(leadsLine.y + leadsLine.height <= height, "Leads is on the first screen");
     assert.equal(
       await page.evaluate(() => document.scrollingElement?.scrollHeight),
       height,
@@ -189,7 +233,7 @@ test("Reminders 15 or more days late fold into one line that opens in place", as
   assert.equal(await reminders.getByRole("heading", { level: 2 }).textContent(), "Reminders 5 · 2 late");
 });
 
-test("On a phone Today's meetings comes first and In motion and waiting last", async (t) => {
+test("On a phone Today's meetings comes first, Leads after Inbox, and In motion and waiting last", async (t) => {
   const page = await openHome(t, 390, 844);
   await page.getByRole("region", { name: "Today's meetings", exact: true }).waitFor();
   const tiles = await page.locator(".home-slice").evaluateAll((nodes) =>
@@ -198,7 +242,14 @@ test("On a phone Today's meetings comes first and In motion and waiting last", a
       .sort((a, b) => a.top - b.top)
       .map(({ name }) => name),
   );
-  assert.deepEqual(tiles, ["Today's meetings", "Reminders", "Inbox", "In motion and waiting"]);
+  assert.deepEqual(tiles, ["Today's meetings", "Reminders", "Inbox", "Leads", "In motion and waiting"]);
+});
+
+test("The Leads line counts new and late leads and opens Leads", async (t) => {
+  const page = await openHome(t, 1440, 900);
+  const line = page.getByRole("region", { name: "Leads", exact: true }).getByRole("link");
+  assert.equal(await line.textContent(), "Leads2 new from email · 1 follow-up late");
+  assert.equal(await line.getAttribute("href"), "/leads");
 });
 
 test("At 1440 a waiting row keeps its whole return date and gives the rest to the title", async (t) => {
@@ -209,3 +260,36 @@ test("At 1440 a waiting row keeps its whole return date and gives the rest to th
   assert.deepEqual(await fits(".inbox-why"), { text: "Snoozed until Dec 1, 2026, 9:00 AM", fits: true });
   assert.deepEqual(await fits("h3"), { text: "Send the sample parking study", fits: true });
 });
+
+for (const [width, height] of [
+  [1440, 900],
+  [390, 844],
+] as const)
+  test(`At ${width} a tour row in Today's meetings shows Tour at the row start and its whole title`, async (t) => {
+    const page = await openHome(t, width, height, [
+      {
+        id: "tour-1",
+        deal_id: id(99),
+        deal_name: "Example Dental",
+        owner: "joe",
+        planned_on: today,
+        stop_count: 3,
+        open_url: `/deals?deal=${id(99)}`,
+      },
+    ]);
+    const row = page.getByRole("region", { name: "Today's meetings", exact: true }).locator(".home-tour");
+    await row.waitFor();
+    const rowLeft = (await row.boundingBox())?.x ?? assert.fail("the tour row is not drawn");
+    const markLeft = (await row.locator(".home-today-time").boundingBox())?.x ?? assert.fail("Tour is not drawn");
+    const title = row.locator(".home-today-title");
+    const drawn = {
+      markOffset: markLeft - rowLeft,
+      titlePadding: await title.evaluate((node) => getComputedStyle(node).paddingInlineStart),
+      titleText: await title.textContent(),
+      titleCut: await title.evaluate((node) => node.scrollWidth > node.clientWidth),
+    };
+    assert.ok(drawn.markOffset < 16, `Tour sits at the row start, not ${drawn.markOffset}px in`);
+    assert.equal(drawn.titlePadding, "0px");
+    assert.equal(drawn.titleText, "Example Dental · 3 stops");
+    assert.equal(drawn.titleCut, false, "the title is not cut off");
+  });

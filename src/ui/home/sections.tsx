@@ -227,7 +227,7 @@ export class HomeGrid extends Component<{ children: ReactNode; snapshot: unknown
       return null;
     const active = document.activeElement;
     if (active && this.grid?.contains(active)) return [{ node: active, top: active.getBoundingClientRect().top }];
-    return Array.from(this.grid?.querySelectorAll(".inbox-row, .home-meeting") ?? []).flatMap((node) => {
+    return Array.from(this.grid?.querySelectorAll(".inbox-row, .home-today-row") ?? []).flatMap((node) => {
       const { top, bottom } = node.getBoundingClientRect();
       return bottom > 0 && top < window.innerHeight ? [{ node, top }] : [];
     });
