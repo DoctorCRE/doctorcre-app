@@ -1510,6 +1510,13 @@ function revealTab(tab) {
   const { left, right } = tab.getBoundingClientRect();
   tab.parentElement.scrollLeft += Math.min(0, left - strip.left) + Math.max(0, right - strip.right);
 }
+// The updated time follows the dates on Overview and heads every other tab.
+function placeFreshness(id) {
+  const line = $('panelBody').querySelector('.deal-freshness');
+  if (!line) return;
+  if (id === 'overview') $('workspace-overview').querySelector('[data-detail-read="add-critical-date"]').after(line, $('detailReadStatus'));
+  else $('panelBody').prepend(line, $('detailReadStatus'));
+}
 function selectWorkspaceTab(id) {
   workspaceTab = id;
   requestedClientPortal = false;
@@ -1519,6 +1526,7 @@ function selectWorkspaceTab(id) {
     $(`tab-${tab.id}`).tabIndex = selected ? 0 : -1;
     if ($(`workspace-${tab.id}`)) $(`workspace-${tab.id}`).hidden = !selected;
   }
+  placeFreshness(id);
   revealTab($(`tab-${id}`));
   if (id === 'documents') void dealDocumentsPanel?.load();
   if (id === 'tours') void dealToursPanel?.load();
@@ -1845,10 +1853,10 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
   const phaseMove = detailPhaseMoveHtml(detail);
   const websiteSetup = !d.client_portal_url && (fromEngine ? detail.next_deal_saves && d.client_id : controlsAvailable)
     ? clientPortalSetupHtml() : '';
-  return `${renderCriticalDates(detail, Date.now(), state.nextDealSaves && Number.isSafeInteger(d.seen), canAddCriticalDate)}
+  return `<section id="workspace-overview" role="tabpanel" aria-labelledby="tab-overview">${renderCriticalDates(detail, Date.now(), state.nextDealSaves && Number.isSafeInteger(d.seen), canAddCriticalDate)}
     <div data-detail-read="add-critical-date" data-available="${canAddCriticalDate}">${canAddCriticalDate ? criticalDateFormHtml() : ''}</div>
     <div class="deal-freshness"><time id="detailUpdated" title="Last updated"></time><button class="btn icon-btn" type="button" data-refresh-detail aria-label="Refresh deal" title="Refresh">↻</button></div><p id="detailReadStatus" role="status"></p>
-    <section id="workspace-overview" role="tabpanel" aria-labelledby="tab-overview">${fromEngine ? '<p id="detailStepStatus" role="status"></p>' : ''}<section class="deal-opening-snapshot" aria-label="Deal snapshot">
+    ${fromEngine ? '<p id="detailStepStatus" role="status"></p>' : ''}<section class="deal-opening-snapshot" aria-label="Deal snapshot">
       <div data-detail-read="step-overview">
       ${websiteLink}
       ${renderInvoiceClose(d, state.nextDealSaves)}
@@ -2107,10 +2115,9 @@ function paintPanel(detail) {
   disposePanelCallReview();
   $('panelBody').innerHTML = workspaceHtml(detail, engineMode);
   mountChecklist(detail);
-  const overview = $('workspace-overview');
   if (watchSubject !== detail.deal.id) disposeWatchControl();
   watchElement ||= document.createElement('div');
-  overview.prepend(watchElement);
+  $('workspace-overview').querySelector('[data-detail-read="add-critical-date"]').after(watchElement);
   watchSubject = detail.deal.id;
   watchControl ||= mountWatchControl(watchElement, {subject:{subject_type:'deal',subject_id:detail.deal.id}, ...(engineMode ? {engineRequest:sessionFetch} : {})});
   disposeActivityAttribution();

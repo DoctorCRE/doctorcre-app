@@ -229,11 +229,17 @@ for (const [width, height] of laptops) {
     assert.equal(new Set(tops).size, 1, "the tiles never wrap");
     const add = row.getByRole("button", { name: "Add date" });
     assert.equal(Math.round((await box(add)).y), tops[0], "the add tile ends the row");
+    const overview = page.getByRole("tabpanel", { name: "Overview" });
+    assert.equal(
+      await overview.evaluate((panel) => panel.firstElementChild?.getAttribute("aria-label")),
+      "Critical dates",
+      "the dates are the Overview tab's first content",
+    );
     assert.ok((await box(row)).y < (await box(page.locator(".deal-opening-snapshot"))).y, "dates come first");
     const rowBox = await box(row);
     assert.ok(
-      (await box(page.locator(".deal-freshness"))).y >= rowBox.y + rowBox.height,
-      "freshness sits under the row",
+      (await box(overview.locator(".deal-freshness"))).y >= rowBox.y + rowBox.height,
+      "freshness sits inside Overview under the row",
     );
 
     await row.getByRole("button", { name: "Lease expiration" }).click();
@@ -371,6 +377,11 @@ for (const [width, height] of laptops)
       assert.equal(await title.evaluate((title) => getComputedStyle(title).fontSize), body, `${heading} is body size`);
       const [a, b] = [await box(title), await box(refresh)];
       assert.ok(Math.abs(a.y + a.height / 2 - (b.y + b.height / 2)) <= 1, `Refresh shares ${heading}'s row`);
+      assert.equal(
+        await page.getByRole("region", { name: "Critical dates" }).isVisible(),
+        false,
+        `${tab} hides the dates`,
+      );
     }
     await page.screenshot({ path: `${shots}/documents-${width}.png` });
     const file = await box(page.getByRole("link", { name: "Example lease.pdf, Version 1" }));
