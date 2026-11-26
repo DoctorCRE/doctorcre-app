@@ -49,7 +49,7 @@
 .doc-chat__chats p { margin: var(--space-2); color: var(--fg-quiet); }
 .doc-chat__older { inline-size: 100%; font: inherit; color: var(--fg-quiet); background: transparent; border: 0; cursor: pointer; }
 .doc-chat__scrim { display: none; }
-.doc-chat__empty { margin: auto; color: var(--fg); font-size: var(--font-size-3); text-align: center; }
+.doc-chat__empty { margin: auto 0 var(--space-2); color: var(--fg); font-size: var(--font-size-3); font-weight: var(--font-weight-strong); text-align: center; }
 .doc-chat__actions {
   display: flex;
   align-items: center;
@@ -100,7 +100,7 @@
 .doc-chat__status[data-tone="failed"]::before { background: var(--status-danger); }
 .doc-chat__status .app-shell-icon { animation: spin 1.2s linear infinite; }
 @media (prefers-reduced-motion: reduce) { .doc-chat__status .app-shell-icon { animation: none; } }
-.doc-chat-page textarea, .doc-chat__proposal input {
+.doc-chat__proposal :is(textarea, input) {
   display: block;
   width: 100%;
   margin-block: var(--space-1);
@@ -110,13 +110,73 @@
   border: 1px solid var(--hairline-strong);
   border-radius: var(--radius-2);
 }
-.doc-chat-page textarea { resize: vertical; }
+.doc-chat__proposal textarea { resize: vertical; }
+/* The typing box is one rounded card in the conversation's column: it grows with the text up to a cap, then scrolls. */
+.doc-chat__composer {
+  inline-size: 100%;
+  max-inline-size: 728px;
+  box-sizing: border-box;
+  margin-inline: auto;
+  padding: var(--space-3) var(--space-2) var(--space-2) var(--space-4);
+  border-radius: var(--radius-3);
+  background: var(--surface-1);
+}
+.doc-chat__composer textarea {
+  display: block;
+  inline-size: 100%;
+  max-block-size: 40dvh;
+  margin: 0;
+  padding: 0 var(--space-2) 0 0;
+  color: var(--fg);
+  font: inherit;
+  line-height: 1.5;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  resize: none;
+  overflow-y: auto;
+}
+.doc-chat__composer textarea::placeholder { color: var(--fg-quiet); }
+.doc-chat__composer:has(textarea:focus-visible) { box-shadow: 0 0 0 1px var(--hairline-strong); }
+.doc-chat__tools { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); margin-block-start: var(--space-2); }
+.doc-chat__tools small { color: var(--fg-quiet); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; }
+.doc-chat__tools small[data-over] { color: var(--status-danger-ink); }
+/* Send is neutral: the one orange button on the screen belongs to a save. */
+.doc-chat__send {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  inline-size: var(--touch);
+  block-size: var(--touch);
+  padding: 0;
+  color: var(--surface-1);
+  background: var(--fg);
+  border: 0;
+  border-radius: var(--radius-round);
+  cursor: pointer;
+}
+.doc-chat__send:disabled { color: var(--fg-quiet); background: var(--surface-3); cursor: default; }
+.doc-chat__send .app-shell-icon { stroke-width: 2.2; }
+/* A new empty chat centers its one line and the typing box; after the first question the box sits at the bottom. */
+.doc-chat-page:has(.doc-chat__empty) { grid-template-rows: minmax(0, 1fr) auto minmax(0, 1fr); }
+.doc-chat-page:has(.doc-chat__empty) .doc-chat__chats { grid-row: 1 / -1; }
+.doc-chat-page:has(.doc-chat__empty) .doc-chat__layout > section { display: flex; flex-direction: column; justify-content: flex-end; }
+.doc-chat__layout > section > [role="status"]:empty { margin: 0; }
 .doc-chat__actions { justify-content: flex-end; }
 /* On a phone the conversation fills the screen and the chats slide in over it from the left. */
 @media (max-width: 760px), (hover: none) and (pointer: coarse) and (max-width: 1023px) {
   .doc-chat-page { grid-template-columns: minmax(0, 1fr); }
   .doc-chat__layout > section, .doc-chat__composer { grid-column: 1; }
   .doc-chat__composer { grid-row: 2; }
+  /* The page fills the screen between the 52px top bar and the bottom menu, and the typing box stays just above that menu. */
+  .app-layout-main:has(> .doc-chat-page) { padding-block-end: var(--space-3); }
+  .doc-chat-page { min-block-size: calc(100dvh - var(--layout-bottom) - 52px - 2 * var(--space-3)); }
+  .doc-chat__composer {
+    position: sticky;
+    bottom: calc(var(--layout-bottom) + var(--space-3));
+    z-index: 1;
+    box-shadow: 0 0 0 var(--space-3) var(--ground);
+  }
   .doc-chat__chats-toggle, .doc-chat__topbar-new { display: inline-grid; }
   /* The phone top bar is only the list icon, the chat's title and the New chat pencil at the right edge. */
   .app-layout-topbar:has(#docTopbar) > :not(#docTopbar) { display: none; }
