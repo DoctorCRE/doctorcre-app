@@ -68,7 +68,8 @@ const suggestion = (n: number, title: string, decisions = 1): Card => ({
   tile: "inbox",
 });
 
-async function openHome(t: TestContext, cards: Card[]) {
+// `remote.cards` is what the engine holds; a test changes it to finish work elsewhere.
+async function openHome(t: TestContext, initial: Card[], remote = { cards: initial }) {
   const browser = await chromium.launch();
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, timezoneId: "America/Chicago" });
@@ -89,7 +90,7 @@ async function openHome(t: TestContext, cards: Card[]) {
     },
   );
   const group = (tile: string) => {
-    const items = cards.filter((card) => card.tile === tile && card.section !== "done");
+    const items = remote.cards.filter((card) => card.tile === tile && card.section !== "done");
     return { count: items.length, items };
   };
   await page.route("**/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6", (route) =>
@@ -105,6 +106,23 @@ async function openHome(t: TestContext, cards: Card[]) {
       },
     }),
   );
+  await page.route("**/api/engine/calendar/critical-dates", (route) =>
+    route.fulfill({
+      json: {
+        schema_version: "calendar-critical-dates.v1",
+        critical_dates: [
+          {
+            id: id(70),
+            deal_id: id(99),
+            deal_name: "Example Dental",
+            kind: "Lease signed",
+            due_on: "2026-11-30",
+            done: false,
+          },
+        ],
+      },
+    }),
+  );
   await page.route("**/mcp", async (route) => {
     const call = route.request().postDataJSON();
     const { name, arguments: args } = call.params;
@@ -117,10 +135,10 @@ async function openHome(t: TestContext, cards: Card[]) {
         limit: 1000,
         working_collapsed: true,
         engine_marks: true,
-        items: cards.map(({ card_id, ...card }) => card),
+        items: remote.cards.map(({ card_id, ...card }) => card),
       };
     if (name === "end-engine-home-step") {
-      cards = cards.map((card) =>
+      remote.cards = remote.cards.map((card) =>
         card.action_id === args.id
           ? { ...card, section: "done", source_state: "done", completed_at: "2026-11-25T16:00:00Z", action_version: 2 }
           : card,
@@ -137,7 +155,7 @@ async function openHome(t: TestContext, cards: Card[]) {
         evidence: "Can you send the plan?",
       };
     if (name === "decide-engine-home-proposal") {
-      cards = cards.flatMap((card) => {
+      remote.cards = remote.cards.flatMap((card) => {
         const suggestions = card.suggestions?.filter((row) => row.id !== args.id);
         return suggestions?.length === 0 ? [] : [suggestions ? { ...card, suggestions } : card];
       });
@@ -203,4 +221,66 @@ test("Mark done in an opened reminder removes its row and opens the next reminde
   await second.getByRole("button", { name: "Mark done", exact: true }).click();
   await second.waitFor({ state: "detached" });
   assert.deepEqual(await rowTitles(page, "Reminders"), []);
+});
+
+test("The opened item's heading says where it sits in its tile, and Next walks the rows as drawn, and moves on from an item finished elsewhere", async (t) => {
+  const remote = {
+    cards: [
+      step(1, "Call the sample practice"),
+      { ...step(2, "Send the sample floor plan"), due_on: "2026-11-20", days_late: 5 },
+      { ...step(3, "Book the sample tour"), due_on: "2026-11-23", days_late: 2 },
+    ],
+  };
+  const page = await openHome(t, remote.cards, remote);
+  assert.deepEqual(await rowTitles(page, "Reminders"), [
+    "Send the sample floor plan",
+    "Book the sample tour",
+    "Call the sample practice",
+  ]);
+  await page
+    .getByRole("region", { name: "Reminders", exact: true })
+    .getByRole("link", { name: "Send the sample floor plan" })
+    .click();
+  const first = pane(page, "Send the sample floor plan");
+  await first.getByText("1 of 3", { exact: true }).waitFor();
+  await first.getByRole("button", { name: "Next", exact: true }).click();
+  const second = pane(page, "Book the sample tour");
+  await second.getByText("2 of 3", { exact: true }).waitFor();
+  remote.cards = remote.cards.filter((card) => card.action_id !== id(3));
+  await page.clock.fastForward(60_000);
+  await second.getByText("This card was finished elsewhere.").waitFor();
+  await second.getByRole("button", { name: "Next", exact: true }).click();
+  await pane(page, "Call the sample practice").getByText("2 of 2", { exact: true }).waitFor();
+});
+
+test("Accepting one decision keeps the card open with the text typed into another decision", async (t) => {
+  const page = await openHome(t, [
+    suggestion(11, "Choose the deal for Maya's email", 2),
+    suggestion(12, "Send the plan to Pat"),
+  ]);
+  await page
+    .getByRole("region", { name: "Inbox", exact: true })
+    .getByRole("link", { name: "Choose the deal for Maya's email" })
+    .click();
+  const open = pane(page, "Choose the deal for Maya's email");
+  const words = open.locator("textarea.home-suggestion-instruction");
+  await words.nth(1).fill("Send the revised floor plan");
+  await open.getByRole("button", { name: "Accept", exact: true }).first().click();
+  await page.waitForFunction(() => document.querySelectorAll(".home-inline-review textarea").length === 1);
+  assert.equal(await words.inputValue(), "Send the revised floor plan");
+});
+
+test("Finishing the last item on Home closes the pane and puts focus on a tile heading, not the whole page", async (t) => {
+  const page = await openHome(t, [suggestion(12, "Send the plan to Pat")]);
+  await page
+    .getByRole("region", { name: "Inbox", exact: true })
+    .getByRole("link", { name: "Send the plan to Pat" })
+    .click();
+  const open = pane(page, "Send the plan to Pat");
+  await open.getByRole("button", { name: "Accept", exact: true }).click();
+  await open.waitFor({ state: "detached" });
+  assert.match(
+    await page.evaluate(() => `${document.activeElement?.tagName} ${document.activeElement?.textContent}`),
+    /^H2 Coming up/,
+  );
 });

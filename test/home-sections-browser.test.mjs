@@ -199,12 +199,12 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   const inbox = page.getByRole('region', { name: 'Inbox cards', exact: true });
   // One item is open at a time and on a computer it covers the other Inbox rows, so another open item closes first.
   const closeOther = async row => {
-    const close = page.locator('.home-inline-review > header button');
+    const close = page.locator('.home-inline-review > header button:last-child');
     if (!(await row.locator('.home-inline-review').count()) && (await close.count())) await close.click();
   };
   // A save from an open item opens the next one; the steps below go on from the list.
   const closeOpen = async () => {
-    const close = page.locator('.home-inline-review > header button');
+    const close = page.locator('.home-inline-review > header button:last-child');
     if (await close.count()) await close.click();
   };
   const openRow = async row => {
@@ -780,7 +780,7 @@ for (const [width, theme, planner] of [[390, 'light'], [390, 'dark'], [1440, 'li
   const card = item => page.locator(`[data-inbox-row="${item.item_id}"]`);
   // A save from an open item opens the next one; the steps below go on from the list.
   const closeOpen = async () => {
-    const close = page.locator('.home-inline-review > header button');
+    const close = page.locator('.home-inline-review > header button:last-child');
     if (await close.count()) await close.click();
   };
   const section = name => page.getByRole('region', { name, exact: true });
