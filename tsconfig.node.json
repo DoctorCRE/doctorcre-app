@@ -18,9 +18,6 @@
       "/js/invoice-tracker-model.js": [
         "./js/invoice-tracker-model.d.ts"
       ],
-      "/js/ui-quiet-vendors.generated.js": [
-        "./src/ui/quiet-vendors.tsx"
-      ],
       "/js/ui-deal-tours.generated.js": [
         "./src/ui/deal-tours.tsx"
 

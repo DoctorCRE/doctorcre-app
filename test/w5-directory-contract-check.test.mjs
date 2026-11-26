@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { relationshipValid, validListPayload, validRecordPayload, parseViewState, viewHref } from '../js/workspace-business-model.js';
+import { echoesQuery, filterChips, listRequestUrl, relationshipValid, sameQuery, validListPayload, validRecordPayload, parseViewState, viewHref } from '../js/workspace-business-model.js';
 import { directoryFixture } from './fixtures/vendor-directory.synthetic.mjs';
 
 test('W5 validates the complete partnership payload and rejects malformed evidence before rendering', () => {
@@ -23,6 +23,22 @@ test('W5 owner and territory survive canonical navigation; client territory is d
   assert.equal(new URL(viewHref(vendor),'http://demo.example').searchParams.get('territory'),'Demo North');
   assert.equal(parseViewState('/clients','?territory=Demo&owner=other').query.territory,'');
   assert.equal(parseViewState('/clients','?owner=other').query.owner,'all');
+});
+
+test('Quiet vendors is a filter on the same vendor list that a second press removes', () => {
+  const quiet=parseViewState('/vendors','?quiet=true&owner=dell').query;
+  assert.equal(quiet.quiet,'true');
+  assert.equal(new URL(listRequestUrl(quiet),'http://demo.example').searchParams.get('quiet'),'true');
+  assert.deepEqual(filterChips(quiet).find(chip=>chip.key==='quiet'),{key:'quiet',label:'Showing',value:'Quiet vendors',reset:''});
+  const all={...quiet,quiet:''};
+  assert.equal(new URL(viewHref(all),'http://demo.example').searchParams.has('quiet'),false);
+  assert.equal(sameQuery(quiet,all),false);
+  assert.equal(parseViewState('/vendors','?quiet=yes').query.quiet,'');
+  assert.equal(parseViewState('/clients','?quiet=true').query.quiet,undefined);
+  const answer={query:{...quiet,q:null,territory:null,category:null,stage:null,disposition:null,page_size:25,quiet:true}};
+  assert.equal(echoesQuery(answer,quiet),true);
+  assert.equal(echoesQuery(answer,all),false);
+  assert.equal(echoesQuery({query:{...answer.query,quiet:undefined}},quiet),false);
 });
 
 import { readFileSync } from 'node:fs';
