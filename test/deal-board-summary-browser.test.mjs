@@ -160,7 +160,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     await press(badge);
     assert.ok(await reason.isVisible());
     await press(name);
-    await page.locator('#recordPanel').getByRole('heading', { name: 'Demo Surgical Practice', exact: true }).waitFor();
+    await page.locator('#panelTitle').getByText('Demo Surgical Practice', { exact: true }).waitFor();
   });
 }
 

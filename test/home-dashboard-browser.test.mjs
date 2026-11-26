@@ -413,7 +413,7 @@ test('R7 linked Deals detail refusal or timeout cannot prevent board and feed po
     if (elapsed) await page.clock.runFor(elapsed);
     await page.locator('#panelBody').getByText('Updates temporarily unavailable',{exact:true}).waitFor();
     assert.match(await page.locator('#panelBody').textContent(), /Updates temporarily unavailable/);
-    assert.equal(await page.locator('#recordPanel').getByRole('button', { name: 'Back to deals', exact: true }).isVisible(), true);
+    assert.equal(await page.getByRole('button', { name: 'Back to deals', exact: true }).isVisible(), true);
     // Each caller receives its own cursor, so a shared-layout read cannot satisfy this wait.
     const cursor = await page.evaluate(async () =>
       (await import('/js/pipeline.js')).state.boardSync.status().cursor);

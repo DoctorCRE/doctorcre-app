@@ -93,10 +93,10 @@ test("a filed call shows its decisions and tasks on Home and updates the deal pa
   await expect(
     page.locator(".deal-current-action").getByRole("button", { name: "Send the lease draft", exact: true }),
   ).toBeVisible();
-  await page.getByRole("tab", { name: "Timeline" }).click();
-  const timeline = page.locator("#workspace-timeline");
-  await expect(timeline).toContainText("patch deal field · phase → Negotiation");
-  await expect(timeline).toContainText("set next step · next_step → Send the lease draft to the landlord");
+  await page.getByRole("tab", { name: "Activity" }).click();
+  const activity = page.locator("#workspace-activity");
+  await expect(activity).toContainText("patch deal field · phase → Negotiation");
+  await expect(activity).toContainText("set next step · next_step → Send the lease draft to the landlord");
 });
 
 test("the filed action follows its due date in Chicago on any runner date", async ({ signedIn: page, carr }) => {
