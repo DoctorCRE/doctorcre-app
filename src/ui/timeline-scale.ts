@@ -2,8 +2,12 @@ export type Zoom = "day" | "week" | "month";
 
 export const ZOOMS: readonly Zoom[] = ["day", "week", "month"];
 export const DAY_WIDTH: Record<Zoom, number> = { day: 28, week: 12, month: 4 };
+export const MIN_BAR_WIDTH = 10;
 
 const MS_PER_DAY = 86_400_000;
+// A bar's name has this much padding either side, and its metadata one gap and a right pad.
+const NAME_PAD = 16;
+const META_PAD = 16;
 
 // A day is a whole number of days since 1970-01-01, so its place on the chart is plain arithmetic.
 export function dayOf(iso: string): number {
@@ -54,4 +58,26 @@ export function scale(from: number, to: number, zoom: Zoom): Scale {
     if (tick) days.push({ day: d, label: String(dayOfMonth) });
   }
   return { months, days, saturdays };
+}
+
+export function spanBox(startDay: number, endDay: number, origin: number, px: number) {
+  return {
+    left: (startDay - origin) * px,
+    width: Math.max((endDay - startDay) * px, MIN_BAR_WIDTH),
+  };
+}
+
+// Spent fill stops on today's midpoint so it aligns with the Today vertical line.
+export function spentWidth(startDay: number, barWidth: number, today: number, px: number): number {
+  return Math.max(0, Math.min(barWidth, (today - startDay + 0.5) * px));
+}
+
+// A name goes inside its bar only when the whole measured text fits; otherwise it goes beside the bar.
+// Metadata shows only when it fits as well, after the name.
+export function labelLayout(nameWidth: number, metaWidth: number, barWidth: number) {
+  const nameFits = nameWidth + NAME_PAD <= barWidth;
+  return {
+    outside: !nameFits,
+    showMeta: nameFits && metaWidth > 0 && nameWidth + NAME_PAD + metaWidth + META_PAD <= barWidth,
+  };
 }

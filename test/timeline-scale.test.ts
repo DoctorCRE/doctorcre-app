@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { dayOf, scale } from "../src/ui/timeline-scale.ts";
+import { dayOf, labelLayout, MIN_BAR_WIDTH, scale, spanBox, spentWidth } from "../src/ui/timeline-scale.ts";
 
 const weekday = (day: number) => new Date(day * 86_400_000).getUTCDay();
 
@@ -34,4 +34,26 @@ test("weekends are shaded from Saturday, including one cut off at the left edge,
 test("a day that is not a calendar day is refused", () => {
   assert.throws(() => dayOf("2026-02-30"), RangeError);
   assert.throws(() => dayOf("Nov 25"), RangeError);
+});
+
+test("spanBox places a bar on its days and enforces the minimum visible width", () => {
+  const origin = dayOf("2026-11-01");
+  assert.deepEqual(spanBox(dayOf("2026-11-10"), dayOf("2026-11-16"), origin, 12), { left: 108, width: 72 });
+  assert.deepEqual(spanBox(dayOf("2026-11-10"), dayOf("2026-11-10"), origin, 12), { left: 108, width: MIN_BAR_WIDTH });
+});
+
+test("spentWidth stops on today's midpoint and clamps for past and future spans", () => {
+  const today = dayOf("2026-11-25");
+  assert.equal(spentWidth(dayOf("2026-11-16"), 252, today, 12), 114);
+  assert.equal(spentWidth(dayOf("2026-11-01"), 120, today, 12), 120);
+  assert.equal(spentWidth(dayOf("2026-12-01"), 120, today, 12), 0);
+});
+
+test("labelLayout keeps a name inside only when the whole text fits, and shows metadata only when it fits after the name", () => {
+  assert.deepEqual(labelLayout(90, 0, 84), { outside: true, showMeta: false });
+  assert.deepEqual(labelLayout(108, 0, 120), { outside: true, showMeta: false });
+  assert.deepEqual(labelLayout(108, 0, 124), { outside: false, showMeta: false });
+  assert.deepEqual(labelLayout(100, 60, 180), { outside: false, showMeta: false });
+  assert.deepEqual(labelLayout(100, 60, 192), { outside: false, showMeta: true });
+  assert.deepEqual(labelLayout(100, 60, 100), { outside: true, showMeta: false });
 });
