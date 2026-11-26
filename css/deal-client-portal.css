@@ -8,3 +8,5 @@
 .deal-client-portal-preview:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 2px; }
 .deal-client-portal button:disabled { cursor: wait; }
 .deal-client-portal-none { margin-block: var(--space-4); color: var(--fg-muted); }
+/* Room for the longest label, so Copied does not move Open as client. */
+.deal-client-portal-line > [data-copy-client-link] { min-width: calc(16ch + 2 * var(--space-4)); }

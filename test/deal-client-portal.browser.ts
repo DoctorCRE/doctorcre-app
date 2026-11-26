@@ -109,12 +109,15 @@ test("the client portal tab opens the client's site unlocked and copies the clie
   assert.ok(((await preview.boundingBox())?.height ?? 0) >= 200, "the preview link is large");
 
   const copy = portal.getByRole("button", { name: "Copy client link" });
+  const openAsClient = portal.getByRole("button", { name: /^Open as client/ });
+  const before = await openAsClient.boundingBox();
   await copy.click();
   await assert.doesNotReject(portal.getByRole("button", { name: "Copied" }).waitFor());
+  assert.deepEqual(await openAsClient.boundingBox(), before, "Copied leaves Open as client in place");
   assert.equal(await page.evaluate(() => navigator.clipboard.readText()), site, "the copied link is the client's own");
   await portal.getByRole("button", { name: "Copy client link" }).waitFor({ timeout: 4000 });
 
-  for (const control of [portal.getByRole("button", { name: /^Open as client/ }), preview]) {
+  for (const control of [openAsClient, preview]) {
     const [tab] = await Promise.all([page.context().waitForEvent("page"), control.click()]);
     await tab.waitForURL(grant);
     await tab.close();
@@ -140,7 +143,7 @@ for (const [width, height] of [
       const portal = page.getByRole("region", { name: "Website for Example Cedar Dental" });
       await portal.waitFor();
       for (const name of ["Copy client link", "Open as client", "share.example.test/example-cedar"]) {
-        const bounds = await portal.getByRole("button", { name: new RegExp(name.replace(/\./g, "\\.")) }).boundingBox();
+        const bounds = await portal.getByRole("button", { name }).boundingBox();
         assert.ok(bounds && bounds.x >= 0 && bounds.x + bounds.width <= width, `${name} fits the width`);
         assert.ok(bounds.y + bounds.height <= height, `${name} is on the first screen`);
       }
