@@ -23,7 +23,10 @@ function DocLinkSettings({ request }: { request: DocLinkRequest }) {
     const lifetime = new AbortController();
     function clearCode() {
       codeView.current++;
-      flushSync(() => setCode(""));
+      flushSync(() => {
+        setCode("");
+        setNotice("");
+      });
     }
     addEventListener("hashchange", clearCode, { signal: lifetime.signal });
     addEventListener("pagehide", clearCode, { signal: lifetime.signal });
@@ -111,10 +114,17 @@ function DocLinkSettings({ request }: { request: DocLinkRequest }) {
             <code ref={codeText}>{code}</code>
           </p>
           <div className="pref-act">
-            <button className="btn" type="button" onClick={() => void copyCode()}>
+            <button className="btn doc-link-copy" type="button" onClick={() => void copyCode()}>
               {copiedCode === code ? "Copied" : "Copy"}
             </button>
-            <button className="btn" type="button" onClick={() => setCode("")}>
+            <button
+              className="btn"
+              type="button"
+              onClick={() => {
+                setCode("");
+                setNotice("");
+              }}
+            >
               Done
             </button>
           </div>

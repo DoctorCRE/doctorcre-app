@@ -1360,6 +1360,7 @@ for (const width of [1280, 390]) {
 
     await copy.click();
     await settings.getByRole("button", { name: "Copied", exact: true }).waitFor();
+    assert.equal((await done.boundingBox())?.x, doneBox?.x, "Done stays put when Copy reads Copied");
     assert.equal(await page.evaluate(() => navigator.clipboard.readText()), code);
     await settings.getByRole("button", { name: "Copy", exact: true }).waitFor({ timeout: 4000 });
     await done.click();
@@ -1376,6 +1377,8 @@ test("A refused clipboard selects the Doc link code for Cmd+C", async (t) => {
   await settings.getByText("Press Cmd+C to copy.", { exact: true }).waitFor();
   assert.equal(await page.evaluate(() => getSelection()?.toString()), code);
   assert.equal(await settings.getByRole("button", { name: "Copied", exact: true }).count(), 0);
+  await settings.getByRole("button", { name: "Done", exact: true }).click();
+  assert.equal(await settings.getByText("Press Cmd+C to copy.", { exact: true }).count(), 0);
 });
 
 test("phone notifications are available only with CARR sign-in", async (t) => {
