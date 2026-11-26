@@ -1,4 +1,14 @@
-import { Fragment, type ReactNode, type RefObject, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import {
+  Fragment,
+  type RefObject,
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import {
@@ -39,7 +49,7 @@ export type TimelineTodo = TimelineRowBase &
         kind: "todo";
         state: "current";
         start: string;
-        end?: string;
+        end: string;
         progress?: string;
         overTypical?: boolean;
         atRisk?: boolean;
@@ -92,6 +102,7 @@ export interface TimelineProps {
 
 type Folds = Record<string, boolean>;
 type Tone = "default" | "late" | "soon";
+type Measure = (text: string) => number;
 
 const ZOOM_LABEL: Record<Zoom, string> = { day: "Day", week: "Week", month: "Month" };
 const rowId = (uid: string, row: TimelineRow) => `${uid}-${row.id}`;
@@ -123,6 +134,8 @@ const visibleTrack = (scroller: HTMLElement | null, corner: HTMLElement | null) 
 
 // Half the widest date label, so a label only touches the Today pill when its text would.
 const DATE_LABEL_HALF = 12;
+const BESIDE_LABELS = '.timeline-bar[data-label-pos="beside"] .timeline-bar-name, .timeline-diamond-label';
+const CHECK_WIDTH = 12;
 const UNDATED_MIN_WIDTH = 60;
 const UNDATED_TAIL_DAYS = 4;
 
@@ -142,6 +155,34 @@ function useScrollCue(scroller: RefObject<HTMLElement | null>) {
       node.removeEventListener("scrollend", end);
     };
   }, [scroller]);
+}
+
+// A label beside a mark that starts under the list column would show only its tail, so it hides until its first letter is clear of the list.
+function useCoveredLabels(scroller: RefObject<HTMLElement | null>, corner: RefObject<HTMLElement | null>) {
+  const cover = useCallback(() => {
+    const edge = (corner.current?.getBoundingClientRect().right ?? 0) + 1;
+    for (const label of scroller.current?.querySelectorAll<HTMLElement>(BESIDE_LABELS) ?? []) {
+      const textStart = label.getBoundingClientRect().left + parseFloat(getComputedStyle(label).paddingLeft);
+      if (textStart < edge) label.dataset.covered = "";
+      else delete label.dataset.covered;
+    }
+  }, [scroller, corner]);
+
+  useLayoutEffect(cover);
+
+  useEffect(() => {
+    const node = scroller.current;
+    if (!node) return;
+    node.addEventListener("scroll", cover, { passive: true });
+    return () => node.removeEventListener("scroll", cover);
+  }, [scroller, cover]);
+}
+
+function textMeasurer(font: string): Measure {
+  const context = document.createElement("canvas").getContext("2d");
+  if (!context || !font) return () => 0;
+  context.font = font;
+  return (text) => context.measureText(text).width;
 }
 
 const CheckIcon = ({ size, className }: { size: number; className?: string }) => (
@@ -176,34 +217,54 @@ function RowGlyph({ row }: { row: TimelineRow }) {
   );
 }
 
-function rowMeta(
-  row: TimelineRow,
-  now: number,
-): { when: string | undefined; tone: Tone; alert?: string; quiet: boolean } {
+interface RowMeta {
+  when: string | undefined;
+  tone: Tone;
+  alert?: string;
+  quiet: boolean;
+  lateDays: number;
+}
+
+const dateTone = (row: TimelineDate, now: number): Tone =>
+  row.atRisk ? "late" : row.state !== "expected" && isNearDay(dayOf(row.day), now) ? "soon" : "default";
+
+// Lateness and tone are worked out here once per row, for both its list label and its mark.
+function rowMeta(row: TimelineRow, now: number): RowMeta {
   if (row.kind === "step") {
-    if (row.state === "done") return { when: row.when, tone: "default", quiet: true };
-    if (row.state === "undated") return { when: row.when ?? "No date", tone: "default", quiet: false };
-    const late = dayOf(row.due) < now;
-    return { when: row.when, tone: late ? "late" : "default", ...(late && { alert: "Late step" }), quiet: false };
-  }
-  if (row.kind === "date") {
-    const tone: Tone = row.atRisk
-      ? "late"
-      : row.state !== "expected" && isNearDay(dayOf(row.day), now)
-        ? "soon"
-        : "default";
-    return { when: row.when, tone, ...(row.atRisk && { alert: "At risk" }), quiet: false };
-  }
-  if (row.state === "unrecorded" || row.state === "waiting") {
+    if (row.state === "done") return { when: row.when, tone: "default", quiet: true, lateDays: 0 };
+    if (row.state === "undated") return { when: row.when ?? "No date", tone: "default", quiet: false, lateDays: 0 };
+    const lateDays = Math.max(0, now - dayOf(row.due));
+    const late = lateDays > 0;
     return {
-      when: row.when ?? (row.state === "unrecorded" ? "not recorded" : "no date yet"),
-      tone: "default",
-      quiet: true,
+      when: row.when,
+      tone: late ? "late" : "default",
+      ...(late && { alert: "Late step" }),
+      quiet: false,
+      lateDays,
     };
   }
-  if (row.state === "stale") return { when: row.when, tone: "soon", quiet: false };
+  if (row.kind === "date") {
+    return {
+      when: row.when,
+      tone: dateTone(row, now),
+      ...(row.atRisk && { alert: "At risk" }),
+      quiet: false,
+      lateDays: 0,
+    };
+  }
+  if (row.state === "unrecorded" || row.state === "waiting") {
+    const when = row.when ?? (row.state === "unrecorded" ? "not recorded" : "no date yet");
+    return { when, tone: "default", quiet: true, lateDays: 0 };
+  }
+  if (row.state === "stale") return { when: row.when, tone: "soon", quiet: false, lateDays: 0 };
   const atRisk = row.state !== "done" && Boolean(row.atRisk);
-  return { when: row.when, tone: atRisk ? "late" : "default", ...(atRisk && { alert: "At risk" }), quiet: false };
+  return {
+    when: row.when,
+    tone: atRisk ? "late" : "default",
+    ...(atRisk && { alert: "At risk" }),
+    quiet: false,
+    lateDays: 0,
+  };
 }
 
 function PhaseBar({ bar, start, now, px }: { bar: TimelinePhaseBar; start: number; now: number; px: number }) {
@@ -222,14 +283,17 @@ interface BarProps {
   name: string;
   left: number;
   width: number;
+  measure: Measure;
   spent?: number;
-  meta?: ReactNode;
+  meta?: string | undefined;
+  check?: boolean;
   metaTone?: Tone;
   step?: boolean;
 }
 
-function Bar({ mark, name, left, width, spent, meta, metaTone = "default", step }: BarProps) {
-  const { outside, showMeta } = labelLayout(name, width, Boolean(meta));
+function Bar({ mark, name, left, width, measure, spent, meta, check, metaTone = "default", step }: BarProps) {
+  const metaWidth = meta ? measure(meta) : check ? CHECK_WIDTH : 0;
+  const { outside, showMeta } = labelLayout(measure(name), metaWidth, width);
   const fullFill = spent !== undefined && spent >= width - 1;
   return (
     <div
@@ -244,20 +308,28 @@ function Bar({ mark, name, left, width, spent, meta, metaTone = "default", step 
       <span className="timeline-bar-name">{name}</span>
       {showMeta && (
         <span className="timeline-bar-meta" data-tone={optTone(metaTone)}>
-          {meta}
+          {check ? <CheckIcon size={CHECK_WIDTH} /> : meta}
         </span>
       )}
     </div>
   );
 }
 
-function RowMark({ row, start, now, px }: { row: TimelineRow; start: number; now: number; px: number }) {
+interface MarkProps {
+  row: TimelineRow;
+  meta: RowMeta;
+  start: number;
+  now: number;
+  px: number;
+  measure: Measure;
+}
+
+function RowMark({ row, meta, start, now, px, measure }: MarkProps) {
   if (row.kind === "date") {
     const day = dayOf(row.day);
     const center = (day - start) * px + px / 2;
     const suffix = row.atRisk ? "at risk" : row.state === "proposed" ? "proposed" : undefined;
     const detail = row.detail ?? [row.when, suffix].filter(Boolean).join(" · ");
-    const tone: Tone = row.atRisk ? "late" : row.state !== "expected" && isNearDay(day, now) ? "soon" : "default";
     return (
       <>
         <i
@@ -270,7 +342,7 @@ function RowMark({ row, start, now, px }: { row: TimelineRow; start: number; now
         <span className="timeline-diamond-label" style={{ left: center + 13 }}>
           {row.name}
           {detail && (
-            <span className="timeline-diamond-detail" data-tone={optTone(tone)}>
+            <span className="timeline-diamond-detail" data-tone={optTone(meta.tone)}>
               {detail}
             </span>
           )}
@@ -280,23 +352,23 @@ function RowMark({ row, start, now, px }: { row: TimelineRow; start: number; now
   }
   if (row.kind === "step") {
     const startDay = dayOf(row.start);
+    const left = (startDay - start) * px;
     if (row.state === "undated") {
       const width = Math.max((now - startDay + UNDATED_TAIL_DAYS) * px, UNDATED_MIN_WIDTH);
-      return <Bar mark="step-undated" name={row.name} left={(startDay - start) * px} width={width} step />;
+      return <Bar mark="step-undated" name={row.name} left={left} width={width} measure={measure} step />;
     }
-    const endDay = dayOf(row.state === "done" ? row.end : row.due);
-    const { left, width } = spanBox(startDay, endDay, start, px);
-    if (row.state === "done") return <Bar mark="step-done" name={row.name} left={left} width={width} step />;
-    const lateDays = now - endDay;
-    const late = lateDays > 0;
+    const { width } = spanBox(startDay, dayOf(row.state === "done" ? row.end : row.due), start, px);
+    if (row.state === "done")
+      return <Bar mark="step-done" name={row.name} left={left} width={width} measure={measure} step />;
     return (
       <Bar
-        mark={late ? "step-late" : "step-open"}
+        mark={meta.lateDays > 0 ? "step-late" : "step-open"}
         name={row.name}
         left={left}
         width={width}
-        meta={late ? `${lateDays}d late` : undefined}
-        metaTone={late ? "late" : "default"}
+        measure={measure}
+        meta={meta.lateDays > 0 ? `${meta.lateDays}d late` : undefined}
+        metaTone={meta.tone}
         step
       />
     );
@@ -305,34 +377,29 @@ function RowMark({ row, start, now, px }: { row: TimelineRow; start: number; now
   const startDay = dayOf(row.start);
   if (row.state === "stale") {
     const width = Math.max((now - startDay + 0.5) * px, MIN_BAR_WIDTH);
-    return <Bar mark="todo-stale" name={row.name} left={(startDay - start) * px} width={width} spent={width} />;
-  }
-  if (row.state === "current" && !row.end) {
-    const width = Math.max((now - startDay + 0.5) * px, MIN_BAR_WIDTH);
     return (
       <Bar
-        mark="todo-current"
+        mark="todo-stale"
         name={row.name}
         left={(startDay - start) * px}
         width={width}
+        measure={measure}
         spent={width}
-        meta={row.progress}
       />
     );
   }
-  const end = row.end;
-  if (!end) return null;
-  const { left, width } = spanBox(startDay, dayOf(end), start, px);
+  const { left, width } = spanBox(startDay, dayOf(row.end), start, px);
   if (row.state === "done")
-    return <Bar mark="todo-done" name={row.name} left={left} width={width} meta={<CheckIcon size={12} />} />;
+    return <Bar mark="todo-done" name={row.name} left={left} width={width} measure={measure} check />;
   if (row.state === "expected")
-    return <Bar mark="todo-expected" name={row.name} left={left} width={width} meta={row.length} />;
+    return <Bar mark="todo-expected" name={row.name} left={left} width={width} measure={measure} meta={row.length} />;
   return (
     <Bar
       mark="todo-current"
       name={row.name}
       left={left}
       width={width}
+      measure={measure}
       spent={spentWidth(startDay, width, now, px)}
       meta={row.progress}
       metaTone={row.overTypical ? "soon" : "default"}
@@ -347,7 +414,9 @@ function Timeline({ foldKey, today, from, to, groups }: TimelineProps) {
   const scroller = useRef<HTMLElement>(null);
   const corner = useRef<HTMLDivElement>(null);
   const pill = useRef<HTMLSpanElement>(null);
+  const probe = useRef<HTMLSpanElement>(null);
   const [pillWidth, setPillWidth] = useState(0);
+  const [font, setFont] = useState("");
   const uid = useId();
   useScrollCue(scroller);
   const { zoom } = view;
@@ -361,6 +430,15 @@ function Timeline({ foldKey, today, from, to, groups }: TimelineProps) {
   const pillCovers = (day: number) => Math.abs(labelCentre(day) - (x(now) + px / 2)) < pillWidth / 2 + DATE_LABEL_HALF;
 
   useLayoutEffect(() => setPillWidth(pill.current?.offsetWidth ?? 0), []);
+
+  // Labels are measured in the font the bars really use, once it has loaded.
+  useLayoutEffect(() => {
+    const read = () => setFont(probe.current ? getComputedStyle(probe.current).font : "");
+    read();
+    void document.fonts?.ready.then(read);
+  }, []);
+  const measure = useMemo(() => textMeasurer(font), [font]);
+  useCoveredLabels(scroller, corner);
 
   useLayoutEffect(() => {
     const visible = visibleTrack(scroller.current, corner.current);
@@ -384,6 +462,7 @@ function Timeline({ foldKey, today, from, to, groups }: TimelineProps) {
       <p className="timeline-sr">
         The chart runs from {from} to {to}. Today is {today}.
       </p>
+      <span ref={probe} className="timeline-bar timeline-probe" aria-hidden="true" />
       <div className="timeline-tools">
         <fieldset className="timeline-zoom" aria-label="Zoom">
           {ZOOMS.map((z) => (
@@ -482,7 +561,8 @@ function Timeline({ foldKey, today, from, to, groups }: TimelineProps) {
                   </div>
                   {open &&
                     group.rows.map((row) => {
-                      const { when, tone, alert, quiet } = rowMeta(row, now);
+                      const meta = rowMeta(row, now);
+                      const { when, tone, alert, quiet } = meta;
                       return (
                         <div
                           key={row.id}
@@ -506,7 +586,7 @@ function Timeline({ foldKey, today, from, to, groups }: TimelineProps) {
                             )}
                           </div>
                           <div className="timeline-track" data-phase={row.phase} style={{ width }}>
-                            <RowMark row={row} start={start} now={now} px={px} />
+                            <RowMark row={row} meta={meta} start={start} now={now} px={px} measure={measure} />
                           </div>
                         </div>
                       );

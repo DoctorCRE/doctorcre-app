@@ -39,7 +39,7 @@
 .timeline-grid { position: absolute; inset: 0 0 0 var(--list); pointer-events: none; }
 .timeline-weekend { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--fg) 4%, transparent); }
 .timeline-month-line { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--hairline); }
-.timeline-now { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--accent); z-index: 3; }
+.timeline-now { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--accent); z-index: 1; }
 
 .timeline-row { position: relative; height: var(--row); display: flex; box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--hairline) 38%, transparent); }
 .timeline .timeline-label { position: sticky; left: 0; z-index: 4; width: var(--list); flex: none; display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-3) 0 32px; background: var(--surface-1); text-align: left; min-width: 0; transition: background var(--duration-hover); }
@@ -79,21 +79,23 @@
 
 /* To-do bars and step pills on the chart track. */
 .timeline-bar { position: absolute; top: 6px; height: 22px; border-radius: var(--radius-2); z-index: 2; display: flex; align-items: center; font-size: var(--font-size-1); font-weight: var(--font-weight-regular); white-space: nowrap; background: color-mix(in oklab, var(--tone) 17%, var(--surface-1)); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--tone) 46%, var(--surface-1)); transition: filter var(--duration-hover); }
+.timeline-probe { visibility: hidden; pointer-events: none; width: 0; height: 0; }
 .timeline-bar:hover, .timeline-diamond:hover { filter: brightness(1.12); }
 .timeline-bar-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: var(--radius-2) 0 0 var(--radius-2); background: color-mix(in oklab, var(--tone) 46%, var(--surface-1)); }
 .timeline-bar-fill[data-full] { border-radius: var(--radius-2); }
-.timeline-bar-name { position: relative; flex: 1; min-width: 0; padding: 0 var(--space-2); overflow: hidden; text-overflow: ellipsis; color: var(--fg); }
+.timeline-bar-name { position: relative; flex: 1; min-width: 0; padding: 0 var(--space-2); overflow: hidden; color: var(--fg); }
 .timeline-bar-meta { position: relative; flex: none; padding-right: var(--space-2); color: var(--fg-muted); display: inline-flex; align-items: center; }
 .timeline-bar-meta svg { color: var(--fg); stroke-width: 2.4; }
 .timeline-bar[data-label-pos="beside"] .timeline-bar-name { position: absolute; left: 100%; padding-left: var(--space-4); padding-right: 0; overflow: visible; color: var(--fg-muted); text-shadow: 0 0 2px var(--surface-1), 0 0 5px var(--surface-1); }
+
+.timeline-bar-name[data-covered], .timeline-diamond-label[data-covered] { visibility: hidden; }
 
 .timeline-bar[data-mark="todo-done"], .timeline-bar[data-mark="todo-stale"] { background: color-mix(in oklab, var(--tone) 46%, var(--surface-1)); box-shadow: none; }
 .timeline-bar[data-mark="todo-expected"] { background: color-mix(in oklab, var(--tone) 8%, var(--surface-1)); box-shadow: none; outline: 1px dashed color-mix(in oklab, var(--tone) 62%, var(--surface-1)); outline-offset: -1px; }
 .timeline-bar[data-mark="todo-expected"] .timeline-bar-name { color: var(--fg-muted); }
 
 .timeline-step { top: 8px; height: 18px; border-radius: var(--radius-round); background: color-mix(in oklab, var(--tone) 30%, var(--surface-1)); box-shadow: none; }
-.timeline-step[data-mark="step-done"] { background: color-mix(in oklab, var(--tone) 14%, var(--surface-1)); }
-.timeline-step[data-mark="step-done"] .timeline-bar-name { color: var(--fg-quiet); }
+.timeline-step[data-mark="step-done"] { background: color-mix(in oklab, var(--tone) 46%, var(--surface-1)); }
 .timeline-step[data-mark="step-late"] { box-shadow: inset 0 0 0 1.5px var(--status-danger-ink); }
 .timeline-step[data-mark="step-undated"] { background: color-mix(in oklab, var(--tone) 18%, var(--surface-1)); outline: 1px dashed color-mix(in oklab, var(--tone) 62%, var(--surface-1)); outline-offset: -1px; }
 
@@ -108,7 +110,7 @@
 @media (max-width: 760px) {
   .timeline { --list: 164px; --row: 40px; }
   .timeline .timeline-label { padding-left: var(--space-2); gap: var(--space-1); }
-  .timeline [data-row] .timeline-when, .timeline-owner { display: none; }
+  .timeline [data-row] .timeline-when { display: none; }
   .timeline-bar { top: 8px; height: 24px; }
   .timeline-step { top: 10px; height: 20px; }
   .timeline-diamond { top: 14px; }

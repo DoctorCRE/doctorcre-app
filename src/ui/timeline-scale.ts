@@ -5,10 +5,9 @@ export const DAY_WIDTH: Record<Zoom, number> = { day: 28, week: 12, month: 4 };
 export const MIN_BAR_WIDTH = 10;
 
 const MS_PER_DAY = 86_400_000;
-const CHAR_WIDTH = 6.5;
-const LABEL_PAD = 18;
-const MAX_INSIDE_THRESHOLD = 96;
-const META_GAP = 62;
+// A bar's name has this much padding either side, and its metadata one gap and a right pad.
+const NAME_PAD = 16;
+const META_PAD = 16;
 
 // A day is a whole number of days since 1970-01-01, so its place on the chart is plain arithmetic.
 export function dayOf(iso: string): number {
@@ -73,8 +72,12 @@ export function spentWidth(startDay: number, barWidth: number, today: number, px
   return Math.max(0, Math.min(barWidth, (today - startDay + 0.5) * px));
 }
 
-export function labelLayout(name: string, barWidth: number, hasMeta: boolean) {
-  const textWidth = name.length * CHAR_WIDTH + LABEL_PAD;
-  const outside = barWidth < Math.min(textWidth, MAX_INSIDE_THRESHOLD);
-  return { outside, showMeta: !outside && hasMeta && barWidth > textWidth + META_GAP };
+// A name goes inside its bar only when the whole measured text fits; otherwise it goes beside the bar.
+// Metadata shows only when it fits as well, after the name.
+export function labelLayout(nameWidth: number, metaWidth: number, barWidth: number) {
+  const nameFits = nameWidth + NAME_PAD <= barWidth;
+  return {
+    outside: !nameFits,
+    showMeta: nameFits && metaWidth > 0 && nameWidth + NAME_PAD + metaWidth + META_PAD <= barWidth,
+  };
 }

@@ -49,9 +49,11 @@ test("spentWidth stops on today's midpoint and clamps for past and future spans"
   assert.equal(spentWidth(dayOf("2026-12-01"), 120, today, 12), 0);
 });
 
-test("labelLayout moves narrow bar labels beside the bar and hides metadata unless it fits", () => {
-  assert.deepEqual(labelLayout("Market survey", 84, true), { outside: true, showMeta: false });
-  assert.deepEqual(labelLayout("Tours and tour notes", 108, true), { outside: false, showMeta: false });
-  assert.deepEqual(labelLayout("Terms comparison", 252, true), { outside: false, showMeta: true });
-  assert.deepEqual(labelLayout("Terms comparison", 252, false), { outside: false, showMeta: false });
+test("labelLayout keeps a name inside only when the whole text fits, and shows metadata only when it fits after the name", () => {
+  assert.deepEqual(labelLayout(90, 0, 84), { outside: true, showMeta: false });
+  assert.deepEqual(labelLayout(108, 0, 120), { outside: true, showMeta: false });
+  assert.deepEqual(labelLayout(108, 0, 124), { outside: false, showMeta: false });
+  assert.deepEqual(labelLayout(100, 60, 180), { outside: false, showMeta: false });
+  assert.deepEqual(labelLayout(100, 60, 192), { outside: false, showMeta: true });
+  assert.deepEqual(labelLayout(100, 60, 100), { outside: true, showMeta: false });
 });

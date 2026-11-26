@@ -278,6 +278,8 @@ async function box(locator: Locator) {
   assert.ok(found, "the element is on screen");
   return found;
 }
+const frames = (page: Page) =>
+  page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
 const dayWidth = async (page: Page) => Number(await page.locator(".timeline").getAttribute("data-day-width"));
 
 test("the list column and date header stay put while the chart scrolls both ways, and the page itself does not scroll", async (t) => {
@@ -585,4 +587,110 @@ test("stale, unrecorded and undated rows render cleanly without gradients, and b
     assert.ok(audit.sizes.length <= 4, `${theme} uses at most four text sizes: ${audit.sizes.join(", ")}`);
     assert.equal(audit.fitsWindow, true, `${theme} fits in one window`);
   }
+});
+
+test("the Today line is drawn under every bar and label, never through their text", async (t) => {
+  const { page } = await open(t);
+  const stack = await page.evaluate(() => {
+    const z = (selector: string) => {
+      const found = document.querySelector(selector);
+      if (!found) throw Error(`No ${selector}`);
+      return Number(getComputedStyle(found).zIndex);
+    };
+    return {
+      line: z(".timeline-now"),
+      bar: z(".timeline-bar"),
+      diamondLabel: z(".timeline-diamond-label"),
+    };
+  });
+  assert.ok(stack.line < stack.bar, "the line is under bars and their names");
+  assert.ok(stack.line < stack.diamondLabel, "the line is under diamond labels");
+});
+
+test("at phone width a step keeps its owner's initial in the list", async (t) => {
+  const { page } = await open(t, { width: 390, height: 800 });
+  const owner = page.locator('[data-row="late-step"] .timeline-owner');
+  assert.equal(await owner.textContent(), "D");
+  assert.notEqual(await owner.evaluate((n) => getComputedStyle(n).display), "none");
+  assert.ok((await box(owner)).width > 0);
+});
+
+test("a bar's name is whole inside it or beside it, never cut short, at every zoom", async (t) => {
+  const { page } = await open(t);
+  for (const zoom of ["Day", "Week", "Month"]) {
+    await page.getByRole("group", { name: "Zoom" }).getByRole("button", { name: zoom, exact: true }).click();
+    const cut = await page.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>(".timeline-bar")]
+        .filter((bar) => bar.dataset.labelPos === "inside")
+        .map((bar) => bar.querySelector<HTMLElement>(".timeline-bar-name"))
+        .filter((name): name is HTMLElement => name !== null && name.scrollWidth > name.clientWidth)
+        .map((name) => name.textContent),
+    );
+    assert.deepEqual(cut, [], `${zoom}: no inside name is truncated`);
+    const bars = await page.evaluate(
+      () =>
+        [...document.querySelectorAll<HTMLElement>(".timeline-bar")].filter(
+          (bar) => bar.dataset.labelPos === "inside" && bar.querySelector(".timeline-bar-name")?.scrollWidth,
+        ).length,
+    );
+    if (zoom !== "Month") assert.ok(bars > 0, `${zoom}: some names still fit inside their bars`);
+  }
+  const tours = page.locator('[data-row="tours"] .timeline-bar');
+  assert.equal(await tours.getAttribute("data-label-pos"), "beside", "a name wider than its Week bar goes beside it");
+});
+
+test("a finished step pill stands clearly apart from the page in both themes, with no gradient", async (t) => {
+  const { page } = await open(t);
+  for (const theme of ["dark", "light"]) {
+    await page.evaluate((value) => {
+      document.documentElement.dataset.theme = value;
+    }, theme);
+    const contrast = await page.evaluate(() => {
+      const paint = (color: string) => {
+        const context = document.createElement("canvas").getContext("2d");
+        if (!context) throw Error("no canvas");
+        context.fillStyle = color;
+        context.fillRect(0, 0, 1, 1);
+        return [...context.getImageData(0, 0, 1, 1).data.slice(0, 3)].map((c) => {
+          const v = c / 255;
+          return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+        });
+      };
+      const luminance = ([r = 0, g = 0, b = 0]: number[]) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      const pill = document.querySelector('[data-mark="step-done"]');
+      if (!pill) throw Error("no finished step");
+      const style = getComputedStyle(pill);
+      const [hi, lo] = [
+        luminance(paint(style.backgroundColor)),
+        luminance(paint(getComputedStyle(document.body).backgroundColor)),
+      ].sort((a, b) => (b ?? 0) - (a ?? 0));
+      return { ratio: ((hi ?? 0) + 0.05) / ((lo ?? 0) + 0.05), image: style.backgroundImage };
+    });
+    assert.equal(contrast.image, "none");
+    assert.ok(contrast.ratio >= 1.5, `${theme}: pill contrast ${contrast.ratio.toFixed(2)} against the page`);
+  }
+});
+
+test("a label beside a bar that starts under the list column never shows its tail past the list edge", async (t) => {
+  const { page, scroller } = await open(t);
+  await page.getByRole("button", { name: /Research/ }).click();
+  const leaks = async () =>
+    page.evaluate(() => {
+      const edge = document.querySelector(".timeline-corner")?.getBoundingClientRect().right ?? 0;
+      return [...document.querySelectorAll<HTMLElement>(".timeline-bar-name, .timeline-diamond-label")]
+        .filter((label) => label.closest('[data-label-pos="inside"]') === null)
+        .filter((label) => getComputedStyle(label).visibility === "visible")
+        .filter((label) => {
+          const { left, right } = label.getBoundingClientRect();
+          return left + parseFloat(getComputedStyle(label).paddingLeft) < edge && right > edge;
+        })
+        .map((label) => label.textContent);
+    });
+  assert.deepEqual(await leaks(), []);
+  await scroller.evaluate((n) => n.scrollTo({ left: 0 }));
+  await frames(page);
+  assert.deepEqual(await leaks(), []);
+  await scroller.evaluate((n) => n.scrollTo({ left: 230 }));
+  await frames(page);
+  assert.deepEqual(await leaks(), []);
 });
