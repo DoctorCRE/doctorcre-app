@@ -76,7 +76,7 @@
 .activity-earlier { color: var(--fg-muted); }
 .activity-suggestions .deal-suggestion { padding-inline: 0; }
 .activity-visited { margin: 0; padding-inline-start: var(--space-4); }
-.activity-pane .btn-quiet:not(.activity-pane-actions *) { justify-self: start; margin-inline-start: calc(-1 * var(--space-4)); }
+.activity-pane > .btn-quiet, [data-activity-full] { justify-self: start; margin-inline-start: calc(-1 * var(--space-4)); }
 .activity-close-narrow { display: none; }
 /* The deal's floating Updated time sits over the pane's first row. */
 .deal-activity[data-open] > .activity-pane { margin-block-start: var(--touch); }
@@ -84,7 +84,8 @@
   .deal-activity[data-open] { grid-template-columns: minmax(31rem, 2fr) minmax(0, 3fr); column-gap: var(--space-6); align-items: start; }
 }
 @media (min-width: 761px) and (pointer: fine) {
-  .activity-pane { max-block-size: calc(100dvh - 224px); overflow-y: auto; }
+  .activity-pane { max-block-size: calc(100dvh - 224px); overflow-y: auto; scrollbar-width: none; }
+  .activity-pane::-webkit-scrollbar { display: none; }
 }
 @media (max-width: 760px) {
   .deal-activity[data-open] > .activity-side { display: none; }

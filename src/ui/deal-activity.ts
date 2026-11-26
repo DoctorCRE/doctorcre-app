@@ -27,7 +27,7 @@ type ActivityItem = {
   when: string;
   who: string;
   title: string;
-  /** The whole text the open item shows; the row shows the first line. */
+  /** The whole text the open item shows: its first line heads it, the rest is its body. */
   text: string;
   /** A filed email, opened as its conversation. */
   email?: string;
@@ -231,7 +231,7 @@ export function activityItems(
           : text(entry.sender_name) || text(entry.sender) || "Unknown sender",
         title,
         ...activityOf(id),
-        ...(meeting ? { text: activitySummaries.get(id) || title } : { email: id }),
+        ...(meeting ? { text: [title, activitySummaries.get(id)].filter(Boolean).join("\n") } : { email: id }),
         ...(visited.length ? { properties: visited } : {}),
       },
       now,
@@ -453,21 +453,15 @@ function openItemHtml(
   const actions = item.email
     ? `<a class="btn" href="${esc(doc("Draft a reply to this email."))}">Reply</a><a class="btn btn-quiet" href="${esc(doc())}">Ask Doc</a>`
     : "";
-  const body = item.email
-    ? emailHtml(item.email)
-    : item.text === item.title
-      ? ""
-      : item.text
-          .split(/\n\s*\n|\n/)
-          .filter((line) => line.trim())
-          .map((line) => `<p>${link(line)}</p>`)
-          .join("");
+  // The heading is the text's first line, so the body never repeats it.
+  const [heading = item.title, ...rest] = item.text.split("\n").filter((line) => line.trim());
+  const body = item.email ? emailHtml(item.email) : rest.map((line) => `<p>${link(line)}</p>`).join("");
   const visited = item.properties
     ? `<ul class="activity-visited" aria-label="Visited properties">${item.properties.map((line) => `<li>${esc(line)}</li>`).join("")}</ul>`
     : "";
   const attribution = item.activity
     ? `<button type="button" class="btn btn-quiet" data-attribution-id="${esc(item.activity)}" aria-expanded="false">Show deal attribution</button>`
     : "";
-  return `<section class="activity-pane" aria-labelledby="activityPaneTitle"><header class="activity-pane-head"><h3 id="activityPaneTitle" tabindex="-1">${esc(item.title)}</h3><div class="activity-pane-actions">${actions}<button type="button" class="btn btn-quiet" data-activity-close><span class="activity-close-wide">Close</span><span class="activity-close-narrow">Back</span></button></div></header>
+  return `<section class="activity-pane" aria-labelledby="activityPaneTitle"><header class="activity-pane-head"><h3 id="activityPaneTitle" tabindex="-1">${esc(oneLine(heading))}</h3><div class="activity-pane-actions">${actions}<button type="button" class="btn btn-quiet" data-activity-close><span class="activity-close-wide">Close</span><span class="activity-close-narrow">Back</span></button></div></header>
     <p class="activity-meta">${meta}</p><div class="activity-pane-body">${body}${visited}</div>${attribution}</section>`;
 }

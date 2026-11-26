@@ -2038,8 +2038,9 @@ let activityOpen = null, activityFullEmails = false, activityAttributionPane = n
 const threadKey = (detail, id) => `${detail.deal.id}:${id}`;
 function activityEmailHtml(detail, id) {
   const today = businessDay(new Date());
-  const suggestions = detail.email_follow_ups.filter(row => row.email?.activity_id === id)
-    .map(row => suggestionHtml(row, today, Boolean(state.selfActor), false)).join('')
+  // An opened email is already filed to this deal, so filing it again is never offered.
+  const suggestions = detail.email_follow_ups.filter(row => row.email?.activity_id === id && row.kind !== 'file_to_deal')
+    .map(row => suggestionHtml(row, today, detail.next_deal_saves, false)).join('')
     .replace(/(id|aria-labelledby)="suggestion-/g, '$1="activity-suggestion-');
   return `${suggestions ? `<ul class="deal-suggestions activity-suggestions">${suggestions}</ul>` : ''}<div data-activity-thread="${esc(id)}">${activityThreadHtml(activityThreads.get(threadKey(detail, id)))}</div>`;
 }
@@ -2081,6 +2082,7 @@ function showActivityItem(key) {
   const detail = state.panelDetail;
   if (!current || !detail) return;
   const scroll = current.querySelector('.activity-list')?.scrollTop ?? 0;
+  if (key !== activityOpen) activityFullEmails = false;
   activityOpen = key;
   disposeActivityPane();
   const template = document.createElement('div');
@@ -3050,7 +3052,7 @@ function wire() {
     if (event.target.id !== 'panelEvidenceSection') return;
     if (event.target.open && state.panelDetail) void refreshEvidence(state.panelDetail, state.panelDeal, panelReadSequence);
   }, true);
-  showScrollThumbs($('panelBody'), '.activity-list');
+  showScrollThumbs($('panelBody'), '.activity-list, .activity-pane');
   $('panelBody').addEventListener('click', async e => {
     const chip = e.target.closest('[data-activity-filter]');
     if (chip && $('workspace-activity')?.contains(chip)) {
@@ -3131,6 +3133,7 @@ function wire() {
   $('panelBody').addEventListener('keydown', event => {
     if (event.key === 'Escape' && event.target.closest('[data-suggestion-edit]')) {
       event.preventDefault();
+      event.stopPropagation();
       setSuggestionEdit(event.target.form, false);
       return;
     }
