@@ -356,7 +356,6 @@ dialog.party-editor::backdrop { background: var(--scrim); }
 }
 @container (min-width: 40rem) {
   .search-dock { margin-bottom: var(--space-2); padding: var(--space-1); }
-  .search-dock :is(input, select, button) { min-height: 36px; padding-block: var(--space-1); }
   /* The filters take the free width so the toolbar stays one line wherever it fits. */
   .field-search { flex-grow: 0; }
   #secondaryFilters { flex: 1 1 0; min-width: 0; }
