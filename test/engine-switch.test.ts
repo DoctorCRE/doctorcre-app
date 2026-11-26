@@ -1587,6 +1587,21 @@ const operationId = "00000000-0000-4000-8000-000000000032";
 const marketId = "00000000-0000-4000-8000-000000000033";
 const invoiceId = "00000000-0000-4000-8000-000000000034";
 
+test("a hand-set attention patch is refused and never reaches the engine", async () => {
+  const f = fixture(nextDealsOn);
+  const attention = call("patch-deal-field", {
+    deal: dealId,
+    field: "attention",
+    value: true,
+    seen_change_id: 23,
+    idempotency_key: operationId,
+  });
+  const response = await f.send(attention, saveHeaders);
+  assert.equal(JSON.parse((await response.json()).result.content[0].text).error, "deal_save_unavailable");
+  assert.equal(f.engine.length, 0);
+  assert.equal(f.carr.length, 0);
+});
+
 test("switching Deals saves on keeps failed board and detail reads away from the old database", async () => {
   const f = fixture(nextDealsOn, async () => new Response("down", { status: 503 }));
   for (const body of [call("deal-room-board"), call("get-deal-room", { deal: dealId })]) {

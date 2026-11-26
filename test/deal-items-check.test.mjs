@@ -109,26 +109,25 @@ test('board summaries use the real fixture and live adapters for detail-only act
 
 });
 
-test('field audit writes preserve the recorded Last step and stay off board cards', async () => {
+test('field audit writes preserve the recorded Last step', async () => {
   const { createFixtureClient } = await import('../js/fixture-client.js');
   const { readFile } = await import('node:fs/promises');
   const seed = JSON.parse(await readFile(new URL('../data/board-seed.json', import.meta.url), 'utf8'));
   seed.history = { d14: [{ id: 'recorded-note', actor: 'joe', summary: 'Met the client', recorded_at: '2026-10-22T10:00:00Z' }] };
   const fixture = await createFixtureClient({ seedUrl: `data:application/json;base64,${Buffer.from(JSON.stringify(seed)).toString('base64')}`, docContext: false });
   const before = (await fixture.getBoard()).deals.find(row => row.id === 'd14');
-  const result = await fixture.patchDealField({ deal: 'd14', field: 'attention', value: true,
+  const result = await fixture.patchDealField({ deal: 'd14', field: 'owner', value: 'dell',
     base_event_id: null, idempotency_key: 'board-field-audit' });
   assert.equal(result.status, 'ok');
   const after = (await fixture.getBoard()).deals.find(row => row.id === 'd14');
-  assert.equal(after.needs_attention, true);
-  assert.deepEqual(after.attention, before.attention, "the stored flag never changes the engine's attention");
+  assert.equal(after.owner, 'dell');
+  assert.deepEqual(after.attention, before.attention);
   assert.deepEqual(after.last_step, before.last_step);
   const detail = await fixture.getDeal('d14');
-  assert.ok(detail.history.some(entry => /attention/.test(entry.summary)));
-  assert.ok(detail.activities.every(entry => !/attention/.test(entry.summary)));
+  assert.ok(detail.history.some(entry => /owner/.test(entry.summary)));
+  assert.ok(detail.activities.every(entry => !/owner/.test(entry.summary)));
   const doc = new JSDOM(renderDealSummary(after, { today: '2026-10-29' })).window.document;
   assert.match(doc.body.textContent, /Last: Met the client · Thu Oct 22/);
-  assert.doesNotMatch(doc.body.textContent, /attention|false|true/);
 });
 
 test('a field edit date never becomes a recorded last step', () => {
