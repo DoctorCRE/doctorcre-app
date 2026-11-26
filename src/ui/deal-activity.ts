@@ -81,12 +81,6 @@ function monthName(day: string): string {
   return new Date(`${day}T12:00:00Z`).toLocaleDateString("en-US", { month: "long", timeZone: "UTC" });
 }
 
-const ENDED_STEPS = new Map([
-  ["done", "Done"],
-  ["cancelled", "Cancelled"],
-  ["expired", "Expired"],
-]);
-
 export function activityGroupLabel(day: string, now: Date, ports: ActivityPorts): string {
   if (!day) return "Date not recorded";
   const today = ports.businessDay(now);
@@ -245,26 +239,6 @@ export function activityItems(
         when: file.prepared_at,
         who: ports.timelineActor(file.actor),
         title: name,
-      },
-      now,
-      ports,
-    );
-  }
-  for (const step of rows(source.next_actions)) {
-    const status = ENDED_STEPS.get(text(step.status) ?? "");
-    const name = text(step.title) || text(step.description);
-    if (!status || !name) continue;
-    const due = text(step.due_on);
-    const updated = text(step.updated_at);
-    const dueLabel = updated && due && ports.calendarDay(due) ? `Due ${ports.dateCaption(due)}` : "";
-    push(
-      items,
-      {
-        id: text(step.id) ?? "",
-        filter: "changes",
-        when: step.updated_at ?? step.due_on,
-        who: ports.timelineActor(step.actor),
-        title: [name, status, dueLabel].filter(Boolean).join(" · "),
       },
       now,
       ports,

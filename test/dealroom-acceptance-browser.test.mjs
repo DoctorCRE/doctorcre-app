@@ -3368,8 +3368,7 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`a 
   await ownRow.getByRole('button', { name: 'Done', exact: true, description: /Joe/ }).waitFor();
   await page.getByRole('tab', { name: 'Activity' }).click();
   const timeline = page.getByRole('tabpanel', { name: 'Activity' });
-  const completed = timeline.getByRole('listitem').filter({ hasText: `${other.description} · Done` });
-  await completed.getByText('Joe', { exact: true }).waitFor();
+  assert.equal(await timeline.getByText(other.description, { exact: false }).count(), 0);
 
   Object.assign(row, { phase: 'closed', outcome: 'won' });
   await page.getByRole('tab', { name: 'Overview' }).click();
@@ -3383,7 +3382,7 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`a 
   await ended.waitFor({ state: 'hidden' });
   await snapshot.getByText('No next step set.', { exact: true }).waitFor();
   await page.getByRole('tab', { name: 'Activity' }).click();
-  await timeline.getByText(own.description + ' · Done · Due Nov 24, 2026', { exact: true }).waitFor();
+  assert.equal(await timeline.getByText(own.description, { exact: false }).count(), 0);
   await capture(timeline, 'timeline');
   assert.deepEqual(writes.map(({ id, base_version }) => [id, base_version]), [[other.id, 11], [other.id, 15], [own.id, 10], [own.id, 10]]);
   assert.notEqual(writes[0].idempotency_key, writes[1].idempotency_key);

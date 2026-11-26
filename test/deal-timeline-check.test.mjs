@@ -475,8 +475,7 @@ test('one activity list keeps each thing once and leaves next steps on Overview'
   assert.equal(titles.filter(title => title === 'Example suite floor plan').length, 1);
   assert.equal(titles.filter(title => title === 'Example plan.pdf').length, 1);
   assert.equal(titles.filter(title => title === 'Tour plans confirmed').length, 1);
-  assert.equal(titles.includes('Check the floor plan'), false);
-  assert.equal(titles.includes('Send the sample plan · Done · Due Nov 24, 2026'), true);
+  assert.equal(titles.some(title => title.includes('Check the floor plan') || title.includes('Send the sample plan')), false);
   assert.equal(items.at(-1).title, 'Note without a time');
   assert.equal(items.at(-1).caption, 'Date not recorded');
   assert.equal(titles.some(title => title.startsWith('Due diligence')), false);
