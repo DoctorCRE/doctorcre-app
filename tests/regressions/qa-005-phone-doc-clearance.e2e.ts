@@ -18,7 +18,11 @@ test("QA-005 the Opportunity card can be opened above the phone controls", {
     const button = document.querySelector("#leadBoard .lead-open");
     if (!button) return false;
     const { left, top, width, height } = button.getBoundingClientRect();
-    return width >= 44 && height >= 44 && document.elementFromPoint(left + width / 2, top + height / 2) === button;
+    // The control size follows the pointer: 44px on touch, 32px with a mouse.
+    const floor = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--touch"));
+    return (
+      width >= floor && height >= floor && document.elementFromPoint(left + width / 2, top + height / 2) === button
+    );
   });
   expect(unobstructed).toBe(true);
   await opener.click();

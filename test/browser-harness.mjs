@@ -64,7 +64,8 @@ function browserEngine(engine) {
       const contexts = new Set();
       let closing;
       async function newContext(options = {}) {
-          const context = await browser.newContext(options);
+          // Sizes follow the pointer: a phone-wide viewport stands for a phone, so it gets a touch screen.
+          const context = await browser.newContext({ hasTouch: (options.viewport?.width ?? 1280) <= 760, ...options });
           contexts.add(context);
           context.once('close', () => contexts.delete(context));
           context.setDefaultTimeout(WAIT_MS);

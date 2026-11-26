@@ -8,6 +8,7 @@ import { createQaServer } from "../scripts/qa-fixture-server.mjs";
 import { temporaryDirectory } from "../scripts/temp-directory.mjs";
 import { walkV2Accessibility } from "../scripts/v2-accessibility-walk.ts";
 import { chromium } from "./browser-harness.mjs";
+import { controlFloor } from "./control-floor.ts";
 import { detail, tourId } from "./fixtures/tour-day.synthetic.mjs";
 
 test("V2 phone targets have zero undersized or covered controls in both themes", { timeout: 600_000 }, async (t) => {
@@ -91,7 +92,7 @@ test("V2 phone targets have zero undersized or covered controls in both themes",
           assert.ok(circle <= 22, "The Mark done circle stays compact");
           const target = await done.boundingBox();
           assert.ok(
-            target && target.width >= 44 && target.height >= 44,
+            target && target.width >= controlFloor(width) && target.height >= controlFloor(width),
             "The circle's button owns the larger activation area",
           );
         }

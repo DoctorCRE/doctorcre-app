@@ -4,7 +4,7 @@
 .work-lineage dl > div { display: grid; grid-template-columns: 8rem minmax(0, 1fr); align-items: baseline; gap: var(--space-3); }
 .work-lineage dt, .work-lineage [data-missing] { color: var(--fg-muted); }
 .work-lineage dd { margin: 0; overflow-wrap: anywhere; }
-.work-lineage a, .work-lineage dd > span { display: inline-flex; align-items: center; min-height: 44px; max-width: 100%; color: inherit; }
+.work-lineage a, .work-lineage dd > span { display: inline-flex; align-items: center; min-height: var(--touch); max-width: 100%; color: inherit; }
 .work-lineage a { text-underline-offset: .2em; }
 .work-lineage a:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: var(--focus-width); border-radius: var(--radius-1); }
 .work-lineage a:target { background: var(--surface-2); }
