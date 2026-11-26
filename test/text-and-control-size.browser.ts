@@ -26,9 +26,9 @@ const pointers = [
 ];
 const interactive =
   "a[href], button, select, summary, input:not([type=checkbox], [type=radio], [type=hidden]), [role=button], [role=tab]";
-// Not controls: deal cards and Today reminder rows are rows, a heading's link is its title, calendar days are a
-// grid, map pins mark places.
-const notControls = ".card-open, a.app-layout-item, :is(h1, h2, h3, h4) a, [class^=cal-], .market-marker";
+// Not controls: deal cards and Today reminder rows are rows, a heading's link is its title, a critical date's name
+// is its tile's title and the whole tile is the target, calendar days are a grid, map pins mark places.
+const notControls = ".card-open, a.app-layout-item, :is(h1, h2, h3, h4) a, .date-open, [class^=cal-], .market-marker";
 
 test("body text and controls take their size from the pointer on every screen", async (t) => {
   const server = await startWorkerFixture({

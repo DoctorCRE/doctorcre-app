@@ -10,17 +10,17 @@ export const zones = ['UTC', 'America/Chicago', 'America/Los_Angeles', 'Asia/Tok
 export const cases = [
   ['reproduced-evening', '2026-11-06T02:00:00Z', '2026-11-05', 'Due today'],
   ['before-central-midnight', '2026-11-06T05:59:59Z', '2026-11-05', 'Due today'],
-  ['after-central-midnight', '2026-11-06T06:00:00Z', '2026-11-05', '1 day overdue'],
-  ['before-spring-midnight', '2026-03-08T05:59:59Z', '2026-03-08', '1 day'],
+  ['after-central-midnight', '2026-11-06T06:00:00Z', '2026-11-05', '1 day late'],
+  ['before-spring-midnight', '2026-03-08T05:59:59Z', '2026-03-08', 'in 1 day'],
   ['after-spring-midnight', '2026-03-08T06:00:00Z', '2026-03-08', 'Due today'],
-  ['before-spring-jump', '2026-03-08T07:59:59Z', '2026-03-09', '1 day'],
-  ['after-spring-jump', '2026-03-08T08:00:00Z', '2026-03-09', '1 day'],
-  ['after-spring-short-day', '2026-03-09T05:00:00Z', '2026-03-08', '1 day overdue'],
-  ['before-fall-midnight', '2026-11-01T04:59:59Z', '2026-11-01', '1 day'],
+  ['before-spring-jump', '2026-03-08T07:59:59Z', '2026-03-09', 'in 1 day'],
+  ['after-spring-jump', '2026-03-08T08:00:00Z', '2026-03-09', 'in 1 day'],
+  ['after-spring-short-day', '2026-03-09T05:00:00Z', '2026-03-08', '1 day late'],
+  ['before-fall-midnight', '2026-11-01T04:59:59Z', '2026-11-01', 'in 1 day'],
   ['after-fall-midnight', '2026-11-01T05:00:00Z', '2026-11-01', 'Due today'],
-  ['before-fall-repeat', '2026-11-01T06:59:59Z', '2026-11-02', '1 day'],
-  ['after-fall-repeat', '2026-11-01T07:00:00Z', '2026-11-02', '1 day'],
-  ['after-fall-long-day', '2026-11-02T06:00:00Z', '2026-11-01', '1 day overdue'],
+  ['before-fall-repeat', '2026-11-01T06:59:59Z', '2026-11-02', 'in 1 day'],
+  ['after-fall-repeat', '2026-11-01T07:00:00Z', '2026-11-02', 'in 1 day'],
+  ['after-fall-long-day', '2026-11-02T06:00:00Z', '2026-11-01', '1 day late'],
 ];
 
 export function options(args) {
@@ -56,15 +56,15 @@ export async function exercise(page, assetUrl) {
       check(`${name}:idempotent`, document.querySelector('[data-countdown]').textContent === expected && document.querySelector('.critical-date').dataset.state === state);
       check(`${name}:recorded-data`, JSON.stringify(detail) === original && view.dealTimeline(detail, now).phases.find(p => p.slug === 'legal').day === '2026-10-03');
       const held = { deal: detail.deal, entries: [{ id: 'hold', source: 'hold', holdUntil: day, when: '2026-01-01', summary: 'Synthetic hold' }] };
-      check(`${name}:hold`, view.renderDealUpdates(held, now).includes('Synthetic hold') === (expected === '1 day'));
+      check(`${name}:hold`, view.renderDealUpdates(held, now).includes('Synthetic hold') === (expected === 'in 1 day'));
     }
     const now = Date.parse('2026-11-06T02:00:00Z');
     for (const [name, date, expected] of [
       ['unknown', {day:'2026-02-30', status:'cleared'}, '—'],
       ['cleared', {day:'2026-11-04', status:'cleared', deadline:true}, 'Cleared'],
       ['passed', {day:'2026-11-06', status:'passed', deadline:true}, 'Passed'],
-      ['soon', {day:'2026-11-12', deadline:true}, '7 days'],
-      ['upcoming', {day:'2026-11-13', deadline:true}, '8 days'],
+      ['soon', {day:'2026-11-12', deadline:true}, 'in 7 days'],
+      ['upcoming', {day:'2026-11-13', deadline:true}, 'in 8 days'],
     ]) check(`disposition:${name}`, view.countdown(date, now).text === expected);
     return assertions;
   }, { assetUrl, cases });

@@ -18,6 +18,8 @@ const laptops = [
 const dealId = "00000000-0000-4000-8000-00000000d150";
 const proposedId = "00000000-0000-4000-8000-00000000da01";
 const confirmedId = "00000000-0000-4000-8000-00000000da02";
+const lateId = "00000000-0000-4000-8000-00000000da03";
+const soonId = "00000000-0000-4000-8000-00000000da04";
 const session = { actor: { slug: "joe" }, csrf_token: "synthetic-csrf" };
 const instruction =
   "Ask the listing agent for the revised floor plan, the parking count and the signage rules. ".repeat(3);
@@ -44,11 +46,39 @@ const pastTour = {
   ],
 };
 
+type CriticalDate = { id: string; kind: string; due_on: string; status: string; note?: string; source?: string };
+const fourDates = (): CriticalDate[] => [
+  { id: proposedId, kind: "other", due_on: "2029-03-31", status: "proposed", note: "Read from the example lease" },
+  { id: confirmedId, kind: "lease_end", due_on: "2030-06-30", status: "open", source: "Example lease, page 2" },
+  { id: soonId, kind: "due_diligence", due_on: "2026-11-30", status: "open" },
+  { id: lateId, kind: "loi_expiry", due_on: "2026-11-23", status: "open" },
+];
+const kinds = [
+  "loi_expiry",
+  "due_diligence",
+  "lease_end",
+  "rent_start",
+  "option_notice",
+  "phase_effective_date",
+  "other",
+];
+const days = ["2026-11-23", "2026-11-25", "2026-11-28", "2026-12-04", "2027-01-15", "2027-06-30", "2028-02-29"];
+const twelveDates = (): CriticalDate[] =>
+  kinds
+    .flatMap((kind, n) => days.slice(n, n + 2).map((due_on) => ({ kind, due_on })))
+    .slice(0, 12)
+    .map((date, n) => ({
+      ...date,
+      id: `00000000-0000-4000-8000-00000000db${String(n).padStart(2, "0")}`,
+      status: n % 3 ? "open" : "proposed",
+    }));
+
 async function openDeal(
   t: TestContext,
   width: number,
   height: number,
   planned: { id: string; planned_on: string }[] = [],
+  dates = fourDates(),
 ) {
   const server = await startWorkerFixture({
     assets: await appAssetSnapshot(),
@@ -59,10 +89,6 @@ async function openDeal(
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width, height } });
   await page.clock.setFixedTime(new Date("2026-11-25T17:00:00Z"));
-  const dates = [
-    { id: proposedId, kind: "other", due_on: "2029-03-31", status: "proposed", note: "Read from the example lease" },
-    { id: confirmedId, kind: "lease_end", due_on: "2030-06-30", status: "open", source: "Example lease, page 2" },
-  ];
   const writes: [string, unknown][] = [];
   const deal = () => ({
     id: dealId,
@@ -144,7 +170,7 @@ async function openDeal(
     });
   });
   await page.goto(`${server.origin}/deals?mode=live&deal=${dealId}`);
-  await page.getByRole("heading", { name: "Critical dates", exact: true }).waitFor();
+  await page.getByRole("region", { name: "Critical dates" }).waitFor();
   await page.waitForLoadState("networkidle");
   return { page, writes };
 }
@@ -178,61 +204,99 @@ for (const [width, height] of laptops) {
     assert.equal(await page.locator(".deal-snapshot-facts dt").getByText("Market").count(), 0, "facts show once");
   });
 
-  test(`each critical date reads as a titled row with its own state and actions at ${width}`, async (t) => {
+  test(`critical dates are one row of tiles, soonest first, at the top of Overview at ${width}`, async (t) => {
     const { page, writes } = await openDeal(t, width, height);
-    const proposed = page.locator(`[data-date-id="${proposedId}"]`);
-    const confirmed = page.locator(`[data-date-id="${confirmedId}"]`);
-    await proposed.scrollIntoViewIfNeeded();
+    const row = page.getByRole("region", { name: "Critical dates" });
     await page.screenshot({ path: `${shots}/critical-dates-${width}.png` });
-
-    for (const [card, title, state, actions] of [
-      [proposed, "Other\u00a0· Mar 31, 2029", "Proposed", ["Confirm", "Drop"]],
-      [confirmed, "Lease expiration\u00a0· Jun 30, 2030", "Confirmed", ["Mark done", "Drop", "Mark passed"]],
-    ] as const) {
-      const heading = card.getByRole("heading", { level: 3 });
-      assert.equal(await heading.textContent(), title, "kind and date are the title");
-      const badge = card.locator(".date-badge");
-      assert.equal(await badge.textContent(), state, "the state is its own badge");
-      const buttons = card.getByRole("button");
-      assert.deepEqual(await buttons.allTextContents(), actions, "only the choices show until one is picked");
-      assert.equal(await card.getByLabel("Reason").isVisible(), false, "no reason box until a choice needs one");
-      const parts = [await box(heading), await box(badge), ...(await Promise.all((await buttons.all()).map(box)))];
-      for (const [i, a] of parts.entries())
-        for (const b of parts.slice(i + 1))
-          assert.ok(
-            a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y,
-            "no two parts of a row overlap",
-          );
-    }
-
-    await proposed.getByRole("button", { name: "Drop", exact: true }).click();
-    const reason = proposed.getByLabel("Reason");
-    assert.equal(
-      await reason.evaluate((input) => input === document.activeElement),
-      true,
-      "Drop asks for its reason in place",
-    );
-    assert.deepEqual(await proposed.getByRole("button").allTextContents(), ["Drop", "Cancel"]);
-    await page.screenshot({ path: `${shots}/critical-date-drop-${width}.png` });
-    await proposed.getByRole("button", { name: "Cancel" }).click();
-    assert.deepEqual(await proposed.getByRole("button").allTextContents(), ["Confirm", "Drop"], "Cancel goes back");
-
-    await proposed.getByRole("button", { name: "Drop", exact: true }).click();
-    await reason.fill("The example lease was replaced");
-    const asked = await proposed.elementHandle();
-    await page.getByRole("button", { name: "Refresh deal" }).click();
-    await page.waitForFunction((row) => !row?.isConnected, asked);
-    assert.equal(await reason.inputValue(), "The example lease was replaced", "the reason survives a refresh");
-    assert.deepEqual(await proposed.getByRole("button").allTextContents(), ["Drop", "Cancel"]);
-    assert.deepEqual(await confirmed.getByRole("button").allTextContents(), ["Mark done", "Drop", "Mark passed"]);
-    await reason.press("Enter");
-    await proposed.locator(".date-badge").filter({ hasText: "Dropped" }).waitFor();
-    assert.deepEqual(writes, [
+    const tiles = row.locator(".critical-date");
+    assert.deepEqual(
+      (await tiles.allInnerTexts()).map((text) => text.replace(/\s+/g, " ").trim()),
       [
-        `/api/engine/critical-dates/${proposedId}/resolve`,
-        { resolution: "dropped", reason: "The example lease was replaced" },
+        "LOI expiry Mon, Nov 23 2 days late",
+        "Due diligence Mon, Nov 30 in 5 days",
+        "Other proposed Mar 31, 2029 in 28 months Confirm",
+        "Lease expiration Jun 30, 2030 in 43 months",
       ],
+      "each tile has its name, the date in words and how far off it is",
+    );
+    assert.deepEqual(await tiles.evaluateAll((all) => all.map((tile) => tile.getAttribute("data-state"))), [
+      "overdue",
+      "soon",
+      "upcoming",
+      "upcoming",
     ]);
+    const tops = await tiles.evaluateAll((all) => all.map((tile) => Math.round(tile.getBoundingClientRect().top)));
+    assert.equal(new Set(tops).size, 1, "the tiles never wrap");
+    const add = row.getByRole("button", { name: "Add date" });
+    assert.equal(Math.round((await box(add)).y), tops[0], "the add tile ends the row");
+    const overview = page.getByRole("tabpanel", { name: "Overview" });
+    assert.equal(
+      await overview.evaluate((panel) => panel.firstElementChild?.getAttribute("aria-label")),
+      "Critical dates",
+      "the dates are the Overview tab's first content",
+    );
+    assert.ok((await box(row)).y < (await box(page.locator(".deal-opening-snapshot"))).y, "dates come first");
+    const rowBox = await box(row);
+    assert.ok(
+      (await box(overview.locator(".deal-freshness"))).y >= rowBox.y + rowBox.height,
+      "freshness sits inside Overview under the row",
+    );
+
+    await row.getByRole("button", { name: "Lease expiration" }).click();
+    const panel = page.getByRole("dialog", { name: "Lease expiration" });
+    assert.match((await panel.textContent()) ?? "", /Jun 30, 2030 · Confirmed\s*Example lease, page 2/);
+    assert.deepEqual(await panel.getByRole("button").allTextContents(), ["Mark done", "Drop", "Mark passed"]);
+    await page.keyboard.press("Escape");
+
+    await tiles.nth(2).getByRole("button", { name: "Confirm" }).click();
+    await row.locator(`[data-date-id="${proposedId}"] .date-confirm`).waitFor({ state: "detached" });
+    assert.deepEqual(writes, [[`/api/engine/critical-dates/${proposedId}/confirm`, {}]], "Confirm on the tile saves");
+
+    await row.getByRole("button", { name: "LOI expiry" }).click();
+    const late = page.getByRole("dialog", { name: "LOI expiry" });
+    await late.getByRole("button", { name: "Drop", exact: true }).click();
+    const reason = late.getByLabel("Reason");
+    assert.equal(await reason.evaluate((input) => input === document.activeElement), true, "Drop asks its reason");
+    await reason.fill("The example LOI was withdrawn");
+    await page.getByRole("button", { name: "Refresh deal" }).evaluate((button: HTMLElement) => button.click());
+    await page.waitForLoadState("networkidle");
+    assert.equal(await reason.inputValue(), "The example LOI was withdrawn", "the open date survives a refresh");
+    await page.screenshot({ path: `${shots}/critical-date-drop-${width}.png` });
+    await reason.press("Enter");
+    await row.locator(`[data-date-id="${lateId}"]`).waitFor({ state: "detached" });
+    assert.deepEqual(writes.at(-1), [
+      `/api/engine/critical-dates/${lateId}/resolve`,
+      { resolution: "dropped", reason: "The example LOI was withdrawn" },
+    ]);
+
+    await add.click();
+    await page.getByRole("dialog", { name: "Add critical date" }).getByLabel("Kind").waitFor();
+  });
+
+  test(`a full row of critical dates scrolls sideways and never clips a tile's text at ${width}`, async (t) => {
+    const { page } = await openDeal(t, width, height, [], twelveDates());
+    const row = page.getByRole("region", { name: "Critical dates" });
+    await page.screenshot({ path: `${shots}/critical-dates-full-${width}.png` });
+    assert.equal(await row.locator(".critical-date").count(), 12);
+    assert.ok(await row.evaluate((node) => node.scrollWidth > node.clientWidth), "the row scrolls");
+    const clipped = await row.locator(".critical-date").evaluateAll((tiles) =>
+      tiles.flatMap((tile) => {
+        const edge = tile.getBoundingClientRect().right;
+        return [...tile.querySelectorAll(":scope > h3 > *, :scope > p > *, :scope > p > span > *")]
+          .filter((part) => part.scrollWidth > part.clientWidth || part.getBoundingClientRect().right > edge)
+          .map((part) => `${tile.querySelector(".date-open")?.textContent}: ${part.textContent}`);
+      }),
+    );
+    assert.deepEqual(clipped, [], "every tile fits its text");
+  });
+
+  test(`a deal with no critical dates says so on one line with Add date at ${width}`, async (t) => {
+    const { page } = await openDeal(t, width, height, [], []);
+    const row = page.getByRole("region", { name: "Critical dates" });
+    assert.equal(await row.textContent(), "No critical dates+ Add date");
+    assert.ok((await box(row)).height <= 48, "one line");
+    await row.getByRole("button", { name: "+ Add date" }).click();
+    await page.getByRole("dialog", { name: "Add critical date" }).getByLabel("Kind").waitFor();
   });
 }
 
@@ -313,6 +377,11 @@ for (const [width, height] of laptops)
       assert.equal(await title.evaluate((title) => getComputedStyle(title).fontSize), body, `${heading} is body size`);
       const [a, b] = [await box(title), await box(refresh)];
       assert.ok(Math.abs(a.y + a.height / 2 - (b.y + b.height / 2)) <= 1, `Refresh shares ${heading}'s row`);
+      assert.equal(
+        await page.getByRole("region", { name: "Critical dates" }).isVisible(),
+        false,
+        `${tab} hides the dates`,
+      );
     }
     await page.screenshot({ path: `${shots}/documents-${width}.png` });
     const file = await box(page.getByRole("link", { name: "Example lease.pdf, Version 1" }));

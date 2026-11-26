@@ -296,7 +296,7 @@ test('an overdue milestone stays in Critical dates and out of the deal header', 
   await page.locator('.card-open:visible').first().click();
   const dates = page.getByRole('region', { name: 'Critical dates' });
   await expect(dates).toContainText('Jan 1, 2020');
-  await expect(dates).toContainText('overdue');
+  await expect(dates).toContainText('late');
   await expect(page.locator('#workspaceFacts')).not.toContainText('Jan 1, 2020');
   await page.evaluate(() => { window.noDates = true; });
   await page.getByRole('button',{name:'Refresh deal'}).click();
