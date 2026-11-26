@@ -92,14 +92,13 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
   await lateStep.getByText('3 days late', { exact: false }).waitFor();
   assert.equal(await page.getByRole('region', { name: 'Hidden from inbox', exact: true }).count(), 0);
   assert.equal(await lateStep.getByRole('button', { name: 'Hide from inbox', exact: true }).count(), 0);
-  await lateStep.getByRole('checkbox').check();
-  assert.equal(await page.getByRole('button', { name: 'Settle selected', exact: true }).count(), 0);
-  await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
+  assert.equal(await page.getByRole('checkbox').count(), 0);
   const tour = page.locator('[data-inbox-row]').filter({ hasText: feedback.title });
   assert.equal(await tour.getByRole('button', { name: 'Drop', exact: true }).count(), 0);
   assert.equal(await tour.getByRole('button', { name: 'Done', exact: true }).count(), 0);
   capabilities = true;
   await page.clock.fastForward(60_000);
+  await tour.getByRole('button', { name: 'Review', exact: true }).click();
   await tour.getByRole('button', { name: 'Done', exact: true }).waitFor();
   assert.equal(await tour.getByRole('button', { name: 'Drop', exact: true }).count(), 0);
   await tour.getByRole('button', { name: 'Done', exact: true }).click();
@@ -136,7 +135,7 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
   for (const name of names) {
     const card = late.locator('[data-inbox-row]').filter({ hasText: name });
     await card.getByRole('link', { name: 'Review the site plan', exact: true }).waitFor();
-    await card.getByText(new RegExp(`^${name} · Due`)).waitFor();
+    await card.getByText(name, { exact: true }).waitFor();
   }
   assert.equal(await late.getByRole('region', { name: 'Late', exact: true }).count(), 0);
 });

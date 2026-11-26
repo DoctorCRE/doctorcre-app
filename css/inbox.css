@@ -25,30 +25,53 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
 
 @media(min-width:701px){.inbox-row{flex-wrap:wrap}.inbox-copy{flex-basis:calc(100% - 62px)}.inbox-actions{margin-left:62px}}
 
-.home-sections { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); align-items: start; gap: var(--space-4); }
-.home-slice { min-width: 0; padding: var(--space-4); background: var(--surface-1); border-radius: var(--panel-radius); }
-.home-slice > header { display: flex; justify-content: space-between; gap: var(--space-2); align-items: center; min-height: var(--touch); margin-bottom: var(--space-2); }
-.home-slice h2 { font-size: 17px; font-weight: 600; margin: 0; }
-.home-slice h2 span { display: inline-block; margin-inline-start: var(--space-1); padding: 1px var(--space-2); border-radius: var(--radius-round); background: var(--surface-3); color: var(--fg-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
-.home-slice > header > button { padding-inline: var(--space-2); border: 0; background: transparent; color: var(--fg-muted); font-size: 12px; font-weight: 600; white-space: nowrap; text-decoration: underline; text-underline-offset: 3px; }
-.home-slice .inbox-row { gap: 4px; margin: 0; padding: var(--space-2) 0; border: 0; border-top: 1px solid var(--hairline); border-radius: 0; align-items: flex-start; }
-.home-slice .inbox-select { margin-left: -9px; }
-.home-slice .inbox-copy { flex-basis: calc(100% - var(--touch)); }
-.home-slice .inbox-copy h3 { margin: 0; font-size: 15px; }
-.home-slice .inbox-context { margin: 0 0 var(--space-1); }
-.home-slice .inbox-actions { margin-left: 39px; width: calc(100% - 39px); gap: 6px; }
-.home-slice .inbox-actions button { padding-inline: 10px; font-size: 12px; flex: 0 1 auto; }
-/* On a computer a card is one compact row: its action title, one-line why and record beside its buttons. */
-@media (min-width: 701px) {
-  .home-slice .inbox-row { align-items: center; column-gap: var(--space-3); padding-block: 6px; }
-  .home-slice .inbox-copy { flex: 1 1 0; }
-  .home-slice .inbox-copy h3 { line-height: 1.4; }
-  .home-slice .inbox-copy h3 a { min-height: 0; }
-  .home-slice .inbox-why { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.4; }
-  .home-slice .inbox-context { margin: 0; line-height: 1.4; }
-  .home-slice .inbox-actions { flex: none; width: auto; margin-left: 0; }
+.home-sections { display: flex; flex-direction: column; gap: var(--space-4); }
+.home-column { display: contents; }
+/* Stacked, Today's meetings comes first and In motion and waiting last. */
+.home-slice[aria-label="Today's meetings"] { order: -1; }
+.home-slice[aria-label="In motion and waiting"] { order: 1; }
+.home-slice { min-width: 0; padding: var(--space-3) var(--space-4); background: var(--surface-1); border-radius: var(--panel-radius); }
+.home-slice > header { display: flex; justify-content: space-between; gap: var(--space-2); align-items: center; min-height: var(--touch); }
+.home-slice h2 { font-size: var(--font-size-2); font-weight: 600; margin: 0; }
+.home-slice h2 span { margin-inline-start: var(--space-1); color: var(--fg-muted); font-size: var(--font-size-1); font-weight: 400; font-variant-numeric: tabular-nums; }
+.home-slice > header > button { padding-inline: var(--space-2); border: 0; background: transparent; color: var(--fg-muted); font-size: var(--font-size-1); white-space: nowrap; }
+.home-slice .inbox-row { gap: 0 var(--space-3); margin: 0 calc(-1 * var(--space-2)); padding: 6px var(--space-2); border: 0; border-radius: var(--radius-2); background: transparent; align-items: center; flex-wrap: wrap; transition: background-color var(--duration-press); }
+.home-slice .inbox-row:hover { background: var(--surface-2); }
+.home-slice .inbox-row > .inbox-copy { flex: 1 1 0; min-width: 0; }
+.home-slice .inbox-row > .inbox-copy h3 { margin: 0; font-size: var(--font-size-2); font-weight: 500; line-height: 1.4; }
+.home-slice .inbox-row > .inbox-copy h3 a { display: inline; min-height: 0; }
+.home-slice .inbox-row > .inbox-copy > .inbox-why { font-size: var(--font-size-1); line-height: 1.4; }
+.home-slice .inbox-row > .inbox-copy > .inbox-why:empty { display: none; }
+.home-slice .inbox-row > .inbox-copy > .inbox-why { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* On a computer a waiting item is one line when its title and its wait both fit; otherwise the wait wraps whole. */
+@media (min-width: 1000px) {
+  .home-slice[aria-label="In motion and waiting"] .inbox-row > .inbox-copy { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: var(--space-2); }
+  .home-slice[aria-label="In motion and waiting"] .inbox-row > .inbox-copy > :is(h3, .inbox-why) { min-width: 0; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 }
-.home-late { font-size: 12px; color: var(--status-danger-ink); margin: var(--space-2) 0 6px; }
+.home-slice .inbox-row > .inbox-actions { flex: none; width: auto; margin: 0; gap: var(--space-1); }
+.inbox-shell .home-slice .inbox-row > .inbox-actions button { min-height: var(--touch); padding: 0 var(--space-3); font-size: var(--font-size-1); }
+.inbox-shell .home-done { position: relative; flex: none; width: var(--touch); height: var(--touch); min-height: 0; margin: 0 calc(-1 * var(--space-2)); padding: 0; border: 0; background: transparent; }
+.home-done::before { content: ""; position: absolute; inset: 0; margin: auto; width: 18px; height: 18px; border: 1.5px solid var(--hairline-strong); border-radius: var(--radius-round); }
+.inbox-shell .home-done:hover { background: transparent; }
+.home-done:hover::before { border-color: var(--fg); }
+.home-edge { flex: none; color: var(--fg-muted); font-size: var(--font-size-1); }
+.home-group { margin: var(--space-3) 0 var(--space-1); color: var(--fg-muted); font-size: var(--font-size-1); font-weight: 600; }
+.inbox-shell .home-fold { min-height: var(--touch); padding: 0; border: 0; background: transparent; color: var(--fg-muted); font-size: var(--font-size-1); }
+/* With a pointer, Snooze and Drop cover the due label while the row is hovered or focused. */
+@media (hover: hover) {
+  .home-slice[aria-label="Reminders"] .inbox-row { position: relative; }
+  .home-slice[aria-label="Reminders"] .inbox-row > .inbox-actions { position: absolute; inset-inline-end: var(--space-2); top: 50%; translate: 0 -50%; }
+  .home-slice[aria-label="Reminders"] .inbox-row:not(:hover, :focus-within) > .inbox-actions { opacity: 0; }
+  .home-slice[aria-label="Reminders"] .inbox-row:is(:hover, :focus-within) > .home-edge { visibility: hidden; }
+}
+/* By touch, Snooze and Drop sit under the reminder's text. */
+@media (max-width: 999px), (hover: none) {
+  .home-slice .inbox-row > .inbox-copy h3 a { display: inline-flex; min-height: var(--touch); }
+}
+@media (hover: none) {
+  .home-slice[aria-label="Reminders"] .inbox-row > .inbox-actions { flex-basis: 100%; padding-left: calc(var(--touch) - var(--space-4) + var(--space-3)); }
+}
+.home-late { color: var(--status-danger-ink); }
 .home-meeting { border-top: 1px solid var(--hairline); padding: 6px 0; overflow-wrap: anywhere; }
 .home-meeting summary { cursor: pointer; align-content: center; min-height: 54px; padding: 5px 3px; }
 .home-meeting :is(time, summary span, p), .home-tile-status { color: var(--fg-muted); font-size: 12px; }
@@ -65,28 +88,21 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
 .home-placeholder .skeleton-line { margin: 0; }
 .home-placeholder > header .skeleton-line { width: 40%; height: 14px; }
 .home-placeholder-row { display: grid; gap: var(--space-2); padding: var(--space-3) 0; border-top: 1px solid var(--hairline); }
-@media (max-width: 700px) {
-  .home-sections { grid-template-columns: minmax(0, 1fr); }
-}
-/* The first tile is the work list: it takes the wide column and the others stack beside it. */
+/* On a computer Home is three columns exactly the screen tall, and each tile scrolls its own rows. */
 @media (min-width: 1000px) {
-  .home-sections { grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr); grid-template-rows: auto auto 1fr; }
-  .home-sections > * { grid-column: 2; }
-  .home-sections > :first-child { grid-column: 1; grid-row: 1 / -1; }
-  .home-sections:not(:has(> :first-child ~ .home-slice)) { grid-template-rows: none; }
-  .home-sections:not(:has(> :first-child ~ .home-slice)) > * { grid-column: 1 / -1; grid-row: auto; }
+  .home-sections { flex-direction: row; }
+  .home-column { display: flex; flex: 1 1 0; flex-direction: column; gap: var(--space-4); min-width: 0; }
+  .home-column:first-child { flex-grow: 1.15; }
+  .home-column.home-side { flex-grow: 0.75; }
+  .home-column:empty { display: none; }
 }
-/* On a computer the grid is exactly the screen under the top bar: the work list fills its column, the tiles beside it share the rest by content with the last one reaching the bottom, and each tile scrolls its own overflow. */
 @media (min-width: 1000px) and (min-height: 600px) {
   .has-app-layout main:has(.home-inbox) .inbox-shell { padding-bottom: 0; }
-  /* Max-content rows share the height by content, and only the last row, with an auto maximum, stretches to the bottom. */
-  .home-sections { height: calc(100dvh - var(--topbar-height) - 2 * var(--pad)); grid-template-rows: minmax(0, max-content) minmax(0, max-content) minmax(0, auto); }
-  .home-sections:has(> :nth-child(3):last-child) { grid-template-rows: minmax(0, max-content) minmax(0, auto); }
-  .home-sections:has(> :nth-child(2):last-child) { grid-template-rows: minmax(0, auto); }
-  .home-sections:not(:has(> :first-child ~ .home-slice)) { grid-template-rows: minmax(0, 1fr); grid-auto-rows: auto; }
-  .home-sections > :is(:first-child, .home-slice) { align-self: stretch; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
-  .home-sections > .home-tile-status { margin: 0; line-height: 20px; }
-  .home-slice > header { position: sticky; top: calc(-1 * var(--space-4)); z-index: 1; margin-top: calc(-1 * var(--space-4)); padding-top: var(--space-4); background: var(--surface-1); }
+  .home-sections { height: calc(100dvh - var(--topbar-height) - 2 * var(--pad)); }
+  .home-column > * { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  .home-column:not(.home-side) > :first-child { flex-grow: 1; }
+  .home-column > .home-tile-status { margin: 0; line-height: 20px; }
+  .home-slice > header { position: sticky; top: calc(-1 * var(--space-3)); z-index: 1; margin-top: calc(-1 * var(--space-3)); padding-top: var(--space-3); background: var(--surface-1); }
 }
 .home-inline-review{flex-basis:100%;min-width:0;padding:18px;border-top:1px solid var(--hairline);overflow-wrap:anywhere}.home-inline-review header{display:flex;justify-content:space-between;align-items:center;gap:12px}.home-inline-review h4{margin:0;font-size:16px}.home-inline-review fieldset{border:0;padding:0;min-width:0}.home-inline-review legend{padding:14px 0;font-weight:600}.home-inline-review label{display:grid;gap:6px;margin:12px 0;font-size:13px}.home-inline-review input,.home-inline-review textarea,.home-inline-review select{box-sizing:border-box;width:100%;height:auto;min-height:var(--touch);padding:var(--space-1) 10px;color:var(--fg);background:var(--surface-1);border:1px solid var(--hairline);border-radius:6px;font:inherit}.home-inline-review textarea{padding-block:10px;resize:vertical}.home-inline-review .inbox-actions{margin:14px 0;width:auto}.home-inline-review p,.home-inline-review blockquote{font-size:13px;line-height:1.6;white-space:pre-wrap}.home-inline-review blockquote{margin:12px 0;padding-left:14px;border-left:2px solid var(--hairline)}.home-inline-review button{min-height:var(--touch)}.home-inline-review :focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 .home-inline-review .home-suggestion-instruction { field-sizing: content; resize: none; }
@@ -102,8 +118,7 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
 .home-draft-comparison{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px}
 .home-draft-comparison > *{min-width:0;padding:12px;border:1px solid var(--hairline);border-radius:8px}
 .home-draft-comparison h4{font-size:14px}
-.inbox-batch-results{padding:20px;margin:20px 0;background:var(--surface-1);border:1px solid var(--hairline);border-radius:12px;overflow-wrap:anywhere;scroll-margin-block:90px}.inbox-batch-results h2{font-size:18px}.inbox-batch-results li{margin-block:12px;line-height:1.6}.inbox-batch-results fieldset{border:1px solid var(--hairline);border-radius:8px;padding:12px;min-width:0}.inbox-batch-results label{display:flex;align-items:center;gap:10px;min-height:var(--touch)}.inbox-batch-results button{min-height:var(--touch);margin:8px 8px 0 0;max-width:100%;white-space:normal}.inbox-batch-announcement:empty{display:none}.inbox-snooze input[type="datetime-local"]{display:block;box-sizing:border-box;width:100%;max-width:100%;min-height:var(--touch);margin-block:12px;color:var(--fg);background:var(--surface-2);border:1px solid var(--hairline);border-radius:6px}.inbox-bulk button{min-height:var(--touch)}.inbox-row:has(.inbox-select input:checked){outline:2px solid var(--accent);outline-offset:1px}
-.inbox-batch-results input[type="checkbox"]{width:18px;height:18px;min-height:18px;flex:0 0 18px;accent-color:var(--accent)}
+.inbox-bulk button{min-height:var(--touch)}.inbox-row:has(.inbox-select input:checked){outline:2px solid var(--accent);outline-offset:1px}
 
 .skip:not(:focus) { clip-path: inset(50%); }
 .skip:focus { min-width: var(--touch); min-height: var(--touch); align-content: center; }

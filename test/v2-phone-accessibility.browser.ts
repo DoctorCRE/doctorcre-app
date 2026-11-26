@@ -87,13 +87,13 @@ test("V2 phone targets have zero undersized or covered controls in both themes",
         await page.screenshot({ path: `${shots}/${name}-${width}-${theme}.png`, fullPage: true });
         await writeFile(`${shots}/${name}-${width}-${theme}.aria.txt`, await page.locator("body").ariaSnapshot());
         if (name === "Home") {
-          const checkbox = page.locator('.inbox-row input[type="checkbox"]').first();
-          const graphic = await checkbox.boundingBox();
-          assert.ok(graphic && graphic.width <= 22 && graphic.height <= 22, "Checkbox artwork stays compact");
-          const label = await checkbox.locator("..").boundingBox();
+          const done = page.locator(".inbox-row button.home-done").first();
+          const circle = await done.evaluate((node) => parseFloat(getComputedStyle(node, "::before").width));
+          assert.ok(circle <= 22, "The Mark done circle stays compact");
+          const target = await done.boundingBox();
           assert.ok(
-            label && label.width >= controlFloor(width) && label.height >= controlFloor(width),
-            "Checkbox label owns the larger activation area",
+            target && target.width >= controlFloor(width) && target.height >= controlFloor(width),
+            "The circle's button owns the larger activation area",
           );
         }
         if (width === 390 && name === "Tours library") {
