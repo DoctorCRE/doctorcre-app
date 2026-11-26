@@ -29,6 +29,10 @@ async function readDeals(signal: AbortSignal) {
   return { ...dealsAtAGlance(board, today, Object.assign({}, ...rules)), review: reviewCounts(review) };
 }
 
+// A zero count stays off the line, and a count never wraps apart from its first word.
+const line = (parts: [number, string][]) =>
+  parts.filter(([count]) => count).map(([count, words]) => `${count}\u00a0${words}`);
+
 /** The heading counts this week's Monday review items, so its parts add up to the review total; the phases and attention list are the Deals board's. */
 export function DealsTile() {
   const { data, isPending } = useQuery({
@@ -46,18 +50,23 @@ export function DealsTile() {
     );
   const { review } = data;
   if (!review.total) return null;
+  const heading = line([
+    [review.open, "open"],
+    [review.parked, "parked"],
+    [review.national, "in national accounts"],
+    [review.prospects, review.prospects === 1 ? "prospect" : "prospects"],
+  ]);
+  const thisWeek = line([
+    [review.closed, "closed or lost"],
+    [review.dropped, "dropped"],
+  ]);
   return (
     <section className="home-slice home-deals" aria-label="Deals">
       <header>
         <h2>
           Deals{" "}
           <span>
-            <a href="/deals">{review.open} open</a>
-            {!!review.parked && <> · {review.parked} parked</>}
-            {!!review.national && <> · {review.national} in national accounts</>}
-            {!!review.prospects && <> · {counted(review.prospects, "prospect", "prospects")}</>}
-            {!!review.closed && <> · {review.closed} closed or lost this week</>}
-            {!!review.dropped && <> · {review.dropped} dropped this week</>}
+            <a href="/deals">{heading.join(" · ")}</a>
           </span>
         </h2>
         <a className="home-tile-door" href="/deals">
@@ -96,7 +105,8 @@ export function DealsTile() {
         Monday review{" "}
         <span>
           {review.reviewed} of {review.total}
-        </span>
+        </span>{" "}
+        {!!thisWeek.length && <small>includes {thisWeek.join(" and ")} this week</small>}
       </a>
     </section>
   );

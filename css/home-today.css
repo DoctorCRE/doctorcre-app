@@ -34,6 +34,9 @@ details.home-today-row > :not(summary) { margin: 0 0 var(--space-1); padding-inl
 .home-phases a span { color: var(--fg); font-weight: var(--font-weight-strong); font-variant-numeric: tabular-nums; }
 .home-short-fold h3 { margin: var(--space-2) var(--space-2) var(--space-1); color: var(--fg-muted); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); }
 .home-deals :is(li > a > span, .home-deals-line span) { margin-inline-start: auto; color: var(--fg-muted); font-size: var(--font-size-1); white-space: nowrap; }
+/* The week's closings wrap under the review's progress so the line never runs past the tile. */
+.home-deals .home-deals-line:has(small) { flex-wrap: wrap; row-gap: 0; padding-block: var(--space-1); }
+.home-deals-line small { flex-basis: 100%; color: var(--fg-muted); font-size: var(--font-size-1); }
 .home-deals li > a > span[data-late] { color: var(--status-danger-ink); }
 .home-deals li > a[data-flagged]::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: var(--radius-round); background: var(--status-warn-ink); }
 .home-coming-up li > a { display: grid; grid-template-columns: 88px minmax(0, 1fr); }

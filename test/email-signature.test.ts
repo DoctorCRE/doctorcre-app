@@ -195,39 +195,58 @@ test("a remark that starts with Confidential right under a signature is not fold
 const lead = "What's the story on this building?\n\n12 Example Ln, Town, FL 00000 - Office for Lease";
 const quoted = "12 Example Ln, Town, FL 00000 - Office for Lease\n\nPat Example";
 
-test("an Outlook reply header and everything after it fold as earlier text", () => {
-  const header =
-    "From: Pat Example <pat@example.test>\nSent: Monday, November 23, 2026 3:23 PM\nTo: Sam Example <sam@example.test>\nSubject: Building";
-  assert.deepEqual(foldEmailBody(`${lead}\n\n${header}\n\n${quoted}`, "Sam Example"), {
-    text: lead,
-    folded: `${header}\n\n${quoted}`,
+const quotedHistory: [shape: string, history: string][] = [
+  [
+    "an Outlook header",
+    "From: Pat Example <pat@example.test>\nSent: Monday, November 23, 2026 3:23 PM\nTo: Sam Example <sam@example.test>\nSubject: Building",
+  ],
+  [
+    "bold labels and Cc under the divider line",
+    "________________________________\n*From:* Pat Example\n*Sent:* Monday, November 23, 2026 3:23 PM\n*To:* Sam Example\n*Cc:* Lee Example\n*Subject:* RE: Building",
+  ],
+  [
+    "an Importance line",
+    "From: Pat Example\nSent: Monday, November 23, 2026 3:23 PM\nTo: Sam Example\nImportance: High\nSubject: Building",
+  ],
+  [
+    "a To list wrapped over lines",
+    "From: Pat Example\nSent: Monday, November 23, 2026 3:23 PM\nTo: Sam Example <sam@example.test>; Lee Example\n<lee@example.test>; Kim Example <kim@example.test>\nSubject: Building",
+  ],
+  [
+    "non-breaking spaces after the colons",
+    "From: Pat Example\nSent: Monday, November 23, 2026 3:23 PM\nTo: Sam Example\nSubject: Building",
+  ],
+  ["no Subject line", "From: Pat Example\nSent: Monday, November 23, 2026 3:23 PM\nTo: Sam Example"],
+  ["Gmail's order", "From: Pat Example\nDate: Mon, Nov 23, 2026 at 3:23 PM\nSubject: Building\nTo: Sam Example"],
+  ["a quoted header", "> From: Pat Example\n> Sent: Monday, November 23, 2026 3:23 PM\n> Subject: Building"],
+  ["an 'On <date>, <name> wrote:' line", "On Mon, Nov 23, 2026 at 3:23 PM, Pat Example <pat@example.test> wrote:"],
+  ["a wrapped 'On … wrote:' line", "On Mon, Nov 23, 2026 at 3:23 PM Pat Example <pat@example.test>\nwrote:"],
+  ["an 'On <day>, <name> wrote:' line without digits", "On Monday, Pat Example wrote:"],
+  ["an Original Message divider", "-----Original Message-----\nFrom: Pat Example\nSent: Monday"],
+];
+
+for (const [shape, history] of quotedHistory)
+  test(`quoted history after ${shape} folds with everything below it`, () => {
+    for (const eol of ["\n", "\r\n"]) {
+      const body = `${lead}\n\n${history}\n\n> ${quoted}`.replaceAll("\n", eol);
+      assert.deepEqual(foldEmailBody(body, "Sam Example"), {
+        text: lead.replaceAll("\n", eol),
+        folded: `${history}\n\n> ${quoted}`.replaceAll("\n", eol),
+      });
+    }
   });
-});
 
-test("an Outlook header with Cc and bold labels, under its divider line, folds", () => {
-  const header =
-    "________________________________\n*From:* Pat Example\n*Sent:* Monday, November 23, 2026 3:23 PM\n*To:* Sam Example\n*Cc:* Lee Example\n*Subject:* RE: Building";
-  assert.deepEqual(foldEmailBody(`${lead}\n\n${header}\n\n${quoted}`, null).folded, `${header}\n\n${quoted}`);
-});
+const authored = [
+  "From: Pat Example\nSent: Monday\nTo: Sam Example\nSubject: Building",
+  "Send it from: the east office.\nSubject: to approval.",
+  "Date: Tuesday works.\nTo: confirm, the tour is at 10.",
+  "From: our side, the price holds.\n\nSent: the lease yesterday.",
+  "On Monday, Pat Example wrote: the lease is ready.",
+  "> Can you send the lease?\nYes, attached.\n\n> And the floor plan?\nComing tomorrow.",
+];
 
-test("an 'On <date>, <name> wrote:' line, even wrapped, folds with what follows", () => {
-  const opener = "On Mon, Nov 23, 2026 at 3:23 PM Pat Example <pat@example.test>\nwrote:";
-  assert.deepEqual(foldEmailBody(`${lead}\n\n${opener}\n\n> ${quoted}`, null), {
-    text: lead,
-    folded: `${opener}\n\n> ${quoted}`,
-  });
-});
-
-test("an Original Message divider folds with what follows", () => {
-  const divider = "-----Original Message-----\nFrom: Pat Example\nSent: Monday, November 23, 2026 3:23 PM";
-  assert.equal(foldEmailBody(`${lead}\n\n${divider}\n\n${quoted}`, null).text, lead);
-});
-
-test("a header with nothing written above it stays visible, and a mention of From: in a sentence never folds", () => {
-  const header = "From: Pat Example\nSent: Monday\nTo: Sam Example\nSubject: Building";
-  assert.deepEqual(foldEmailBody(header, null), { text: header, folded: null });
-  const prose = "Send it from: the east office.\nSubject: to approval.";
-  assert.deepEqual(foldEmailBody(prose, null), { text: prose, folded: null });
+test("a header that is the whole message and lines a person wrote stay visible", () => {
+  for (const body of authored) assert.deepEqual(foldEmailBody(body, null), { text: body, folded: null }, body);
 });
 
 test("the signature above quoted history folds first, then the history", () => {

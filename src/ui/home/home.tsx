@@ -43,6 +43,7 @@ import {
   lateDays,
   PlaceholderTile,
   tileOf,
+  useStacked,
   wholeInstruction,
 } from "./sections";
 import { sourceExcerptText } from "./source-excerpt.ts";
@@ -230,7 +231,15 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     );
   }
   const [reviewing, setReviewing] = useState<InboxItem | null>(null);
-  const reviewFocus = useRef<{ opener: HTMLElement; tile: Element | null; preceding: Set<HTMLElement> }>(null);
+  const reviewFocus = useRef<{
+    opener: HTMLElement;
+    tile: Element | null;
+    preceding: Set<HTMLElement>;
+    scrollY: number;
+  }>(null);
+  // Below three columns an opened item covers the screen, and Back returns to the list where it was.
+  const stacked = useStacked();
+  const covering = home && stacked;
   const [switchingBlocked, blockSwitching] = useState(false);
   const openedLink = useRef<string | null>(null);
   useLayoutEffect(() => {
@@ -250,8 +259,9 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
           visibleRow,
         ));
     (target || root.current)?.focus({ preventScroll: true });
+    if (covering) scrollTo({ top: focus.scrollY });
     reviewFocus.current = null;
-  }, [reviewing]);
+  }, [reviewing, covering]);
   const [selected, select] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState<Pending | null>(null);
   const busy = saving.has("card");
@@ -674,7 +684,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     const tile = opener.closest(".home-slice");
     const links = Array.from(tile?.querySelectorAll<HTMLElement>(`[data-inbox-row] ${cardTitle}`) ?? []);
     const index = links.findIndex((link) => link.closest("[data-inbox-row]") === opener.closest("[data-inbox-row]"));
-    reviewFocus.current = { opener, tile, preceding: new Set(links.slice(0, Math.max(0, index))) };
+    reviewFocus.current = { opener, tile, preceding: new Set(links.slice(0, Math.max(0, index))), scrollY };
     setReviewing(item);
   }, []);
   const openingLocked = busy || !!pending || switchingBlocked || !!dropping || !!snooze;
@@ -852,6 +862,12 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
       </button>
     );
     const tile = home ? tileOf(item) : null;
+    // The pane's Mark done is the same save as the row's circle.
+    const paneDone = tile === "reminders" && completable && !tourDone && (
+      <button type="button" className="inbox-primary" disabled={busy} onClick={() => finish(item, "complete")}>
+        Mark done
+      </button>
+    );
     const edge =
       tile === "reminders" &&
       (daysLate
@@ -1095,6 +1111,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             client={reviewClient}
             drafts={drafts}
             blockSwitching={blockSwitching}
+            closeLabel={covering ? "Back" : undefined}
             close={() => setReviewing(null)}
             busy={(value) => (value ? void beginSave("review") : endSave("review"))}
             confirmed={async (current, receipt, snapshot) => {
@@ -1109,8 +1126,9 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             }}
           >
             {finishedElsewhere && <p role="status">This card was finished elsewhere.</p>}
-            {home && !waitingCard && !finishedElsewhere && (snoozeButton || dropButton) && (
+            {home && !waitingCard && !finishedElsewhere && (paneDone || snoozeButton || dropButton) && (
               <div className="inbox-actions">
+                {paneDone}
                 {snoozeButton}
                 {/* A loaded review offers its own Drop for each decision. */}
                 {!reviewClient && dropButton}

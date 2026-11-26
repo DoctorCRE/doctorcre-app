@@ -111,23 +111,47 @@ function contactFold(body: string, sender: string | null): { text: string; signa
   return { text: body.slice(0, foldAt).trimEnd(), signature };
 }
 
-const field = (names: string) => String.raw`[ \t>]*\*?(?:${names}):\*?[ \t]`;
-// Where quoted history starts: an Outlook reply header (under its optional divider), an "On …, … wrote:" line, wrapped or not, or an Original Message divider.
-const quotedHistory = new RegExp(
-  [
-    String.raw`^(?:[ \t]*_{8,}[ \t]*\n)?${field("From")}[^\n]*\n(?:${field("Sent|Date|To|Cc|Bcc")}[^\n]*\n){1,4}${field("Subject")}`,
-    String.raw`^[ \t>]*On [^\n]*\d[^\n]*(?:\n[^\n]*)?\bwrote:[ \t]*$`,
-    String.raw`^[ \t>]*-{2,}[ \t]*Original Message[ \t]*-{2,}`,
-  ].join("|"),
-  "im",
-);
+// A reply header line such as "From: Pat" or "> *Sent:* Monday"; \s covers the non-breaking spaces Outlook writes.
+const headerKey = /^[\s>]*\**(from|sent|date|to|cc|bcc|subject|importance|reply-to)\**\s*:/i;
+const wroteLine = /^[\s>]*On\s[^\n]*,[^\n]*\bwrote:\s*$/i;
+const originalMessage = /^[\s>]*-{2,}\s*Original Message\s*-{2,}/i;
+const underscores = /^[\s>]*_{8,}\s*$/;
+
+/** Whether a quoted reply header starts at `rows[at]`: a run of header lines, allowing a few wrapped lines between them, naming From and Sent or Date. */
+function replyHeader(rows: readonly string[], at: number) {
+  if (!headerKey.test(rows[at] ?? "")) return false;
+  const keys = new Set<string>();
+  let wrapped = 0;
+  for (const row of rows.slice(at)) {
+    if (!row.trim()) break;
+    const key = row.match(headerKey)?.[1];
+    if (key) {
+      keys.add(key.toLowerCase());
+      wrapped = 0;
+    } else if (++wrapped > 3) break;
+  }
+  return keys.has("from") && (keys.has("sent") || keys.has("date"));
+}
+
+/** The row where quoted history starts: a reply header (from its underscore divider), an "On …, … wrote:" line, wrapped once or not, or an Original Message divider. */
+function historyRow(rows: readonly string[]) {
+  return rows.findIndex(
+    (row, at) =>
+      originalMessage.test(row) ||
+      wroteLine.test(row) ||
+      (/^[\s>]*On\s/i.test(row) && wroteLine.test(`${row} ${rows[at + 1] ?? ""}`)) ||
+      replyHeader(rows, at) ||
+      (underscores.test(row) && replyHeader(rows, at + 1)),
+  );
+}
 
 /** The app's one email cleanup: quoted history and then the signature fold under Show earlier text; a message that is all history stays visible. */
 export function foldEmailBody(body: string, sender: string | null): { text: string; folded: string | null } {
-  const historyAt = body.search(quotedHistory);
-  const own = historyAt > 0 ? body.slice(0, historyAt).trimEnd() : body;
+  const rows = body.split("\n");
+  const row = historyRow(rows);
+  const own = row > 0 ? rows.slice(0, row).join("\n").trimEnd() : body;
   if (!own.trim()) return { text: body, folded: null };
-  const history = own === body ? null : body.slice(historyAt).trim();
+  const history = row > 0 ? rows.slice(row).join("\n").trim() : null;
   const { text, signature } = splitSignature(own, sender);
   return { text, folded: [signature, history].filter(Boolean).join("\n\n") || null };
 }

@@ -375,17 +375,17 @@ for (const [width, height] of [
 test("Deals counts the Monday review's items and the board's phases, and Coming up lists the next 14 days, each opening what it counts", async (t) => {
   const page = await openHome(t, 1440, 900);
   const tile = page.getByRole("region", { name: "Deals", exact: true });
-  assert.equal(
-    await tile.getByRole("heading", { level: 2 }).textContent(),
-    "Deals 3 open · 1 parked · 1 in national accounts · 2 prospects · 1 closed or lost this week",
-  );
-  assert.equal(await tile.getByRole("link", { name: "3 open", exact: true }).getAttribute("href"), "/deals");
   const link = (name: string) => tile.getByRole("link", { name, exact: true }).getAttribute("href");
+  assert.equal(
+    (await tile.getByRole("heading", { level: 2 }).textContent())?.replaceAll("\u00a0", " "),
+    "Deals 3 open · 1 parked · 1 in national accounts · 2 prospects",
+  );
+  assert.equal(await link("3 open · 1 parked · 1 in national accounts · 2 prospects"), "/deals");
   assert.equal(await link("Research 1"), "/deals?column=research");
   assert.equal(await link("Example Deal 1 Step 3 days late"), `/deals?deal=${id(101)}`);
   assert.equal(await link("Example Deal 2 Flagged by a partner"), `/deals?deal=${id(102)}`);
   assert.equal(await link("1 has no next step"), "/deals?view=list&filter=no-next-step");
-  assert.equal(await link("Monday review 1 of 8"), "/deals?view=review");
+  assert.equal(await link("Monday review 1 of 8 includes 1 closed or lost this week"), "/deals?view=review");
   const comingUp = page.getByRole("region", { name: "Coming up", exact: true });
   assert.deepEqual(await comingUp.getByRole("link").allTextContents(), [
     "2",
@@ -395,6 +395,50 @@ test("Deals counts the Monday review's items and the board's phases, and Coming 
   assert.equal(await comingUp.getByRole("link", { name: "2", exact: true }).getAttribute("href"), "/calendar");
   assert.equal(await comingUp.getByRole("link").nth(1).getAttribute("href"), `/calendar?day=${today}`);
 });
+
+for (const [width, height] of [
+  [1440, 900],
+  [1280, 640],
+] as const)
+  test(`At ${width}x${height} the Deals heading holds a practice's counts in two lines, and the week's closings sit on the Monday review line`, async (t) => {
+    const page = await openHome(t, width, height);
+    const items = (count: number, state: string, workspace: string, operating: string) =>
+      Array.from({ length: count }, () => reviewDeal(state, workspace, operating));
+    const parties = Array.from({ length: 12 }, (_, n) => ({ party_id: id(410 + n), state: "open", reviewed: null }));
+    const review = [
+      ...items(37, "open", "team", "active"),
+      ...items(27, "open", "team", "parked"),
+      ...items(16, "open", "national_account", "active"),
+      ...items(1, "lost", "team", "active"),
+      ...parties,
+      { party_id: id(430), state: "dropped", reviewed: null },
+    ];
+    await page.route("**/api/engine/weekly-reviews?week_of=2026-11-23", (route) =>
+      route.fulfill({ json: { items: review } }),
+    );
+    await page.reload();
+    const tile = page.getByRole("region", { name: "Deals", exact: true });
+    const heading = tile.getByRole("heading", { level: 2 });
+    await heading.getByText("37 open").waitFor();
+    assert.equal(
+      (await heading.textContent())?.replaceAll("\u00a0", " "),
+      "Deals 37 open · 27 parked · 16 in national accounts · 12 prospects",
+    );
+    assert.ok(
+      await heading.evaluate(
+        (node) => node.getBoundingClientRect().height < 2.5 * parseFloat(getComputedStyle(node).lineHeight),
+      ),
+      "the heading is at most two lines",
+    );
+    assert.equal(
+      (await tile.getByRole("link", { name: /^Monday review/ }).textContent())?.replaceAll("\u00a0", " "),
+      "Monday review 0 of 94 includes 1 closed or lost and 1 dropped this week",
+    );
+    assert.ok(
+      await tile.evaluate((node) => node.scrollWidth <= node.clientWidth),
+      "nothing in Deals runs past the tile",
+    );
+  });
 
 test("At 1280x640 the attention list and Coming up fold to one line each that opens in place", async (t) => {
   const page = await openHome(t, 1280, 640);
@@ -500,6 +544,35 @@ for (const [kind, fields] of [
       .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("href")));
     assert.ok(links.includes(fields.record), `the pane links to ${fields.record}, not ${links}`);
   });
+
+test("An opened reminder has its own Mark done, which saves it as the row's circle does", async (t) => {
+  const page = await openHome(t, 1440, 900);
+  const reminders = page.getByRole("region", { name: "Reminders", exact: true });
+  assert.equal(await reminders.locator("button.home-done").first().isEnabled(), true, "the circle works while closed");
+  await reminders.getByRole("link", { name: "Call the sample practice" }).click();
+  const details = page.getByRole("region", { name: "Details for Call the sample practice" });
+  const saved = page.waitForRequest((request) => request.method() === "POST" && !!request.postData()?.includes(id(1)));
+  await details.getByRole("button", { name: "Mark done", exact: true }).click();
+  await saved;
+});
+
+test("On a phone an opened item covers the screen, and Back returns to the list where it was", async (t) => {
+  const page = await openHome(t, 390, 844);
+  const title = page
+    .getByRole("region", { name: "Reminders", exact: true })
+    .getByRole("link", { name: "Call the sample practice" });
+  await title.scrollIntoViewIfNeeded();
+  await page.evaluate(() => scrollBy(0, 120));
+  const scrolled = await page.evaluate(() => scrollY);
+  assert.ok(scrolled > 0, "the list is scrolled");
+  await title.click();
+  const details = page.getByRole("region", { name: "Details for Call the sample practice" });
+  await details.waitFor();
+  assert.deepEqual(await details.boundingBox(), { x: 0, y: 0, width: 390, height: 844 }, "the item is full screen");
+  await details.getByRole("button", { name: "Back", exact: true }).click();
+  assert.equal(await details.count(), 0);
+  assert.equal(await page.evaluate(() => scrollY), scrolled, "the list is where it was");
+});
 
 test("Escape closes an opened Inbox item and focus returns to its row", async (t) => {
   const page = await openHome(t, 1440, 900);
