@@ -225,10 +225,10 @@ test('PR129 #7 closing Lead detail after polling resolves the current card by id
 });
 test('PR129 #9 touch taps open the existing reviewed stage and phase commands',async t=>{
  const {page,goto,writes}=await open(t,{width:390,hasTouch:true});await goto('/leads');await page.locator('.lead-card').first().tap();await page.locator('#detailStage').selectOption('engaged');await page.locator('#stageDialog[open] .stage-proposal').waitFor();assert.deepEqual(writes,[]);await page.locator('#saveStage').tap();await page.locator(`#leadBoard [data-stage="engaged"] [data-lead-id="${id(1)}"]`).waitFor();assert.deepEqual(writes,['update-lead']);
- await goto('/deals?view=board');await page.locator('.kanban-card[data-id="d14"] .card-open').tap();await page.locator('#detailPhase').selectOption('site_selection');await page.locator('#completionDialog[open]').waitFor();
+ await goto('/deals?view=board');await page.locator('.kanban-card[data-id="d14"] .card-open').tap();await page.locator('.deal-path button[data-path-phase="site_selection"]').tap();await page.locator('.deal-path-ask').waitFor();
  assert.equal(await page.evaluate(async()=>(await import('/js/pipeline.js')).state.deals.get('d14').phase),'Legal');
- await page.locator('#completionConfirm').tap();await waitForAsync(page,async()=>(await import('/js/pipeline.js')).state.deals.get('d14').phase==='Site selection');
- assert.equal(await page.locator('#detailPhase').inputValue(),'site_selection');
+ await page.locator('.deal-path-ask button[type="submit"]').tap();await waitForAsync(page,async()=>(await import('/js/pipeline.js')).state.deals.get('d14').phase==='Site selection');
+ assert.equal(await page.locator('.deal-path [aria-current="step"]').getAttribute('data-phase'),'site_selection');
 });
 for(const width of [844,1440]) test(`PR129 #10 short rail destinations remain pointer actionable at ${width}x390`,async t=>{
  const {page,goto}=await open(t,{width,height:390});await goto('/leads');
@@ -242,7 +242,7 @@ test('PR129 #11 light theme pairs record headings and filter text with light sur
  const colors=await page.locator('.controls').evaluate(n=>{const painted=e=>!/^rgba\(.*,\s*0\)$|^transparent$/.test(getComputedStyle(e).backgroundColor);let e=n;while(e.parentElement&&!painted(e))e=e.parentElement;return {background:getComputedStyle(e).backgroundColor,text:getComputedStyle(n).color};});
  assert.ok((Math.max(luminance(colors.background),luminance(colors.text))+.05)/(Math.min(luminance(colors.background),luminance(colors.text))+.05)>=4.5,JSON.stringify(colors));
  const labelColor=await page.locator('.controls label').first().evaluate(n=>getComputedStyle(n).color);assert.ok((luminance(colors.background)+.05)/(luminance(labelColor)+.05)>=4.5,labelColor);
- await goto('/deals?view=board');await page.evaluate(()=>document.documentElement.dataset.theme='light');await page.locator('.kanban-card[data-id="d14"] .card-open').click();await page.locator('#detailPhase').waitFor();
+ await goto('/deals?view=board');await page.evaluate(()=>document.documentElement.dataset.theme='light');await page.locator('.kanban-card[data-id="d14"] .card-open').click();await page.locator('.deal-path').waitFor();
  const pair=await page.locator('#panelTitle').evaluate(n=>{let ground=n;while(ground.parentElement&&getComputedStyle(ground).backgroundColor==='rgba(0, 0, 0, 0)')ground=ground.parentElement;return {background:getComputedStyle(ground).backgroundColor,text:getComputedStyle(n).color};});
  assert.ok((Math.max(luminance(pair.background),luminance(pair.text))+.05)/(Math.min(luminance(pair.background),luminance(pair.text))+.05)>=4.5,JSON.stringify(pair));
  for(const scheme of await page.locator('#recordPanel textarea').evaluateAll(ns=>ns.map(n=>getComputedStyle(n).colorScheme)))assert.equal(scheme,'light');
@@ -281,8 +281,8 @@ for (const status of [401,403,503]) test(`Deal detail refresh distinguishes HTTP
  });
  await goto('/deals?view=board&mode=live');
  await page.locator('.kanban-card[data-id="d14"] .card-open').click();
- await page.waitForFunction(()=>document.querySelector('#detailPhase') || document.querySelector('#panelBody')?.textContent.includes('Updates temporarily unavailable'));
- assert.equal(await page.locator('#detailPhase').count(),1,await page.locator('#panelBody').textContent());
+ await page.waitForFunction(()=>document.querySelector('.deal-path') || document.querySelector('#panelBody')?.textContent.includes('Updates temporarily unavailable'));
+ assert.equal(await page.locator('.deal-path').count(),1,await page.locator('#panelBody').textContent());
  const title=await page.locator('#panelTitle').textContent();
  await page.locator('#dealUpdate').fill('Synthetic unsaved draft');
  await page.locator('#panelContextOpen').click();
@@ -301,7 +301,7 @@ for (const status of [401,403,503]) test(`Deal detail refresh distinguishes HTTP
  await page.locator('#contextDrawerClose').click();
  assert.equal(await page.locator('[data-retry-detail]').count(),0);
  failure=false;await page.clock.fastForward(61_000);
- await page.locator('#detailPhase').waitFor();
+ await page.locator('.deal-path').waitFor();
  assert.equal(await page.locator('#panelTitle').textContent(),title);
  assert.equal(await page.locator('#dealUpdate').inputValue()==='Synthetic unsaved draft',status===503);
  assert.deepEqual(errors,[]);

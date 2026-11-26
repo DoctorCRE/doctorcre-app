@@ -43,7 +43,26 @@ test("only phases other than the current one ask to move, and only when moves ar
     ["closed"],
   );
   assert.doesNotMatch(dealPathHtml({ ...view, canMove: false }), /data-path-phase/);
-  assert.match(dealPathHtml({ ...view, checklist: null }), /To-dos could not be read/);
+  assert.match(dealPathHtml({ ...view, checklist: null }), /Checklist is unavailable/);
+  assert.doesNotMatch(dealPathHtml({ ...view, checklist: null }), /Nothing listed/);
+});
+
+test("an unavailable or changed checklist reports unavailable instead of Nothing listed", () => {
+  for (const state of ["unavailable", "source_changed"]) {
+    const empty = { schema_version: "deal-checklist.v1", template_state: state, phases: [] };
+    assert.equal(todosByPhase(empty), null);
+    const html = dealPathHtml({ ...view, checklist: empty });
+    assert.match(html, /Checklist is unavailable/);
+    assert.doesNotMatch(html, /Nothing listed/);
+  }
+  const unknownType = {
+    schema_version: "deal-checklist.v1",
+    template_state: "deal_type_unknown",
+    phases: checklist.phases,
+  };
+  assert.ok(todosByPhase(unknownType)?.get("legal")?.length === 1);
+  const withoutTodos = dealPathHtml({ ...view, checklist: null, showTodos: false });
+  assert.doesNotMatch(withoutTodos, /Checklist is unavailable|Nothing listed/);
 });
 
 test("the move question asks no next step; Closed asks the outcome", () => {

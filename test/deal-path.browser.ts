@@ -50,7 +50,19 @@ const checklist = {
 async function openDeal(
   t: TestContext,
   viewport: { width: number; height: number },
-  { theme = "dark", parked = false }: { theme?: "dark" | "light"; parked?: boolean } = {},
+  {
+    theme = "dark",
+    parked = false,
+    checklistOverride,
+    omitFollowUps = false,
+    delayMove = false,
+  }: {
+    theme?: "dark" | "light";
+    parked?: boolean;
+    checklistOverride?: unknown;
+    omitFollowUps?: boolean;
+    delayMove?: boolean;
+  } = {},
 ) {
   const server = await startWorkerFixture({
     assets: await appAssetSnapshot(),
@@ -64,6 +76,12 @@ async function openDeal(
   const page = await context.newPage();
   await page.clock.setFixedTime(new Date("2026-11-25T17:00:00Z"));
   const writes: unknown[] = [];
+  let releaseMove: (() => void) | null = null;
+  const moveGate = delayMove
+    ? new Promise<void>((resolve) => {
+        releaseMove = resolve;
+      })
+    : null;
   const deal = () => ({
     id: dealId,
     deal_id: dealId,
@@ -80,10 +98,10 @@ async function openDeal(
     next_actions: [],
     critical_dates: [],
     vendors: [],
-    email_follow_ups: [],
+    ...(omitFollowUps ? {} : { email_follow_ups: [] }),
     correspondence: [],
     documents: [],
-    checklist,
+    checklist: checklistOverride === undefined ? checklist : checklistOverride,
     phase_change: {
       source: "copied",
       automatic: true,
@@ -110,6 +128,7 @@ async function openDeal(
         const path = new URL(request.url).pathname;
         if (request.method === "POST" && path === `/api/engine/deals/${dealId}/changes`) {
           const { idempotency_key: _key, ...body } = await request.json();
+          if (moveGate) await moveGate;
           writes.push(body);
           return Response.json({
             deal_id: dealId,
@@ -144,7 +163,7 @@ async function openDeal(
   await page.goto(`${server.origin}/deals?mode=live&deal=${dealId}`);
   await page.locator(".deal-path").waitFor();
   await page.waitForLoadState("networkidle");
-  return { page, writes, path: page.getByRole("region", { name: "Deal path" }) };
+  return { page, writes, path: page.getByRole("region", { name: "Deal path" }), releaseMove: () => releaseMove?.() };
 }
 
 test("the path shows every phase with its to-dos and no phase dropdown", async (t) => {
@@ -200,11 +219,47 @@ test("a phase click asks first and moves with only an optional note", async (t) 
   ]);
 });
 
-test("Closed asks Won or Lost, the date and the reason", async (t) => {
+test("Closed asks Won or Lost with compact chips and hides Closed value until Won is picked", async (t) => {
   const { writes, path } = await openDeal(t, { width: 1440, height: 772 });
   await path.getByRole("button", { name: "Closed", exact: true }).click();
   const ask = path.getByRole("form", { name: "Close this deal" });
   assert.equal(await ask.getByLabel("Closed on").inputValue(), "2026-11-25");
+  assert.equal(
+    await ask.getByLabel("Closed value (optional)").isVisible(),
+    false,
+    "Closed value stays hidden before Won",
+  );
+  assert.equal(
+    await ask.getByLabel("Reason the deal was lost").isVisible(),
+    false,
+    "Lost reason stays hidden before Lost",
+  );
+  const chips = await ask.locator(".deal-path-outcome .chip").evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const box = node.getBoundingClientRect();
+      const radio = node.querySelector("input")?.getBoundingClientRect();
+      const label = node.querySelector("span")?.getBoundingClientRect();
+      return {
+        direction: getComputedStyle(node).flexDirection,
+        width: box.width,
+        height: box.height,
+        radioWidth: radio?.width ?? 0,
+        radioHeight: radio?.height ?? 0,
+        inline: Boolean(radio && label && radio.right <= label.left + 1),
+      };
+    }),
+  );
+  assert.equal(chips.length, 2);
+  for (const chip of chips) {
+    assert.equal(chip.direction, "row");
+    assert.ok(chip.radioWidth <= 20 && chip.radioHeight <= 20, `compact radio ${JSON.stringify(chip)}`);
+    assert.ok(chip.width > chip.height, `horizontal chip ${JSON.stringify(chip)}`);
+    assert.equal(chip.inline, true, `radio sits beside label ${JSON.stringify(chip)}`);
+  }
+  await ask.getByRole("button", { name: "Close deal" }).click();
+  assert.equal(await ask.getByRole("status").textContent(), "Choose Won or Lost.");
+  await ask.getByText("Won", { exact: true }).click();
+  assert.equal(await ask.getByLabel("Closed value (optional)").isVisible(), true, "Won reveals Closed value");
   await ask.getByText("Lost", { exact: true }).click();
   assert.equal(await ask.getByLabel("Closed value (optional)").isVisible(), false);
   await ask.getByRole("button", { name: "Close deal" }).click();
@@ -218,6 +273,57 @@ test("Closed asks Won or Lost, the date and the reason", async (t) => {
       phase: { from: "negotiation", to: "dead", on: "2026-11-25", reason: "Example client chose another site" },
     },
   ]);
+});
+
+test("phase popover closes on second click, outside click and Escape, and ignores stale slow responses", async (t) => {
+  const { page, path } = await openDeal(t, { width: 1440, height: 772 });
+  const legal = path.getByRole("button", { name: "Legal", exact: true });
+  const ask = path.getByRole("form", { name: "Move this deal to Legal?" });
+
+  await legal.click();
+  await ask.waitFor();
+  await legal.click();
+  assert.equal(await ask.count(), 0, "second click on the same phase closes the popover");
+  assert.equal(await legal.getAttribute("aria-expanded"), "false");
+  assert.equal(await legal.evaluate((node) => node === document.activeElement), true, "second click returns focus");
+
+  await legal.click();
+  await ask.waitFor();
+  await page.locator("#panelTitle").click();
+  assert.equal(await ask.count(), 0, "clicking outside closes the popover");
+  assert.equal(await legal.evaluate((node) => node === document.activeElement), true, "outside click returns focus");
+
+  await legal.click();
+  await ask.waitFor();
+  await legal.focus();
+  await page.keyboard.press("Escape");
+  assert.equal(await ask.count(), 0, "Escape from the phase button closes the popover");
+  assert.equal(await legal.evaluate((node) => node === document.activeElement), true, "Escape returns focus");
+
+  const slow = await openDeal(t, { width: 1440, height: 772 }, { delayMove: true });
+  await slow.path.getByRole("button", { name: "Legal", exact: true }).click();
+  await slow.path.getByRole("button", { name: "Move to Legal" }).click();
+  await slow.path.getByRole("button", { name: "Closing", exact: true }).click();
+  const closingAsk = slow.path.getByRole("form", { name: "Move this deal to Closing?" });
+  await closingAsk.waitFor();
+  slow.releaseMove();
+  await slow.page.waitForFunction(() => !document.querySelector('[data-path-move="legal"]'));
+  assert.equal(await closingAsk.count(), 1, "a stale response cannot close a newly opened popover");
+});
+
+test("unavailable checklist says so instead of Nothing listed, and deals without email_follow_ups still use the path", async (t) => {
+  for (const template_state of ["unavailable", "source_changed"]) {
+    const { path } = await openDeal(
+      t,
+      { width: 1440, height: 772 },
+      { checklistOverride: { schema_version: "deal-checklist.v1", template_state, phases: [] } },
+    );
+    assert.match((await path.textContent()) ?? "", /Checklist is unavailable/);
+    assert.equal(await path.locator(".deal-path-empty").count(), 0, `${template_state} never shows Nothing listed`);
+  }
+  const { page, path } = await openDeal(t, { width: 1440, height: 772 }, { omitFollowUps: true });
+  assert.equal(await page.locator("#detailPhase").count(), 0);
+  assert.equal(await path.locator(".deal-path-tile").count(), 8);
 });
 
 test("Park is a quiet line at the bottom and a parked deal shows Revive at the top", async (t) => {
@@ -250,7 +356,19 @@ for (const viewport of [
         current && current.x >= 0 && current.x + current.width <= viewport.width,
         "the current phase is in view",
       );
-      if (viewport.width === 500) await path.getByRole("button", { name: "Legal", exact: true }).click();
+      if (viewport.width === 500) {
+        for (const phase of ["Due Diligence", "Closing", "Closed"]) {
+          const button = path.getByRole("button", { name: phase, exact: true });
+          await button.scrollIntoViewIfNeeded();
+          await button.click();
+          const sheet = await path.locator(".deal-path-ask").boundingBox();
+          assert.ok(
+            sheet && sheet.x <= 1 && sheet.width >= viewport.width - 2,
+            `${phase} sheet spans full 500px width (${JSON.stringify(sheet)})`,
+          );
+          if (phase !== "Closed") await button.click();
+        }
+      }
       await path.scrollIntoViewIfNeeded();
       await page.screenshot({ path: `${shots}/path-${viewport.width}-${theme}.png` });
     });

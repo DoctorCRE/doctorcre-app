@@ -30,7 +30,7 @@ async function open(t,width=1280,{theme='dark',sparse=false,showDetail=true,heig
  });
  await page.goto('http://localhost/deals'+(showDetail?'?deal=d14':''));
  await waitForAsync(page,async()=>(await import('/js/pipeline.js')).state.deals.size>0);
- if(showDetail) await page.waitForSelector('#detailPhase');
+ if(showDetail) await page.waitForSelector('.deal-path');
  return {page,errors};
 }
 
@@ -109,7 +109,7 @@ test('archive-only snapshots hide board mutation controls',async t=>{
  await page.getByRole('button',{name:'Closed deals',exact:true}).click();
  await page.locator('[data-open-deal="demo-archived"]').click();
  await page.locator('#detailUpdateForm').waitFor();
- assert.equal(await page.locator('#detailPhase').count(),0,'archived phase cannot use the board-only move path');
+ assert.equal(await page.locator('button[data-path-phase]').count(),0,'archived phase cannot use the board-only move path');
  assert.equal(await page.locator('#detailOwner').count(),0);
  assert.equal(await page.locator('#detailParkForm').count(),0);
  assert.equal(await page.locator('.full-record').count(),0,'empty record sections do not create placeholder output');
@@ -209,7 +209,7 @@ test('an open snapshot removes board controls when a refresh records closure',as
  });
  await page.getByRole('button',{name:'Refresh deal',exact:true}).click();
  await page.waitForFunction(()=>document.querySelector('.phase-rail [aria-current] span')?.textContent==='Closed');
- assert.equal(await page.locator('#detailPhase').count(),0);
+ assert.equal(await page.locator('button[data-path-phase]').count(),0);
  assert.equal(await page.locator('#detailOwner').count(),0);
  assert.deepEqual(errors,[]);
 });
@@ -273,7 +273,7 @@ test('a recorded close date keeps an imported deal in history without open-board
  await page.getByRole('button',{name:'Closed deals',exact:true}).click();
  await page.locator('#closedDealsList [data-open-deal="d14"]').click();
  await page.locator('#detailUpdateForm').waitFor();
- assert.equal(await page.locator('#detailPhase,#detailOwner,#detailParkForm').count(),0);
+ assert.equal(await page.locator('button[data-path-phase],#detailOwner,#detailParkForm').count(),0);
  assert.deepEqual(errors,[]);
 });
 

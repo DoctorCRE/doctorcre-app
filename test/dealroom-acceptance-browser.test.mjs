@@ -1165,8 +1165,8 @@ test('Undoing an invoice close restores late steps to the deal page', async t =>
   await page.getByRole('button', { name: 'Reload deal', exact: true }).click();
   await steps.getByText('Call the architect again').waitFor();
   await undo.click();
-  await page.locator('#detailPhase').waitFor();
-  assert.equal(await page.locator('#detailPhase').inputValue(), 'legal');
+  await page.locator('.deal-path [aria-current="step"][data-phase="legal"]').waitFor();
+  assert.equal(await page.locator('#detailPhase').count(), 0);
   await steps.getByRole('listitem').filter({ hasText: 'Call the architect again' }).getByText(/2 days late/).waitFor();
   assert.equal(await page.getByRole('region', { name: 'Open before this deal ended' }).count(), 0);
   assert.equal(await undo.count(), 0);
@@ -2183,23 +2183,25 @@ for (const width of [1440, 390]) test(`Add deal and Won or Lost save through the
       await page.getByRole('tabpanel', { name: 'Activity' }).getByRole('region', { name: 'Deal notes' }).getByText('Example opening note', { exact: true }).waitFor();
       await page.getByRole('tab', { name: 'Overview' }).click();
     }
-    await page.locator('#detailPhase').selectOption('closed');
-    assert.equal(await page.getByLabel('Paused', { exact: true }).isVisible(), false);
-    await page.getByLabel(outcome, { exact: true }).check();
+    const path = page.getByRole('region', { name: 'Deal path' });
+    await path.getByRole('button', { name: 'Closed', exact: true }).click();
+    const closeAsk = path.getByRole('form', { name: 'Close this deal' });
+    assert.equal(await closeAsk.getByLabel('Paused', { exact: true }).count(), 0);
+    await closeAsk.getByText(outcome, { exact: true }).click();
     if (outcome === 'Lost') {
-      await page.getByRole('button', { name: 'Save outcome' }).click();
-      await page.getByText('Enter the reason the deal was lost.', { exact: true }).waitFor();
-      await page.getByLabel('Reason the deal was lost').fill('The client chose another site');
-    } else await page.getByLabel('Won value').fill('1000');
-    const date = page.getByLabel('Closed on', { exact: true });
+      await closeAsk.getByRole('button', { name: 'Close deal' }).click();
+      await closeAsk.getByText('Enter the reason the deal was lost.', { exact: true }).waitFor();
+      await closeAsk.getByLabel('Reason the deal was lost').fill('The client chose another site');
+    } else await closeAsk.getByLabel('Closed value (optional)').fill('1000');
+    const date = closeAsk.getByLabel('Closed on', { exact: true });
     const today = await date.inputValue();
     assert.equal(await date.getAttribute('max'), today);
     await date.fill(earlyDate);
-    await page.getByRole('button', { name: 'Save outcome' }).click();
-    await page.locator('#completionErrors').getByText('Choose a closing date between the day the deal reached its current phase and today.', { exact: true }).waitFor();
+    await closeAsk.getByRole('button', { name: 'Close deal' }).click();
+    await closeAsk.getByRole('status').getByText('Choose a closing date between the day the deal reached its current phase and today.', { exact: true }).waitFor();
     await date.fill(today);
     await page.screenshot({ path: join(evidence, `engine-${outcome.toLowerCase()}-dialog-${width}.png`) });
-    await page.getByRole('button', { name: 'Save outcome' }).click();
+    await closeAsk.getByRole('button', { name: 'Close deal' }).click();
     await page.getByText(`Deal marked ${outcome.toLowerCase()}`, { exact: true }).first().waitFor();
     await page.getByRole('button', { name: 'Back to deals' }).click();
     await page.getByRole('button', { name: outcome === 'Won' ? 'Closed deals' : 'Lost deals', exact: true }).click();

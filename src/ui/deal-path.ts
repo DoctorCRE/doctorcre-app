@@ -12,6 +12,7 @@ export type PathView = {
   phases: readonly Phase[];
   current: string | null;
   checklist: unknown;
+  showTodos?: boolean;
   today: string;
   canMove: boolean;
   receiptHtml: string;
@@ -33,6 +34,7 @@ const isTodo = (v: unknown): v is Todo =>
 export function todosByPhase(checklist: unknown): Map<string, Todo[]> | null {
   if (!record(checklist) || checklist.schema_version !== "deal-checklist.v1" || !Array.isArray(checklist.phases))
     return null;
+  if (checklist.template_state === "unavailable" || checklist.template_state === "source_changed") return null;
   const byPhase = new Map<string, Todo[]>();
   for (const group of checklist.phases) {
     if (!record(group) || typeof group.id !== "string" || !Array.isArray(group.items)) return null;
@@ -83,15 +85,17 @@ function tileHtml(phase: Phase, place: Place, todos: Todo[] | undefined, view: P
 
 /** Every phase as a tile with its to-dos; a phase name asks before it moves the deal. */
 export function dealPathHtml(view: PathView) {
-  const byPhase = todosByPhase(view.checklist);
+  const showTodos = view.showTodos !== false;
+  const byPhase = showTodos ? todosByPhase(view.checklist) : null;
   const at = view.phases.findIndex((phase) => phase.slug === view.current);
   const tiles = view.phases.map((phase, i) => {
     const place: Place = i === at ? "current" : at >= 0 && i < at ? "done" : "ahead";
     return tileHtml(phase, place, byPhase ? (byPhase.get(phase.slug) ?? []) : undefined, view);
   });
-  const unread = byPhase
-    ? ""
-    : '<p class="deal-path-note" role="status">To-dos could not be read. Refresh the deal.</p>';
+  const unread =
+    showTodos && !byPhase
+      ? '<p class="deal-path-note" role="status">Checklist is unavailable. Refresh the deal.</p>'
+      : "";
   const receipt = at < 0 ? `<div data-phase-move aria-live="polite">${view.receiptHtml}</div>` : "";
   return `<section class="deal-path-section" aria-label="Deal path"><ol class="deal-path">${tiles.join("")}</ol>${receipt}${unread}</section>`;
 }

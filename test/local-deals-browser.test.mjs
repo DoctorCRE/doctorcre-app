@@ -126,7 +126,7 @@ test('a closed prospect removes Mark inactive and refuses submission from stale 
   await page.locator('[data-detail-read="board-controls"][data-available="false"]').waitFor({state:'attached'});
   const controls={
     card:await page.locator('.kanban-column [data-id="d14"]').count(),
-    phase:await page.locator('#detailPhase').count(),
+    phase:await page.locator('button[data-path-phase]').count(),
     owner:await page.locator('#detailOwner').count(),
     inactive:await page.getByRole('button',{name:'Mark inactive',exact:true}).count(),
   };
@@ -170,7 +170,7 @@ test('W4 desktop/phone render, owner filters, equal cards, wide detail and reduc
     assert.equal(await page.locator('.kanban-column [data-id="d14"]').count(),0);
     assert.equal(await page.locator('.kanban-column .owner').evaluateAll(es => es.every(e => e.title === 'Owner: Dell')), true);
     await page.locator('[data-filter="all"]').click();
-    await page.locator('.kanban-column [data-id="d14"] .card-open').click(); await page.waitForSelector('#detailPhase');
+    await page.locator('.kanban-column [data-id="d14"] .card-open').click(); await page.waitForSelector('.deal-path');
     const box = await page.locator('#recordPanel').boundingBox(); assert.ok(box.width >= Math.min(1100, width - 30));
     assert.ok((await page.locator('.deal-note p').first().textContent()).length <= 150);
     await page.locator('.updates-history > summary').click();
@@ -261,11 +261,11 @@ test('W4 drag and keyboard phase writes, manual phase, park, revive and undo rec
   await page.waitForFunction(() => document.querySelector('#completionDialog').open);
   await page.locator('#completionConfirm').click();
   await waitForAsync(page, async () => (await import('/js/pipeline.js')).state.deals.get('d14').phase === 'Legal');
-  await page.locator('.kanban-column [data-id="d14"] .card-open').click(); await page.waitForSelector('#detailPhase');
-  await page.locator('#detailPhase').selectOption('site_selection');
-  await page.locator('#completionDialog[open]').waitFor();
-  assert.equal(await page.locator('#detailPhase').inputValue(), 'legal');
-  await page.locator('#completionConfirm').click();
+  await page.locator('.kanban-column [data-id="d14"] .card-open').click(); await page.waitForSelector('.deal-path');
+  await page.locator('.deal-path button[data-path-phase="site_selection"]').click();
+  await page.locator('.deal-path-ask').waitFor();
+  assert.equal(await page.locator('.deal-path [aria-current="step"]').getAttribute('data-phase'), 'legal');
+  await page.locator('.deal-path-ask button[type="submit"]').click();
   await waitForAsync(page, async () => (await import('/js/pipeline.js')).state.deals.get('d14').phase === 'Site selection');
   await page.locator('.park-options summary').click(); await page.locator('#detailParkForm input').fill('Demo unverified import'); await page.locator('#detailParkForm button').click();
   await waitForAsync(page, async () => (await import('/js/pipeline.js')).state.deals.get('d14').operating_state === 'parked');
@@ -369,7 +369,7 @@ test('W4 detail polls phase evidence, dates, people and parking while preserving
   });
   await page.clock.fastForward(61_000);
   await page.waitForFunction(() => document.querySelector('[data-detail-read="parking"]')?.textContent.includes('Demo reviewed import'));
-  assert.equal(await page.locator('#detailPhase').inputValue(), 'legal');
+  assert.equal(await page.locator('.deal-path [aria-current="step"]').getAttribute('data-phase'), 'legal');
   assert.match(await page.locator('.phase-rail [aria-current]').textContent(), /Legal/);
 
   assert.equal(await page.locator('[data-detail-read="dates"]').count(),1);
@@ -649,7 +649,7 @@ test('add deal validates input, retains an uncertain request and immediately sho
  assert.equal(await cards.locator('.owner').getAttribute('title'), 'Owner: Dell');
  assert.equal(await page.evaluate(()=>new URL(location.href).searchParams.get('owner')),'dell');
  await cards.getByRole('button',{name:'Demo Partner Review'}).click();
- await page.waitForSelector('#detailPhase');assert.match(await page.locator('#panelBody').textContent(),/Demo initial review note/);
+ await page.waitForSelector('.deal-path');assert.match(await page.locator('#panelBody').textContent(),/Demo initial review note/);
  assert.deepEqual(errors,[]);
 });
 
@@ -710,12 +710,13 @@ for (const savesOn of [false,true]) test(`a column add button opens Add deal in 
 
 test('closing a deal from its details removes the card and retains its close date in history', async t=>{
  const {page,errors}=await open(t);
- await page.locator('.kanban-column [data-id="d14"] .card-open').click();await page.waitForSelector('#detailPhase');
- await page.locator('#detailPhase').selectOption('closed');
- await page.getByLabel('Won',{exact:true}).check();
- await page.locator('#completionClosedOn').fill('2026-10-04');
- await page.locator('#completionConfirm').click();
- await waitForAsync(page,()=>!document.querySelector('#completionDialog').open);
+ await page.locator('.kanban-column [data-id="d14"] .card-open').click();await page.waitForSelector('.deal-path');
+ await page.locator('.deal-path button[data-path-phase="closed"]').click();
+ const closeAsk = page.locator('.deal-path-ask');
+ await closeAsk.getByText('Won',{exact:true}).click();
+ await closeAsk.getByLabel('Closed on',{exact:true}).fill('2026-10-04');
+ await closeAsk.getByRole('button',{name:'Close deal',exact:true}).click();
+ await waitForAsync(page,()=>!document.querySelector('.deal-path-ask'));
  await page.getByRole('button', { name: 'Back to deals', exact: true }).click();
  assert.equal(await page.locator('#kanban [data-id="d14"]').count(),0);
  await page.getByRole('button',{name:'Closed deals',exact:true}).click();
@@ -741,8 +742,8 @@ test('failed board reads remain unavailable after local view repaints',async t=>
 test('a move offers Undo only in its temporary toast, never on cards after reload', async t => {
   const {page, errors, seed} = await open(t);
   await page.locator('.kanban-column [data-id="d14"] .card-open').click();
-  await page.locator('#detailPhase').selectOption('legal');
-  await page.locator('#completionConfirm').click();
+  await page.locator('.deal-path button[data-path-phase="legal"]').click();
+  await page.locator('.deal-path-ask button[type="submit"]').click();
   await waitForAsync(page, async () => (await import('/js/pipeline.js')).state.deals.get('d14').phase === 'Legal');
   await page.getByRole('button', { name: 'Back to deals', exact: true }).click();
   assert.equal(await page.locator('.toast [data-undo]').count(), 1);
@@ -766,9 +767,9 @@ test('a move offers Undo only in its temporary toast, never on cards after reloa
 test('move Undo uses the same five-second success life, without permanent notifications', async t => {
   const {page, errors} = await open(t);
   await page.locator('.kanban-column [data-id="d14"] .card-open').click();
-  await page.locator('#detailPhase').selectOption('legal');
+  await page.locator('.deal-path button[data-path-phase="legal"]').click();
   await freezeClock(page);
-  await page.locator('#completionConfirm').click();
+  await page.locator('.deal-path-ask button[type="submit"]').click();
   await waitForAsync(page, async () => (await import('/js/pipeline.js')).state.deals.get('d14').phase === 'Legal');
   await page.getByRole('button', { name: 'Back to deals', exact: true }).click();
   await page.clock.runFor(4900);
@@ -831,9 +832,9 @@ for (const width of [390,1280]) test(`move follow-ups preserve the original Undo
 for (const width of [390,1280]) for (const input of ['pointer','keyboard']) test(`phase-picker Undo works inside the workspace with ${input} at ${width}px`, async t => {
   const {page, errors} = await open(t, {width, reducedMotion:'reduce'});
   await page.locator('.kanban-column [data-id="d14"] .card-open').click();
-  await page.locator('#detailPhase').selectOption('legal');
-  await page.locator('#completionConfirm').click();
-  await page.locator('#completionDialog').waitFor({state:'hidden'});
+  await page.locator('.deal-path button[data-path-phase="legal"]').click();
+  await page.locator('.deal-path-ask button[type="submit"]').click();
+  await page.locator('.deal-path-ask').waitFor({state:'detached'});
   assert.equal(await page.locator('#recordPanel').evaluate(n => !n.hidden),true);
   const undo = page.locator('.toast [data-undo]');
   if (input === 'pointer') await undo.click({timeout:1500});
@@ -851,9 +852,9 @@ for (const width of [390,1280]) for (const input of ['pointer','keyboard']) test
 for (const width of [390,1280]) test(`Undo survives workspace navigation without renewing its deadline at ${width}px`, async t => {
   const {page, errors} = await open(t, {width, reducedMotion:'reduce'});
   await page.locator('.kanban-column [data-id="d14"] .card-open').click();
-  await page.locator('#detailPhase').selectOption('legal');
-  await page.locator('#completionConfirm').click();
-  await page.locator('#completionDialog').waitFor({state:'hidden'});
+  await page.locator('.deal-path button[data-path-phase="legal"]').click();
+  await page.locator('.deal-path-ask button[type="submit"]').click();
+  await page.locator('.deal-path-ask').waitFor({state:'detached'});
   await waitForAsync(page, () => document.querySelector('.toast')?.parentElement === document.body);
   await page.evaluate(() => { window.moveToast = document.querySelector('.toast'); });
   await page.clock.runFor(500);
@@ -879,9 +880,9 @@ for (const width of [390,1280]) test(`Undo survives workspace navigation without
 for (const width of [390,1280]) test(`move success fades after its hold and Undo is clickable during the fade at ${width}px`, async t => {
   const {page,errors}=await open(t,{width});
   await page.locator('.kanban-column [data-id="d14"] .card-open').click();
-  await page.locator('#detailPhase').selectOption('legal');
-  await page.locator('#completionConfirm').click();
-  await page.locator('#completionDialog').waitFor({state:'hidden'});
+  await page.locator('.deal-path button[data-path-phase="legal"]').click();
+  await page.locator('.deal-path-ask button[type="submit"]').click();
+  await page.locator('.deal-path-ask').waitFor({state:'detached'});
   await page.clock.runFor(4201);
   assert.equal(await page.locator('.toast').evaluate(n=>n.classList.contains('is-leaving')),true,'moves use the ordinary success fade');
   const undo=page.locator('.toast [data-undo]');

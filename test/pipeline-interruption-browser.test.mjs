@@ -434,19 +434,19 @@ test('a crossed move uses the open deal snapshot and offers a reload', async t =
     };
   });
   await page.locator('[data-refresh-detail]').click();
-  await settles(async () => assert.equal(await page.locator('#detailPhase').inputValue(), 'research'));
-  await page.locator('#detailPhase').selectOption('site_selection');
+  await settles(async () => assert.equal(await page.locator('.deal-path [aria-current="step"]').getAttribute('data-phase'), 'research'));
+  await page.locator('.deal-path').getByRole('button', { name: 'Site Selection', exact: true }).click();
   await page.getByRole('button', { name: 'Move to Site Selection', exact: true }).click();
   await settles(async () => {
     const writes = await page.evaluate(() => window.moveWrites.map(({ seen_change_id, phase_from }) => ({ seen_change_id, phase_from })));
     assert.deepEqual(writes, [{ seen_change_id: 23, phase_from: 'research' }]);
   });
-  await settles(async () => assert.equal(await page.locator('#completionDialog').isVisible(), false));
+  await settles(async () => assert.equal(await page.locator('.deal-path-ask').count(), 0));
   const receipt = page.locator('#receiptDock');
   assert.match(await receipt.innerText(), /This deal changed/);
   assert.equal(await receipt.getByRole('button', { name: 'Try again' }).count(), 0);
   await receipt.getByRole('button', { name: 'Reload deal' }).click();
-  await settles(async () => assert.equal(await page.locator('#detailPhase').inputValue(), 'negotiation'));
+  await settles(async () => assert.equal(await page.locator('.deal-path [aria-current="step"]').getAttribute('data-phase'), 'negotiation'));
   assert.equal(await page.evaluate(() => window.moveWrites.length), 1);
   await page.locator('#detailOwner').selectOption('dell');
   await settles(async () => {

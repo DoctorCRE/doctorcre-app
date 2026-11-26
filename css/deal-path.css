@@ -1,3 +1,4 @@
+.deal-workspace .deal-freshness:has(~ #workspace-overview:not([hidden]) .deal-path) { margin-block-end: var(--space-1); }
 .deal-parked-line:not(:empty) { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); padding: var(--space-3) var(--space-4); margin-bottom: var(--space-3); border-radius: var(--radius-3); background: var(--surface-1); }
 .deal-parked-line p { margin: 0; color: var(--fg-muted); }
 .deal-parked-line p:first-child { color: var(--fg); font-weight: var(--font-weight-strong); }
@@ -7,9 +8,9 @@
 .deal-path-tile { flex: 1 1 0; min-width: 0; position: relative; display: flex; flex-direction: column; border-radius: var(--radius-3); background: var(--surface-1); }
 .deal-path-tile[data-place="current"] { flex-grow: 1.4; background: var(--surface-2); box-shadow: inset 0 2px 0 var(--accent); }
 .deal-path-tile + .deal-path-tile::before { content: ""; position: absolute; left: -11px; top: 15px; width: 6px; height: 6px; border-top: 1.5px solid var(--fg-quiet); border-right: 1.5px solid var(--fg-quiet); transform: rotate(45deg); opacity: .6; }
-.deal-path-head { display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 6px 10px; box-sizing: border-box; }
+.deal-path-head { display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 2px 10px; box-sizing: border-box; }
 .deal-path-name { min-width: 0; font: inherit; line-height: 1.25; font-weight: var(--font-weight-strong); color: var(--fg-muted); }
-button.deal-path-name { border: 0; background: none; padding: 0; cursor: pointer; text-align: left; }
+button.deal-path-name { display: inline-flex; align-items: center; min-width: var(--touch); min-height: var(--touch); border: 0; background: none; padding: 0; cursor: pointer; text-align: left; }
 button.deal-path-name:hover, button.deal-path-name[aria-expanded="true"] { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; }
 .deal-path-tile[data-place="current"] .deal-path-name { color: var(--fg); }
 .deal-path-tile[data-place="done"] .deal-path-name { color: var(--fg-quiet); }
@@ -32,12 +33,16 @@ button.deal-path-name:hover, button.deal-path-name[aria-expanded="true"] { color
 .deal-path-tile details p { margin: 0 4px 4px 24px; font-size: var(--font-size-1); color: var(--fg-quiet); }
 .deal-path-empty, .deal-path-note { margin: 0; padding: 2px 10px 8px; font-size: var(--font-size-1); color: var(--fg-quiet); }
 
-.deal-path-ask { position: absolute; z-index: 5; top: 40px; left: 0; width: 300px; display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: var(--radius-3); background: var(--surface-2); box-shadow: 0 0 0 1px var(--hairline), var(--shadow-overlay); }
-.deal-path-tile:nth-last-child(-n+3) .deal-path-ask { left: auto; right: 0; }
+.deal-path-ask { position: absolute; z-index: 5; top: 40px; left: 0; width: 300px; box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: var(--radius-3); background: var(--surface-2); box-shadow: 0 0 0 1px var(--hairline), var(--shadow-overlay); }
 .deal-path-ask-title { margin: 0; font-weight: var(--font-weight-strong); }
-.deal-path-ask label { display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--font-size-1); color: var(--fg-muted); }
-.deal-path-outcome { display: flex; gap: var(--space-2); margin: 0; padding: 0; border: 0; }
-.deal-path-ask [data-when="lost"], .deal-path-ask:has(input[value="lost"]:checked) [data-when="won"] { display: none; }
+.deal-path-ask > label { display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--font-size-1); color: var(--fg-muted); }
+.deal-path-ask input:not([type="radio"]) { width: 100%; box-sizing: border-box; }
+.deal-path-outcome { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0; padding: 0; border: 0; }
+.deal-path-outcome .chip { display: inline-flex; flex-direction: row; align-items: center; gap: var(--space-2); color: var(--fg); }
+.deal-path-outcome .chip:has(input:checked) { border-color: var(--accent); background: var(--surface-3); }
+.deal-path-outcome input[type="radio"] { min-width: 0; min-height: 0; width: 16px; height: 16px; margin: 0; padding: 0; border: 0; background: transparent; accent-color: var(--accent); flex: none; }
+.deal-path-ask [data-when] { display: none; }
+.deal-path-ask:has(input[value="won"]:checked) [data-when="won"],
 .deal-path-ask:has(input[value="lost"]:checked) [data-when="lost"] { display: flex; }
 .deal-path-ask [data-path-status]:empty { display: none; }
 .deal-path-ask [data-path-status] { margin: 0; color: var(--status-danger-ink); font-size: var(--font-size-1); }
@@ -45,6 +50,10 @@ button.deal-path-name:hover, button.deal-path-name[aria-expanded="true"] { color
 
 .deal-park-line { display: flex; justify-content: flex-end; margin-top: var(--space-4); }
 .deal-park-line .park-options > summary { color: var(--fg-quiet); font-size: var(--font-size-1); cursor: pointer; }
+
+@media (min-width: 761px) {
+  .deal-path-tile:nth-last-child(-n+3) .deal-path-ask { left: auto; right: 0; }
+}
 
 @media (max-width: 760px) {
   .deal-path { overflow-x: auto; scrollbar-width: none; scroll-snap-type: x mandatory; }
