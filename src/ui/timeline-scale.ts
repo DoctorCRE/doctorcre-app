@@ -1,5 +1,3 @@
-// Whole days since 1970-01-01, so a day's place on the chart is plain arithmetic.
-export type Day = number;
 export type Zoom = "day" | "week" | "month";
 
 export const ZOOMS: readonly Zoom[] = ["day", "week", "month"];
@@ -7,26 +5,27 @@ export const DAY_WIDTH: Record<Zoom, number> = { day: 28, week: 12, month: 4 };
 
 const MS_PER_DAY = 86_400_000;
 
-export function dayOf(iso: string): Day {
+// A day is a whole number of days since 1970-01-01, so its place on the chart is plain arithmetic.
+export function dayOf(iso: string): number {
   const ms = Date.parse(`${iso}T00:00:00Z`);
   if (Number.isNaN(ms) || new Date(ms).toISOString().slice(0, 10) !== iso)
     throw new RangeError(`Not a calendar day: ${iso}`);
   return ms / MS_PER_DAY;
 }
 
-const dateOf = (day: Day) => new Date(day * MS_PER_DAY);
-const label = (day: Day, options: Intl.DateTimeFormatOptions) =>
+const dateOf = (day: number) => new Date(day * MS_PER_DAY);
+const label = (day: number, options: Intl.DateTimeFormatOptions) =>
   dateOf(day).toLocaleDateString("en-US", { timeZone: "UTC", ...options });
 
 interface Tick {
-  day: Day;
+  day: number;
   label: string;
 }
 
 export interface Scale {
   months: Tick[];
   days: Tick[];
-  saturdays: Day[];
+  saturdays: number[];
 }
 
 const daysLeftInMonth = (date: Date) =>
@@ -35,10 +34,10 @@ const daysLeftInMonth = (date: Date) =>
 // The header's month names and day numbers, and the weekends to shade, for the days from..to.
 // A month that starts too close to the left edge to fit its name gets no name there, and Month
 // zoom leaves weekends unshaded because a 4px day would turn them into stripes.
-export function scale(from: Day, to: Day, zoom: Zoom): Scale {
+export function scale(from: number, to: number, zoom: Zoom): Scale {
   const months: Tick[] = [];
   const days: Tick[] = [];
-  const saturdays: Day[] = [];
+  const saturdays: number[] = [];
   for (const d of Array.from({ length: to - from }, (_, i) => from + i)) {
     const date = dateOf(d);
     const weekday = date.getUTCDay();

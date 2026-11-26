@@ -105,12 +105,17 @@ const dayWidth = async (page: Page) => Number(await page.locator(".timeline").ge
 
 test("the list column and date header stay put while the chart scrolls both ways, and the page itself does not scroll", async (t) => {
   const { page, scroller } = await open(t, { width: 1280, height: 640 });
-  await scroller.evaluate((n) => n.scrollTo({ left: 900, top: 80 }));
+  await scroller.evaluate((n) => n.scrollTo({ left: 900, top: 60 }));
   const view = await box(scroller);
   assert.equal((await box(page.locator(".timeline-head"))).y, view.y);
   const visibleRow = page.locator('[data-row="legal2"] .timeline-label');
   assert.equal((await box(visibleRow)).x, view.x);
-  assert.deepEqual(await scroller.evaluate((n) => [n.scrollLeft, n.scrollTop]), [900, 80]);
+  assert.equal(
+    (await box(page.locator(".timeline-list-fill"))).x,
+    view.x,
+    "the list column runs on below the last row",
+  );
+  assert.deepEqual(await scroller.evaluate((n) => [n.scrollLeft, n.scrollTop]), [900, 60]);
   assert.equal(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight), true);
 });
 
@@ -212,13 +217,57 @@ test("groups fold from where they start and the fold is remembered on the device
   assert.ok((await rows("neg")).includes("loi"));
 });
 
-test("the chart fades out at the bottom without hiding its last row", async (t) => {
-  const { page, scroller } = await open(t, { width: 1280, height: 640 });
+test("no date label sits under the Today pill at any zoom", async (t) => {
+  const { page } = await open(t);
+  for (const name of ["Day", "Week", "Month"]) {
+    await page.getByRole("group", { name: "Zoom" }).getByRole("button", { name, exact: true }).click();
+    await page.getByRole("button", { name: "Today" }).click();
+    const pill = await box(page.locator(".timeline-today"));
+    const dates = await page.locator(".timeline-date").evaluateAll((ns) => ns.map((n) => n.getBoundingClientRect()));
+    assert.ok(dates.length > 0, `${name} still has date labels`);
+    for (const d of dates)
+      assert.ok(d.right <= pill.x || d.left >= pill.x + pill.width, `${name}: a label at ${d.left} touches the pill`);
+  }
+});
+
+test("a month's name stays at the left of the dates while the month is in view", async (t) => {
+  const { page, scroller } = await open(t);
+  await page.getByRole("group", { name: "Zoom" }).getByRole("button", { name: "Day", exact: true }).click();
   const view = await box(scroller);
-  const fade = await box(page.locator(".timeline-fade"));
-  assert.ok(Math.abs(fade.y + fade.height - (view.y + view.height)) < 1, "the fade sits on the bottom edge");
-  await scroller.evaluate((n) => n.scrollTo({ top: n.scrollHeight }));
-  assert.equal((await box(page.locator(".timeline-fade"))).y, fade.y, "the fade stays put while scrolling");
-  const last = await box(page.locator('[data-row="closing5"]'));
-  assert.ok(last.y + last.height <= fade.y + 1, "the last row ends above the fade");
+  const list = await box(page.locator(".timeline-corner"));
+  const px = await dayWidth(page);
+  const november = (dayIndex("2026-11-01") + 10) * px;
+  await scroller.evaluate((n, left) => n.scrollTo({ left }), november);
+  const name = await box(page.locator(".timeline-month", { hasText: "November" }).locator("span"));
+  assert.ok(Math.abs(name.x - (view.x + list.width)) < 1, `the name sits at ${name.x}, beside the list column`);
+});
+
+test("the chart is a labelled region, its dates are hidden from screen readers but still told, and groups say what they control", async (t) => {
+  const { page } = await open(t);
+  const region = page.getByRole("region", { name: "Timeline" });
+  assert.equal(await region.count(), 1);
+  assert.equal(await page.locator(".timeline-dates").getAttribute("aria-hidden"), "true");
+  assert.match((await page.locator(".timeline-sr").textContent()) ?? "", /2026-09-28 to 2027-04-05.*2026-11-25/);
+  const controls = await page.locator('[data-group="neg"] button').getAttribute("aria-controls");
+  assert.ok(controls);
+  for (const id of controls.split(" ")) assert.equal(await page.locator(`[id="${id}"]`).count(), 1);
+  assert.equal(await page.locator('[data-group="research"] button').getAttribute("aria-controls"), null);
+});
+
+test("the scrollbar shows only while the chart is being scrolled", async (t) => {
+  const { scroller } = await open(t);
+  assert.equal(await scroller.getAttribute("data-scrolling"), null);
+  const shownWhileScrolling = await scroller.evaluate(
+    (n) =>
+      new Promise<boolean>((done) => {
+        let shown = false;
+        n.addEventListener("scroll", () => {
+          shown = n.hasAttribute("data-scrolling");
+        });
+        n.addEventListener("scrollend", () => done(shown));
+        n.scrollBy({ left: 40 });
+      }),
+  );
+  assert.equal(shownWhileScrolling, true);
+  assert.equal(await scroller.getAttribute("data-scrolling"), null);
 });
