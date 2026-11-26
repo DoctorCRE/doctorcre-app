@@ -38,10 +38,11 @@ test("W4 Local Deals board moves a deal and undoes only the move just made", asy
   const phone = await browser.evaluate(() => innerWidth <= 760);
   const move = async () => {
     if (phone) {
-      // Phones use the existing deal phase picker; HTML drag remains desktop-only.
+      // Phones use the deal path; HTML drag remains desktop-only.
       await browser.locator('[data-column="negotiation"] [data-id="d23"] .card-open').tap();
-      await expect(browser.locator("#detailPhase")).toBeVisible();
-      await browser.locator("#detailPhase").selectOption({ value: "legal" });
+      const legal = browser.locator('.deal-path button[data-path-phase="legal"]');
+      await expect(legal).toBeVisible();
+      await legal.tap();
     } else {
       await browser.evaluate(() => {
         document
@@ -55,21 +56,29 @@ test("W4 Local Deals board moves a deal and undoes only the move just made", asy
     }
   };
   await move();
-  await expect(browser.locator("#completionDialog")).toBeVisible();
-  await browser.locator("#completionDialog #completionCancel").tap();
-  await expect(browser.locator("#completionDialog")).toBeHidden();
   if (phone) {
+    await expect(browser.locator(".deal-path-ask")).toBeVisible();
+    await browser.locator(".deal-path-ask [data-path-cancel]").tap();
+    await expect(browser.locator(".deal-path-ask")).toBeHidden();
     await browser.locator("#panelClose").tap();
     await expect(browser.locator("#recordPanel")).toBeHidden();
+  } else {
+    await expect(browser.locator("#completionDialog")).toBeVisible();
+    await browser.locator("#completionDialog #completionCancel").tap();
+    await expect(browser.locator("#completionDialog")).toBeHidden();
   }
   await expect(browser.locator('[data-column="negotiation"] [data-id="d23"]')).toBeVisible();
   await move();
-  await expect(browser.locator("#completionDialog")).toBeVisible();
-  await browser.locator("#completionConfirm").tap();
-  await expect(browser.locator("#completionDialog")).toBeHidden();
   if (phone) {
+    await expect(browser.locator(".deal-path-ask")).toBeVisible();
+    await browser.locator('.deal-path-ask button[type="submit"]').tap();
+    await expect(browser.locator(".deal-path-ask")).toBeHidden();
     await browser.locator("#panelClose").tap();
     await expect(browser.locator("#recordPanel")).toBeHidden();
+  } else {
+    await expect(browser.locator("#completionDialog")).toBeVisible();
+    await browser.locator("#completionConfirm").tap();
+    await expect(browser.locator("#completionDialog")).toBeHidden();
   }
   await expect(browser.locator('[data-column="legal"] [data-id="d23"]')).toBeVisible();
   await expect(browser.locator('[data-column="negotiation"] [data-id="d23"]')).toHaveCount(0);

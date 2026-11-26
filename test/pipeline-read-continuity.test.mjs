@@ -57,9 +57,9 @@ for (const hold of ['holdBoard', 'holdFeed']) test(`an exact deal opens while th
   assert.equal(await page.locator('#detailUpdateForm').count(), 1, 'independently authorized exact detail is already usable');
   assert.equal(await page.evaluate(() => window.panelReads.getDeal), 1);
   if (hold === 'holdBoard') {
-    assert.equal(await page.locator('#detailPhase').count(), 0);
+    assert.equal(await page.locator('button[data-path-phase]').count(), 0);
     await page.evaluate(() => window.releaseBoard());
-    await page.locator('#detailPhase').waitFor({ timeout: 2000 });
+    await page.locator('button[data-path-phase]').first().waitFor({ timeout: 2000 });
     assert.equal(await page.evaluate(() => window.panelReads.getDeal), 1, 'board arrival enables controls without rereading detail');
   }
 });

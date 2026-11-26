@@ -1,6 +1,7 @@
 import { hasTourDrafts, legacyTourDraftScope, TOUR_DRAFT_KEYS } from './offline-tour-session.js';
 import { createDayStore } from '../tours/day-store.js';
 import { mountWatchControl } from './ui-watches.generated.js';
+import { dealPathHtml, pathQuestionHtml } from './ui-deal-path.generated.js';
 import { workCard } from './work-card.js';
 import { bindCardQuickMenu } from './ui-card-menu.generated.js';
 import {
@@ -168,7 +169,7 @@ function parkFormHtml(nextDealSaves) {
   const fields = nextDealSaves
     ? `<label>Park reason<select name="reason" required><option value="">Choose a reason</option>${Array.from(PARKING_REASONS, ([value, label]) => `<option value="${value}">${label}</option>`).join('')}</select></label><label>Parking note (optional)<textarea name="note" maxlength="500"></textarea></label>`
     : '<label>Park reason<input name="reason" maxlength="500" required></label>';
-  return `<details class="park-options"><summary class="park-control">Park</summary><form id="detailParkForm">${fields}<button class="btn park-control" type="submit">Park deal</button></form></details>`;
+  return `<details class="park-options"><summary class="park-control">Park deal</summary><form id="detailParkForm">${fields}<button class="btn park-control" type="submit">Park</button></form></details>`;
 }
 function dealOwnerFirstSteps(deal, actions) {
   const steps = ordinaryOpenSteps(actions);
@@ -613,9 +614,10 @@ function applyBoardSnapshot(board) {
   syncUpdateForm();
   if (!previousPanelRow && state.panelDetail && state.deals.has(state.panelDeal)) {
     const template = document.createElement('div'); template.innerHTML = workspaceHtml(state.panelDetail);
-    for (const section of ['board-controls', 'prospect']) {
+    for (const section of ['path', 'board-controls', 'prospect']) {
       const selector = `[data-detail-read="${section}"]`;
       $('panelBody').querySelector(selector)?.replaceWith(template.querySelector(selector));
+      if (section === 'path') revealCurrentPhase();
     }
   }
   if (state.panelDeal && !$('recordPanel')?.hidden && ((state.panelDetail && saveSwitchChanged)
@@ -1131,9 +1133,10 @@ function closeCompletion({ cancelled }) {
   if (intent) {
     const phase = columnByValue(state.deals.get(intent.deal)?.phase)?.slug || '';
     const returnTo = state.panelDeal === intent.deal && !$('recordPanel')?.hidden
-      ? $('detailPhase') : document.querySelector(`.kanban-card[data-id="${CSS.escape(intent.deal)}"]`)
+      ? $('panelBody')?.querySelector(`.deal-path [data-path-phase="${CSS.escape(intent.to)}"]`)
+        || $('panelBody')?.querySelector('.deal-path-name')
+      : document.querySelector(`.kanban-card[data-id="${CSS.escape(intent.deal)}"]`)
         || document.querySelector(`[data-collapse-stage="${CSS.escape(phase)}"]`);
-    if (returnTo?.id === 'detailPhase') returnTo.value = phase;
     returnTo?.focus({ preventScroll: !returnTo.dataset.collapseStage });
   }
 }
@@ -1552,13 +1555,17 @@ let dealToursPanel, dealDocumentsPanel;
 let checklistPanel;
 function disposeChecklist() { checklistPanel?.dispose(); checklistPanel = null; }
 function disposeWatchControl() { watchControl?.dispose(); watchControl = null; watchElement = null; watchSubject = null; }
+const focusedChecklistItem = dealId => {
+  const params = new URL(location.href).searchParams;
+  return params.get('deal') === dealId ? params.get('checklist') : null;
+};
 function mountChecklist(detail) {
   disposeChecklist();
   const host = $('panelBody').querySelector('[data-detail-read="checklist"]');
+  if (!host) return;
   let retired = false, mounted, latest = detail;
-  const params = new URL(location.href).searchParams;
   const props = value => ({dealId: value.deal.id, checklist: value.checklist, showProgress: isEngineDealDetail(value),
-    focusedItem: params.get('deal') === value.deal.id ? params.get('checklist') : null});
+    focusedItem: focusedChecklistItem(value.deal.id)});
   checklistPanel = {
     update(value) { latest = value; mounted?.update(props(value)); },
     dispose() { retired = true; mounted?.dispose(); },
@@ -1567,6 +1574,49 @@ function mountChecklist(detail) {
     if (retired) return;
     mounted = mountDealChecklist(host, props(latest));
   }).catch(() => { if (!retired) host.textContent = 'Checklist unavailable. Reopen the deal to try again.'; });
+}
+
+// A phone's path opens on the current phase; scrollIntoView would also move the page.
+function revealCurrentPhase() {
+  const path = $('panelBody').querySelector('.deal-path');
+  const now = path?.querySelector('[data-place="current"]');
+  if (now) path.scrollLeft += now.getBoundingClientRect().left - path.getBoundingClientRect().left - (path.clientWidth - now.offsetWidth) / 2;
+}
+function closePathQuestion({ focus = true } = {}) {
+  const ask = $('panelBody').querySelector('.deal-path-ask');
+  const phase = ask?.closest('.deal-path-tile')?.querySelector('[data-path-phase]');
+  ask?.remove();
+  phase?.setAttribute('aria-expanded', 'false');
+  if (focus) phase?.focus();
+}
+function askPathMove(button) {
+  const wasOpen = button.getAttribute('aria-expanded') === 'true';
+  closePathQuestion({ focus: wasOpen });
+  if (wasOpen) return;
+  const phase = columnBySlug(button.dataset.pathPhase);
+  if (!phase) return;
+  button.setAttribute('aria-expanded', 'true');
+  button.closest('.deal-path-tile').insertAdjacentHTML('beforeend', pathQuestionHtml(phase, businessDay()));
+  button.closest('.deal-path-tile').querySelector('.deal-path-ask input')?.focus();
+}
+async function movePathPhase(ask) {
+  const detail = state.panelDetail;
+  const intent = detail && moveIntent(detail.deal, ask.dataset.pathMove);
+  const submit = ask.querySelector('button[type="submit"]');
+  if (!intent || submit.disabled) return;
+  const field = name => ask.elements[name]?.value;
+  submit.disabled = true;
+  try {
+    const outcome = await runMove(intent, { changeReason: field('reason'), outcome: ask.elements.outcome?.value,
+      closedOn: field('closedOn'), wonValue: field('wonValue'), lostReason: field('lostReason') });
+    if (!ask.isConnected) {
+      if (outcome.ok && state.panelDeal === intent.deal) await refreshPanel({ changed: true });
+      return;
+    }
+    if (outcome.errors.length) { ask.querySelector('[data-path-status]').textContent = outcome.errors.join(' '); return; }
+    closePathQuestion({ focus: false });
+    if (outcome.ok) await refreshPanel({ changed: true });
+  } finally { submit.disabled = false; }
 }
 
 function dueDateHtml(day, today) {
@@ -1846,11 +1896,12 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
   const websiteSetup = !d.client_portal_url && (fromEngine ? detail.next_deal_saves && d.client_id : controlsAvailable)
     ? clientPortalSetupHtml() : '';
   return `<div class="deal-freshness"><time id="detailUpdated" title="Last updated"></time><button class="btn icon-btn" type="button" data-refresh-detail aria-label="Refresh deal" title="Refresh">↻</button></div><p id="detailReadStatus" role="status"></p>
-    <section id="workspace-overview" role="tabpanel" aria-labelledby="tab-overview">${fromEngine ? '<p id="detailStepStatus" role="status"></p>' : ''}<section class="deal-opening-snapshot" aria-label="Deal snapshot">
+    <section id="workspace-overview" role="tabpanel" aria-labelledby="tab-overview">${fromEngine ? `<p id="detailStepStatus" role="status"></p><div class="deal-parked-line" data-detail-read="parked">${parked ? `${parkingSummary}${controlsAvailable ? `<button type="button" class="btn" data-revive="${esc(d.id)}">Revive</button>` : ''}` : ''}</div>` : ''}
+    <div data-detail-read="path">${dealPathHtml({ phases: COLUMNS, current: columnByValue(d.phase)?.slug ?? null, checklist: detail.checklist, showTodos: fromEngine, today, canMove: controlsAvailable && !parked, receiptHtml: fromEngine ? phaseMove : '', focusedItem: focusedChecklistItem(d.id) })}</div><section class="deal-opening-snapshot" aria-label="Deal snapshot">
       <div data-detail-read="step-overview">
       ${websiteLink}
       ${renderInvoiceClose(d, state.nextDealSaves)}
-      ${fromEngine || phaseMove ? `<div data-phase-move aria-live="polite">${phaseMove}</div>` : ''}
+      ${!fromEngine && phaseMove ? `<div data-phase-move aria-live="polite">${phaseMove}</div>` : ''}
       ${!fromEngine && ended && (nextStep || otherActions.length) ? `<section aria-labelledby="ended-deal-steps"><h3 id="ended-deal-steps">Open before this deal ended</h3>${stepSummary}</section>` : stepSummary}
       ${completedStep ? `<section aria-label="Completed step"${stepFocusAttrs(completedStep)}>
       <h2>Completed step</h2><p>${esc(completedStep.description)}</p>${stepOrigin(completedStep)}
@@ -1866,18 +1917,19 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
     ${detail.next_deal_saves ? `<div data-detail-read="attention">${Number.isSafeInteger(d.seen) && !ended
       ? `<button class="btn" type="button" data-deal-attention data-detail-focus="attention">${d.attention === true ? 'Clear needs attention' : 'Mark needs attention'}</button>` : ''}</div>` : ''}
     ${fromEngine ? `<div data-detail-read="client-portal">${websiteSetup}</div>` : ''}
-    <div data-detail-read="checklist"></div>
+    ${fromEngine ? '' : '<div data-detail-read="checklist"></div>'}
     ${ownStep ? '' : dealUpdateFormHtml(false, today)}
     <section id="panelEmailFollowups" aria-label="Email follow-ups"${fromEngine ? ' data-detail-read="email-followups"' : ''}>${fromEngine ? dealEmailFollowupsHtml(detail) : '<p role="status">Updating email follow-ups…</p>'}</section>
     ${engineMode ? '<details id="panelCallReview"><summary>Call review</summary><div></div></details>\n    ' : ''}${requirementEmailHtml(d)}
     <div data-detail-read="vendors">${renderDealVendors(d.vendors)}</div>
-    <div data-detail-read="board-controls" data-available="${controlsAvailable}">${controlsAvailable ? `<div class="detail-actions"><div class="detail-controls"><label>Phase<select id="detailPhase">${COLUMNS.map(c => `<option value="${esc(c.slug)}"${c.value === d.phase ? ' selected' : ''}>${esc(c.label)}</option>`).join('')}</select></label><label>Owner<select id="detailOwner">${fromEngine ? '' : '<option value="">Unassigned</option>'}${['joe','dell'].map(owner => `<option value="${owner}"${owner === d.owner ? ' selected' : ''}>${actorName(owner)}</option>`).join('')}</select></label></div><div data-detail-read="parking" data-parked="${parked}" data-next-parking="${nextParking}">${parked ? `${parkingSummary}<button type="button" class="btn" data-revive="${esc(d.id)}">Revive</button>` : parkFormHtml(nextParking)}</div></div>` : fromEngine ? `<div data-detail-read="parking">${nextParking && parked ? parkingSummary : parker}</div>` : ''}</div>
+    <div data-detail-read="board-controls" data-available="${controlsAvailable}">${controlsAvailable ? `<div class="detail-actions"><div class="detail-controls"><label>Owner<select id="detailOwner">${fromEngine ? '' : '<option value="">Unassigned</option>'}${['joe','dell'].map(owner => `<option value="${owner}"${owner === d.owner ? ' selected' : ''}>${actorName(owner)}</option>`).join('')}</select></label></div>${fromEngine ? '' : `<div data-detail-read="parking" data-parked="${parked}" data-next-parking="${nextParking}">${parked ? `${parkingSummary}<button type="button" class="btn" data-revive="${esc(d.id)}">Revive</button>` : parkFormHtml(nextParking)}</div>`}</div>` : ''}</div>
     <div data-detail-read="prospect">${!engineSaves && controlsAvailable && prospect?.client_status === 'prospect' ? `<form id="detailInactiveForm"><p>Inactive prospects return to Leads.</p><label>Reason<input name="reason" maxlength="1000" required value="${esc(pendingProspect?.request.reason || '')}"${pendingProspect ? ' readonly' : ''}></label><button class="btn" type="submit">${pendingProspect ? 'Check outcome' : 'Mark inactive'}</button><p role="status" data-prospect-status>${pendingProspect ? 'Confirmation pending for this prospect. Check outcome to retry the same request.' : ''}</p></form>` : ''}</div>
     ${!fromEngine ? `<div data-detail-read="client-portal">${websiteSetup}</div>` : ''}
     <h2>Critical dates</h2>
     <div data-detail-read="add-critical-date" data-available="${canAddCriticalDate}">${canAddCriticalDate ? criticalDateFormHtml() : ''}</div>
     ${renderCriticalDates(detail, Date.now(), state.nextDealSaves && Number.isSafeInteger(d.seen))}
-    <div data-detail-read="updates">${renderDealUpdates(detail, Date.now(), { engineSignIn: engineMode, noteHtml: text => linkRecordNames(text, detail.record_links) })}</div></section>
+    <div data-detail-read="updates">${renderDealUpdates(detail, Date.now(), { engineSignIn: engineMode, noteHtml: text => linkRecordNames(text, detail.record_links) })}</div>
+    ${fromEngine ? `<div class="deal-park-line" data-detail-read="parking" data-parked="${parked}" data-next-parking="${nextParking}" data-available="${controlsAvailable}">${controlsAvailable && !parked ? parkFormHtml(nextParking) : ''}</div>` : ''}</section>
     <section id="workspace-documents" role="tabpanel" aria-labelledby="tab-documents" hidden>${fromEngine ? `<h2>Documents</h2>${detail.next_deal_saves ? '<div id="deal-document-upload"></div>' : ''}<div data-detail-read="filed-documents">${filedDocumentsHtml(detail.documents)}</div>` : ''}</section>
     <section id="workspace-client-portal" role="tabpanel" aria-labelledby="tab-client-portal" hidden>${fromEngine ? `<div data-detail-read="client-website">${websiteLink}</div>` : ''}</section>
     <section id="workspace-tours" role="tabpanel" aria-labelledby="tab-tours" hidden>${engineMode ? '<p>Not available yet</p>' : ''}</section>
@@ -2011,7 +2063,6 @@ async function readPanel(id) {
     updateDetailTimestamp();
     if (!$('panelBody').querySelector('.deal-opening-snapshot') || wasEngineDetail !== isEngineDealDetail(detail) || savesChanged) paintPanel(detail);
     else {
-      if ($('detailPhase') && document.activeElement !== $('detailPhase')) $('detailPhase').value = columnByValue(detail.deal.phase)?.slug || '';
       if ($('detailOwner') && document.activeElement !== $('detailOwner')) $('detailOwner').value = detail.deal.owner || '';
       syncUpdateForm();
       $('detailReadStatus').textContent = '';
@@ -2022,11 +2073,13 @@ async function readPanel(id) {
         const current = $('panelBody').querySelector(`[data-detail-read="${fresh.dataset.detailRead}"]`);
         if (!current) continue;
         if (fresh.dataset.detailRead === 'checklist') { checklistPanel?.update(detail); continue; }
+        if (fresh.dataset.detailRead === 'path' && current.querySelector('.deal-path-ask')) continue;
         if (isEngineDealDetail(detail) && fresh.dataset.detailRead === 'client-portal'
             && current.querySelector('form') && fresh.querySelector('form')) continue;
         if (['board-controls', 'add-critical-date'].includes(fresh.dataset.detailRead) && current.dataset.available === fresh.dataset.available) continue;
         if (fresh.dataset.detailRead === 'parking' && fresh.dataset.parked === 'false'
-            && current.dataset.parked === 'false' && current.dataset.nextParking === fresh.dataset.nextParking) continue;
+            && current.dataset.parked === 'false' && current.dataset.nextParking === fresh.dataset.nextParking
+            && current.dataset.available === fresh.dataset.available) continue;
         if (current.innerHTML !== fresh.innerHTML) {
           const expanded = new Set([...current.querySelectorAll('.deal-note details[open]')].map(n => n.closest('.deal-note').dataset.id));
           const focused = current.contains(document.activeElement) ? document.activeElement : null;
@@ -2037,6 +2090,7 @@ async function readPanel(id) {
           const dateAsks = [...current.querySelectorAll('[data-date-decision] .date-reason:not([hidden])')].map(n => [
             n.closest('form').dataset.dateDecision, n.querySelector('[type="submit"]').value, n.querySelector('input').value]);
           const oldScroll = current.scrollLeft;
+          const openTodos = new Set([...current.querySelectorAll('[data-todo] > details[open]')].map(n => n.parentElement.dataset.todo));
           if (fresh.dataset.detailRead === 'email-followups') {
             for (const input of current.querySelectorAll('[data-email-decision] input')) {
               const replacement = fresh.querySelector(`[data-detail-focus="${CSS.escape(input.dataset.detailFocus)}"]`);
@@ -2047,6 +2101,8 @@ async function readPanel(id) {
           current.replaceWith(fresh);
           if (fresh.dataset.detailRead === 'updates') mountPanelActivityAttribution();
           fresh.scrollLeft = oldScroll;
+          fresh.querySelectorAll('[data-todo] > details').forEach(n => { n.open ||= openTodos.has(n.parentElement.dataset.todo); });
+          if (fresh.dataset.detailRead === 'path') revealCurrentPhase();
           fresh.querySelectorAll('[data-date-id] details').forEach(n => { n.open = dateOpens.has(n.closest('[data-date-id]').dataset.dateId); });
           if (historyOpen && fresh.querySelector('.updates-history')) fresh.querySelector('.updates-history').open = true;
           fresh.querySelectorAll('.deal-note').forEach(n => { if (expanded.has(n.dataset.id)) n.querySelector('details').open = true; });
@@ -2110,6 +2166,10 @@ function paintPanel(detail) {
   disposePanelCallReview();
   $('panelBody').innerHTML = workspaceHtml(detail, engineMode);
   mountChecklist(detail);
+  const focusedTodo = $('panelBody').querySelector('.deal-path [data-focused] > summary');
+  focusedTodo?.focus({ preventScroll: true });
+  focusedTodo?.scrollIntoView({ block: 'center', inline: 'center' });
+  if (!focusedTodo) revealCurrentPhase();
   const overview = $('workspace-overview');
   if (watchSubject !== detail.deal.id) disposeWatchControl();
   watchElement ||= document.createElement('div');
@@ -2638,6 +2698,11 @@ function wire() {
   });
 
   document.addEventListener('click', async (event) => {
+    if ($('panelBody')?.querySelector('.deal-path-ask')
+        && !event.target.closest('.deal-path-ask, button[data-path-phase]')) {
+      const interactive = event.target.closest('button, a, input, select, textarea, summary, [tabindex]:not([tabindex="-1"])');
+      closePathQuestion({ focus: !interactive });
+    }
     const website = event.target.closest('[data-open-client-website]');
     if (website) {
       const id = website.dataset.openClientWebsite;
@@ -2652,6 +2717,9 @@ function wire() {
     if (item) { itemSheet.open(item.dataset.itemDeal,item.dataset.dealItem,item); return; }
     const revive = event.target.closest('button[data-revive]');
     if (revive) { setOperatingState(revive.dataset.revive, {state:'active'}); return; }
+    const pathPhase = event.target.closest('button[data-path-phase]');
+    if (pathPhase) { askPathMove(pathPhase); return; }
+    if (event.target.closest('[data-path-cancel]')) { closePathQuestion(); return; }
     const open = event.target.closest('button[data-open]');
     if (open) { openWorkspace(open.dataset.open, open); return; }
     const retry = event.target.closest('button[data-retry-write]');
@@ -2874,6 +2942,12 @@ function wire() {
     }
 
   });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && $('panelBody')?.querySelector('.deal-path-ask') && !document.querySelector('dialog[open]')) {
+      event.preventDefault();
+      closePathQuestion();
+    }
+  });
   $('panelBody').addEventListener('keydown', event => {
     if (event.target.id !== 'dealUpdateStep') return;
     const form = event.target.form;
@@ -2900,12 +2974,6 @@ function wire() {
     }
     const id = state.panelDeal;
 
-    if (e.target.id === 'detailPhase') {
-      const destination = e.target.value;
-      const detail = state.panelDetail?.deal;
-      e.target.value = columnByValue(detail?.phase ?? state.deals.get(id)?.phase)?.slug || '';
-      beginMove(id, destination, Number.isSafeInteger(detail?.seen) ? detail : undefined);
-    }
     if (e.target.id === 'detailOwner') {
       const result = await sendFieldWrite(id, 'owner', e.target.value || null);
       if (result.status === 'ok' && !result.superseded) confirmLocalWrite(id, { owner: result.request.value });
@@ -2917,6 +2985,7 @@ function wire() {
     }
   });
   $('panelBody').addEventListener('submit', async e => {
+    if (e.target.dataset.pathMove) { e.preventDefault(); await movePathPhase(e.target); return; }
     e.preventDefault(); const id=state.panelDeal; const form = new FormData(e.target);
     const proposal = e.target.dataset.emailDecision;
     const choice = e.submitter?.value;

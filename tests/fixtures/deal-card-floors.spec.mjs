@@ -58,7 +58,7 @@ for (const width of [390, 1280]) for (const theme of ['light', 'dark']) {
         } catch { return route.fulfill({ status: 404, body: '' }); }
       });
       await page.goto('http://localhost/deals?deal=d14');
-      await expect(page.locator('#detailPhase')).toBeVisible();
+      await expect(page.locator('.deal-path')).toBeVisible();
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
       await page.evaluate(() => document.fonts.ready);
     });
