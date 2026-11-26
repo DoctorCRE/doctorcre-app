@@ -14,16 +14,17 @@
 <body>
   <div id="appShell"></div><script type="module" src="/js/app-shell.js"></script>
   <a class="skip" href="#main">Skip to search</a>
-  <main id="main" class="shell">
-    <div class="hero"><div><h1>Search</h1></div></div>
-    <section class="card glass" data-search="ask">
-      <form id="searchForm" role="search"><div class="field"><label for="searchQuery">Name, email or domain</label><input id="searchQuery" type="search" maxlength="200" autocomplete="off" placeholder="Search people, companies and deals"></div><div class="row-wrap"><button class="btn btn-primary" type="submit">Search</button><span class="small" id="searchCount"></span></div></form>
+  <main id="main" class="shell search-page">
+    <h1 data-layout-slot="title">Search</h1>
+    <section class="search-toolbar" data-search="ask">
+      <form id="searchForm" role="search"><label class="sr-only" for="searchQuery">Name, email or domain</label><input id="searchQuery" type="search" maxlength="200" autocomplete="off" placeholder="Search people, companies and deals"><button class="btn btn-primary" type="submit">Search</button></form>
+      <div class="chip-list" id="searchChips" role="group" aria-label="Scope" data-search="scope" hidden></div>
+      <span class="small" id="searchCount"></span>
     </section>
     <p class="sr-only" id="searchLive" aria-live="polite" role="status"></p>
-    <div class="state-block" id="searchState" data-state="empty" hidden></div>
+    <div class="search-state" id="searchState" data-state="empty" hidden></div>
     <div id="searchResults" class="search-results" aria-busy="false"></div>
-    <section class="card glass" data-search="scope" hidden aria-labelledby="searchScopeTitle"><div class="card-heading"><h2 id="searchScopeTitle">Scope</h2></div><div class="chip-bar"><span class="chip-list" id="searchChips"></span></div></section>
-    <section class="card glass" data-search="views" hidden aria-labelledby="savedViewTitle"><div class="card-heading"><h2 id="savedViewTitle">Saved views</h2></div><div class="field"><label for="saveViewName">Name for this view</label><input id="saveViewName" type="text" maxlength="60" autocomplete="off"></div><div class="row-wrap"><button class="btn" type="button" id="saveViewButton">Save this view</button><button class="btn btn-quiet" type="button" id="resetViewsButton">Reset</button></div><div class="chip-bar"><span class="chip-list" id="savedViewList"></span></div><p class="caption" id="savedViewNote">Saved views stay in this browser.</p></section>
+    <section class="search-views" data-search="views" hidden aria-label="Saved views"><span class="small" id="savedViewNote">Saved on this device</span><span class="chip-list" id="savedViewList"></span><label class="sr-only" for="saveViewName">Name for this view</label><input id="saveViewName" type="text" maxlength="60" autocomplete="off" placeholder="Name this view"><button class="btn" type="button" id="saveViewButton">Save this view</button><button class="btn btn-quiet" type="button" id="resetViewsButton">Reset</button></section>
   </main>
   <script type="module" src="/js/search-page.js"></script>
 </body>

@@ -48,7 +48,7 @@ test('aborting a territory mount before its first painted frame removes the rend
     fitBounds() {}
     remove() { this.removed = true; events.clear(); }
   } };
-  const pending = mountTerritoryMap(dom.window.document.querySelector('div'), () => {}, () => {}, {
+  const pending = mountTerritoryMap(dom.window.document.querySelector('div'), () => {}, {
     signal: controller.signal, markets: [], loadMapLibre: async () => gl,
     fetchImpl: async path => ({ ok: true, json: async () => path.endsWith('.json') ? [] : { type: 'FeatureCollection', features: [] } }),
   });

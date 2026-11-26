@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile, mkdir } from 'node:fs/promises';
 import { chromium, animationsSettled } from './browser-harness.mjs';
 import { ownedFixtureServer as fixtureServer } from './fixture-probe.ts';
+import { controlFloor } from "./control-floor.ts";
 
 for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
   test(`conflict choices keep native radios beside their captions at ${width}px ${theme}`, async t => {
@@ -41,7 +42,7 @@ for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
       assert.ok(box.height > 0 && box.height <= 24, `radio height ${box.height}px`);
       assert.ok(box.captionLeft >= box.right, 'caption sits beside the radio');
       assert.ok(box.captionTop < box.bottom && box.captionBottom > box.top, 'caption shares the radio line');
-      assert.ok(box.targetHeight >= 44, 'label preserves a 44px touch target');
+      assert.ok(box.targetHeight >= controlFloor(width), 'label keeps a full-size target');
     }
     await page.getByText('Your proposed value', { exact: true }).click();
     assert.equal(await radios.nth(1).isChecked(), true);

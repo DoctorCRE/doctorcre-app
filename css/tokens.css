@@ -131,11 +131,11 @@
 }
 
 :root {
-  /* Type: one text face plus mono for code; five sizes at least 1.25x apart. */
+  /* Type: one text face plus mono for code; five sizes. Body is 16px on a touch screen, 14px with a mouse or trackpad. */
   --font-text: "DM Sans", "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --font-size-1: 0.8125rem;  /* 13px  meta, captions */
-  --font-size-2: 1.03125rem; /* 16.5px body, controls */
+  --font-size-2: 1rem;       /* 16px  body, controls */
   --font-size-3: 1.3125rem;  /* 21px  heading */
   --font-size-4: 1.6875rem;  /* 27px  title */
   --font-size-5: 2.125rem;   /* 34px  page title, key figure */
@@ -158,7 +158,7 @@
   --radius-round: 999px;
   --hairline-width: 1px;
   --focus-width: 2px;
-  --touch: 44px;
+  --touch: 44px; /* control height: a 44px tap target on a touch screen, 32px with a mouse or trackpad */
 
   /* Motion: state changes only, transform and opacity only. */
   --duration-press: 120ms;
@@ -193,3 +193,6 @@
 
 :root[data-density="compact"] { --density: 0.75; }
 @media (min-width: 1024px) { :root { --density: 0.75; } }
+
+/* Text and control sizes follow the pointer, not the window width: a mouse or trackpad gets them at any width (design rules 1 and 4). */
+@media (pointer: fine) { :root { --font-size-2: 0.875rem; --touch: 32px; } }

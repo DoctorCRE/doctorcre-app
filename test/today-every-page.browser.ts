@@ -66,7 +66,7 @@ async function open(
     malformedEndedReminder?: boolean;
     meetingState?: string;
     meetingItems?: boolean;
-    meetingsMayBeMissing?: boolean | string | null | undefined;
+    meetingsMayBeMissing?: boolean;
     todayStatus?: number;
     theme?: string;
   } = {},
@@ -127,14 +127,15 @@ async function open(
           : { items: [] };
     return route.fulfill({ json: { result: { content: [{ type: "text", text: JSON.stringify(payload) }] } } });
   });
-  await page.route("**/api/engine/home/inbox?view=dashboard", (route) =>
+  await page.route("**/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6", (route) =>
     route.fulfill({
       json: {
         ok: true,
-        schema_version: "home-inbox.v5",
+        schema_version: "home-inbox.v6",
         home_mark_drop: true,
         home_proposal_drop: true,
         reminders: { count: 1, items: [{ item_id: "example-reminder", card_id: "example-reminder" }] },
+        inbox: { count: 0, items: [] },
         waiting: { count: 0, items: [] },
       },
     }),
@@ -148,8 +149,8 @@ async function open(
         schema_version: "home-today.v1",
         viewer: "joe",
         partners: [
-          { slug: "joe", name: "Joe" },
-          { slug: "dell", name: "Dell" },
+          { slug: "joe", name: "Joe Example" },
+          { slug: "dell", name: "Dell Samplewright" },
         ],
         today: "2026-11-19",
         meetings: {
@@ -322,8 +323,8 @@ for (const width of [390, 1440])
       );
       assert.equal(await meetings.getByText(/Last synced/).count(), 0);
       const owners = today.getByRole("group", { name: "Reminders for" });
-      const both = owners.getByRole("button", { name: "Both partners" });
-      const dell = owners.getByRole("button", { name: "Dell" });
+      const both = owners.getByRole("button", { name: "Both", exact: true });
+      const dell = owners.getByRole("button", { name: "Dell", exact: true });
       assert.equal(await both.getAttribute("aria-pressed"), "true");
       await dell.click();
       assert.equal(await dell.getAttribute("aria-pressed"), "true");
@@ -338,41 +339,18 @@ for (const width of [390, 1440])
     });
   }
 
-for (const [meetingState, meetingsMayBeMissing] of [
-  ["empty", undefined],
-  ["empty", false],
-  ["partial", false],
-  ["partial", true],
-] as const) {
-  test(`Today shows an empty calendar (${meetingState}, missing meetings: ${meetingsMayBeMissing})`, async (t) => {
-    const { today } = await open(t, "/invoices", { meetingState, meetingItems: false, meetingsMayBeMissing });
+for (const meetingState of ["empty", "partial"]) {
+  test(`Today shows an empty calendar without sync notes (${meetingState})`, async (t) => {
+    const { today } = await open(t, "/invoices", { meetingState, meetingItems: false, meetingsMayBeMissing: true });
     await today.getByText("Send sample floor plan", { exact: true }).waitFor();
     const meetings = today.getByRole("region", { name: "Meetings", exact: true });
     assert.equal(await meetings.getByText("No meetings today.", { exact: true }).count(), 1);
     assert.equal(
-      await meetings.getByText("Calendar may be incomplete", { exact: true }).count(),
-      Number(meetingsMayBeMissing === true),
-    );
-    assert.equal(
       await meetings
-        .getByText(/Couldn't load meetings|Check Outlook|Last synced|Internal calendar instruction/)
+        .getByText(
+          /Calendar may be incomplete|Couldn't load meetings|Check Outlook|Last synced|Internal calendar instruction/,
+        )
         .count(),
-      0,
-    );
-  });
-}
-
-for (const { meetingsMayBeMissing, meetingItems } of [
-  { meetingsMayBeMissing: "false", meetingItems: false },
-  { meetingsMayBeMissing: null, meetingItems: true },
-]) {
-  test(`Today rejects a malformed calendar flag (${JSON.stringify(meetingsMayBeMissing)})`, async (t) => {
-    const { today } = await open(t, "/invoices", { meetingsMayBeMissing, meetingItems });
-    await today.getByText("Send sample floor plan", { exact: true }).waitFor();
-    const meetings = today.getByRole("region", { name: "Meetings", exact: true });
-    assert.equal(await meetings.getByText("Couldn't load meetings.", { exact: true }).count(), 1);
-    assert.equal(
-      await meetings.getByText(/No meetings today|Calendar may be incomplete|Example site visit/).count(),
       0,
     );
   });

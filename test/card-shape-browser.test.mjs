@@ -4,6 +4,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { routeLeads } from './leads-browser-fixture.mjs';
 import { chromium } from './browser-harness.mjs';
 import { ownedFixtureServer as fixtureServer } from './fixture-probe.ts';
+import { controlFloor } from "./control-floor.ts";
 
 let server, browser;
 before(async () => { server = await fixtureServer(); browser = await chromium.launch(); });
@@ -73,7 +74,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`sh
 
     for (const target of await page.locator(selector).first().locator('button:visible, a:visible, summary:visible, select:visible').all()) {
       const box = await target.boundingBox();
-      assert.ok(box.height >= 44 && box.width >= 44, `${surface} has 44px targets`);
+      assert.ok(box.height >= controlFloor(width) && box.width >= controlFloor(width), `${surface} has full-size targets`);
     }
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${surface} fits`);
   }

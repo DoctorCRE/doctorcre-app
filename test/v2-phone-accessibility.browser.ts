@@ -8,6 +8,7 @@ import { createQaServer } from "../scripts/qa-fixture-server.mjs";
 import { temporaryDirectory } from "../scripts/temp-directory.mjs";
 import { walkV2Accessibility } from "../scripts/v2-accessibility-walk.ts";
 import { chromium } from "./browser-harness.mjs";
+import { controlFloor } from "./control-floor.ts";
 import { detail, tourId } from "./fixtures/tour-day.synthetic.mjs";
 
 test("V2 phone targets have zero undersized or covered controls in both themes", { timeout: 600_000 }, async (t) => {
@@ -86,11 +87,14 @@ test("V2 phone targets have zero undersized or covered controls in both themes",
         await page.screenshot({ path: `${shots}/${name}-${width}-${theme}.png`, fullPage: true });
         await writeFile(`${shots}/${name}-${width}-${theme}.aria.txt`, await page.locator("body").ariaSnapshot());
         if (name === "Home") {
-          const checkbox = page.locator('.inbox-row input[type="checkbox"]').first();
-          const graphic = await checkbox.boundingBox();
-          assert.ok(graphic && graphic.width <= 22 && graphic.height <= 22, "Checkbox artwork stays compact");
-          const label = await checkbox.locator("..").boundingBox();
-          assert.ok(label && label.width >= 44 && label.height >= 44, "Checkbox label owns the larger activation area");
+          const done = page.locator(".inbox-row button.home-done").first();
+          const circle = await done.evaluate((node) => parseFloat(getComputedStyle(node, "::before").width));
+          assert.ok(circle <= 22, "The Mark done circle stays compact");
+          const target = await done.boundingBox();
+          assert.ok(
+            target && target.width >= controlFloor(width) && target.height >= controlFloor(width),
+            "The circle's button owns the larger activation area",
+          );
         }
         if (width === 390 && name === "Tours library") {
           const layout = await page.locator('label[for="tour-filter"]').evaluate((label) => {

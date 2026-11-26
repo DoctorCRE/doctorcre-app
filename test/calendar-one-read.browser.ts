@@ -278,9 +278,12 @@ test("Calendar reads once and shows dates and next steps in the visible period",
           });
           const week = page.getByRole("button", { name: "Week", exact: true });
           await expect(week).toHaveCSS("border-top-width", "0px");
-          const background = await week.evaluate((node) => getComputedStyle(node).backgroundColor);
-          await week.hover();
-          await expect(week).not.toHaveCSS("background-color", background);
+          // A touch screen has no hover.
+          if (width > 760) {
+            const background = await week.evaluate((node) => getComputedStyle(node).backgroundColor);
+            await week.hover();
+            await expect(week).not.toHaveCSS("background-color", background);
+          }
           await week.click();
           await expect(week).toHaveAttribute("aria-pressed", "true");
           await expect(page.locator("#calCount")).toHaveText("4 next steps · 1 critical date");

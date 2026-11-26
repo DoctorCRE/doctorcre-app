@@ -73,7 +73,20 @@ test(`shared market location membership is order independent at ${width}px (reve
   assert.deepEqual(located, [id(1)], 'only the located lead belongs to a marker');
   assert.equal(await page.locator('[data-market="Synthetic shared market"] b').innerText(), '2');
   assert.deepEqual(await page.locator('#leadBoard .lead-card').evaluateAll(nodes => nodes.map(node => node.dataset.leadId).sort()), [id(1), id(2)]);
-  assert.equal(await page.locator('.market-marker').innerText(), '1');
+  assert.equal(await page.locator('.market-marker b').innerText(), '1');
+});
+
+for (const width of [1440, 390]) test(`a lead served with a city and no state shows on the map with its city's count at ${width}px`, async t => {
+  const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width, height: 1000 }, reducedMotion: 'reduce' });
+  const board = { ...workspace(), leads: [1, 2].map(n => lead(n, { city: 'Crestview', state: null })) };
+  await routeLeads(page, { getBoard: () => board });
+  await page.goto('http://localhost/leads');
+  await page.getByRole('button', { name: 'Show territory', exact: true }).click();
+  const marker = page.locator('.market-marker');
+  await marker.waitFor();
+  assert.deepEqual(await marker.evaluate(node => [node.querySelector('span')?.textContent, node.querySelector('b').textContent]), ['Crestview', '2']);
 });
 
 test('phone All stages count describes the destination membership', async t => {
@@ -128,6 +141,72 @@ for (const width of [1440, 390]) test(`all stage view has identical visible map 
   await page.getByRole('button', { name: 'Show territory', exact: true }).click();
   await page.locator('.market-marker').first().waitFor();
   assert.equal(await page.locator('.lead-card:visible').count(), 2);
+});
+
+const exposeRenderer = page => page.route('**/maplibre-gl.mjs', route => route.fulfill({ contentType: 'text/javascript', body: `
+  export * from './maplibre-gl.mjs?provider';
+  import { Map as ProviderMap } from './maplibre-gl.mjs?provider';
+  export class Map extends ProviderMap {
+    constructor(options) { super(options); globalThis.leadsRenderer = this; }
+    fitBounds(bounds, options) {
+      globalThis.leadsInitialBounds ??= bounds.toArray ? bounds.toArray() : bounds;
+      return super.fitBounds(bounds, options);
+    }
+  }
+` }));
+const territoryMarkets = ['Mobile', 'Daphne', 'Fairhope', 'Orange Beach', 'Gulf Shores', 'Dothan', 'Pensacola', 'Pace', 'Milton', 'Gulf Breeze',
+  'Navarre', 'Crestview', 'Niceville', 'Fort Walton Beach', 'Destin', 'Miramar Beach', 'Freeport', 'Panama City Beach', 'Panama City', 'Tallahassee'];
+async function territoryFrame(page) {
+  const places = JSON.parse(await readFile(new URL('../data/leads-market-locations.json', import.meta.url), 'utf8'));
+  const points = territoryMarkets.map(name => places.find(place => place.name === name && ['AL', 'FL'].includes(place.state)).position);
+  return page.evaluate(points => ({ bounds: leadsRenderer.getBounds().toArray(), zoom: leadsRenderer.getZoom(),
+    places: points.map(point => { const p = leadsRenderer.project(point); return { x: p.x, y: p.y }; }),
+    width: leadsRenderer.getContainer().clientWidth, height: leadsRenderer.getContainer().clientHeight }), points);
+}
+const territoryMarkers = page => page.locator('.market-marker').evaluateAll(nodes => nodes.map(node => ({
+  name: node.querySelector('span')?.textContent ?? null, count: node.querySelector('b').textContent,
+  leads: JSON.parse(node.dataset.leadIds).length, label: node.getAttribute('aria-label') })).sort((a, b) => a.leads - b.leads));
+const nearbyCities = () => ({ ...workspace(), leads: [lead(1, { city: 'Daphne', state: 'AL' }), lead(2, { city: 'Daphne', state: 'AL' }),
+  lead(3, { city: 'Fairhope', state: 'AL' }), lead(4, { city: 'Dothan', state: 'AL' })] });
+
+for (const width of [1440, 390]) test(`touching markers merge into one count and a lone marker shows its place name at ${width}px`, async t => {
+  const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width, height: 1000 }, reducedMotion: 'reduce' });
+  await routeLeads(page, { getBoard: nearbyCities });
+  await page.goto('http://localhost/leads');
+  await page.getByRole('button', { name: 'Show territory', exact: true }).click();
+  await page.locator('.market-marker').first().waitFor();
+  assert.deepEqual(await territoryMarkers(page), [
+    { name: 'Dothan', count: '1', leads: 1, label: 'Dothan, AL: 1 leads' },
+    { name: null, count: '3', leads: 3, label: 'Zoom to markets · Daphne, AL: 2 · Fairhope, AL: 1' }]);
+});
+
+for (const width of [1440, 390]) test(`a resize refits the whole territory but keeps a partner's zoom at ${width}px`, async t => {
+  const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width, height: 1000 }, reducedMotion: 'reduce' });
+  await routeLeads(page, { getBoard: nearbyCities });
+  await exposeRenderer(page);
+  await page.goto('http://localhost/leads');
+  await page.getByRole('button', { name: 'Show territory', exact: true }).click();
+  await page.locator('.market-marker').first().waitFor();
+  const resize = async size => {
+    await page.evaluate(() => { globalThis.leadsResized = leadsRenderer.once('resize'); });
+    await page.setViewportSize(size);
+    await page.evaluate(() => leadsResized);
+  };
+  const opening = await territoryFrame(page);
+  await resize({ width: width - 60, height: 1000 });
+  const narrowed = await territoryFrame(page);
+  assert.notEqual(narrowed.width, opening.width, 'the map frame changed size');
+  assert.ok(narrowed.places.every(p => p.x >= 0 && p.x <= narrowed.width && p.y >= 0 && p.y <= narrowed.height), JSON.stringify(narrowed));
+  await page.getByRole('button', { name: /^Zoom to markets/ }).click();
+  await page.locator('.market-marker:has(span)').first().waitFor();
+  const zoomed = await page.evaluate(() => ({ center: leadsRenderer.getCenter().toArray(), zoom: leadsRenderer.getZoom() }));
+  assert.ok(zoomed.zoom > narrowed.zoom + 2, JSON.stringify(zoomed));
+  await resize({ width, height: 1000 });
+  assert.deepEqual(await page.evaluate(() => ({ center: leadsRenderer.getCenter().toArray(), zoom: leadsRenderer.getZoom() })), zoomed);
 });
 
 const matrixBoard = () => ({ ...workspace(), leads: [
@@ -233,30 +312,17 @@ for (const width of [1440,390]) test(`marker selection survives matching filters
   assert.equal(await page.locator('.lead-card:visible').count(), 1);
 });
 
-for (const width of [1440, 390]) test(`Leads opens the Mobile to Tallahassee working frame through Dothan at ${width}px`, async t => {
+for (const width of [1440, 390]) test(`Leads opens on all of the partners' markets, Mobile to Tallahassee and down the coast, at ${width}px`, async t => {
   const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width, height: 1000 }, reducedMotion: 'reduce' });
   await routeLeads(page);
-  await page.route('**/maplibre-gl.mjs', route => route.fulfill({ contentType: 'text/javascript', body: `
-    export * from './maplibre-gl.mjs?provider';
-    import { Map as ProviderMap } from './maplibre-gl.mjs?provider';
-    export class Map extends ProviderMap {
-      constructor(options) { super(options); globalThis.leadsRenderer = this; }
-      fitBounds(bounds, options) {
-        globalThis.leadsInitialBounds ??= bounds.toArray ? bounds.toArray() : bounds;
-        return super.fitBounds(bounds, options);
-      }
-    }
-  ` }));
+  await exposeRenderer(page);
   await page.goto('http://localhost/leads');
   await page.getByRole('button', { name: 'Show territory', exact: true }).click();
   await page.locator('.market-marker').first().waitFor({ state: 'attached' });
-  assert.deepEqual(await page.evaluate(() => leadsInitialBounds), [[-88.107853, 30.453529], [-84.252272, 31.233698]]);
-  const frame = await page.evaluate(() => ({ bounds: leadsRenderer.getBounds().toArray(),
-    places: [[-88.107853, 30.668246], [-84.252272, 30.453529], [-85.406823, 31.233698]]
-      .map(point => { const p = leadsRenderer.project(point); return { x: p.x, y: p.y }; }),
-    width: leadsRenderer.getContainer().clientWidth, height: leadsRenderer.getContainer().clientHeight }));
+  assert.deepEqual(await page.evaluate(() => leadsInitialBounds), [[-88.107853, 30.233151], [-84.252272, 31.233698]]);
+  const frame = await territoryFrame(page);
   assert.ok(frame.places.every(p => p.x >= 20 && p.x <= frame.width - 20 && p.y >= 20 && p.y <= frame.height - 20), JSON.stringify(frame));
   assert.ok(frame.bounds[1][1] < 34, 'the working frame does not default to northern Alabama and Georgia');
   const canvas = await page.locator('#territoryMap canvas').elementHandle();

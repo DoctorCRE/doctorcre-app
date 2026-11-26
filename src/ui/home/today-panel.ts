@@ -27,11 +27,7 @@ function readMeetings(section: unknown) {
     !section.items.every(meeting)
   )
     return null;
-
-  const meetingsMayBeMissing = "meetings_may_be_missing" in section ? section.meetings_may_be_missing : false;
-  if (typeof meetingsMayBeMissing !== "boolean") return null;
-
-  return { items: section.items, meetingsMayBeMissing, follow_up_reviews: section.follow_up_reviews };
+  return { items: section.items, follow_up_reviews: section.follow_up_reviews };
 }
 
 type Reminder = Record<string, unknown> & {
@@ -45,6 +41,7 @@ type Partner = { slug: string; name: string };
 function partner(value: unknown): value is Partner {
   return object(value) && text(value.slug) && text(value.name);
 }
+const firstName = ({ name }: Partner) => name.trim().replace(/\s.*/s, "");
 
 const sibling = (path: string) => import(new URL(path, import.meta.url).href);
 
@@ -126,7 +123,6 @@ export async function mountHomeTodayPanel(
     host: reviewHost,
     engine: true,
   });
-  owners.classList.add("chip-bar");
   owners.setAttribute("role", "group");
   owners.setAttribute("aria-label", "Reminders for");
   let scope = "all";
@@ -153,7 +149,7 @@ export async function mountHomeTodayPanel(
   };
   // A null message means the reminders are still loading.
   const renderReminders = (message: string | null) => {
-    const name = new Map(data?.partners.map((p) => [p.slug, p.name]));
+    const name = new Map(data?.partners.map((p) => [p.slug, firstName(p)]));
     const rows = (items: Reminder[], today: string) =>
       items
         .filter((item) => scope === "all" || item.owner === scope)
@@ -271,13 +267,7 @@ export async function mountHomeTodayPanel(
       }
       const calendar = readMeetings(answer.meetings);
       if (calendar) {
-        fill(
-          schedule,
-          calendar.items.length
-            ? calendar.items.map(meetingRow).join("")
-            : status("No meetings today.") +
-                (calendar.meetingsMayBeMissing ? status("Calendar may be incomplete") : ""),
-        );
+        fill(schedule, calendar.items.length ? calendar.items.map(meetingRow).join("") : status("No meetings today."));
       } else {
         fill(schedule, status("Couldn't load meetings."));
       }
@@ -287,15 +277,17 @@ export async function mountHomeTodayPanel(
           ? await readDashboardGroups(signal).catch(() => null)
           : null;
       if (signal.aborted || current !== revision) return false;
-      homeCards = new Set(groups ? [...groups.reminders, ...groups.waiting].map((card) => card.item_id) : []);
+      homeCards = new Set(
+        groups ? [...groups.reminders, ...groups.inbox, ...groups.waiting].map((card) => card.item_id) : [],
+      );
       data = dated;
       const partners = data?.partners ?? [];
       if (!partners.some((p) => p.slug === scope)) scope = "all";
-      const options = [{ slug: "all", name: "Both partners" }, ...partners];
+      const options = [{ slug: "all", label: "Both" }, ...partners.map((p) => ({ slug: p.slug, label: firstName(p) }))];
       paint(
         owners,
         options
-          .map((p) => `<button class="chip" type="button" value="${escapeText(p.slug)}">${escapeText(p.name)}</button>`)
+          .map((o) => `<button type="button" value="${escapeText(o.slug)}">${escapeText(o.label)}</button>`)
           .join(""),
       );
       paintOwnerSelection();

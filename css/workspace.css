@@ -6,7 +6,7 @@ a { color: inherit; }
 button, input { font: inherit; }
 :focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 2px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
-.skip { position: fixed; left: var(--space-4); top: -60px; z-index: 30; border-radius: var(--radius-2); background: var(--accent); color: var(--on-accent); padding: var(--space-3) var(--space-4); font-weight: var(--font-weight-strong); text-decoration: none; }
+.skip { position: fixed; left: var(--space-4); top: -60px; z-index: 30; border-radius: var(--radius-2); background: var(--accent); color: var(--on-accent); padding: var(--space-1) var(--space-4); font-weight: var(--font-weight-strong); text-decoration: none; }
 .skip:focus { top: var(--space-3); }
 
 .topbar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: var(--space-5); min-height: var(--tabbar-height); padding: var(--space-2) max(var(--space-4), calc((100vw - 1400px) / 2)); border-bottom: var(--hairline-width) solid var(--hairline); background: var(--ground); }
@@ -48,7 +48,7 @@ button, input { font: inherit; }
 .count-line { display: flex; align-items: baseline; gap: var(--space-2); margin-top: var(--space-4); }
 .count-line strong { font: var(--font-weight-strong) var(--font-size-5)/1 var(--font-text); color: var(--fg); font-variant-numeric: tabular-nums; }
 .count-line span { color: var(--fg-muted); font-size: var(--font-size-1); }
-.action { display: inline-flex; align-items: center; min-height: var(--touch); margin-top: var(--space-4); padding: var(--space-2) var(--space-4); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); background: var(--surface-2); color: var(--fg); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); text-decoration: none; }
+.action { display: inline-flex; align-items: center; min-height: var(--touch); margin-top: var(--space-4); padding: var(--space-1) var(--space-4); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); background: var(--surface-2); color: var(--fg); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); text-decoration: none; }
 .action:hover { background: var(--surface-3); }
 .source { margin: var(--space-3) 0 0; color: var(--fg-muted); font-size: var(--font-size-1); }
 .skeleton-line { width: 70%; height: 10px; margin-top: var(--space-4); border-radius: var(--radius-round); background: var(--surface-3); animation: skeleton-fade 1.6s var(--ease-out) infinite alternate; }
@@ -121,4 +121,4 @@ button, input { font: inherit; }
 }
 
 .skip:not(:focus) { clip-path: inset(50%); }
-.skip:focus { min-width: 44px; min-height: 44px; align-content: center; }
+.skip:focus { min-width: var(--touch); min-height: var(--touch); align-content: center; }
