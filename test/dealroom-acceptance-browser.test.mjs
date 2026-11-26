@@ -259,7 +259,7 @@ for (const width of [1440, 390]) {
 }
 
 for (const width of [1440, 390]) {
-  test(`switched Local Deals keeps phase counts, saves attention and retries history at ${width}px`, async t => {
+  test(`switched Local Deals keeps phase counts, shows the engine's attention and retries history at ${width}px`, async t => {
     const fixture = await (await createQaServer({ buildRoot: join(outDir, 'site') })).start();
     t.after(() => fixture.close());
     const { origin } = fixture;
@@ -269,12 +269,12 @@ for (const width of [1440, 390]) {
     await page.clock.setFixedTime(new Date('2026-11-19T01:00:00Z'));
     await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `phase-attention-${width}`, viewer: 'joe', reset: true } });
 
-    const makeDeal = (name, fields) => ({ id: crypto.randomUUID(), name, owner: 'joe', phase: 'research', seen: 1, attention: false, ...fields });
+    const makeDeal = (name, fields) => ({ id: crypto.randomUUID(), name, owner: 'joe', phase: 'research', seen: 1, attention: null, ...fields });
     const step = { id: crypto.randomUUID(), owner: 'joe', description: 'Send the floor plan', due_on: '2026-11-17' };
-    const late = makeDeal('Example Late Deal', { next_step: step.description, next_date: step.due_on, open_actions: [step] });
+    const late = makeDeal('Example Late Deal', { next_step: step.description, next_date: step.due_on, open_actions: [step],
+      attention: { reason: 'A next step is late.', since: '2026-11-18' } });
     const flagged = makeDeal('Example Flagged Deal', { attention: true });
     const parked = makeDeal('Example Parked Deal', { phase: 'closing', operating_state: 'parked' });
-    const changes = [];
     const proposalId = crypto.randomUUID();
     let failHistoryRead = false;
     let savesOn = false;
@@ -286,14 +286,6 @@ for (const width of [1440, 390]) {
           if (failHistoryRead) return new Response(null, { status: 503 });
           return Response.json({ schema_version: 'local-deals-board.v2', actor: 'joe',
             deals: [late, flagged, parked], closed_deals: [], lost_deals: [] });
-        }
-        if (path === `/api/engine/deals/${late.id}/changes`) {
-          const { idempotency_key, ...change } = await request.json();
-          assert.match(idempotency_key, /^[\da-f-]{36}$/);
-          changes.push(change);
-          late.attention = change.fields.needs_attention;
-          late.seen++;
-          return Response.json({ deal_id: late.id, change_id: late.seen });
         }
         assert.equal(path, `/api/engine/deals/${late.id}`);
         return Response.json({ ...late, deal_id: late.id, next_actions: [step], email_follow_ups: [
@@ -316,12 +308,13 @@ for (const width of [1440, 390]) {
     const date = 'Due Tue, Nov 17, 2026 · 1 day late';
     const panel = page.locator('#recordPanel');
     await page.goto(`${url}&filter=flagged`);
-    await button(flagged.name).waitFor({ timeout: 3000 });
-    assert.equal(await button(late.name).count(), 0);
-    assert.equal(await card(flagged).getByText('Needs attention', { exact: true }).isVisible(), true);
+    await button(late.name).waitFor({ timeout: 3000 });
+    assert.equal(await button(flagged.name).count(), 0, 'a stored flag is not attention');
+    assert.equal(await card(late).getByText('Needs attention', { exact: true }).isVisible(), true);
 
     await page.goto(url);
-    await card(late).getByRole('button', { name: 'Needs attention: Step 1 day late', exact: true }).waitFor();
+    await card(late).getByRole('button', { name: 'Needs attention: A next step is late.', exact: true }).waitFor();
+    assert.equal(await card(flagged).locator('.deal-board-attention').count(), 0);
     const phases = ['Prospective Client', 'Research', 'Site Selection', 'Negotiating', 'Legal', 'Due Diligence', 'Closing'];
     for (const name of phases) {
       assert.equal(await page.getByRole('region', { name: `${name}, ${name === 'Research' ? 2 : 0} cards`, exact: true }).isVisible(), true);
@@ -338,19 +331,14 @@ for (const width of [1440, 390]) {
     await button(late.name).click();
     await panel.getByRole('list', { name: 'Open steps' }).getByText(date, { exact: false }).waitFor();
     await panel.locator('#panelEmailFollowups').getByText(date, { exact: false }).waitFor();
-    assert.equal(await button('Mark needs attention').count(), 0);
+    const attention = panel.getByRole('region', { name: 'Next steps' }).getByText('Needs attention. A next step is late.', { exact: true });
+    await attention.waitFor();
 
     savesOn = true;
     await page.reload();
-    await button('Mark needs attention').click({ timeout: 3000 });
-    await button('Clear needs attention').waitFor();
+    await attention.waitFor({ timeout: 3000 });
+    assert.equal(await panel.getByRole('button', { name: /needs attention/i }).count(), 0, 'no partner sets or clears it');
     await page.screenshot({ path: join(evidence, `phase-attention-${width}-detail.png`) });
-    await button('Clear needs attention').click();
-    await button('Mark needs attention').waitFor();
-    assert.deepEqual(changes, [
-      { seen_change_id: 1, fields: { needs_attention: true } },
-      { seen_change_id: 2, fields: { needs_attention: false } },
-    ]);
 
     for (const view of ['closed', 'lost']) {
       failHistoryRead = true;
@@ -882,7 +870,7 @@ for (const { code, hint, message } of [
 });
 
 for (const width of [1440, 390]) {
-  test(`Board signals only the owner's late step and detail labels both next steps at ${width}px`, async t => {
+  test(`Board shows the engine's attention and detail labels both next steps at ${width}px`, async t => {
     const page = await browser.newPage({ viewport: { width, height: 900 }, timezoneId: 'America/Los_Angeles' });
     t.after(() => page.close());
     await page.clock.setFixedTime(new Date('2026-11-19T06:30:00Z'));
@@ -892,16 +880,17 @@ for (const width of [1440, 390]) {
     const item = { id: crypto.randomUUID(), title: 'Check the plans', status: 'open', due_on: '2026-11-18', bullets: [] };
     const deal = { id: '00000000-0000-4000-8000-000000000080', name: 'Example Two-Partner Deal',
       owner: 'dell', phase: 'research', seen: 1, open_actions: [otherStep, ownerStep],
+      attention: { reason: 'A next step is late.', since: '2026-11-19' },
       items: [item, { id: crypto.randomUUID(), title: 'Review the layout', status: 'open', due_on: null, bullets: [] }],
       next_step: otherStep.description, next_date: otherStep.due_on,
       phase_change: { source: 'copied', automatic: true, event_id: crypto.randomUUID(), prior_phase: 'pending', evidence_date: '2026-11-16' },
       last_step: { summary: 'Reviewed the example offer', occurred_at: '2026-11-17T18:00:00Z' } };
-    const checklistOnly = { ...deal, id: '00000000-0000-4000-8000-000000000081', name: 'Example Checklist Deal',
+    const checklistOnly = { ...deal, id: '00000000-0000-4000-8000-000000000081', name: 'Example Checklist Deal', attention: null,
       next_step: 'Check the plans', open_actions: [], phase_change: null, items: [
         { id: 'example-checklist-item', title: 'Check the plans', status: 'open', due_on: otherStep.due_on, bullets: [] },
       ] };
     const singleStep = { ...deal, id: '00000000-0000-4000-8000-000000000082', name: 'Example One-Step Deal',
-      open_actions: [otherStep] };
+      open_actions: [otherStep], attention: null };
     const flagged = { ...checklistOnly, id: crypto.randomUUID(), name: 'Example Flagged Deal', attention: true };
     const parkedDeal = { ...checklistOnly, id: crypto.randomUUID(), name: 'Example A Parked Deal',
       operating_state: 'parked', parking_reason: 'client_paused', parked_automatically: true };
@@ -958,12 +947,11 @@ for (const width of [1440, 390]) {
       const onlyStep = page.locator(`article[data-id="${singleStep.id}"]`);
       if (view === 'Board') {
         assert.equal(visibleText.replace(/\s+/g, ' '), `${deal.name} Needs attention D Owner: Dell`);
-        assert.equal(await card.getByRole('button', { name: 'Needs attention: Step 1 day late', exact: true }).count(), 1);
+        assert.equal(await card.getByRole('button', { name: 'Needs attention: A next step is late.', exact: true }).count(), 1);
         assert.equal((await empty.innerText()).replace(/\s+/g, ' '), `${checklistOnly.name} D Owner: Dell`);
         assert.equal((await onlyStep.innerText()).replace(/\s+/g, ' '), `${singleStep.name} D Owner: Dell`);
         const flaggedCard = page.locator(`article[data-id="${flagged.id}"]`);
-        assert.equal((await flaggedCard.innerText()).replace(/\s+/g, ' '), `${flagged.name} Needs attention D Owner: Dell`);
-        assert.equal(await flaggedCard.getByRole('button', { name: 'Needs attention: Flagged by a partner', exact: true }).count(), 1);
+        assert.equal((await flaggedCard.innerText()).replace(/\s+/g, ' '), `${flagged.name} D Owner: Dell`, 'a stored flag is not attention');
       } else {
         assert.match(visibleText, /Send the floor plan.*Due Wed, Nov 18.*1 day late/);
         assert.doesNotMatch(visibleText, /Call the architect|\d+ days late|overdue|Still needed|Last:/);
@@ -3330,7 +3318,10 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`a 
     const { backgroundColor, borderTopColor, borderTopStyle, borderTopWidth, borderRadius, color } = getComputedStyle(el);
     return { backgroundColor, borderTopColor, borderTopStyle, borderTopWidth, borderRadius, color };
   });
-  const secondaryStyle = await buttonStyle(page.getByRole('button', { name: 'Mark needs attention', exact: true }));
+  const baseline = page.locator('#secondaryBaseline');
+  await page.locator('#panelBody').evaluate(panel => panel.append(Object.assign(document.createElement('button'), { className: 'btn', type: 'button', id: 'secondaryBaseline' })));
+  const secondaryStyle = await buttonStyle(baseline);
+  await baseline.evaluate(el => el.remove());
   assert.equal(await done.count(), 2);
   for (const button of await done.all()) {
     assert.deepEqual(await buttonStyle(button), secondaryStyle, 'Done matches the bordered secondary action');

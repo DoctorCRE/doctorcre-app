@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { localDeals, needsAttention } from '../js/deal-review-model.js';
+import { localDeals } from '../js/deal-review-model.js';
 import { autoHtml, automaticPhaseReceipt, renderPhaseReceipt } from '../js/deal-items.js';
 import { urgencyOrder, automaticMove, noteEntries, PHASE_TRIGGERS } from '../js/local-deals-model.js';
 import { carrInterface } from "./carr-contract.mjs";
@@ -11,19 +11,9 @@ test('local scope excludes national and invoiced assignments and filters only ow
   const rows=[base,{...base,id:'national',workspace_kind:'national_account'},{...base,id:'parent',account_client_id:'demo-account'},{...base,id:'invoice',invoiced_on:'2026-10-01'},{...base,id:'dell',owner:'dell'}];
   assert.deepEqual(localDeals(rows).map(d=>d.id),['demo-1','dell']); assert.deepEqual(localDeals(rows,'joe').map(d=>d.id),['demo-1']);
 });
-test('only a recorded overdue next step requests attention; flags and edits alone do not', () => {
-  for (const fields of [{attention:true},{needs_attention:true},{flagged:true},{missing_step:true},{changed_since_review:true},{gone_quiet:true},{next_step:''},{last_touch:'2026-09-01'},{phase_change:{recorded_at:'2026-10-01T17:00:00Z'}},{next_date:'2026-10-01'},{next_date:'2026-02-30'}])
-    assert.equal(needsAttention({...base,...fields},now),false);
+test('an overdue next step sorts first', () => {
   const overdue={...base,id:'overdue',next_date:'2026-09-30'};
-  assert.equal(needsAttention(overdue,now),true);
   assert.equal(urgencyOrder([base,overdue],now)[0].id,'overdue');
-  for(const fields of [{operating_state:'parked'},{phase:'closed'},{outcome:'lost'},{invoiced_on:'2026-10-01'},{next_step:''}])
-    assert.equal(needsAttention({...overdue,...fields},now),false);
-});
-test('overdue uses the Chicago business day across browser timezones', () => {
-  const midnightInParis=Date.parse('2026-10-02T00:30:00Z');
-  assert.equal(needsAttention({...base,next_date:'2026-10-01'},midnightInParis),false);
-  assert.equal(needsAttention({...base,next_date:'2026-09-30'},midnightInParis),true);
 });
 test('automatic move and invoice close name only dated evidence with an exact undo target',() => {
  const change={event_id:'event-1',prior_phase:'research',phase:'negotiation',automatic:true,reason:'LOI sent',evidence_date:'2026-10-03'};

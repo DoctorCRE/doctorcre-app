@@ -80,25 +80,21 @@ export type BoardRules = {
   groupByColumn: (deals: BoardDeal[]) => {
     columns: { slug: string; label: string; deals: BoardDeal[] }[];
   };
-  attentionReasons: (deal: BoardDeal, today: string) => string[];
+  attentionReason: (deal: BoardDeal) => string | null;
   missingNextStep: (deal: BoardDeal) => boolean;
   dealName: (name: unknown) => string;
 };
 
 /** Local Deals' open deals per phase, those needing attention by name and reason, and how many miss a next step. */
-export function dealsAtAGlance(board: unknown, today: string, rules: BoardRules) {
+export function dealsAtAGlance(board: unknown, rules: BoardRules) {
   if (!record(board) || !Array.isArray(board.deals)) throw Error("Deals unavailable");
   const { columns } = rules.groupByColumn(rules.localDeals(board.deals));
   const open = columns.flatMap((column) => column.deals);
   return {
     phases: columns.map(({ slug, label, deals }) => ({ slug, label, count: deals.length })),
     attention: open.flatMap((deal) => {
-      const reasons = rules.attentionReasons(deal, today);
-      const flagged = deal.attention === true;
-      const late = reasons.length > Number(flagged);
-      return reasons.length
-        ? [{ id: deal.id, name: rules.dealName(deal.name), reason: reasons.join(". "), flagged, late }]
-        : [];
+      const reason = rules.attentionReason(deal);
+      return reason ? [{ id: deal.id, name: rules.dealName(deal.name), reason }] : [];
     }),
     missingNextStep: open.filter(rules.missingNextStep).length,
   };

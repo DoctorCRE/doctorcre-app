@@ -40,14 +40,6 @@ test('item detail uses dated fact bullets and offers instruction and completion 
   assert.equal(doc.querySelectorAll('time').length, 3);
 });
 
-test('attention follows open item deadlines and clears when the last overdue item is done', async () => {
-  const { needsAttention } = await import('../js/deal-review-model.js');
-  const row = { ...deal, next_date: '2020-01-01' };
-  const now = Date.parse('2026-10-22T15:00:00Z');
-  assert.equal(needsAttention(row, now), true);
-  assert.equal(needsAttention({ ...row, items: row.items.map(item => ({ ...item, status: 'done' })) }, now), false);
-  assert.equal(needsAttention({ ...row, items: [] }, now), false);
-});
 
 
 test('the item sheet keeps the overdue date visible as a due chip', () => {

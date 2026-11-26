@@ -117,7 +117,7 @@ const deal = (n: number, phase: string, fields: Record<string, unknown> = {}) =>
   name: `Example Deal ${n}`,
   phase,
   owner: "joe",
-  attention: false,
+  attention: null,
   operating_state: "active",
   workspace_kind: "team",
   next_step_required: false,
@@ -125,9 +125,16 @@ const deal = (n: number, phase: string, fields: Record<string, unknown> = {}) =>
   ...fields,
 });
 const deals = [
-  deal(1, "Research", { open_actions: [{ id: id(201), owner: "joe", due_on: "2026-11-22", description: "Call" }] }),
-  deal(2, "Legal", { attention: true, next_step_required: true, open_actions: [] }),
-  deal(3, "Legal"),
+  deal(1, "Research", {
+    attention: { reason: "A next step is late.", since: "2026-11-23" },
+    open_actions: [{ id: id(201), owner: "joe", due_on: "2026-11-22", description: "Call" }],
+  }),
+  deal(2, "Legal", {
+    attention: { reason: "This deal has no next step and no suggestion.", since: "2026-11-02" },
+    next_step_required: true,
+    open_actions: [],
+  }),
+  deal(3, "Legal", { attention: true }),
   deal(4, "Research", { operating_state: "parked", attention: true }),
   deal(5, "Research", { workspace_kind: "national_account" }),
 ];
@@ -385,8 +392,9 @@ test("Deals counts the Monday review's items and the board's phases, and Coming 
   assert.equal(await tile.getByRole("heading", { level: 2 }).textContent(), "Deals");
   assert.equal(await link("3 open · 1 parked · 1 national · 2 prospects"), "/deals");
   assert.equal(await link("Research 1"), "/deals?column=research");
-  assert.equal(await link("Example Deal 1 Step 3 days late"), `/deals?deal=${id(101)}`);
-  assert.equal(await link("Example Deal 2 Flagged by a partner"), `/deals?deal=${id(102)}`);
+  assert.equal(await link("Example Deal 1 A next step is late."), `/deals?deal=${id(101)}`);
+  assert.equal(await link("Example Deal 2 This deal has no next step and no suggestion."), `/deals?deal=${id(102)}`);
+  assert.equal(await tile.getByRole("link", { name: /^Example Deal 3/ }).count(), 0, "a stored flag is not attention");
   assert.equal(await link("1 has no next step"), "/deals?view=list&filter=no-next-step");
   assert.equal(await link("Monday review 1 of 8 includes 1 closed or lost this week"), "/deals?view=review");
   const comingUp = page.getByRole("region", { name: "Coming up", exact: true });
@@ -461,7 +469,7 @@ test("At 1280x640 the attention list and Coming up fold to one line each that op
     false,
   );
   await tile.getByRole("button", { name: "2 need attention" }).click();
-  await tile.getByRole("link", { name: "Example Deal 2 Flagged by a partner" }).waitFor();
+  await tile.getByRole("link", { name: "Example Deal 2 This deal has no next step and no suggestion." }).waitFor();
   await page.getByRole("button", { name: "Coming up 2 dates in the next 14 days" }).click();
   await page.getByRole("link", { name: /Fri, Nov 27/ }).waitFor();
 });

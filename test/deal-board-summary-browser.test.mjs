@@ -112,15 +112,16 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     await page.route('**/data/board-seed.json', async route => {
       const seed = await (await route.fetch()).json();
       const deal = seed.deals.find(deal => deal.id === 'd14');
-      Object.assign(deal, { attention: true, next_step: 'Send the sample plans', next_date: '2026-10-28' });
+      Object.assign(deal, { attention: { reason: 'A next step is late.', since: '2026-10-29' }, next_step: 'Send the sample plans', next_date: '2026-10-28' });
+      Object.assign(seed.deals.find(deal => deal.id === 'd04'), { attention: true, next_date: '2026-10-01' });
       seed.deals.push({ ...deal, id: 'sample-client-paused', name: 'Example Parked Practice', operating_state: 'parked', parking_reason: 'client_paused' });
       await route.fulfill({ json: seed });
     });
     await page.goto(`${server.origin}/deals?mode=fixture`);
     const card = page.locator('#kanban article[data-id="d14"]');
     const name = card.getByRole('button', { name: 'Demo Surgical Practice', exact: true });
-    const badge = card.getByRole('button', { name: 'Needs attention: Flagged by a partner. Step 1 day late', exact: true });
-    const reason = card.getByText('Flagged by a partner. Step 1 day late', { exact: true });
+    const badge = card.getByRole('button', { name: 'Needs attention: A next step is late.', exact: true });
+    const reason = card.getByText('A next step is late.', { exact: true });
     const parked = page.getByRole('button', { name: 'Parked', exact: true });
     await card.waitFor();
     await press(parked);
@@ -135,6 +136,17 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
 
     assert.equal(await reason.isVisible(), false);
     assert.equal(await badge.count(), 1, 'the attention badge is an operable button');
+    const flagged = page.locator('#kanban article[data-id="d04"]');
+    assert.equal(await flagged.locator('.deal-board-attention').count(), 0, 'a stored flag or a late date alone shows no badge');
+    if (!touch) {
+      const below = card.locator('xpath=following-sibling::*[1]');
+      const before = await below.boundingBox();
+      await badge.hover();
+      assert.ok(await reason.isVisible(), 'the reason shows while the mouse rests on the badge');
+      assert.deepEqual(await below.boundingBox(), before, 'showing the reason moves nothing');
+      await page.mouse.move(0, 0);
+      assert.equal(await reason.isVisible(), false, 'the reason leaves with the mouse');
+    }
     await press(badge);
     assert.equal(await badge.getAttribute('aria-expanded'), 'true');
     assert.ok(await reason.isVisible());

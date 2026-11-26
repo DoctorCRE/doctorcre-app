@@ -5,7 +5,7 @@ import { dealPathHtml, pathQuestionHtml } from './ui-deal-path.generated.js';
 import { workCard } from './work-card.js';
 import { bindCardQuickMenu } from './ui-card-menu.generated.js';
 import {
-  attentionReasons, autoHtml, automaticPhaseReceipt, dealDueDate, dealNextStep, dealTypeFacts, lossReasonLabel, renderDealFacts, renderDealItemButton,
+  attentionLineHtml, attentionReason, autoHtml, automaticPhaseReceipt, dealDueDate, dealNextStep, dealTypeFacts, lossReasonLabel, renderDealFacts, renderDealItemButton,
   missingNextStep, renderDealItems, renderEndedDealList, renderInvoiceClose, renderOverdueFlag, renderPhaseReceipt, stepText,
 } from './deal-items.js';
 import { mountDealItemSheet } from './deal-item-sheet.js';
@@ -45,7 +45,7 @@ import {
   boardHeadline, columnLabel, completionPlan, contextDrawerSections, groupByColumn, keyboardTarget,
   loadDealContext, moveIntent, moveSummary, moveTitle, noteText, dealName,
 } from './pipeline-model.js';
-import { isClosedDeal, localDeals, needsAttention, overdueLabel, overdueSince } from './deal-review-model.js';
+import { isClosedDeal, localDeals, overdueLabel, overdueSince } from './deal-review-model.js';
 import { lostDeals, closedDeals, urgencyOrder, concise, invoiceClose, isPhaseMoveReceipt, isEngineDealDetail, prepareDealDetail, dealStepVersion, nationalMarketLabel, ordinaryOpenSteps, partnerDealStep, PARKING_REASONS, PHASE_TRIGGERS } from './local-deals-model.js';
 import { sourceTime, stepOriginLabel } from './email-source-line.js';
 import {
@@ -182,18 +182,14 @@ function listNextStepHtml(deal) {
   return `<p class="deal-list-next-step"><span>${esc(stepText(step))}</span> · ${dueDateHtml(calendarDay(step.due_on), businessDay())}</p>`;
 }
 function dealAttentionHtml(deal) {
-  return state.boardFromEngine && deal.attention === true ? '<span class="deal-attention-label">Needs attention</span>' : '';
-}
-function legacyDue(deal) {
-  return !state.boardFromEngine && !ordinaryOpenSteps(deal.open_actions ?? []).length && noteText(deal.next_step).trim() ? deal.next_date : null;
+  return attentionReason(deal) ? '<span class="deal-attention-label">Needs attention</span>' : '';
 }
 function ownerMarkHtml(name) {
   return `<span class="owner" title="Owner: ${esc(name)}"><span aria-hidden="true">${esc(name === 'Unassigned' ? '?' : name.slice(0, 1))}</span><span class="sr-only">Owner: ${esc(name)}</span></span>`;
 }
 function cardAttentionHtml(deal) {
-  const reasons = attentionReasons(deal, businessDay(), legacyDue(deal));
-  if (!reasons.length) return '';
-  const reason = esc(reasons.join('. '));
+  const reason = esc(attentionReason(deal) ?? '');
+  if (!reason) return '';
   const reasonId = `board-attention-${esc(deal.id)}`;
   return `<button class="deal-board-attention" type="button" aria-label="Needs attention: ${reason}" aria-expanded="false" aria-controls="${reasonId}"><span class="deal-board-badge">Needs attention</span></button>
     <span class="deal-board-reason" id="${reasonId}" hidden>${reason}</span>`;
@@ -218,7 +214,7 @@ function legacyRowStepHtml(deal) {
 function rowHtml(deal) {
   const parked = deal.operating_state === 'parked';
   const summary = state.boardFromEngine ? listNextStepHtml(deal) : legacyRowStepHtml(deal);
-  const attention = state.boardFromEngine ? deal.attention === true : needsAttention(deal);
+  const attention = attentionReason(deal) !== null;
   const parking = parked ? parkingSummaryHtml(deal) : '';
   const website = parked && state.nextDealSaves ? renderClientPortalLink(deal.client_portal_url, deal.id) : '';
   const revive = parked ? `<button class="btn btn-quiet" type="button" data-revive="${esc(deal.id)}">Revive</button>` : '';
@@ -389,7 +385,7 @@ function renderHistoryStatus(status) {
 
 function visibleBoardDeals() {
   return localDeals([...state.deals.values()], state.personalScope ? state.selfActor : state.filter)
-    .filter(d => state.scopeFilter !== 'flagged' || (state.boardFromEngine ? d.attention === true : needsAttention(d)))
+    .filter(d => state.scopeFilter !== 'flagged' || attentionReason(d) !== null)
     .filter(d => state.scopeFilter !== 'no-next-step' || missingNextStep(d));
 }
 function renderBoardMessage(status = state.boardSync?.status()) {
@@ -1823,7 +1819,7 @@ function openDealStepsHtml(detail, steps, today) {
     </li>`;
   }).join('');
   return `<section class="deal-open-steps" aria-labelledby="deal-open-steps-heading">
-    <h2 id="deal-open-steps-heading">${heading}</h2>
+    <h2 id="deal-open-steps-heading">${heading}</h2>${attentionLineHtml(detail.deal)}
     ${rows ? `<ul aria-label="Open steps" role="list">${rows}</ul>` : '<p>No next step set.</p>'}
   </section>`;
 }
@@ -1914,8 +1910,6 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
       ${!fromEngine && d.client_portal_url ? renderClientPortalLink(d.client_portal_url) || '<p>Client website link is invalid.</p>' : ''}
       </div>
     </section>
-    ${detail.next_deal_saves ? `<div data-detail-read="attention">${Number.isSafeInteger(d.seen) && !ended
-      ? `<button class="btn" type="button" data-deal-attention data-detail-focus="attention">${d.attention === true ? 'Clear needs attention' : 'Mark needs attention'}</button>` : ''}</div>` : ''}
     ${fromEngine ? `<div data-detail-read="client-portal">${websiteSetup}</div>` : ''}
     ${fromEngine ? '' : '<div data-detail-read="checklist"></div>'}
     ${ownStep ? '' : dealUpdateFormHtml(false, today)}
@@ -2429,24 +2423,6 @@ function fieldPatch(field, value) {
     parking_reason: value.reason || null,
   };
 }
-async function toggleDealAttention(button) {
-  const detail = state.panelDetail;
-  const deal = detail?.deal;
-  if (button.disabled || !detail?.next_deal_saves || !Number.isSafeInteger(deal?.seen) || isClosedDeal(deal)) return;
-  button.disabled = true;
-  try {
-    const result = await sendFieldWrite(deal.id, 'attention', deal.attention !== true);
-    recordFieldReceipt(cellKey(deal.id, 'attention'), button.textContent, 'Needs attention', result);
-    if (result.status === 'ok' && !result.superseded) {
-      confirmLocalWrite(deal.id, { attention: result.request.value });
-      renderBoard();
-      if (state.panelDeal === deal.id) await refreshPanel();
-    }
-    renderPendingWrites();
-  } finally {
-    button.disabled = false;
-  }
-}
 
 async function setOperatingState(id, value) {
   const result = await sendFieldWrite(id, 'operating_state', value);
@@ -2540,6 +2516,7 @@ function wireBoard() {
 
   const openAttention = () => board.querySelector('.deal-board-attention[aria-expanded="true"]');
   const setAttention = (button, expanded) => {
+    delete button.dataset.pinned;
     button.setAttribute('aria-expanded', String(expanded));
     $(button.getAttribute('aria-controls')).hidden = !expanded;
   };
@@ -2551,11 +2528,19 @@ function wireBoard() {
   board.addEventListener('focusin', event => {
     if (event.target.matches('.deal-board-attention:focus-visible')) showAttention(event.target);
   });
+  // A mouse shows the reason while it rests on the badge; a click or tap keeps it open.
+  const hovered = event => event.pointerType === 'mouse' && event.target.closest('.deal-board-attention');
+  board.addEventListener('pointerover', event => { const button = hovered(event); if (button) showAttention(button); });
+  board.addEventListener('pointerout', event => {
+    const button = hovered(event);
+    if (button && !button.contains(event.relatedTarget) && !button.dataset.pinned && button !== document.activeElement) setAttention(button, false);
+  });
   document.addEventListener('click', event => {
     const button = event.target.closest('.deal-board-attention');
     const current = openAttention();
-    if (button && button !== current) showAttention(button);
-    else if (current && !event.target.closest('.deal-board-reason')) setAttention(current, false);
+    if (current && current !== button && !event.target.closest('.deal-board-reason')) setAttention(current, false);
+    if (button?.dataset.pinned) setAttention(button, false);
+    else if (button) { showAttention(button); button.dataset.pinned = 'true'; }
   });
 
   board.addEventListener('click', (event) => {
@@ -2900,8 +2885,6 @@ function wire() {
       askDateReason(form, resolution);
       return (resolution ? form.elements.reason : form.querySelector('.date-actions button')).focus();
     }
-    const attention = e.target.closest('[data-deal-attention]');
-    if (attention) return toggleDealAttention(attention);
     if (e.target.closest('[data-discard-update]') && !pendingCommand(commandState, updateKey(state.panelDeal)) && !pendingCommand(commandState, nextStepKey(state.panelDeal))) {
       discardUpdate(state.panelDeal);
       syncUpdateForm();
