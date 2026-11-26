@@ -6,6 +6,12 @@ import { activityRows } from '../js/notifications-model.js';
 import { activityState } from '../js/record-activity-model.js';
 import { prepareDealDetail } from '../js/local-deals-model.js';
 import { sourceTime } from '../js/email-source-line.js';
+import { activityGroupLabel, activityItems, renderDealActivity } from '../src/ui/deal-activity.ts';
+import { foldEmailBody } from '../src/ui/home/email-signature.ts';
+import { businessDay } from '../js/business-date.js';
+import { compareInstants, escapeText } from '../js/change-receipts.mjs';
+import { emailSubject } from '../js/correspondence.js';
+import { noteText } from '../js/pipeline-model.js';
 const { countdown, renderCriticalDates, calendarDay, updateCountdowns } = view;
 // Renderers read a detail that was prepared once, as the app does when it loads a deal.
 const dealTimeline = (d, n) => view.dealTimeline(prepareDealDetail(d), n);
@@ -419,4 +425,78 @@ test('a partner machine sign-in names the partner as an owner and reads as the a
   const answer = { state: 'completed', match: { target: 'V-1' }, catch_up: { timeline: [{ actor: slug, occurred_at: '2026-09-18T15:30:00.000Z', verb: 'log-call' }] } };
   assert.equal(activityState({ ref: 'V-1' }, answer).rows[0].actor, null, slug);
  }
+});
+
+const activityPorts = {
+  businessDay, compareInstants, escapeText, emailSubject, calendarDay: view.calendarDay, changeText: view.changeText,
+  dateCaption: view.dateCaption, importedHistoryEntries: view.importedHistoryEntries, timelineActor: view.timelineActor, sourceTime, noteText,
+};
+const activityNow = new Date('2026-11-18T15:00:00Z');
+const activityQuote = 'The lease is signed.\n\nPat Example\nExample Realty Group\n555-010-0100 (o)\nexamplerealty.com\n\nFrom: Sam Example\nSent: Monday\nTo: Pat Example\nSubject: Lease\n\nIs it signed?';
+
+function activitySample() {
+  return {
+    thread: [
+      { id: 'copied-note', kind: 'note', text: 'Tour plans confirmed', actor: 'dell', created_at: '2026-11-17T20:00:00Z' },
+      { id: 'older-note', kind: 'note', text: 'Recorded next step', actor: 'joe', created_at: '2025-01-03T10:00:00.000002Z' },
+    ],
+    correspondence: [
+      { kind: 'email', activity_id: 'mail-1', subject: 'Example suite floor plan', sender_name: 'Example Broker', happened_at: '2026-11-17T21:00:00Z' },
+      { kind: 'meeting', activity_id: 'meet-1', title: 'Property tour', happened_at: '2026-11-16T18:00:00Z' },
+    ],
+    activities: [
+      { id: 'mail-1', kind: 'email', summary: activityQuote, occurred_at: '2026-11-17T21:00:00Z', actor: 'mail_capture' },
+      { id: 'raw-mail', kind: 'email', summary: activityQuote, sender: 'Pat Example', occurred_at: '2026-10-02T15:00:00Z', actor: 'agent' },
+      { id: 'empty-call', kind: 'call', summary: ' ', occurred_at: '2026-11-16T13:00:00Z' },
+      { id: 'call-1', kind: 'call', summary: 'Called the landlord', occurred_at: '2026-11-15T16:00:00Z', actor: 'joe' },
+    ],
+    documents: [{ id: 'file', name: 'Example plan.pdf', actor: 'mail_capture', prepared_at: '2026-11-16T14:00:00Z' }],
+    next_actions: [{ id: 'step', description: 'Check the floor plan', status: 'open', actor: 'joe', updated_at: '2026-11-17T18:00:00Z' }],
+    critical_dates: [{ id: 'due', kind: 'due_diligence', status: 'open', due_on: '2026-11-19', actor: 'dell', updated_at: '2026-11-17T19:00:00Z' }],
+    history: [
+      { id: 'copied-event', activity_id: 'copied-note', field: 'note', new_value: 'Tour plans confirmed', actor: 'dell', recorded_at: '2026-11-17T20:00:01Z' },
+      { id: 'move', verb: 'move-phase', field: 'phase', new_value: 'legal', actor: 'agent', recorded_at: '2026-11-18T01:00:00Z' },
+      { id: 'same-file', verb: 'prepare-document', field: 'document', new_value: { name: 'Example plan.pdf' }, actor: 'joe', recorded_at: '2026-11-16T14:00:01Z' },
+    ],
+    imported_deal_history: [
+      { id: 'old-1', imported: true, actor: 'joe', verb: 'new-deal', field: null, new_value: { deal_type: 'lease', reason: 'Renewal' }, recorded_at: '2025-01-06T00:00:00Z' },
+    ],
+    email_follow_ups: [],
+  };
+}
+
+test('one activity list keeps each thing once and leaves next steps on Overview', () => {
+  const items = activityItems(activitySample(), { now: activityNow, fold: foldEmailBody, ports: activityPorts });
+  const titles = items.map(item => item.title);
+  assert.equal(titles.filter(title => title === 'Example suite floor plan').length, 1);
+  assert.equal(titles.filter(title => title === 'Example plan.pdf').length, 1);
+  assert.equal(titles.filter(title => title === 'Tour plans confirmed').length, 1);
+  assert.equal(titles.includes('Check the floor plan'), false);
+  assert.equal(titles.some(title => title.startsWith('Due diligence')), false);
+  assert.equal(titles.includes('Called the landlord'), true);
+  const folded = items.find(item => item.id === 'raw-mail');
+  assert.equal(folded.title, 'The lease is signed. Pat Example');
+  assert.equal(folded.title.includes('555-010-0100'), false);
+  assert.equal(folded.who, 'Written by the assistant');
+  assert.equal(items.find(item => item.id === 'file').who, 'Mail filing');
+  assert.equal(items.find(item => item.id === 'move').title, 'Moved to Legal');
+  assert.equal(items[0].id, 'move');
+  assert.deepEqual(items.map(item => activityGroupLabel(item.day, activityNow, activityPorts)).filter((label, index, all) => all.indexOf(label) === index), [
+    'This week', 'Earlier in November', 'October', 'January 2025',
+  ]);
+});
+
+test('an empty engine read says nothing is recorded and a failed correspondence read does not', () => {
+  const empty = renderDealActivity({ email_follow_ups: [], correspondence: [], thread: [] }, { now: activityNow, ports: activityPorts });
+  const failed = renderDealActivity({ email_follow_ups: [], thread: [] }, { now: activityNow, ports: activityPorts });
+  assert.match(empty.html, /Nothing recorded yet\./);
+  assert.doesNotMatch(empty.html, /Dated events|Correspondence/);
+  assert.match(failed.html, /Emails and meetings unavailable\./);
+  assert.doesNotMatch(failed.html, /Nothing recorded yet\./);
+  const waiting = renderDealActivity({
+    email_follow_ups: [{ kind: 'file_to_deal' }, { kind: 'file_to_deal' }], correspondence: [], thread: [],
+  }, { now: activityNow, ports: activityPorts });
+  assert.match(waiting.html, /2 emails are waiting to be filed on Overview\./);
+  assert.match(empty.html, /id="activityNote" name="text" rows="1" maxlength="10000"/);
+  assert.doesNotMatch(empty.html, /class="activity-row"[^>]*>[\s\S]*<button/);
 });

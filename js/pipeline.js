@@ -15,6 +15,8 @@ import { OWNER_FILTERS } from './owner-filters.js';
 import { engagementWriterFor } from './prospect-engagement.mjs';
 import { showToast } from './toast.js';
 import { submitOnEnter } from './ui-keyboard-input.generated.js';
+import { foldEmailBody } from './ui-email-fold.generated.js';
+import { renderDealActivity, showActivityFilter } from './ui-deal-activity.generated.js';
 import { renderDealVendors } from './deal-vendors.js';
 import { openEngineClientWebsite, renderClientPortalLink, saveEngineClientWebsite } from './client-portal-link.js';
 import { clearPrivateTextDrafts, privateSession, privateTextDraft, sessionFetch } from './private-session.js';
@@ -26,7 +28,7 @@ import { preserveBoardFocus } from './board-focus.mjs';
 import { showScrollThumbs } from './ui-scroll-thumb.generated.js';
 import { performCommand, pendingCommand } from './command-feedback.mjs';
 import { createLiveClient, dealTypeLabel } from './live-client.js';
-import { emailSubject, emailPlaceholderText, loadEvidence, renderCorrespondence, renderEvidence } from './correspondence.js';
+import { emailSubject, emailPlaceholderText, loadEvidence, renderEvidence } from './correspondence.js';
 import { dealToursFromEngine, dealsSaveToEngine, deploymentIdentity, resolveDealroomBoot } from './boot-mode.js';
 import { ACTOR_LABEL, authorLabel } from './client.js';
 import { mountNotificationBadge, mountPrefs } from './shell.js';
@@ -39,7 +41,7 @@ import {
   cellKey, performFieldWrite, unresolvedFieldWrites, fieldWriteMessage, nextCellBase, prepareAutomaticPhaseUndo,
 } from './field-write-reconciliation.mjs';
 import {
-  escapeText, fieldLabel, readableValue, ingestChangeEvents, receiptViews, receiptListHtml,
+  compareInstants, escapeText, fieldLabel, readableValue, ingestChangeEvents, receiptViews, receiptListHtml,
   receiptsSignature, createFeedProgress, observeChangeBatch, performUndo,
 } from './change-receipts.mjs';
 import {
@@ -52,7 +54,7 @@ import { lostDeals, closedDeals, urgencyOrder, concise, invoiceClose, isPhaseMov
 import { sourceTime, stepOriginLabel } from './email-source-line.js';
 import {
   mountActivityAttribution, renderDealTimeline, renderDealUpdates, renderCriticalDates, askDateReason,
-  dealTimeline, engineTimelineEntries, renderImportedDealHistory, dateCaption, calendarDay, CRITICAL_DATE_OPTIONS,
+  dealTimeline, dateCaption, calendarDay, changeText, importedHistoryEntries, timelineActor, CRITICAL_DATE_OPTIONS,
 } from './deal-timeline.js';
 import { uuidv4 } from './uuid.js';
 import { linkRecordNames } from './ui-record-links.generated.js';
@@ -1431,6 +1433,31 @@ async function saveUpdate(id) {
     }
   } finally { draft.sending = false; }
 }
+let activityNoteSending = false;
+async function saveActivityNote(id) {
+  const field = $('activityNote');
+  const text = field?.value.trim();
+  const status = $('activityNoteStatus');
+  if (!text || !state.selfActor || activityNoteSending) {
+    if (status && !text) status.textContent = 'Enter a note';
+    return;
+  }
+  activityNoteSending = true;
+  activityNoteDraft = '';
+  field.value = '';
+  try {
+    const result = await runFollowUp(`activity-note:${id}`, { verb: 'add-deal-note', args: { deal: id, text }, summary: 'Deal note' });
+    if (result?.status !== 'ok') {
+      activityNoteDraft = text;
+      const again = $('activityNote');
+      if (again) again.value = text;
+      if (status) status.textContent = result?.message || 'Note not confirmed';
+      return;
+    }
+    state.boardSync.requestRefresh('deal-update');
+    if (state.panelDeal === id) await refreshPanel();
+  } finally { activityNoteSending = false; }
+}
 function requirementEmailHtml(deal) {
   const draft = requirementDrafts.get(deal.id) || {};
   return `<details id="requirementEmail"><summary>Draft requirement email</summary>
@@ -1478,6 +1505,8 @@ let workspaceTab = 'overview';
 let requestedClientPortal = false;
 let boardScroll = 0;
 let timelineType = '';
+let activityFilter = 'all';
+let activityNoteDraft = '';
 history.scrollRestoration = 'manual';
 let workspaceHistory = history.state;
 function writeWorkspaceHistory(data, url, push = false) {
@@ -1556,10 +1585,10 @@ function legacyTimelineEntries(detail, nextItem) {
   ].sort((a,b) => b.day.localeCompare(a.day))
     .map(({ type, day, text }) => ({ type, when: day, caption: dateCaption(day), actor: '', text }));
 }
-function workspaceEventsHtml(detail, nextItem, fromEngine, planTours) {
-  const events = fromEngine ? engineTimelineEntries(detail, { planTours }) : legacyTimelineEntries(detail, nextItem).filter(event => event.text.trim());
+function workspaceEventsHtml(detail, nextItem) {
+  const events = legacyTimelineEntries(detail, nextItem).filter(event => event.text.trim());
   if (!events.some(event => event.type === timelineType)) timelineType = '';
-  return `<h2>Dated events</h2><label for="timelineType">Filter by kind</label><select id="timelineType"><option value="">All types</option>${[...new Set(events.map(e => e.type))].map(type => `<option${type === timelineType ? ' selected' : ''}>${esc(type)}</option>`).join('')}</select><ol class="workspace-events">${events.map(e => `<li data-event-type="${esc(e.type)}"${timelineType && e.type !== timelineType ? ' hidden' : ''}>${e.actor ? `<b>${esc(e.actor)}</b> ` : ''}<time datetime="${esc(e.when)}">${esc(e.caption)}</time><small>${esc(e.type)}</small><p class="note-original">${linkRecordNames(e.text, detail.record_links)}</p></li>`).join('')}</ol>${events.length ? '' : fromEngine ? '<p>No dated events yet.</p>' : '<p>No dated events recorded.</p>'}`;
+  return `<h2>Dated events</h2><label for="timelineType">Filter by kind</label><select id="timelineType"><option value="">All types</option>${[...new Set(events.map(e => e.type))].map(type => `<option${type === timelineType ? ' selected' : ''}>${esc(type)}</option>`).join('')}</select><ol class="workspace-events">${events.map(e => `<li data-event-type="${esc(e.type)}"${timelineType && e.type !== timelineType ? ' hidden' : ''}>${e.actor ? `<b>${esc(e.actor)}</b> ` : ''}<time datetime="${esc(e.when)}">${esc(e.caption)}</time><small>${esc(e.type)}</small><p class="note-original">${linkRecordNames(e.text, detail.record_links)}</p></li>`).join('')}</ol>${events.length ? '' : '<p>No dated events recorded.</p>'}`;
 }
 let dealToursPanel, dealDocumentsPanel;
 let checklistPanel;
@@ -1990,10 +2019,22 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
     <section id="workspace-documents" role="tabpanel" aria-labelledby="tab-documents" hidden>${fromEngine ? `<h2>Documents</h2>${detail.next_deal_saves ? '<div id="deal-document-upload"></div>' : ''}<div data-detail-read="filed-documents">${filedDocumentsHtml(detail.documents)}</div>` : ''}</section>
     <section id="workspace-client-portal" role="tabpanel" aria-labelledby="tab-client-portal" hidden>${fromEngine ? `<div data-detail-read="client-website">${websiteLink}</div>` : ''}</section>
     <section id="workspace-tours" role="tabpanel" aria-labelledby="tab-tours" hidden>${engineMode ? '<p>Not available yet</p>' : ''}</section>
-    <section id="workspace-activity" role="tabpanel" aria-labelledby="tab-activity" hidden><div data-detail-read="events">${workspaceEventsHtml(detail, nextItem, fromEngine, planTours)}</div>${fromEngine ? `<div data-detail-read="old-history">${renderImportedDealHistory(detail.imported_deal_history)}</div>` : renderDealTimeline(detail)}
+    <section id="workspace-activity" role="tabpanel" aria-labelledby="tab-activity" hidden>${fromEngine ? activityPanel(detail, planTours) : `<div data-detail-read="events">${workspaceEventsHtml(detail, nextItem)}</div>${renderDealTimeline(detail)}
       <h2>Correspondence &amp; notes</h2>
-      ${fromEngine ? `<div data-detail-read="correspondence">${renderCorrespondence(detail.correspondence, detail.email_follow_ups.filter(row => row.kind === 'file_to_deal').length, { planTours })}</div>` : '<details id="panelEvidenceSection"><summary>Threads &amp; meetings</summary><div id="panelEvidence"></div></details>'}
-      <div data-detail-read="notes">${workspaceNotesHtml(detail)}</div></section>`;
+      <details id="panelEvidenceSection"><summary>Threads &amp; meetings</summary><div id="panelEvidence"></div></details>
+      <div data-detail-read="notes">${workspaceNotesHtml(detail)}</div>`}</section>`;
+}
+function activityPanel(detail, planTours) {
+  const ports = {
+    businessDay, compareInstants, escapeText, emailSubject, calendarDay, changeText, dateCaption,
+    importedHistoryEntries, timelineActor, sourceTime, noteText,
+  };
+  const view = renderDealActivity(detail, {
+    planTours, now: new Date(), fold: foldEmailBody, filter: activityFilter, note: activityNoteDraft,
+    canNote: Boolean(state.selfActor), link: text => linkRecordNames(text, detail.record_links), ports,
+  });
+  activityFilter = view.filter;
+  return view.html;
 }
 function dealUpdateFormHtml(stepEditor, today) {
   const stepFields = `<div class="deal-next-step-fields"><label for="dealUpdateStep">${stepEditor ? 'Your next step' : 'Next step'}</label><textarea id="dealUpdateStep" name="step" maxlength="10000" autocomplete="off"></textarea><label for="dealUpdateDate">Next date</label><input id="dealUpdateDate" name="date" type="date" min="${today}"><small id="detailUpdateDateHint" hidden>Current next date is overdue.</small></div>`;
@@ -2145,6 +2186,7 @@ async function readPanel(id) {
           const dateAsks = [...current.querySelectorAll('[data-date-decision] .date-reason:not([hidden])')].map(n => [
             n.closest('form').dataset.dateDecision, n.querySelector('[type="submit"]').value, n.querySelector('input').value]);
           const oldScroll = current.scrollLeft;
+          const activityScroll = current.querySelector('.activity-list')?.scrollTop ?? null;
           const openTodos = new Set([...current.querySelectorAll('[data-todo] > details[open]')].map(n => n.parentElement.dataset.todo));
           if (fresh.dataset.detailRead === 'suggested') {
             for (const input of current.querySelectorAll('[data-email-decision] input')) {
@@ -2159,6 +2201,10 @@ async function readPanel(id) {
           if (fresh.dataset.detailRead === 'updates') mountPanelActivityAttribution();
           fresh.scrollLeft = oldScroll;
           if (openDate) document.getElementById(openDate)?.showPopover();
+          if (activityScroll !== null) {
+            const list = fresh.querySelector('.activity-list');
+            if (list) list.scrollTop = activityScroll;
+          }
           fresh.querySelectorAll('[data-todo] > details').forEach(n => { n.open ||= openTodos.has(n.parentElement.dataset.todo); });
           if (fresh.dataset.detailRead === 'path') revealCurrentPhase();
           if (historyOpen && fresh.querySelector('.updates-history')) fresh.querySelector('.updates-history').open = true;
@@ -2392,6 +2438,8 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   workspaceTab = toursLink ? 'tours' : renamedTab === 'activity' ? 'activity' : 'overview';
   requestedClientPortal = !toursLink && renamedTab === 'client-portal';
   timelineType = '';
+  activityFilter = 'all';
+  activityNoteDraft = '';
   ++panelReadSequence;
   automaticPhase.setOpenDeal(dealId);
   state.panelDeal = dealId; state.panelDetail = null; updateDraft = null;
@@ -2949,6 +2997,11 @@ function wire() {
     if (event.target.open && state.panelDetail) void refreshEvidence(state.panelDetail, state.panelDeal, panelReadSequence);
   }, true);
   $('panelBody').addEventListener('click', async e => {
+    const chip = e.target.closest('[data-activity-filter]');
+    if (chip && $('workspace-activity')?.contains(chip)) {
+      activityFilter = showActivityFilter($('workspace-activity'), chip.dataset.activityFilter);
+      return;
+    }
     const documentText = e.target.closest('[data-open-document-text]');
     if (documentText) return openFiledDocumentText(documentText.dataset.openDocumentText);
     if (e.target.closest('[data-undo-invoice]')) void undoInvoiceClose();
@@ -3014,7 +3067,7 @@ function wire() {
       setSuggestionEdit(event.target.form, false);
       return;
     }
-    if (event.target.id !== 'dealUpdateStep') return;
+    if (event.target.id !== 'dealUpdateStep' && event.target.id !== 'activityNote') return;
     const form = event.target.form;
     const submit = form.querySelector('button[type="submit"]:enabled');
     if (submit) submitOnEnter(event, () => form.requestSubmit(submit));
@@ -3025,6 +3078,7 @@ function wire() {
       Object.assign(draft, Object.fromEntries(new FormData($('requirementEmailForm'))));
       requirementDrafts.set(state.panelDeal, draft);
     }
+    if (e.target.id === 'activityNote') activityNoteDraft = e.target.value;
     if (e.target.closest('#detailUpdateForm') && updateDraft && ['text','step','date'].includes(e.target.name)) {
       updateDraft[e.target.name] = e.target.value;
       if (e.target.name === 'text') updateTextDraft(updateDraft.id).write(updateDraft.text);
@@ -3100,6 +3154,7 @@ function wire() {
       }
     }
     if (e.target.id === 'detailInactiveForm') await markProspectInactive(e.target,id,String(form.get('reason')).trim());
+    if (e.target.id === 'activityNoteForm') { await saveActivityNote(id); return; }
     if (e.target.id === 'detailUpdateForm') await saveUpdate(id);
     if (e.target.id === 'detailClientPortalForm') await registerClientPortal(id, form);
   });

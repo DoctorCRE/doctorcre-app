@@ -2674,7 +2674,7 @@ for (const width of [1440, 390]) test(`Timeline shows read-only history from the
   imported_deal_history.unshift({ id: 'copied-step-event', imported: true, actor: 'joe', verb: 'set-next-step',
     field: 'next_step', new_value: { next_step: copiedStepText, next_date: '2025-01-08' },
     occurred_at: '2025-01-03T10:00:00.000001Z', recorded_at: '2025-01-03T10:00:00.000003Z' });
-  const detail = { ...row, thread, events, imported_deal_history, email_follow_ups: [],
+  const detail = { ...row, thread, events, imported_deal_history, email_follow_ups: [], correspondence: [],
     phase_started_on: { legal: '2026-11-17' },
     activities: [{ id: 'empty-call', kind: 'call', summary: ' ', occurred_at: beforeDocument }],
     documents: [{ id: 'file', name: 'Example plan.pdf', actor: 'mail_capture', prepared_at: '2026-11-16T14:00:00Z' }],
@@ -2742,67 +2742,61 @@ for (const width of [1440, 390]) test(`Timeline shows read-only history from the
 
   readsOn = true;
   await page.reload();
-  await openTimeline();
-  assert.equal(await oldHistory.count(), 1);
-  const earlier = await oldHistory.getByRole('listitem').allTextContents();
-  assert.equal(earlier.length, 5);
-  assert.match(earlier[0], /Deal kind: Lease.*Deal reason: Renewal/s);
-  assert.match(earlier[1], /Joe.*Jan 5, 2025.*6:00 PM.*Prepared a document.*Example lease <draft>.*Fields filled.*0.*Fields still needed.*2/s);
-  assert.match(earlier[2], /Written by the assistant.*Jan 5, 2025.*6:00 PM.*Checked the address.*Result: Nothing found.*Feb 3, 2025/s);
-  assert.match(earlier[3], /Dell.*Jan 4, 2025.*6:00 PM.*Changed the next step date.*Next step date cleared.*Jan 6, 2025/s);
-  assert.doesNotMatch(earlier.join(' '), /2025-01-|next_date|set-next-action|record-finding|expires_on|\[object Object\]/);
-  assert.equal(await oldHistory.locator('a, button, input, select, textarea, [contenteditable]').count(), 0);
-  assert.equal(await oldHistory.evaluate(el => el.scrollWidth <= el.clientWidth), true);
-  const rows = timeline.locator('li[data-event-type]:not([hidden])');
-  assert.equal(await rows.getByText('Call', { exact: true }).count(), 0);
-  const checklistRow = rows.filter({ hasText: 'Review the checklist' });
-  assert.equal(await checklistRow.getByText('Checklist item', { exact: true }).count(), 1);
-  const contents = await rows.allTextContents();
-  assert.equal(await oldHistory.getByText(copiedStepText, { exact: false }).count(), 1);
-  const recordedSteps = timeline.locator('[data-detail-read="events"], [data-detail-read="old-history"]').getByText('Recorded next step', { exact: false });
-  assert.deepEqual(await recordedSteps.locator('..').locator('time').evaluateAll(times =>
-    times.map(time => time.dateTime)), ['2025-01-03T10:00:00.000004Z', '2025-01-03T10:00:00.000002Z'],
-    'Both notes remain visible when the event supplies no activity ID');
-  assert.equal(contents.length, 9 + stepChanges.length + (dates.length - 1) + dealChanges.length);
-  assert.match(contents[0], /Written by the assistant.*Nov 17.*7:00 PM.*Legal/);
-  assert.match(contents[1], /Dell.*Nov 17.*2:00 PM.*Tour plans confirmed/);
-  assert.match(contents[2], /Dell.*Nov 17.*1:00 PM.*Due diligence.*Due Nov 19/);
-  assert.match(contents[3], /Joe.*Check the floor plan$/);
-  assert.match(contents[5], /Mail filing.*Nov 16.*Example plan\.pdf/);
-  const descriptions = await rows.locator('p').allTextContents();
-  for (const [description, , state] of stepChanges) {
-    assert.ok(descriptions.includes(`${description} · ${state} · Due Nov 19, 2026`), `Next step should say ${state}`);
-  }
-  for (const [, , , caption] of dates) {
-    assert.ok(descriptions.includes(`${caption} · Due Nov 19, 2026`), `Critical date should say ${caption}`);
-  }
+  await page.getByRole('tab', { name: 'Activity' }).click();
+  await timeline.getByRole('heading', { name: 'Activity', exact: true }).waitFor();
+  await timeline.getByText('Tour plans confirmed', { exact: true }).first().waitFor();
+  assert.equal(await timeline.getByLabel('Filter by kind').count(), 0);
+  assert.equal(await timeline.getByText('Phase timeline', { exact: true }).count(), 0);
+  assert.equal(await oldHistory.count(), 0);
+  assert.equal(await timeline.getByText('Dated events', { exact: true }).count(), 0);
+  const rows = timeline.locator('.activity-row:not([hidden])');
+  const line = async row => (await row.innerText()).replace(/\s+/g, ' ');
+  const titles = () => timeline.locator('.activity-title').allTextContents();
+  assert.equal(await rows.count(), 19);
+  assert.equal(await timeline.locator('.activity-row :is(a, button, input, select, textarea, [contenteditable])').count(), 0);
+  assert.match(await line(rows.nth(0)), /^Moved to Legal Written by the assistant · Nov 17, 7:00 PM$/);
+  assert.match(await line(rows.nth(1)), /^Tour plans confirmed Dell · Nov 17, 2:00 PM$/);
+  assert.match(await line(rows.nth(3)), /^Example plan\.pdf Mail filing · Nov 16, 8:00 AM$/);
+  const titleText = await titles();
+  assert.match(titleText.find(text => text.startsWith('Opened the deal')), /Deal kind: Lease.*Deal reason: Renewal/);
+  assert.match(titleText.find(text => text.startsWith('Prepared a document')), /Example lease <draft>.*Fields filled: 0.*Fields still needed: 2/);
+  assert.match(titleText.find(text => text.startsWith('Checked the address')), /Result: Nothing found.*Feb 3, 2025/);
+  assert.match(titleText.find(text => text.startsWith('Changed the next step date')), /Next step date cleared \(was Jan 6, 2025\)/);
+  assert.equal(titleText.filter(text => text.includes(copiedStepText)).length, 3);
+  assert.equal(titleText.filter(text => text.startsWith('Recorded next step')).length, 2);
   for (const description of ['Needs attention', ...dealChanges.map(([, , label]) => label)]) {
-    assert.equal(descriptions.filter(text => text === description).length, 1, description);
+    assert.equal(titleText.filter(text => text === description).length, 1, description);
   }
+  for (const [description] of stepChanges) assert.equal(titleText.some(text => text.includes(description)), false, description);
+  for (const [, , , caption] of dates) assert.equal(titleText.some(text => text.includes(caption)), false, caption);
+  assert.equal(titleText.some(text => text.includes('Check the floor plan') || text.includes('Review the checklist')), false);
+  const blob = await rows.evaluateAll(nodes => nodes.map(node => node.innerText).join('\n'));
+  assert.doesNotMatch(blob, /2026-11-|2025-01-|next_date|set-next-action|record-finding|expires_on|\[object Object\]|move-phase|add deal note|Active work ·|Attention flag/);
   await rows.filter({ hasText: 'Parked · Other' }).screenshot({ path: join(evidence, `timeline-parking-${width}.png`) });
-  assert.doesNotMatch(contents.join(' '), /2026-11-|move-phase|add deal note|Active work ·|Attention flag/);
+  const beforeNote = await titles();
 
   savesOn = true;
   await page.reload();
   await page.getByRole('tab', { name: 'Overview' }).click();
   await page.getByText('Add step', { exact: true }).click();
   await page.getByText('Add a note', { exact: true }).click();
-  await page.getByLabel('Note', { exact: true }).fill('Tour plans confirmed');
+  await page.getByRole('tabpanel', { name: 'Overview' }).getByLabel('Note', { exact: true }).fill('Tour plans confirmed');
   await page.getByRole('button', { name: 'Save note', exact: true }).click();
   await page.locator('#detailUpdateStatus').getByText('Update added', { exact: true }).waitFor();
-  await openTimeline();
+  await page.getByRole('tab', { name: 'Activity' }).click();
+  await timeline.getByText('Tour plans confirmed', { exact: true }).first().waitFor();
   const notes = rows.filter({ hasText: 'Tour plans confirmed' });
   assert.equal(await notes.count(), 2);
-  assert.match(await notes.nth(0).innerText(), /Joe\s+Nov 18, 9:00 AM/);
-  assert.match(await notes.nth(1).innerText(), /Dell\s+Nov 17, 2:00 PM/);
+  assert.match(await line(notes.nth(0)), /Joe · Nov 18, 9:00 AM/);
+  assert.match(await line(notes.nth(1)), /Dell · Nov 17, 2:00 PM/);
   assert.doesNotMatch(carr.join(' '), /add-deal-note/);
-  const filter = timeline.getByLabel('Filter by kind');
-  await filter.selectOption('Note');
+  const chips = timeline.getByRole('group', { name: 'Activity filter' });
+  await chips.getByRole('button', { name: 'Notes', exact: true }).click();
   assert.equal(await rows.count(), 4);
-  await filter.selectOption('');
-  assert.deepEqual(await oldHistory.getByRole('listitem').allTextContents(), earlier);
+  await chips.getByRole('button', { name: 'All', exact: true }).click();
+  assert.deepEqual((await titles()).slice(1), beforeNote);
   assert.equal(engine.filter(path => path === '/api/engine/activities').length, 1);
-  await oldHistory.screenshot({ path: join(evidence, `imported-deal-history-${width}.png`) });
+  await timeline.locator('.activity-list').screenshot({ path: join(evidence, `imported-deal-history-${width}.png`) });
 });
 
 for (const width of [1440, 390]) {
