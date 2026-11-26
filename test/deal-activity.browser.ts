@@ -275,7 +275,10 @@ test("a deal's Activity is one filtered history, and an empty one says nothing i
         "Earlier in November",
         "January 2025",
       ]);
-      assert.equal(await activity.locator(".activity-row :is(button, a)").count(), 0);
+      assert.equal(
+        await activity.locator(".activity-row").count(),
+        await activity.locator(".activity-row > button.activity-open").count(),
+      );
       await activity.getByRole("button", { name: "Emails", exact: true }).click();
       assert.deepEqual(await titles(), ["Example suite floor plan", "The lease is signed. Pat Example"]);
       await activity.getByRole("button", { name: "All", exact: true }).click();
@@ -352,4 +355,185 @@ test("a deal's Activity is one filtered history, and an empty one says nothing i
   await saved.locator(".activity-title", { hasText: "Called the example clinic" }).waitFor();
   assert.equal(await saved.getByLabel("Note", { exact: true }).inputValue(), "");
   assert.equal(await saved.locator(".activity-empty:not([hidden])").count(), 0);
+});
+
+const conversation = {
+  thread: [
+    {
+      activity_id: "mail-0",
+      sender_name: "Rob Example",
+      happened_at: "2026-11-02T22:40:00Z",
+      body: "Can you send the suite plan?",
+      folded: null,
+    },
+    {
+      activity_id: "mail-1",
+      sender_name: "Dell",
+      happened_at: "2026-11-17T21:00:00Z",
+      body: "Here is the plan.\n\nThe west door is open.",
+      folded: "On Mon, Nov 2, Rob Example wrote:\n> Can you send the suite plan?",
+    },
+  ],
+};
+
+function opened() {
+  const deal = many();
+  return {
+    ...deal,
+    correspondence: deal.correspondence.map((entry) =>
+      entry.kind === "meeting"
+        ? { ...entry, properties: [{ id: "lot-1", name: "Example Clinic", address: "10 Example Way" }] }
+        : entry,
+    ),
+    email_follow_ups: [
+      {
+        proposal_id: "00000000-0000-4000-8000-00000000d171",
+        kind: "next_step",
+        title: "Send Rob the signed plan",
+        what: "Send Rob the signed plan",
+        owner: "joe",
+        due_on: "2026-11-20",
+        email: { activity_id: "mail-1", sender_name: "Dell", subject: "Example suite floor plan" },
+      },
+    ],
+  };
+}
+
+test("an Activity row opens beside the list, an email as its cleaned conversation", async (t) => {
+  const reads: string[] = [];
+  const env = {
+    GIT_SHA: "0".repeat(40),
+    APP_ENV: "fixture",
+    ENGINE_ROUTING: { get: async () => "on" },
+    CARR: { fetch: async () => Response.json(session) },
+    ENGINE: {
+      fetch: async (request: Request) => {
+        const path = new URL(request.url).pathname;
+        if (path === `/api/engine/deals/${dealId}/emails/mail-1`) {
+          reads.push(path);
+          return Response.json(conversation);
+        }
+        if (path === `/api/engine/deals/${dealId}`) return Response.json(opened());
+        if (path === "/api/engine/deals")
+          return Response.json({ schema_version: "local-deals-board.v2", actor: "joe", deals: [opened()] });
+        return Response.json({ error: "not_found" }, { status: 404 });
+      },
+    },
+  };
+  const server = await startWorkerFixture({ assets: await appAssetSnapshot(), env });
+  t.after(() => server.close());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  await mkdir(shots, { recursive: true });
+  const evidence = process.env.C2_EVIDENCE_DIR;
+
+  for (const [width, height] of [
+    [1440, 772],
+    [1280, 640],
+    [390, 844],
+  ] as const)
+    for (const theme of ["light", "dark"] as const) {
+      const context = await browser.newContext({ viewport: { width, height }, colorScheme: theme });
+      t.after(() => context.close());
+      await context.addInitScript((choice) => {
+        localStorage.setItem("doctorcre.visual-preferences", JSON.stringify({ theme: choice }));
+      }, theme);
+      const page = await context.newPage();
+      await page.clock.setFixedTime(new Date(now));
+      await page.route(/\/(mcp|api\/engine\/.*)$/, async (route) => {
+        const request = route.request();
+        const body = request.postData();
+        const reply = await worker.fetch(
+          new Request(request.url(), {
+            method: request.method(),
+            headers: await request.allHeaders(),
+            ...(body === null ? {} : { body }),
+          }),
+          env,
+        );
+        await route.fulfill({
+          status: reply.status,
+          headers: Object.fromEntries(reply.headers),
+          body: Buffer.from(await reply.arrayBuffer()),
+        });
+      });
+      await page.goto(`${server.origin}/deals?mode=live&deal=${dealId}`);
+      await page.getByRole("tab", { name: "Activity" }).click();
+      const activity = page.getByRole("tabpanel", { name: "Activity" }).locator(".deal-activity");
+      const shot = async (name: string) => {
+        await page.screenshot({ path: `${shots}/di-C2-${name}-${width}-${theme}.png`, animations: "disabled" });
+        if (evidence)
+          await page.screenshot({ path: `${evidence}/di-C2-${name}-${width}-${theme}.png`, animations: "disabled" });
+      };
+
+      await activity.getByRole("button", { name: /^Example suite floor plan/ }).click();
+      const pane = activity.getByRole("region", { name: "Example suite floor plan" });
+      await pane.getByText("Here is the plan.", { exact: true }).waitFor();
+      assert.deepEqual(await pane.locator(".activity-message .deal-suggestion-from").allTextContents(), [
+        "From Rob · Mon, Nov 2, 4:40 PM",
+        "From Dell · Tue, Nov 17, 3:00 PM",
+      ]);
+      assert.equal(await pane.getByText("The west door is open.", { exact: true }).count(), 1);
+      const suggestion = pane.getByRole("listitem", { name: "Send Rob the signed plan" });
+      assert.equal(await suggestion.getByRole("button", { name: "Accept" }).count(), 1);
+      assert.equal(await suggestion.getByRole("button", { name: "Dismiss" }).count(), 1);
+      const suggestionTop = await suggestion.evaluate((node) => node.getBoundingClientRect().top);
+      const firstMessageTop = await pane
+        .locator(".activity-message")
+        .first()
+        .evaluate((node) => node.getBoundingClientRect().top);
+      assert.ok(suggestionTop < firstMessageTop, "the suggestion sits above the conversation");
+      assert.equal(
+        await pane.getByRole("link", { name: "Reply" }).getAttribute("href"),
+        `/doc-chats?email=mail-1#${new URLSearchParams({ question: "Draft a reply to this email." })}`,
+      );
+      assert.equal(await pane.getByRole("link", { name: "Ask Doc" }).getAttribute("href"), "/doc-chats?email=mail-1");
+      assert.equal(await pane.getByText("On Mon, Nov 2, Rob Example wrote:").isVisible(), false);
+      await shot("email");
+      await pane.getByRole("button", { name: "Show the full emails" }).click();
+      await pane.getByText("On Mon, Nov 2, Rob Example wrote:").waitFor();
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      if (width >= 1280) {
+        const sideBySide = await page.evaluate(() => {
+          const list = document.querySelector(".activity-list")?.getBoundingClientRect();
+          const open = document.querySelector(".activity-pane")?.getBoundingClientRect();
+          return Boolean(list && open && open.left >= list.right);
+        });
+        assert.equal(sideBySide, true, `the open email sits beside the list at ${width}`);
+        assert.equal(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1), true);
+        await page.keyboard.press("Escape");
+        assert.equal(await activity.locator(".activity-pane").count(), 0);
+      } else {
+        assert.equal(
+          await activity.locator(".activity-list").isVisible(),
+          false,
+          "on a phone the open item replaces the list",
+        );
+        assert.equal(await pane.evaluate((node) => node.getBoundingClientRect().width >= innerWidth - 40), true);
+        await pane.getByRole("button", { name: "Back" }).click();
+        await activity.getByRole("button", { name: /^Example suite floor plan/ }).waitFor();
+      }
+
+      for (const [row, name, text] of [
+        [/^Tour plans confirmed/, "note", "Tour plans confirmed"],
+        [/^Called the landlord/, "call", "Called the landlord"],
+        [/^Property tour/, "finished-tour", "Property tour"],
+      ] as const) {
+        await activity.getByRole("button", { name: row }).click();
+        const open = activity.locator(".activity-pane");
+        await open.waitFor();
+        assert.equal(await open.getByText(text, { exact: true }).count(), 1, `${name} shows its text once`);
+        if (name === "finished-tour")
+          assert.deepEqual(
+            await open.getByRole("list", { name: "Visited properties" }).getByRole("listitem").allTextContents(),
+            ["Example Clinic, 10 Example Way"],
+          );
+        assert.equal(await open.getByRole("button", { name: "Show deal attribution" }).count(), 1);
+        assert.equal(await open.getByRole("link", { name: "Reply" }).count(), 0);
+        await shot(name);
+        await open.getByRole("button", { name: width >= 1280 ? "Close" : "Back" }).click();
+      }
+      await context.close();
+    }
+  assert.equal(reads.length, 6, "each page reads the conversation once");
 });
