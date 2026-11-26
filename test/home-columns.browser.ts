@@ -107,7 +107,7 @@ const lead = (n: number, fields: Record<string, unknown> = {}) => ({
 });
 const leads = [lead(1, { new_from_email: true }), lead(2), lead(3, { new_from_email: true }), lead(4)];
 
-async function openHome(t: TestContext, width: number, height: number) {
+async function openHome(t: TestContext, width: number, height: number, tours: unknown[] = []) {
   const browser = await chromium.launch();
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width, height }, timezoneId: "America/Chicago" });
@@ -143,6 +143,16 @@ async function openHome(t: TestContext, width: number, height: number) {
       },
     }),
   );
+  if (tours.length)
+    await page.route("**/api/engine/calendar/meetings?*", (route) =>
+      route.fulfill({
+        json: {
+          schema_version: "calendar-meetings.v1",
+          meetings: [{ partner: "joe", name: "Joe", state: "empty", items: [] }],
+          tours: { state: "ready", reason: null, items: tours },
+        },
+      }),
+    );
   await page.route("**/mcp", async (route) => {
     const call = route.request().postDataJSON();
     const payload =
@@ -250,3 +260,36 @@ test("At 1440 a waiting row keeps its whole return date and gives the rest to th
   assert.deepEqual(await fits(".inbox-why"), { text: "Snoozed until Dec 1, 2026, 9:00 AM", fits: true });
   assert.deepEqual(await fits("h3"), { text: "Send the sample parking study", fits: true });
 });
+
+for (const [width, height] of [
+  [1440, 900],
+  [390, 844],
+] as const)
+  test(`At ${width} a tour row in Today's meetings shows Tour at the row start and its whole title`, async (t) => {
+    const page = await openHome(t, width, height, [
+      {
+        id: "tour-1",
+        deal_id: id(99),
+        deal_name: "Example Dental",
+        owner: "joe",
+        planned_on: today,
+        stop_count: 3,
+        open_url: `/deals?deal=${id(99)}`,
+      },
+    ]);
+    const row = page.getByRole("region", { name: "Today's meetings", exact: true }).locator(".home-tour");
+    await row.waitFor();
+    const rowLeft = (await row.boundingBox())?.x ?? assert.fail("the tour row is not drawn");
+    const markLeft = (await row.locator(".home-today-time").boundingBox())?.x ?? assert.fail("Tour is not drawn");
+    const title = row.locator(".home-today-title");
+    const drawn = {
+      markOffset: markLeft - rowLeft,
+      titlePadding: await title.evaluate((node) => getComputedStyle(node).paddingInlineStart),
+      titleText: await title.textContent(),
+      titleCut: await title.evaluate((node) => node.scrollWidth > node.clientWidth),
+    };
+    assert.ok(drawn.markOffset < 16, `Tour sits at the row start, not ${drawn.markOffset}px in`);
+    assert.equal(drawn.titlePadding, "0px");
+    assert.equal(drawn.titleText, "Example Dental · 3 stops");
+    assert.equal(drawn.titleCut, false, "the title is not cut off");
+  });

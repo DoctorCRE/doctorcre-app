@@ -13,7 +13,7 @@
 .home-today-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .home-today-title span { color: var(--fg-quiet); }
 .home-today-row[data-ended] .home-today-title { color: var(--fg-quiet); }
-.home-today-row > :not(summary) { margin: 0 0 var(--space-1); padding-inline: calc(64px + 2 * var(--space-2)) var(--space-2); color: var(--fg-muted); font-size: var(--font-size-1); }
+details.home-today-row > :not(summary) { margin: 0 0 var(--space-1); padding-inline: calc(64px + 2 * var(--space-2)) var(--space-2); color: var(--fg-muted); font-size: var(--font-size-1); }
 .home-today-row > a { display: inline-flex; align-items: center; min-height: var(--touch); }
 .home-now { height: 1px; margin: var(--space-1) var(--space-2); border: 0; background: var(--accent); }
 
