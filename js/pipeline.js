@@ -398,7 +398,8 @@ function renderBoardMessage(status = state.boardSync?.status()) {
   }
   if (!state.boardRead) { say('Updating…'); return; }
   const headline = boardHeadline(groupByColumn(visibleBoardDeals()));
-  const count = state.prospectCount;
+  // Deals without a next step leave prospects out: they are not deals yet.
+  const count = state.scopeFilter === 'no-next-step' ? null : state.prospectCount;
   say(typeof count === 'number' ? `${headline} · ${count} prospect${count === 1 ? '' : 's'}` : headline);
 }
 
@@ -625,6 +626,8 @@ function applyBoardSnapshot(board) {
 }
 
 function showProspects() {
+  const lane = $('prospectsLane');
+  if (lane) lane.hidden = state.scopeFilter === 'no-next-step';
   prospects?.show(state.filter, state.scopeFilter === 'flagged', state.selfActor, state.nextDealSaves, state.view === 'list' ? 'row' : 'tile');
 }
 
