@@ -40,7 +40,7 @@ for (const width of [390, 1440]) {
     await expect(snapshot.locator(`time[datetime="${keyDate}"]`)).toBeVisible();
     await expect(room.locator(`time[datetime="${keyDate}"]:visible`)).toHaveCount(1);
     await expect(room.locator('time[datetime="2026-11-30"]:visible')).toHaveCount(0);
-    await expect(room.getByText(deal.client_name, { exact: true })).toHaveCount(1);
+    await expect(page.locator('#appTopbar, #main').getByText(deal.client_name, { exact: true }).locator('visible=true')).toHaveCount(1);
     await expect(snapshot.getByText('No client website linked.')).toHaveCount(0);
     await expect(snapshot.getByText('Set up client website')).toHaveCount(0);
     await expect(room.getByText('Set up client website', { exact: true })).toBeVisible();
@@ -48,7 +48,7 @@ for (const width of [390, 1440]) {
     await snapshot.getByRole('button', { name: next, exact: true }).click();
     await expect(page.getByRole('dialog')).toContainText(next);
     await page.keyboard.press('Escape');
-    await room.getByRole('tab', { name: 'Timeline', exact: true }).click();
+    await room.getByRole('tab', { name: 'Activity', exact: true }).click();
     await expect(room.getByText(next, { exact: false })).not.toBeVisible();
     await expect(room.locator(`time[datetime="${keyDate}"]:visible`)).toHaveCount(0);
   });
