@@ -1966,8 +1966,8 @@ for (const width of [390, 1440]) {
       const style = getComputedStyle(node);
       const link = node.querySelector('a') ?? node;
       const oneLine = node.getBoundingClientRect().height < 1.5 * parseFloat(getComputedStyle(link).lineHeight);
-      return { textOverflow: style.textOverflow, oneLine };
-    }), { textOverflow: 'ellipsis', oneLine: true });
+      return { lineClamp: style.webkitLineClamp, oneLine };
+    }), { lineClamp: '1', oneLine: true });
     await heading.getByRole('link', { name: title, exact: true }).click();
     const details = page.getByRole('region', { name: `Details for ${title}` });
     await details.waitFor();

@@ -512,10 +512,41 @@ for (const [width, height] of [
       height,
       "the page does not scroll",
     );
+    assert.ok(
+      await title.evaluate((node) => {
+        const text = node.textContent ?? "";
+        const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+        const top = node.getBoundingClientRect().top;
+        let seen = 0;
+        let lastOnLine = -1;
+        for (let text_node = walker.nextNode(); text_node; text_node = walker.nextNode()) {
+          const range = document.createRange();
+          for (let at = 0; at < (text_node.textContent ?? "").length; at += 1) {
+            range.setStart(text_node, at);
+            range.setEnd(text_node, at + 1);
+            const rect = range.getBoundingClientRect();
+            if (rect.width > 0 && rect.top < top + 4) lastOnLine = seen + at;
+          }
+          seen += (text_node.textContent ?? "").length;
+        }
+        return lastOnLine >= 0 && lastOnLine < text.length - 1 && /\s/.test(text.slice(lastOnLine, lastOnLine + 2));
+      }),
+      "the heading is cut between whole words",
+    );
     await row.getByRole("link", { name: longTitle }).click();
     const details = page.getByRole("region", { name: `Details for ${longTitle}` });
     await details.waitFor();
     await details.getByText(longInstruction, { exact: true }).waitFor();
+    assert.equal(await title.evaluate((node) => node.scrollLeft), 0, "opening the row does not scroll its heading");
+    const close = details.getByRole("button", { name: /^Close/ });
+    assert.ok(
+      await close.evaluate((node) => {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        return range.getClientRects().length === 1;
+      }),
+      "Close stays on one line",
+    );
   });
 
 for (const [width, height] of [

@@ -149,6 +149,23 @@ function homeCardCue(item: InboxItem) {
   if (item.source_state === "needs_attention" && item.kind_label === "Reply draft") return "Draft ready";
   return null;
 }
+
+/** A hyphenated word is one word, so a one-line cut never ends inside it. */
+function keepWordsWhole(title: string): ReactNode {
+  let at = 0;
+  return title.split(/(\S+-\S+)/).map((part, index) => {
+    const key = at;
+    at += part.length;
+    return index % 2 ? (
+      <span key={key} className="home-whole-word">
+        {part}
+      </span>
+    ) : (
+      part
+    );
+  });
+}
+
 export function inboxRefusal(code: unknown): string {
   switch (code) {
     case "version_conflict":
@@ -843,10 +860,10 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
           if (!openingLocked && !directUrl) openCard(item, event.currentTarget);
         }}
       >
-        {item.title}
+        {keepWordsWhole(item.title)}
       </Link>
     ) : (
-      item.title
+      keepWordsWhole(item.title)
     );
     const snoozeButton = snoozable && (
       <button
