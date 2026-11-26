@@ -198,6 +198,7 @@ function filingChoices(value: unknown): FilingChoice[] | undefined {
 
 export type Suggestion = {
   id: string;
+  kind: string;
   label: string;
   target: string | null;
   reason: string | null;
@@ -225,7 +226,8 @@ function firstLine(text: string) {
 }
 
 function parseProposal(value: Record<string, unknown>, { id, emailId }: ProposalReference, canAccept: boolean) {
-  const label = kinds.get(string(value.kind) ?? "");
+  const kind = string(value.kind) ?? "";
+  const label = kinds.get(kind);
   if (value.proposal_id !== id || typeof value.evidence !== "string" || !label) throw unreadable();
   const change = string(value.to_phase) || string(value.to_stage);
   const activity = object(value.source_activity) ? value.source_activity : null;
@@ -236,6 +238,7 @@ function parseProposal(value: Record<string, unknown>, { id, emailId }: Proposal
   const newDeal = value.kind === "possible_new_deal";
   const proposal: Suggestion = {
     id,
+    kind,
     label: choices ? "File this email" : label,
     target: string(value.target_name) || (newDeal ? string(activity?.sender_name) : null),
     // Imported proposals can store raw email quotes in evidence.

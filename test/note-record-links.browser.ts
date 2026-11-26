@@ -53,7 +53,7 @@ for (const width of [1440, 390])
     await page.route("**/data/board-seed.json", (r) => r.fulfill({ json: seed }));
     await page.route("**/{api/**,app-release}", (r) => r.fulfill({ json: {} }));
     await page.goto(`${server?.origin}/deals?deal=d14`);
-    await page.waitForSelector("#detailPhase");
+    await page.waitForSelector(".deal-path");
     await page.evaluate(`import("/js/pipeline.js").then(({ state }) => {
       const read = state.client.getDeal;
       state.client.getDeal = async (...args) => ({ ...(await read(...args)), record_links: ${JSON.stringify(recordLinks)} });
