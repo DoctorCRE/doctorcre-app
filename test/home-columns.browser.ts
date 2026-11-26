@@ -58,7 +58,22 @@ const late = (n: number, title: string, days: number) =>
     due_on: new Date(Date.parse(today) - days * 86_400_000).toISOString().slice(0, 10),
     days_late: days,
   });
+const reply = (n: number, title: string) =>
+  card(n, title, {
+    item_id: `suggestion:${id(n)}`,
+    card_id: `suggestion:${id(n)}`,
+    source_type: "email_proposal",
+    action_id: null,
+    action_version: null,
+    deal_id: null,
+    open_url: null,
+    kind_label: "Suggestion",
+    primary_action: "Review suggestions",
+    tile: "inbox",
+  });
 const group = (items: unknown[]) => ({ count: items.length, items });
+const longInstruction =
+  "Ask the sample contractor for an estimate on the second-floor buildout and the new parking lot lighting before Friday";
 const dashboard = {
   ok: true,
   schema_version: "home-inbox.v6",
@@ -69,22 +84,11 @@ const dashboard = {
     late(2, "Send the sample lease comments", 14),
     late(3, "Follow up on the old sample", 15),
     card(4, "Send the sample floor plan", { due_on: today }),
-    card(5, "Ask for the sample estimate"),
-  ]),
-  inbox: group([
-    card(11, "Send your reply to the sample practice", {
-      item_id: `suggestion:${id(11)}`,
-      card_id: `suggestion:${id(11)}`,
-      source_type: "email_proposal",
-      action_id: null,
-      action_version: null,
-      deal_id: null,
-      open_url: null,
-      kind_label: "Suggestion",
-      primary_action: "Review suggestions",
-      tile: "inbox",
+    card(5, "Ask the sample contractor for an estimate on the second-floor buildout and the new parking…", {
+      why: longInstruction,
     }),
   ]),
+  inbox: group([reply(11, "Send your reply to the sample practice")]),
   waiting: group([
     card(21, "Send the sample parking study", {
       section: "snoozed",
@@ -124,7 +128,9 @@ const deals = [
   deal(2, "Legal", { attention: true, next_step_required: true, open_actions: [] }),
   deal(3, "Legal"),
   deal(4, "Research", { operating_state: "parked", attention: true }),
+  deal(5, "Research", { workspace_kind: "national_account" }),
 ];
+const reviewItems = [{ reviewed: { by: "joe" } }, ...Array.from({ length: 6 }, () => ({ reviewed: null }))];
 const criticalDate = (n: number, due_on: string) => ({
   id: id(300 + n),
   deal_id: id(101),
@@ -135,7 +141,16 @@ const criticalDate = (n: number, due_on: string) => ({
 });
 const comingUpDates = [criticalDate(1, "2026-11-27"), criticalDate(2, today), criticalDate(3, "2026-12-10")];
 
-async function openHome(t: TestContext, width: number, height: number, tours: unknown[] = [], dates = comingUpDates) {
+const prospects = [{ party_id: id(401) }, { party_id: id(402) }, { party_id: id(401) }];
+
+async function openHome(
+  t: TestContext,
+  width: number,
+  height: number,
+  tours: unknown[] = [],
+  dates = comingUpDates,
+  home: typeof dashboard = dashboard,
+) {
   const browser = await chromium.launch();
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width, height }, timezoneId: "America/Chicago" });
@@ -155,7 +170,7 @@ async function openHome(t: TestContext, width: number, height: number, tours: un
     },
   );
   await page.route("**/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6", (route) =>
-    route.fulfill({ json: dashboard }),
+    route.fulfill({ json: home }),
   );
   await page.route("**/api/engine/home/today", (route) =>
     route.fulfill({
@@ -182,8 +197,9 @@ async function openHome(t: TestContext, width: number, height: number, tours: un
       }),
     );
   await page.route("**/api/engine/weekly-reviews?week_of=2026-11-23", (route) =>
-    route.fulfill({ json: { items: [{ reviewed: { by: "joe" } }, { reviewed: null }] } }),
+    route.fulfill({ json: { items: reviewItems } }),
   );
+  await page.route("**/api/engine/prospects", (route) => route.fulfill({ json: { prospects } }));
   await page.route("**/api/engine/calendar/critical-dates", (route) =>
     route.fulfill({ json: { schema_version: "calendar-critical-dates.v1", critical_dates: dates } }),
   );
@@ -346,14 +362,17 @@ for (const [width, height] of [
 test("Deals counts the board's open deals and Coming up lists the next 14 days, each opening what it counts", async (t) => {
   const page = await openHome(t, 1440, 900);
   const tile = page.getByRole("region", { name: "Deals", exact: true });
-  assert.equal(await tile.getByRole("heading", { level: 2 }).textContent(), "Deals 3 open");
+  assert.equal(
+    await tile.getByRole("heading", { level: 2 }).textContent(),
+    "Deals 3 open · 1 parked · 1 in national accounts · 2 prospects",
+  );
   assert.equal(await tile.getByRole("link", { name: "3 open", exact: true }).getAttribute("href"), "/deals");
   const link = (name: string) => tile.getByRole("link", { name, exact: true }).getAttribute("href");
   assert.equal(await link("Research 1"), "/deals?column=research");
   assert.equal(await link("Example Deal 1 Step 3 days late"), `/deals?deal=${id(101)}`);
   assert.equal(await link("Example Deal 2 Flagged by a partner"), `/deals?deal=${id(102)}`);
   assert.equal(await link("1 has no next step"), "/deals?view=list&filter=no-next-step");
-  assert.equal(await link("Monday review 1 of 2"), "/deals?view=review");
+  assert.equal(await link("Monday review 1 of 7"), "/deals?view=review");
   const comingUp = page.getByRole("region", { name: "Coming up", exact: true });
   assert.deepEqual(await comingUp.getByRole("link").allTextContents(), [
     "2",
@@ -390,4 +409,95 @@ test("Coming up is not drawn when no open deal has a date in the next 14 days", 
   );
   assert.equal(await page.getByRole("region", { name: "Coming up", exact: true }).count(), 0);
   assert.equal(await page.getByText("Coming up").count(), 0);
+});
+
+test("A reminder's action reads in full on line one instead of its cut heading", async (t) => {
+  const page = await openHome(t, 1280, 640);
+  const row = page.getByRole("region", { name: "No date" }).getByRole("article");
+  const title = row.getByRole("heading", { level: 3 });
+  assert.equal(await title.textContent(), longInstruction);
+  assert.equal(await row.locator(".inbox-why").textContent(), "Example Dental");
+  assert.ok(
+    await title.evaluate((node) => node.scrollWidth <= node.clientWidth && node.scrollHeight <= node.clientHeight),
+    "the action is not clipped",
+  );
+  assert.equal(await page.evaluate(() => document.scrollingElement?.scrollHeight), 640, "the page does not scroll");
+});
+
+test("An opened Inbox item shows beside Reminders over the middle and right columns, and Close brings them back", async (t) => {
+  const page = await openHome(t, 1440, 900);
+  const reminders = page.getByRole("region", { name: "Reminders", exact: true });
+  const inbox = page.getByRole("region", { name: "Inbox", exact: true });
+  await inbox.getByRole("button", { name: "Review" }).click();
+  const details = page.getByRole("region", { name: "Details for Send your reply to the sample practice" });
+  await details.waitFor();
+  const left = (await reminders.boundingBox()) ?? assert.fail("Reminders left the screen");
+  const pane = (await details.boundingBox()) ?? assert.fail("the item is not drawn");
+  assert.ok(pane.x >= left.x + left.width, "the item opens right of Reminders");
+  assert.ok(pane.x + pane.width > 1300, "the item spans the right columns");
+  assert.equal(await page.getByRole("region", { name: "Deals", exact: true }).isVisible(), false);
+  await details.getByRole("button", { name: /^Close/ }).click();
+  await inbox.waitFor();
+  assert.equal(await details.count(), 0);
+});
+
+test("Escape closes an opened Inbox item and focus returns to its row", async (t) => {
+  const page = await openHome(t, 1440, 900);
+  const inbox = page.getByRole("region", { name: "Inbox", exact: true });
+  const review = inbox.getByRole("button", { name: "Review" });
+  await review.click();
+  const details = page.getByRole("region", { name: "Details for Send your reply to the sample practice" });
+  await details.waitFor();
+  await page.mouse.click(5, 5);
+  await page.keyboard.press("Escape");
+  await inbox.waitFor();
+  assert.equal(await details.count(), 0);
+  const focused = await page.evaluate(() => {
+    const active = document.activeElement;
+    return { tag: active?.tagName, row: active?.closest("[data-inbox-row]")?.textContent ?? null };
+  });
+  assert.match(focused.row ?? "", /Send your reply to the sample practice/, "focus is back on its row");
+});
+
+test("In light mode at 1440x900 Home and an opened item draw light grounds with readable text", async (t) => {
+  const page = await openHome(t, 1440, 900);
+  await page.addInitScript(() =>
+    localStorage.setItem(
+      "doctorcre.visual-preferences",
+      JSON.stringify({ theme: "light", walkthroughSeen: { joe: true } }),
+    ),
+  );
+  await page.reload();
+  const inbox = page.getByRole("region", { name: "Inbox", exact: true });
+  await inbox.getByRole("button", { name: "Review" }).click();
+  const details = page.getByRole("region", { name: "Details for Send your reply to the sample practice" });
+  await details.waitFor();
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), "light");
+  const drawn = await details.evaluate((node) => {
+    const channels = (color: string) => (color.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
+    const luminance = (color: string) => {
+      const [r = 0, g = 0, b = 0] = channels(color).map((value) => {
+        const unit = value / 255;
+        return unit <= 0.03928 ? unit / 12.92 : ((unit + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const ground = getComputedStyle(document.body).backgroundColor;
+    const heading = getComputedStyle(node.querySelector("h4") ?? node).color;
+    const [light, dark] = [luminance(ground), luminance(heading)].sort((a, b) => b - a);
+    return { ground: luminance(ground), contrast: ((light ?? 0) + 0.05) / ((dark ?? 0) + 0.05) };
+  });
+  assert.ok(drawn.ground > 0.5, `the page ground is light, not ${drawn.ground}`);
+  assert.ok(drawn.contrast >= 4.5, `the item heading reads at ${drawn.contrast}:1`);
+  await page.screenshot({ path: join(process.cwd(), "node_modules/.cache/home-light-1440.png") });
+});
+
+test("On a phone the Inbox previews its first rows with See all, like Reminders", async (t) => {
+  const inboxRows = [1, 2, 3, 4, 5, 6].map((n) => reply(30 + n, `Send your reply to sample practice ${n}`));
+  const page = await openHome(t, 390, 844, [], comingUpDates, { ...dashboard, inbox: group(inboxRows) });
+  const inbox = page.getByRole("region", { name: "Inbox", exact: true });
+  await inbox.getByRole("button", { name: "See all 6" }).waitFor();
+  assert.equal(await inbox.getByRole("article").count(), 4);
+  await inbox.getByRole("button", { name: "See all 6" }).click();
+  assert.equal(await inbox.getByRole("article").count(), 6);
 });

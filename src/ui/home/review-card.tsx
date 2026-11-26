@@ -226,6 +226,17 @@ export function ReviewCard<Item extends ReviewItem>({
   const waiting = state.phase === "submitting" || lock.current;
   // Opening another review would replace this one while its save is unresolved.
   const holding = waiting || state.phase === "uncertain";
+  useEffect(() => {
+    if (drop || holding) return;
+    // Anywhere on the page, so Escape still closes the item when focus has left the pane.
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || document.querySelector("dialog[open]")) return;
+      event.preventDefault();
+      close();
+    };
+    document.addEventListener("keydown", onEscape);
+    return () => document.removeEventListener("keydown", onEscape);
+  }, [drop, holding, close]);
   useLayoutEffect(() => {
     if (!holding) return;
     blockSwitching?.(true);
@@ -578,12 +589,6 @@ export function ReviewCard<Item extends ReviewItem>({
       ref={host}
       tabIndex={-1}
       aria-label={`Details for ${item.title}`}
-      onKeyDown={(event) => {
-        if (event.key === "Escape" && !drop && !holding) {
-          event.preventDefault();
-          close();
-        }
-      }}
       onTouchStart={(event) => event.stopPropagation()}
       onTouchEnd={(event) => event.stopPropagation()}
     >

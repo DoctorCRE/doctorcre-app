@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { dealsAtAGlance, reviewProgress, reviewWeek } from "./deal-tiles";
+import { prospectsPath } from "../prospect-saves";
+import { dealsAtAGlance, prospectCount, reviewProgress, reviewWeek } from "./deal-tiles";
 import { counted, Fold } from "./fold";
 import { day, PlaceholderTile } from "./sections";
 
@@ -20,17 +21,19 @@ async function readDeals(signal: AbortSignal) {
     if (!response.ok) throw Error("Deals unavailable");
     return response.json();
   };
-  const [board, review] = await Promise.all([
+  const [board, review, prospects] = await Promise.all([
     createClient("live", { docContext: false }).then((client: { getBoard: (options: object) => Promise<unknown> }) =>
       client.getBoard({ workspace: "team", signal }),
     ),
     read(`/api/engine/weekly-reviews?week_of=${reviewWeek(today)}`),
+    // Without prospects the tile still shows the deals; the heading leaves the prospect count out.
+    read(prospectsPath).then(prospectCount, () => null),
   ]);
   const glance = dealsAtAGlance(board, today, Object.assign({}, ...rules));
-  return { ...glance, review: reviewProgress(review) };
+  return { ...glance, prospects, review: reviewProgress(review) };
 }
 
-/** The open count, each phase, the deals needing attention, and this week's Monday review, as the Deals board shows them. */
+/** The open deals and prospects (the two the Monday review walks), each phase, the deals needing attention, and this week's Monday review, as the Deals board shows them. */
 export function DealsTile() {
   const { data, isPending } = useQuery({
     queryKey: ["home-deals"],
@@ -53,6 +56,9 @@ export function DealsTile() {
           Deals{" "}
           <span>
             <a href="/deals">{data.open} open</a>
+            {!!data.parked && <> · {data.parked} parked</>}
+            {!!data.national && <> · {data.national} in national accounts</>}
+            {!!data.prospects && <> · {counted(data.prospects, "prospect", "prospects")}</>}
           </span>
         </h2>
         <a className="home-tile-door" href="/deals">

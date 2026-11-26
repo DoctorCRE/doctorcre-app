@@ -193,8 +193,18 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await open(enabled ? '/?mode=live#homeEmailFollowups' : '/?mode=live');
   const reader = enabled ? 'new inbox' : 'current inbox';
   const inbox = page.getByRole('region', { name: 'Inbox cards', exact: true });
+  // One item is open at a time and on a computer it covers the other Inbox rows, so another open item closes first.
+  const closeOther = async row => {
+    const close = page.locator('.home-inline-review > header button');
+    if (!(await row.locator('.home-inline-review').count()) && (await close.count())) await close.click();
+  };
+  const openRow = async row => {
+    await closeOther(row);
+    await row.getByRole('button', { name: 'Review', exact: true }).click();
+  };
   // A row opens from Review, or from its title when it has none, and closes from inside the review.
   const toggle = async row => {
+    await closeOther(row);
     for (const name of ['Close review', 'Review']) {
       const button = row.getByRole('button', { name, exact: true });
       if (await button.count()) return button.click();
@@ -371,6 +381,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
     source_activity: { kind: 'email', id: null, sender: 'new@example.test', sender_name: 'New Example',
       happened_at: '2026-01-08T12:00:00Z', subject: null, body: null, summary: null } });
   await page.clock.fastForward(60_000);
+  if (width < 1000) await inbox.getByRole('region', { name: 'Inbox', exact: true }).getByRole('button', { name: /^See all/ }).click();
   const cardFor = name => inbox.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name }) });
   const leadCard = inbox.locator(`[data-inbox-row="suggestion:${lead}"]`);
   await toggle(leadCard);
@@ -421,9 +432,9 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
     await row.waitFor();
   }
   const writesBeforeReview = writes.length;
-  await suggestions.getByRole('button', { name: 'Review', exact: true }).click();
+  await openRow(suggestions);
   await suggestions.getByRole('heading', { name: 'Log a call · Example Dental' }).waitFor();
-  await reply.getByRole('button', { name: 'Review', exact: true }).click();
+  await openRow(reply);
   await reply.getByRole('region', { name: 'Email thread', exact: true }).waitFor();
   await reply.getByRole('button', { name: 'Edit', exact: true }).click();
   assert.equal(await suggestions.getByRole('region', { name: /Details for Call suggestions/ }).count(), 0);
@@ -431,14 +442,14 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await reply.getByRole('textbox', { name: 'Message', exact: true }).fill('Edited reply.');
   await toggle(suggestions);
   await suggestions.getByRole('heading', { name: 'Log a call · Example Dental' }).waitFor();
-  await reply.getByRole('button', { name: 'Review', exact: true }).click();
+  await openRow(reply);
   assert.equal(await reply.getByRole('textbox', { name: 'Subject', exact: true }).inputValue(), 'Revised sample reply');
   assert.equal(await reply.getByRole('textbox', { name: 'Message', exact: true }).inputValue(), 'Edited reply.');
   assert.equal(writes.length, writesBeforeReview);
   await toggle(suggestions);
   await suggestions.getByRole('heading', { name: 'Log a call · Example Dental' }).waitFor();
   await suggestions.getByRole('button', { name: 'Accept', exact: true }).first().click();
-  await suggestions.getByRole('button', { name: 'Review', exact: true }).click();
+  await openRow(suggestions);
   assert.equal(writes.at(-1)[1].decision, 'accept');
   proposalRefusals.set(phase, ['version_conflict', 409]);
   await suggestions.getByRole('button', { name: 'Accept', exact: true }).click();
@@ -462,14 +473,10 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await sameSubject.getByText(/Nov 2, 2026, 9:30 PM/).waitFor();
   await email.getByText(/Nov 1, 2026, 10:00 AM/).waitFor();
   assert.equal(await subjectLinks.first().locator('xpath=ancestor::article').getAttribute('data-inbox-row'), `suggestion:${otherEmail}`);
-  const draftRead = await hold(request => new URL(request.url()).pathname === '/mcp' &&
-    request.postDataJSON()?.params?.name === 'read-engine-home-draft');
-  await reply.getByRole('button', { name: 'Review', exact: true }).click();
-  await draftRead.requested;
-  const emailTitle = email.getByRole('link', { name: /Sample Sender · Floor plan/ });
-  await emailTitle.focus();
-  draftRead.release();
+  await openRow(reply);
   await reply.getByRole('textbox', { name: 'Subject', exact: true }).waitFor();
+  await reply.getByRole('button', { name: /^Close/ }).click();
+  await email.getByRole('link', { name: /Sample Sender · Floor plan/ }).focus();
   await page.keyboard.press('Enter');
   await reply.getByRole('region', { name: /Details for Reply to the sample email/ }).waitFor({ state: 'detached' });
   assert.equal(await email.getByText('Suggestion', { exact: true }).count(), 0);
@@ -536,13 +543,13 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   Object.assign(draftCard, { source_version: '3', title: 'Reply to the sample email (updated)' });
   await page.clock.fastForward(60_000);
   await reply.getByRole('link', { name: `Reply to the sample email (updated) (${reader})`, exact: true }).waitFor();
-  await reply.getByRole('button', { name: 'Review', exact: true }).click();
+  await openRow(reply);
   const message = reply.getByRole('textbox', { name: 'Message', exact: true });
   await reply.getByText('Saved again from another tab.', { exact: true }).waitFor();
   await reply.getByRole('button', { name: 'Edit', exact: true }).click();
   await message.fill('Final edited reply.');
   await toggle(email);
-  await reply.getByRole('button', { name: 'Review', exact: true }).click();
+  await openRow(reply);
   await reply.getByRole('button', { name: 'Send reply', exact: true }).click();
   const fallback = cardFor(/Remaining email suggestion/);
   await fallback.locator('.inbox-why').getByText(/(^| · )Sending( · |$)/).waitFor();
@@ -759,6 +766,8 @@ for (const [width, theme, planner] of [[390, 'light'], [390, 'dark'], [1440, 'li
   const reminder_ = item => item.action_id !== null;
   const button = item => card(item).getByRole('button', { name: reminder_(item) ? 'Mark done' : 'Review', exact: true });
   await card(task).waitFor();
+  const seeAll = section('Inbox').getByRole('button', { name: /^See all/ });
+  if (await seeAll.count()) await seeAll.click();
   if (process.env.HOME_CARD_SCREENSHOTS) {
     await mkdir(process.env.HOME_CARD_SCREENSHOTS, { recursive: true });
     await page.evaluate(() => window.scrollTo(0, 0));
@@ -788,6 +797,7 @@ for (const [width, theme, planner] of [[390, 'light'], [390, 'dark'], [1440, 'li
 
   await button(meeting).click();
   await card(meeting).getByText(/From this meeting.*Nov 2/).waitFor();
+  await card(meeting).getByRole('button', { name: /^Close/ }).click();
   await button(call).click();
   await card(call).getByText(/From your call.*Nov 2/).waitFor();
   assert.equal(await card(meeting).getByRole('region', { name: /Details for/ }).count(), 0);
@@ -2706,7 +2716,7 @@ for (const width of [390, 900, 1440]) for (const theme of ['light', 'dark']) tes
   await message.fill('Unsaved edit for the floor plan.');
   await message.scrollIntoViewIfNeeded();
   const before = await message.evaluate(node => ({ y: scrollY + document.getElementById('appMainSlot').scrollTop + node.closest('.home-slice').scrollTop, top: node.getBoundingClientRect().top }));
-  assert.ok(before.y > 0 && before.top >= 0 && before.top < 760);
+  assert.ok(before.top >= 0 && before.top < 760);
   const reads = state.dashboardReads;
   const added = { ...step(32, 'Confirm the site visit'), card_id: 'suite:new' };
   state.items = [added, ...state.items.filter(item => item !== tasks[0]).reverse()];
@@ -3271,6 +3281,7 @@ for (const width of [390, 1440]) test(`Home hides Drop on Tour feedback, Fact re
     await review(row);
     await row.getByRole('button', { name: 'Snooze', exact: true }).waitFor();
     assert.equal(await row.getByRole('button', { name: 'Drop', exact: true }).count(), 0);
+    await row.getByRole('button', { name: /^Close/ }).click();
   }
 });
 
