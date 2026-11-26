@@ -10,8 +10,8 @@ async function open(t, { width = 1440, height = 960, reducedMotion = 'no-prefere
   await page.addInitScript(() => localStorage.setItem('doctorcre:today:/deals', 'closed'));
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   const seed = JSON.parse(await readFile(new URL('data/board-seed.json', root), 'utf8'));
-  seed.deals.forEach((d, i) => Object.assign(d, { phase: phases[i % 8], next_step: 'Confirm the next appointment', last_touch: '2026-10-01', last_review_at: '2026-10-01T16:00:00Z', next_date: null, attention: false }));
-  Object.assign(seed.deals.find(d => d.id === 'd14'), {phase:'Negotiation',next_date:'2026-10-02'});
+  seed.deals.forEach((d, i) => Object.assign(d, { phase: phases[i % 8], next_step: 'Confirm the next appointment', last_touch: '2026-10-01', last_review_at: '2026-10-01T16:00:00Z', next_date: null, attention: null }));
+  Object.assign(seed.deals.find(d => d.id === 'd14'), {phase:'Negotiation',next_date:'2026-10-02',attention:{ reason: 'A next step is late.', since: '2026-10-03' }});
   if (legalDestination) seed.deals.push({ ...seed.deals.find(d => d.id === 'd14'), id: 'demo-legal', name: 'Demo Legal Practice', phase: 'Legal' });
   Object.assign(seed.deals.find(d => d.id === 'd20'),{phase:'Closed',outcome:'won'});
   Object.assign(seed.deals.find(d => d.id === 'd23'),{invoiced_on:'2026-10-01',phase:'Closed',closed_on:'2026-10-02',type:'Renewal',client_name:'Demo Archive Client'});

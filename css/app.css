@@ -130,9 +130,8 @@ tr.overdue { box-shadow: inset 3px 0 var(--status-danger); }
 tr.parked { color: var(--fg-muted); }
 
 .deal-cell { display: flex; align-items: center; gap: var(--space-2); min-width: 220px; }
-.attention-button { display: grid; place-items: center; min-width: var(--touch); min-height: var(--touch); border: var(--hairline-width) solid transparent; border-radius: var(--radius-2); background: transparent; color: var(--fg-muted); font-size: var(--font-size-2); }
-.attention-button:hover { border-color: var(--hairline); }
-.attention-button[aria-pressed="true"] { border-color: var(--status-warn); color: var(--status-warn-ink); }
+.deal-icon { display: grid; place-items: center; min-width: var(--touch); min-height: var(--touch); color: var(--fg-muted); font-size: var(--font-size-2); }
+.deal-icon[data-attention="true"] { color: var(--status-warn-ink); }
 .deal-link { padding: var(--space-1) 0; border: 0; background: transparent; color: var(--fg); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); text-align: left; }
 .deal-link:hover { text-decoration: underline; text-underline-offset: 3px; }
 .account-deal-row .deal-link { min-height: var(--touch); text-decoration: underline; text-underline-offset: 3px; }
@@ -367,7 +366,6 @@ body.has-app-layout:has(#confirmDock:not([hidden])) .toast { bottom: calc(var(--
 :root[data-color-assist="on"] tr.parked { border-left: 4px dotted var(--fg-muted); }
 :root[data-color-assist="on"] .due.soon { padding-bottom: 2px; border-bottom: 2px dashed currentColor; }
 :root[data-color-assist="on"] .due.over { padding: 2px var(--space-1); border: 3px double currentColor; border-radius: var(--radius-1); }
-:root[data-color-assist="on"] .attention-button[aria-pressed="true"] { border: 2px dashed var(--status-warn); }
 :root[data-color-assist="on"] .stat.risk { border: 3px double var(--status-danger); background-image: repeating-linear-gradient(135deg, transparent 0 7px, color-mix(in srgb, var(--status-danger) 12%, transparent) 7px 9px); }
 :root[data-color-assist="on"] .badge { border-style: dashed; }
 :root[data-color-assist="on"] .account-card[data-pulse="overdue"] { border: 3px double var(--status-danger); }

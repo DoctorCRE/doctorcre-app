@@ -26,7 +26,7 @@ async function readDeals(signal: AbortSignal) {
     ),
     read(`/api/engine/weekly-reviews?week_of=${reviewWeek(today)}`),
   ]);
-  return { ...dealsAtAGlance(board, today, Object.assign({}, ...rules)), review: reviewCounts(review) };
+  return { ...dealsAtAGlance(board, Object.assign({}, ...rules)), review: reviewCounts(review) };
 }
 
 // A zero count stays off the line, and a count never wraps apart from its first word.
@@ -85,11 +85,11 @@ export function DealsTile() {
       {data.attention.length > 0 && (
         <Fold label="Needs attention" line={counted(data.attention.length, "needs attention", "need attention")}>
           <h3>Needs attention</h3>
-          <ul>
+          <ul className="home-deals-attention">
             {data.attention.map((deal) => (
               <li key={deal.id}>
-                <a href={`/deals?deal=${encodeURIComponent(deal.id)}`} data-flagged={deal.flagged || undefined}>
-                  {deal.name} <span data-late={deal.late || undefined}>{deal.reason}</span>
+                <a href={`/deals?deal=${encodeURIComponent(deal.id)}`}>
+                  {deal.name} <span>{deal.reason}</span>
                 </a>
               </li>
             ))}

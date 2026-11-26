@@ -67,9 +67,9 @@ async function plainPoint(card: Locator) {
 // around it is clear too, since touch adjustment moves a tap onto a nearby control.
 async function outsidePoint(page: Page) {
   const point = await page.evaluate(() => {
-    const steps = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+    const steps = Array.from({ length: 47 }, (_, i) => i + 1);
     const points = steps.flatMap((row) =>
-      steps.map((column) => ({ x: (innerWidth * column) / 16, y: (innerHeight * row) / 16 })),
+      steps.map((column) => ({ x: (innerWidth * column) / 48, y: (innerHeight * row) / 48 })),
     );
     const reach = [-24, 0, 24];
     const plain = (x: number, y: number) => {

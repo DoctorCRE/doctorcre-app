@@ -99,16 +99,9 @@ function DealRoomBoard({ rows, phases, nationalAccountRows }: Props) {
           <td>
             <div className="deal-cell">
               {!nationalAccountRows && (
-                <button
-                  type="button"
-                  className="attention-button"
-                  data-attention={row.id}
-                  aria-pressed={row.attention}
-                  aria-label={`${row.attention ? "Clear attention flag" : "Flag for attention"} on ${row.name}`}
-                  disabled={row.parked}
-                >
+                <span className="deal-icon" data-attention={row.attention} aria-hidden="true">
                   {row.icon}
-                </button>
+                </span>
               )}
               <div>
                 <button type="button" className="deal-link" data-open-deal={row.id}>
@@ -230,12 +223,7 @@ function DealRoomBoard({ rows, phases, nationalAccountRows }: Props) {
             >
               {row.parked ? "Restore" : "Park"}
             </button>
-            {nationalAccountRows ? (
-              <button type="button" className="park-button" data-attention={row.id} disabled={row.parked}>
-                {row.attention ? "Clear needs attention" : "Mark needs attention"}
-                <span className="sr-only"> on {row.name}</span>
-              </button>
-            ) : (
+            {!nationalAccountRows && (
               <button
                 type="button"
                 className="row-menu"
