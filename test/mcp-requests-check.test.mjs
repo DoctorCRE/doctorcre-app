@@ -88,7 +88,7 @@ test('domain clients preserve distinct command knowledge for the same confirmed 
   const fetchImpl = async () => ({ ok: true, json: async () => ({ result: { content: [{ type: 'text', text: '{"ok":false,"conflict":{"id":"synthetic-conflict"}}' }] } }) });
   const live = createLiveClient({ fetchImpl, docContext: false });
   const leads = createLeadBoardClient({ fetchImpl, docContext: false });
-  assert.equal((await live.patchDealField({ deal: 'synthetic-deal', field: 'attention', value: true, idempotency_key: 'same-key' })).status, 'conflict');
+  assert.equal((await live.patchDealField({ deal: 'synthetic-deal', field: 'owner', value: 'joe', idempotency_key: 'same-key' })).status, 'conflict');
   await assert.rejects(leads.claimLead({ id: 'synthetic-lead', base_version: 1 }, 'same-key'), { code: 'tool_error' });
 });
 

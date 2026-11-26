@@ -447,8 +447,8 @@ function liveBoard(fetchImpl) {
   return {
     client,
     state: () => writes,
-    write: (value = true) => performFieldWrite({
-      deal: "d1", field: "attention", value, base: "e0",
+    write: (value = "joe") => performFieldWrite({
+      deal: "d1", field: "owner", value, base: "e0",
       getState: () => writes, setState: (next) => { writes = next; },
       newKey: () => `key-live-${++minted}`,
       patch: (request) => client.patchDealField(request),
@@ -460,7 +460,7 @@ test("the live client keeps a non-2xx status and keeps the server's stack out of
   const stack = "Error: boom\n    at applyDealRoomField (/srv/carr-runtime/handler.js:1990:3)";
   const client = createLiveClient({ fetchImpl: async () => httpAnswer(500, stack) });
   await assert.rejects(
-    () => client.patchDealField({ deal: "d1", field: "attention", value: true,
+    () => client.patchDealField({ deal: "d1", field: "owner", value: "joe",
       base_event_id: null, idempotency_key: "k1" }),
     (error) => {
       assert.equal(error.status, 500, "the status survives, which is what told every failure apart");
@@ -495,7 +495,7 @@ test("through the live client: 401 is a decision, a 5xx and a dropped connection
   assert.equal(uncertain.http_status, 503);
   assert.match(uncertain.message, /reported an error instead of confirming it/);
   assert.doesNotMatch(uncertain.message, /never answered/, "it did answer — with an error");
-  assert.equal(pendingCommand(broken.state(), "d1|attention").status, "unknown",
+  assert.equal(pendingCommand(broken.state(), "d1|owner").status, "unknown",
     "and it stays retryable under the key it already used");
 
   const gone = liveBoard(async () => { throw new TypeError("Failed to fetch"); });
@@ -581,18 +581,21 @@ for (const save of ["field", "closing"]) {
 }
 
 const reuses = {
-  field: (client, value) => client.patchDealField({ deal: "d1", field: "attention", value, base_event_id: null, idempotency_key: "spent" }),
+  field: (client, value) => client.patchDealField({ deal: "d1", field: "owner", value, base_event_id: null, idempotency_key: "spent" }),
   closing: (client, won) => client.updateDeal({ deal: "d1", fields: { outcome: won ? "won" : "lost" }, base_version: 7, idempotency_key: "spent" }),
 };
 
+const reuseValues = { field: ["joe", "dell"], closing: [true, false] };
+
 for (const [save, send] of Object.entries(reuses)) {
   test(`through the Worker: a ${save} save key reused for a different change is refused by both writers`, async () => {
+    const [firstValue, secondValue] = reuseValues[save];
     for (const [first, then] of [[null, "on"], ["on", null]]) {
       const { world, b } = twoWriters();
       world.routing = first;
-      await send(b.client, true);
+      await send(b.client, firstValue);
       world.routing = then;
-      await assert.rejects(() => send(b.client, false), (error) => error.payload?.error === "key_reuse");
+      await assert.rejects(() => send(b.client, secondValue), (error) => error.payload?.error === "key_reuse");
       assert.equal(world.written.length, 1, `nothing new is written (${first} -> ${then})`);
     }
   });
@@ -612,8 +615,8 @@ test("the board read's per-cell bases reach the caller through the live client",
 
 test("the committed event identity rides the ok answer through the live client", async () => {
   const at = "2026-09-10T14:00:00.123456+00:00";
-  const b = liveBoard(async () => rpcAnswer({ ok: true, deal_id: "d1", field: "attention",
-    old_value: false, new_value: true, event_id: "e9", event_recorded_at: at }));
+  const b = liveBoard(async () => rpcAnswer({ ok: true, deal_id: "d1", field: "owner",
+    old_value: "joe", new_value: "dell", event_id: "e9", event_recorded_at: at }));
   const result = await b.write();
   assert.equal(result.status, "ok");
   assert.equal(result.event_id, "e9", "taken from the answer, not derived");
@@ -622,7 +625,7 @@ test("the committed event identity rides the ok answer through the live client",
 });
 
 test("an ok answer with no event identity leaves the caller with no base to advance to", async () => {
-  const b = liveBoard(async () => rpcAnswer({ ok: true, deal_id: "d1", field: "attention" }));
+  const b = liveBoard(async () => rpcAnswer({ ok: true, deal_id: "d1", field: "owner" }));
   const result = await b.write();
   assert.equal(result.status, "ok");
   assert.equal(result.event_id, null, "null is not an id, and the caller must not invent one");
@@ -652,10 +655,12 @@ test("the fixture board answers with its committed event too, and two edits in a
 
   // The base comes from the read itself, exactly as it does live — no feed, no
   // catch-up, no waiting a poll before the first edit of a session can land.
-  const base = deal.field_base?.attention?.id ?? null;
+  const base = deal.field_base?.owner?.id ?? null;
+  const firstOwner = deal.owner === "joe" ? "dell" : "joe";
+  const secondOwner = deal.owner === "joe" ? "joe" : "dell";
 
-  const first = await client.patchDealField({ deal: deal.id, field: "attention",
-    value: !deal.attention, base_event_id: base, idempotency_key: "fixture-attention-1" });
+  const first = await client.patchDealField({ deal: deal.id, field: "owner",
+    value: firstOwner, base_event_id: base, idempotency_key: "fixture-owner-1" });
   assert.equal(first.status, "ok");
   assert.ok(first.event_id, "the answer names the event it committed");
   assert.equal(first.event_id, first.event.id, "and it is that event's own id");
@@ -663,14 +668,14 @@ test("the fixture board answers with its committed event too, and two edits in a
 
   // No poll in between. The second, different edit uses the id the first answer
   // returned, and lands — where a stale base would have drawn a conflict.
-  const second = await client.patchDealField({ deal: deal.id, field: "attention",
-    value: deal.attention, base_event_id: first.event_id, idempotency_key: "fixture-attention-2" });
+  const second = await client.patchDealField({ deal: deal.id, field: "owner",
+    value: secondOwner, base_event_id: first.event_id, idempotency_key: "fixture-owner-2" });
   assert.equal(second.status, "ok", "no conflict with itself");
   assert.notEqual(second.event_id, first.event_id);
 
   // And the concurrency check is untouched: the superseded base is still refused.
-  const stale = await client.patchDealField({ deal: deal.id, field: "attention",
-    value: !deal.attention, base_event_id: first.event_id, idempotency_key: "fixture-attention-3" });
+  const stale = await client.patchDealField({ deal: deal.id, field: "owner",
+    value: firstOwner, base_event_id: first.event_id, idempotency_key: "fixture-owner-3" });
   assert.equal(stale.status, "conflict");
 });
 
