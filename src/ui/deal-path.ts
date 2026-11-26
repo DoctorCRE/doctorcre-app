@@ -69,8 +69,8 @@ function todoHtml(todo: Todo, today: string, focused: boolean) {
 function tileHtml(phase: Phase, place: Place, todos: Todo[] | undefined, view: PathView) {
   const name =
     view.canMove && place !== "current"
-      ? `<button type="button" class="deal-path-name" data-path-phase="${esc(phase.slug)}" aria-expanded="false">${esc(phase.label)}</button>`
-      : `<span class="deal-path-name">${esc(phase.label)}</span>`;
+      ? `<button type="button" class="deal-path-name" data-path-phase="${esc(phase.slug)}" title="${esc(phase.label)}" aria-expanded="false">${esc(phase.label)}</button>`
+      : `<span class="deal-path-name" title="${esc(phase.label)}">${esc(phase.label)}</span>`;
   const done = todos?.filter((todo) => FINISHED.has(todo.status)).length ?? 0;
   const count = place === "current" && todos?.length ? `<small>${done} of ${todos.length}</small>` : "";
   const check = place === "done" ? '<span class="deal-path-check" aria-label="Finished">✓</span>' : "";
