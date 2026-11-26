@@ -1,6 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { prospectsPath } from "../prospect-saves";
-import { dealsAtAGlance, prospectCount, reviewProgress, reviewWeek } from "./deal-tiles";
+import { dealsAtAGlance, reviewCounts, reviewWeek } from "./deal-tiles";
 import { counted, Fold } from "./fold";
 import { day, PlaceholderTile } from "./sections";
 
@@ -21,19 +20,16 @@ async function readDeals(signal: AbortSignal) {
     if (!response.ok) throw Error("Deals unavailable");
     return response.json();
   };
-  const [board, review, prospects] = await Promise.all([
+  const [board, review] = await Promise.all([
     createClient("live", { docContext: false }).then((client: { getBoard: (options: object) => Promise<unknown> }) =>
       client.getBoard({ workspace: "team", signal }),
     ),
     read(`/api/engine/weekly-reviews?week_of=${reviewWeek(today)}`),
-    // Without prospects the tile still shows the deals; the heading leaves the prospect count out.
-    read(prospectsPath).then(prospectCount, () => null),
   ]);
-  const glance = dealsAtAGlance(board, today, Object.assign({}, ...rules));
-  return { ...glance, prospects, review: reviewProgress(review) };
+  return { ...dealsAtAGlance(board, today, Object.assign({}, ...rules)), review: reviewCounts(review) };
 }
 
-/** The open deals and prospects (the two the Monday review walks), each phase, the deals needing attention, and this week's Monday review, as the Deals board shows them. */
+/** The heading counts this week's Monday review items, so its parts add up to the review total; the phases and attention list are the Deals board's. */
 export function DealsTile() {
   const { data, isPending } = useQuery({
     queryKey: ["home-deals"],
@@ -48,17 +44,20 @@ export function DealsTile() {
         Deals unavailable.
       </p>
     );
-  if (!data.open) return null;
+  const { review } = data;
+  if (!review.total) return null;
   return (
     <section className="home-slice home-deals" aria-label="Deals">
       <header>
         <h2>
           Deals{" "}
           <span>
-            <a href="/deals">{data.open} open</a>
-            {!!data.parked && <> · {data.parked} parked</>}
-            {!!data.national && <> · {data.national} in national accounts</>}
-            {!!data.prospects && <> · {counted(data.prospects, "prospect", "prospects")}</>}
+            <a href="/deals">{review.open} open</a>
+            {!!review.parked && <> · {review.parked} parked</>}
+            {!!review.national && <> · {review.national} in national accounts</>}
+            {!!review.prospects && <> · {counted(review.prospects, "prospect", "prospects")}</>}
+            {!!review.closed && <> · {review.closed} closed or lost this week</>}
+            {!!review.dropped && <> · {review.dropped} dropped this week</>}
           </span>
         </h2>
         <a className="home-tile-door" href="/deals">
@@ -93,14 +92,12 @@ export function DealsTile() {
           {counted(data.missingNextStep, "has no next step", "have no next step")}
         </a>
       )}
-      {data.review.total > 0 && (
-        <a className="home-deals-line" href="/deals?view=review">
-          Monday review{" "}
-          <span>
-            {data.review.reviewed} of {data.review.total}
-          </span>
-        </a>
-      )}
+      <a className="home-deals-line" href="/deals?view=review">
+        Monday review{" "}
+        <span>
+          {review.reviewed} of {review.total}
+        </span>
+      </a>
     </section>
   );
 }

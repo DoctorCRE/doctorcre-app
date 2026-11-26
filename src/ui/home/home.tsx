@@ -684,12 +684,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     const opener = root.current?.querySelector<HTMLElement>(`[data-current="true"] ${cardTitle}`);
     if (!opener) return;
     openedLink.current = route.key;
-    if (isEngineStep(item) && !isDoneStep(item)) {
-      opener.focus();
-      opener.scrollIntoView({ block: "center" });
-    } else {
-      openCard(item, opener);
-    }
+    openCard(item, opener);
   }, [home, openCard, openingLocked, placed.current, route.key]);
   function row(item: InboxItem) {
     if (home && reviewing && cardKey(reviewing) === cardKey(item)) item = reviewing;
@@ -744,7 +739,8 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     const deal = item.deal_id ? `/deals?deal=${encodeURIComponent(item.deal_id)}` : null;
     const recordedSource = recordRoutes.source(item);
     const checklistUrl = namedAction === "Open checklist item" ? recordRoutes.checklist(item) : null;
-    const directUrl = checklistUrl ?? (isEngineStep(item) && !isDoneStep(item) ? recordedSource : null);
+    // On Home every item opens beside the list, with its record linked inside the pane.
+    const directUrl = home ? null : (checklistUrl ?? (isEngineStep(item) && !isDoneStep(item) ? recordedSource : null));
     const canOpen = home || Boolean(presentation) || isDoneStep(item) || !isEngineStep(item) || directUrl !== null;
     function openDetails(opener: HTMLElement) {
       if (directUrl) location.assign(directUrl);
@@ -752,7 +748,8 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     }
     const recordedUrl = recordedSource ? new URL(recordedSource, "https://doctorcre.invalid") : null;
     const opensEditor = recordedUrl?.searchParams.get("focus") === "next-step" && !recordedUrl.searchParams.get("step");
-    const source = (isDoneStep(item) && isEngineStep(item) && opensEditor ? null : recordedSource) ?? deal;
+    const source =
+      checklistUrl ?? (isDoneStep(item) && isEngineStep(item) && opensEditor ? null : recordedSource) ?? deal;
     const sourcePage = source ? recordPages.get(new URL(source, "https://doctorcre.invalid").pathname) : null;
     const namedRecord = sourcePage === "deal" || sourcePage === "client" || sourcePage === "contact";
     const due = item.due_on && <time dateTime={item.due_on}>{cardDate.format(new Date(item.due_on))}</time>;

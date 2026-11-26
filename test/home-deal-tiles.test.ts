@@ -1,12 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  type BoardRules,
-  comingUp,
-  parseCriticalDates,
-  reviewProgress,
-  reviewWeek,
-} from "../src/ui/home/deal-tiles.ts";
+import { type BoardRules, comingUp, parseCriticalDates, reviewCounts, reviewWeek } from "../src/ui/home/deal-tiles.ts";
 
 const rules: BoardRules = {
   ...(await import("../js/" + "deal-items.js")),
@@ -55,9 +49,36 @@ test("the Monday review week starts on the Monday holding today", () => {
   assert.equal(reviewWeek("2026-11-30"), "2026-11-30");
 });
 
-test("Monday review progress counts marked items", () => {
-  const items = [{ reviewed: { by: "joe", at: "2026-11-23T15:00:00Z" } }, { reviewed: null }, {}];
-  assert.deepEqual(reviewProgress({ items }), { reviewed: 1, total: 3 });
+test("the Deals heading counts the Monday review's own items, so its parts add up to the review total", () => {
+  const deal = (state: string, workspace_kind: string, operating_state: string, reviewed: unknown = null) => ({
+    deal_id: "d",
+    state,
+    workspace_kind,
+    operating_state,
+    reviewed,
+  });
+  const items = [
+    deal("open", "team", "active", { by: "joe", at: "2026-11-23T15:00:00Z" }),
+    deal("open", "team", "active"),
+    deal("open", "team", "parked"),
+    deal("open", "national_account", "active"),
+    deal("open", "national_account", "parked"),
+    deal("lost", "team", "active"),
+    deal("closed", "national_account", "active"),
+    { party_id: "p", state: "open", reviewed: null },
+    { party_id: "p", state: "dropped", reviewed: null },
+  ];
+  assert.deepEqual(reviewCounts({ items }), {
+    open: 2,
+    parked: 1,
+    national: 2,
+    prospects: 1,
+    closed: 2,
+    dropped: 1,
+    reviewed: 1,
+    total: 9,
+  });
+  assert.throws(() => reviewCounts({ items: [null] }));
 });
 
 const step = (owner: string, due_on: string) => ({

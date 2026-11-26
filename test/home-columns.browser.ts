@@ -130,7 +130,23 @@ const deals = [
   deal(4, "Research", { operating_state: "parked", attention: true }),
   deal(5, "Research", { workspace_kind: "national_account" }),
 ];
-const reviewItems = [{ reviewed: { by: "joe" } }, ...Array.from({ length: 6 }, () => ({ reviewed: null }))];
+const reviewDeal = (state: string, workspace_kind: string, operating_state: string) => ({
+  deal_id: id(500),
+  state,
+  workspace_kind,
+  operating_state,
+  reviewed: null,
+});
+const reviewItems = [
+  { ...reviewDeal("open", "team", "active"), reviewed: { by: "joe" } },
+  reviewDeal("open", "team", "active"),
+  reviewDeal("open", "team", "active"),
+  reviewDeal("open", "team", "parked"),
+  reviewDeal("open", "national_account", "active"),
+  reviewDeal("lost", "team", "active"),
+  { party_id: id(401), state: "open", reviewed: null },
+  { party_id: id(402), state: "open", reviewed: null },
+];
 const criticalDate = (n: number, due_on: string) => ({
   id: id(300 + n),
   deal_id: id(101),
@@ -140,8 +156,6 @@ const criticalDate = (n: number, due_on: string) => ({
   done: false,
 });
 const comingUpDates = [criticalDate(1, "2026-11-27"), criticalDate(2, today), criticalDate(3, "2026-12-10")];
-
-const prospects = [{ party_id: id(401) }, { party_id: id(402) }, { party_id: id(401) }];
 
 async function openHome(
   t: TestContext,
@@ -199,7 +213,6 @@ async function openHome(
   await page.route("**/api/engine/weekly-reviews?week_of=2026-11-23", (route) =>
     route.fulfill({ json: { items: reviewItems } }),
   );
-  await page.route("**/api/engine/prospects", (route) => route.fulfill({ json: { prospects } }));
   await page.route("**/api/engine/calendar/critical-dates", (route) =>
     route.fulfill({ json: { schema_version: "calendar-critical-dates.v1", critical_dates: dates } }),
   );
@@ -359,12 +372,12 @@ for (const [width, height] of [
     assert.equal(drawn.titleCut, false, "the title is not cut off");
   });
 
-test("Deals counts the board's open deals and Coming up lists the next 14 days, each opening what it counts", async (t) => {
+test("Deals counts the Monday review's items and the board's phases, and Coming up lists the next 14 days, each opening what it counts", async (t) => {
   const page = await openHome(t, 1440, 900);
   const tile = page.getByRole("region", { name: "Deals", exact: true });
   assert.equal(
     await tile.getByRole("heading", { level: 2 }).textContent(),
-    "Deals 3 open · 1 parked · 1 in national accounts · 2 prospects",
+    "Deals 3 open · 1 parked · 1 in national accounts · 2 prospects · 1 closed or lost this week",
   );
   assert.equal(await tile.getByRole("link", { name: "3 open", exact: true }).getAttribute("href"), "/deals");
   const link = (name: string) => tile.getByRole("link", { name, exact: true }).getAttribute("href");
@@ -372,7 +385,7 @@ test("Deals counts the board's open deals and Coming up lists the next 14 days, 
   assert.equal(await link("Example Deal 1 Step 3 days late"), `/deals?deal=${id(101)}`);
   assert.equal(await link("Example Deal 2 Flagged by a partner"), `/deals?deal=${id(102)}`);
   assert.equal(await link("1 has no next step"), "/deals?view=list&filter=no-next-step");
-  assert.equal(await link("Monday review 1 of 7"), "/deals?view=review");
+  assert.equal(await link("Monday review 1 of 8"), "/deals?view=review");
   const comingUp = page.getByRole("region", { name: "Coming up", exact: true });
   assert.deepEqual(await comingUp.getByRole("link").allTextContents(), [
     "2",
@@ -440,6 +453,53 @@ test("An opened Inbox item shows beside Reminders over the middle and right colu
   await inbox.waitFor();
   assert.equal(await details.count(), 0);
 });
+
+for (const [kind, fields] of [
+  [
+    "a vendor check-in",
+    {
+      title: "Check in with Sample Signs",
+      context_label: "Sample Signs",
+      open_url: `/relationships?node=party:${id(600)}&focus=next-step`,
+      deal_id: null,
+      record: `/relationships?node=party:${id(600)}&focus=next-step`,
+    },
+  ],
+  [
+    "a deal's next step",
+    { title: "Send the sample site plan", record: `/deals?deal=${id(99)}&focus=next-step&step=${id(30)}` },
+  ],
+  [
+    "a checklist item",
+    {
+      title: "Order the sample survey",
+      primary_action: "Open checklist item",
+      checklist_item_ref: `deal-item:${id(601)}`,
+      record: `/deals?deal=${id(99)}&item=${id(601)}`,
+    },
+  ],
+] as const)
+  test(`Clicking ${kind} in Reminders opens it beside the list with a link to its record, never another page`, async (t) => {
+    const reminder = card(30, fields.title, fields);
+    const page = await openHome(t, 1440, 900, [], comingUpDates, {
+      ...dashboard,
+      reminders: group([...dashboard.reminders.items, reminder]),
+    });
+    const home = page.url();
+    await page
+      .getByRole("region", { name: "Reminders", exact: true })
+      .getByRole("link", { name: fields.title })
+      .click();
+    const details = page.getByRole("region", { name: `Details for ${fields.title}` });
+    await details.waitFor();
+    assert.equal(new URL(page.url()).pathname, new URL(home).pathname, "Home stays on screen");
+    const left = (await page.getByRole("region", { name: "Reminders", exact: true }).boundingBox()) ?? assert.fail();
+    assert.ok(((await details.boundingBox()) ?? assert.fail()).x >= left.x + left.width, "it opens right of Reminders");
+    const links = await details
+      .locator("a.inbox-source")
+      .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("href")));
+    assert.ok(links.includes(fields.record), `the pane links to ${fields.record}, not ${links}`);
+  });
 
 test("Escape closes an opened Inbox item and focus returns to its row", async (t) => {
   const page = await openHome(t, 1440, 900);

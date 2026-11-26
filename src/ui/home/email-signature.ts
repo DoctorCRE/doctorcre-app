@@ -110,3 +110,24 @@ function contactFold(body: string, sender: string | null): { text: string; signa
   if ((signature.match(everyReachable)?.length ?? 0) < 2) return { text: body, signature: null };
   return { text: body.slice(0, foldAt).trimEnd(), signature };
 }
+
+const field = (names: string) => String.raw`[ \t>]*\*?(?:${names}):\*?[ \t]`;
+// Where quoted history starts: an Outlook reply header (under its optional divider), an "On …, … wrote:" line, wrapped or not, or an Original Message divider.
+const quotedHistory = new RegExp(
+  [
+    String.raw`^(?:[ \t]*_{8,}[ \t]*\n)?${field("From")}[^\n]*\n(?:${field("Sent|Date|To|Cc|Bcc")}[^\n]*\n){1,4}${field("Subject")}`,
+    String.raw`^[ \t>]*On [^\n]*\d[^\n]*(?:\n[^\n]*)?\bwrote:[ \t]*$`,
+    String.raw`^[ \t>]*-{2,}[ \t]*Original Message[ \t]*-{2,}`,
+  ].join("|"),
+  "im",
+);
+
+/** The app's one email cleanup: quoted history and then the signature fold under Show earlier text; a message that is all history stays visible. */
+export function foldEmailBody(body: string, sender: string | null): { text: string; folded: string | null } {
+  const historyAt = body.search(quotedHistory);
+  const own = historyAt > 0 ? body.slice(0, historyAt).trimEnd() : body;
+  if (!own.trim()) return { text: body, folded: null };
+  const history = own === body ? null : body.slice(historyAt).trim();
+  const { text, signature } = splitSignature(own, sender);
+  return { text, folded: [signature, history].filter(Boolean).join("\n\n") || null };
+}

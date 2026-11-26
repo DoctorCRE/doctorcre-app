@@ -233,7 +233,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
     await held.getByText(/On hold until Nov 5, 2026/).waitFor();
     assert.doesNotMatch(await held.innerText(), /needs attention|Ready for your attention/i);
     assert.equal(await held.getByRole('button').count(), 0);
-    assert.equal(await held.getByRole('link', { name: /^Wait for sample terms/ }).getAttribute('href'), tasks[0].path);
+    assert.match(await held.getByRole('link', { name: /^Wait for sample terms/ }).getAttribute('href'), /^\/inbox\/card\//);
   }
   assert.equal(await inbox.locator('[data-inbox-row]').count(), state.items.length);
   assert.equal(await inbox.getByText('needs attention', { exact: true }).count(), 0);
@@ -247,10 +247,6 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
       ? ['Mark done', 'Snooze', 'Drop']
       : ['Mark done', 'Snooze']);
     assert.equal(await card.getByText('Today', { exact: true }).count(), 1);
-    if (enabled && !task.call) {
-      assert.equal(await link.getAttribute('href'), task.path);
-      continue;
-    }
     await link.click();
     const details = card.getByRole('region', { name: `Details for ${title}` });
     assert.equal(await details.getByRole('link', { name: task.label, exact: true }).getAttribute('href'), task.path);
@@ -648,6 +644,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await undoRestore('Wake', 'unsnooze', undefined, true);
   assert.equal(await lease.getByRole('button', { name: 'Hide from inbox', exact: true }).count(), 0);
   await toggle(lease);
+  await lease.locator('.home-inline-review a.inbox-source').first().click();
   await page.waitForURL(url => url.pathname === '/deals' && url.searchParams.get('step') === state.items[0].action_id);
 });
 
@@ -829,10 +826,13 @@ for (const [width, theme, planner] of [[390, 'light'], [390, 'dark'], [1440, 'li
   await button(task).click();
   await card(task).waitFor({ state: 'detached' });
   assert.deepEqual(writes.at(-1), ['end-engine-home-step', step, 'done']);
+  // A checklist item opens beside the list; its record link opens the item on the deal page.
   await button(reminder).click();
+  await card(reminder).locator('a.inbox-source').click();
   await page.getByRole('dialog', { name: 'Review lease clauses', exact: true }).waitFor();
   await open('/?mode=live');
   await button(requirement).click();
+  await card(requirement).locator('a.inbox-source').click();
   await page.getByText('Example attorney memo', { exact: true }).waitFor();
   await open(`${stepUrl(step)}&mode=live`);
   const completedStep = page.getByRole('region', { name: 'Completed step', exact: true });
@@ -917,7 +917,10 @@ for (const width of [390, 1440]) test(`Follow-up destinations retain exact steps
       await page.getByRole('region', { name: 'Reminders', exact: true }).waitFor();
       assert.equal(await link.count(), 0);
       await open(tasks.find(([stepId]) => stepId === id)[2]);
-    } else await link.click();
+    } else {
+      await link.click();
+      await page.getByRole('region', { name: `Details for ${title}` }).locator('a.inbox-source').click();
+    }
     const dialog = page.getByRole('dialog', { name: isProspect ? 'Example Practice' : 'Example Contact' });
     const step = dialog.locator(':focus');
     await step.getByText(/Set by Example Partner · Nov 3.*10:00 AM · From an? (email|meeting)/).waitFor();
@@ -1539,6 +1542,22 @@ test('Home puts a trailing signature under Show earlier text with the quoted his
   assert.equal(await message.getByText(/Maya Example wrote/).isVisible(), true);
 });
 
+for (const width of [390, 1280, 1440]) test(`Home folds a stored message's Outlook reply header and what follows under Show earlier text at ${width}px`, async t => {
+  const { page, open, state } = await dashboard(t, width, 'light');
+  const header = 'From: Pat Example <pat@example.test>\nSent: Monday, November 23, 2026 3:23 PM\nTo: Sam Example <sam@example.test>\nSubject: Building';
+  state.items = [mailCard];
+  state.thread = [{ ...mailThread[1], body: `What is the story on this building?\n\n${header}\n\n12 Example Ln - Office for Lease`,
+    folded: 'Example Bank & Trust\nP: (555) 010-0100' }];
+  await open('/?mode=live');
+  await page.getByRole('link', { name: mailCard.title }).click();
+  const message = page.getByRole('region', { name: 'Email thread' }).getByRole('article');
+  await message.getByText('What is the story on this building?', { exact: true }).waitFor();
+  assert.equal(await message.getByText(/Sent: Monday/).isVisible(), false);
+  await reviewShot(page, `outlook-header-folded-${width}`);
+  await message.getByRole('button', { name: 'Show earlier text', exact: true }).click();
+  assert.match(await message.locator('.home-email-earlier-text').innerText(), /^From: Pat Example[\s\S]*Office for Lease\s+Example Bank & Trust/);
+});
+
 test('Home folds the contact details at the end of a one-line email with no sign-off', async t => {
   const { page, open, state } = await dashboard(t, 390, 'light');
   state.items = [mailCard];
@@ -2063,7 +2082,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   await wake.waitFor();
   await waiting.getByText(/Snoozed until/).waitFor();
   const lease = reminders.getByRole('link', { name: 'Send the signed lease' });
-  assert.match(await lease.getAttribute('href'), /focus=next-step&step=/);
+  assert.match(await lease.getAttribute('href'), /^\/inbox\/card\//, 'a reminder opens beside the list');
   if (width === 390) {
     assert.equal(await reminders.locator('[data-inbox-row]').count(), 4, 'a phone previews four reminders');
     await reminders.getByRole('button', { name: 'See all 6', exact: true }).click();
