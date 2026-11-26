@@ -4,6 +4,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { chromium } from './browser-harness.mjs';
 import { routeLeads } from './leads-browser-fixture.mjs';
 import { lead, workspace } from './leads-workspace-fixture.mjs';
+import { controlFloor } from "./control-floor.ts";
 
 for (const width of [390, 1440]) test(`Specialty filters the board and territory together at ${width}px`, async t => {
   const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
@@ -175,7 +176,7 @@ for (const width of [390,1440]) for (const theme of ['light','dark']) test(`lead
  await page.locator('.lead-card').first().waitFor();
  const controls=page.locator('.lead-card :is(.lead-open, [data-claim], .drag-handle):visible');
  assert.equal(await controls.count(),3);
- for(const control of await controls.all()) { const box=await control.boundingBox(); assert.ok(box.width>=44 && box.height>=44, await control.evaluate(n=>n.className||n.outerHTML)); }
+ for(const control of await controls.all()) { const box=await control.boundingBox(); assert.ok(box.width>=controlFloor(width) && box.height>=controlFloor(width), await control.evaluate(n=>n.className||n.outerHTML)); }
  await mkdir('out/test-artifacts/WR572.S6.J1',{recursive:true});
  await page.screenshot({path:`out/test-artifacts/WR572.S6.J1/leads-${width}-${theme}.png`});
  if(width===390) {

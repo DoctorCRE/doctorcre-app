@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, mkdir } from 'node:fs/promises';
 import { chromium, waitForAsync } from './browser-harness.mjs';
+import { controlFloor } from "./control-floor.ts";
 
 const root = new URL('../', import.meta.url);
 const assignments = [
@@ -71,7 +72,7 @@ for (const width of [390, 1280]) for (const theme of ['dark', 'light']) test(`de
   assert.equal(await phoneOnly.getByText('+1 (555) 010-0103', { exact: true }).isVisible(), true);
   assert.doesNotMatch(await phoneOnly.textContent(), /Email/);
   const target = await disclosure.boundingBox();
-  assert.ok(target.width >= 44 && target.height >= 44, JSON.stringify(target));
+  assert.ok(target.width >= controlFloor(width) && target.height >= controlFloor(width), JSON.stringify(target));
   await contact.scrollIntoViewIfNeeded();
   assert.equal(await page.locator('#recordPanel').evaluate(n => n.scrollWidth <= n.clientWidth), true);
   assert.equal(await page.locator('html').getAttribute('data-theme'), theme);

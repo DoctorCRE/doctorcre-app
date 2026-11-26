@@ -53,7 +53,7 @@ for (const width of [1280, 1440]) {
   test(`Today waits on a quiet skeleton, not loading text, at ${width}`, async (t) => {
     const page = await openLeads(t, width);
     await openToday(page);
-    await page.locator("#appTodayOwners.chip-bar").waitFor({ state: "attached" });
+    await page.locator("#appTodayOwners").waitFor({ state: "attached" });
     for (const slot of ["#appScheduleSlot", "#appTodayNext"]) {
       assert.equal(await page.locator(slot).textContent(), "", `${slot} shows no text while loading`);
       assert.equal(await page.locator(`${slot} .skeleton-line`).first().isVisible(), true, `${slot} shows a skeleton`);
@@ -92,7 +92,7 @@ for (const width of [1280, 1440]) {
   test(`Today marks only its two loading slots busy at ${width}`, async (t) => {
     const page = await openLeads(t, width);
     await openToday(page);
-    await page.locator("#appTodayOwners.chip-bar").waitFor({ state: "attached" });
+    await page.locator("#appTodayOwners").waitFor({ state: "attached" });
     const busy = await page.locator("#appToday [aria-busy]").evaluateAll((nodes) => nodes.map((node) => node.id));
     assert.deepEqual(busy, ["appScheduleSlot", "appTodayNext"]);
   });

@@ -47,9 +47,12 @@ export const LIST_ROW_KEYS = {
     "vertical", "owner_label", "owned_by_viewer", "updated_at"],
   vendors: ["id", "ref", "name", "party_kind", "city", "state", "recorded_category", "recorded_category_label",
     "recorded_stage", "recorded_stage_label", "recorded_disposition", "recorded_disposition_label",
-    "recorded_disposition_workable", "relationship_level", "relationship_level_label", "referral_active",
+    "relationship_level", "relationship_level_label", "referral_active",
     "is_target", "out_of_market", "last_touch", "owner_label", "owned_by_viewer", "updated_at"],
 };
+
+// The engine still sends these until it drops them; nothing here reads them.
+const RETIRED_VENDOR_KEYS = ["recorded_disposition_workable"];
 
 export const RECORD_KEYS = {
   clients: ["id", "ref", "name", "party_kind", "city", "state", "county", "title", "specialty", "npi", "phone",
@@ -61,7 +64,7 @@ export const RECORD_KEYS = {
   vendors: ["id", "ref", "name", "party_kind", "city", "state", "county", "title", "phone", "cell", "email",
     "contact_state", "contact_state_reason", "contact_state_until", "contact_state_cadence", "recorded_category",
     "recorded_category_label", "recorded_stage", "recorded_stage_label", "recorded_disposition",
-    "recorded_disposition_label", "recorded_disposition_workable", "relationship_level", "relationship_level_label",
+    "recorded_disposition_label", "relationship_level", "relationship_level_label",
     "relationship_level_note", "verticals", "territory", "offers", "seeking", "rivalry_group", "originated",
     "referral_active", "is_target", "out_of_market", "last_touch", "intro_notes", "links_label", "owner_label",
     "owned_by_viewer", "record_version", "created_at", "updated_at"],
@@ -373,7 +376,7 @@ function activeDealsValid(deals) {
 }
 
 function rowValid(row, dataset) {
-  return extendedKeys(row, LIST_ROW_KEYS[dataset], dataset === "vendors" ? ["relationship", "vertical", "deal_type", "last_deal_at", "territory"] : ["deal_type", "last_deal_at", "active_deals"]) && typeof row.id === "string" && UUID.test(row.id) &&
+  return extendedKeys(row, LIST_ROW_KEYS[dataset], dataset === "vendors" ? ["relationship", "vertical", "deal_type", "last_deal_at", "territory", ...RETIRED_VENDOR_KEYS] : ["deal_type", "last_deal_at", "active_deals"]) && typeof row.id === "string" && UUID.test(row.id) &&
     typeof row.name === "string" && row.name.length > 0 && relationshipValid(row.relationship) && activeDealsValid(row.active_deals);
 }
 
@@ -466,7 +469,7 @@ export function validRecordPayload(payload, dataset, id = null, { people = false
   if (payload.partial && payload.partial.count > 1) return false;
   const record = payload.record;
   const withPeople = dataset === 'vendors' && people;
-  if (!extendedKeys(record, [...RECORD_KEYS[dataset], ...(withPeople ? ['people'] : [])], ["party_id", ...(dataset === "vendors" ? ["relationship", "loan_programs"] : ["deal_type", "last_deal_at", "active_deals", "record_links"])]) || typeof record.id !== "string" || !UUID.test(record.id)) return false;
+  if (!extendedKeys(record, [...RECORD_KEYS[dataset], ...(withPeople ? ['people'] : [])], ["party_id", ...(dataset === "vendors" ? ["relationship", "loan_programs", ...RETIRED_VENDOR_KEYS] : ["deal_type", "last_deal_at", "active_deals", "record_links"])]) || typeof record.id !== "string" || !UUID.test(record.id)) return false;
   if (record.party_id !== undefined && (typeof record.party_id !== "string" || !UUID.test(record.party_id))) return false;
   if (!activeDealsValid(record.active_deals)) return false;
   if (withPeople && !peopleValid(record.people)) return false;
@@ -504,13 +507,17 @@ export function partyKindText(value) {
   return recordedValue(value);
 }
 
-/** Vendors: workable is a property of the disposition on the record, not a judgement. */
-export function rowTone(dataset, row) {
-  if (dataset !== "vendors") return null;
-  const workable = row?.recorded_disposition_workable;
-  if (workable === true) return { tone: "active", label: "Workable" };
-  if (workable === false) return { tone: "warm", label: "Not workable" };
-  return null;
+const RELATIONSHIP_LEVELS = ["prospective", "building", "established", "core"];
+const RELATIONSHIP_WORDS = {
+  core: "Core", established: "Established", building: "Building", prospective: "Prospective",
+  not_rated: "Not rated", parked: "Parked", avoid: "Avoid",
+};
+
+/** A vendor's relationship, from its ruling, level and target flag. A ruling outranks the level. */
+export function vendorRelationship(row) {
+  const ruling = ["avoid", "parked"].includes(row.recorded_disposition) ? row.recorded_disposition : null;
+  const key = ruling ?? RELATIONSHIP_LEVELS[row.relationship_level] ?? "not_rated";
+  return { key, word: RELATIONSHIP_WORDS[key], wantToMeet: row.is_target === true && key !== "avoid" };
 }
 
 /**
@@ -641,9 +648,6 @@ const VENDOR_SECTIONS = [
     ["recorded_category", "Category", "recorded_category_label"],
     ["recorded_stage", "Stage", "recorded_stage_label"],
     ["recorded_disposition", "Disposition", "recorded_disposition_label"],
-    ["recorded_disposition_workable", "Workable"],
-    ["relationship_level", "Relationship level", "relationship_level_label"],
-    ["relationship_level_note", "What this level means"],
     ["verticals", "Verticals"],
   ] },
   { title: "Who they are", fields: [

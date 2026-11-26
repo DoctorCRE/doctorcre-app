@@ -171,22 +171,18 @@ for (const width of [360, 390, 500]) {
       }
     });
 
-    test("Home card selection and bottom navigation work on phones", async ({ page }) => {
+    test("Home row actions and bottom navigation work on phones", async ({ page }) => {
       await page.clock.setFixedTime(new Date("2026-11-05T18:00:00Z"));
       await page.goto(server.url);
       const cards = page.getByRole("region", { name: "Reminders", exact: true });
-      const checkbox = cards.getByRole("checkbox", { name: /^Select / }).first();
-      await expect(checkbox).toBeEnabled();
-      const label = cards
-        .locator("label")
-        .filter({ has: page.getByRole("checkbox", { name: /^Select / }) })
-        .first();
-      const target = await label.boundingBox();
+      const done = cards.getByRole("button", { name: "Mark done", exact: true }).first();
+      await expect(done).toBeEnabled();
+      const target = await done.boundingBox();
       assert.ok(target);
       expect(target.width).toBeGreaterThanOrEqual(44);
       expect(target.height).toBeGreaterThanOrEqual(44);
-      await label.tap({ position: { x: 2, y: 2 } });
-      await expect(checkbox).toBeChecked();
+      await expect(cards.getByRole("checkbox")).toHaveCount(0);
+      await expect(cards.getByRole("button", { name: "Snooze", exact: true }).first()).toBeVisible();
       const navLabels = page.locator("#appShell .app-shell-navigation .app-shell-nav-label:visible");
       const sizes = await navLabels.evaluateAll((nodes) =>
         nodes.map((node) => parseFloat(getComputedStyle(node).fontSize)),

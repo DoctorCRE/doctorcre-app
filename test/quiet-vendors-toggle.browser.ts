@@ -51,9 +51,13 @@ test("Show quiet vendors narrows the same list in place and a second press shows
   assert.equal(await toggle.getAttribute("aria-pressed"), "false");
   await page.screenshot({ path: `${shots}/quiet-off-1440.png` });
 
-  const badge = await rows.first().locator(".tone").textContent();
+  const relationship = await rows.first().locator(".rel-word").textContent();
   await rows.first().click();
-  await page.locator("#recordMeta .tone").waitFor();
-  assert.equal(await page.locator("#recordMeta .tone").textContent(), badge, "the drawer says what the list says");
+  await page.locator("#recordMeta .rel-word").waitFor();
+  assert.equal(
+    await page.locator("#recordMeta .rel-word").textContent(),
+    relationship,
+    "the drawer says the relationship the list says",
+  );
   await page.screenshot({ path: `${shots}/drawer-1440.png` });
 });
