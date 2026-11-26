@@ -56,7 +56,9 @@ export function DealsTile() {
             {data.open} open · {counted(data.prospects, "prospect", "prospects")}
           </span>
         </h2>
-        <a href="/deals">Board</a>
+        <a className="home-tile-door" href="/deals">
+          Board
+        </a>
       </header>
       <ul className="home-phases">
         {data.phases.map((phase) => (

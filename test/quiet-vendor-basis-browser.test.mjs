@@ -6,6 +6,7 @@ import { chromium } from './browser-harness.mjs';
 import { ownedServer as startFixtureServer } from "./fixture-probe.ts";
 import { directoryFixture } from './fixtures/vendor-directory.synthetic.mjs';
 import { validateQuietFollowUps } from '../js/leads-client.js';
+import { controlFloor } from "./control-floor.ts";
 const meetingRecordings = JSON.parse(readFileSync(new URL('./fixtures/vendor-meetings/recordings.json', import.meta.url)));
 const recorded = () => JSON.parse(readFileSync(new URL('./fixtures/quiet-vendor-basis/recordings.json', import.meta.url)));
 
@@ -79,7 +80,7 @@ for (const width of [390, 1280]) test(`history intersects owner before stable pa
   await history.selectOption('last_contact');
   assert.deepEqual(await ids(), response.proposals.map(row => row.subject_id));
   assert.equal(await section.evaluate(el => el.scrollWidth <= el.clientWidth), true);
-  assert.ok((await history.boundingBox()).height >= 44);
+  assert.ok((await history.boundingBox()).height >= controlFloor(width));
   const link = section.getByRole('link').first();
   const id = await link.getAttribute('id');
   await link.click(); await page.keyboard.press('Escape');

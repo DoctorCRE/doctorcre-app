@@ -207,7 +207,7 @@ test('honest controls fit 320px, 390px and iPad in both motion settings with 44p
   const browser = await chromium.launch({ headless: true });
   try {
     for (const width of [320, 390, 820]) for (const reducedMotion of ['reduce', 'no-preference']) {
-      const page = await browser.newPage({ viewport: { width, height: 1180 }, reducedMotion });
+      const page = await browser.newPage({ viewport: { width, height: 1180 }, hasTouch: true, reducedMotion });
       // Isolate these UI seams from unrelated backend boot and shell requests.
       await page.route(/\/(pipeline|app)\.js$/, route => route.fulfill({ contentType: 'text/javascript', body: '' }));
       await page.route(/https:\/\/.*/, route => route.abort());
@@ -263,7 +263,7 @@ test('honest controls fit 320px, 390px and iPad in both motion settings with 44p
 test('touch targets are measured after their entry animation settles', async () => {
   const browser = await chromium.launch();
   try {
-    const page = await browser.newPage({ viewport: { width: 820, height: 1180 } });
+    const page = await browser.newPage({ viewport: { width: 820, height: 1180 }, hasTouch: true });
     await componentDocument(page, 'http://localhost', {html: `<style>${await read('css/tokens.css')}${await read('css/system.css')} .doc-chat { top: 986.5px; bottom: auto; display: block; }</style><div class="doc-chat"><button class="btn">Dictate with Quill</button></div>`});
     await page.locator('.doc-chat').evaluate(el => {
       el.getAnimations().forEach(animation => animation.cancel());

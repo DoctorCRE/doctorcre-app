@@ -1,5 +1,5 @@
 import { createPageBudget } from './read-budget.mjs';
-import { BUSINESS_TIME_ZONE, businessDay, meetingTime } from './business-date.js';
+import { BUSINESS_TIME_ZONE, businessDay } from './business-date.js';
 // Calendar days use UTC arithmetic. Today uses America/Chicago.
 
 /** Widest to narrowest; a change toward the end zooms in. */
@@ -399,24 +399,10 @@ const isInstant = value => typeof value === "string" && Number.isFinite(Date.par
 const isText = value => typeof value === "string" && value.trim() !== "";
 const recordUrl = value => typeof value === "string" && /^\/(?:deals|relationships)\?/.test(value) ? value : null;
 const SECTION_STATES = ["ready", "empty", "partial", "unavailable"];
-// The engine's freshness rule for an Outlook snapshot.
-const STALE_MS = 18 * 3_600_000;
-const named = (who, text) => text.startsWith(who) ? text : `${who}: ${text}`;
 const UNLOADED = { status: "unavailable", entries: [], notes: ["Meetings could not be loaded. Refresh to try again."] };
 
 /** The visible period as the meetings read's inclusive range. */
 export const visibleRange = days => ({ from: days[0].day, to: days.at(-1).day });
-
-/** The Outlook job attaches standing caveats to every snapshot; like Home, only a stale sync is worth a line. */
-function sectionNotes(section, who, now) {
-  if (section.state === "unavailable") return [section.reason || `${who}'s meetings could not be loaded.`];
-  const synced = isInstant(section.observed_at) ? Date.parse(section.observed_at) : null;
-  return [
-    ...(synced !== null && now - synced > STALE_MS
-      ? [`Last synced ${meetingTime(section.observed_at, BUSINESS_TIME_ZONE, { date: true })}.`] : []),
-    ...(section.meetings_may_be_missing === true ? ["Calendar may be incomplete."] : []),
-  ];
-}
 
 function dealLinks(item) {
   const matches = Array.isArray(item.possible_deals) ? item.possible_deals : [];
@@ -427,11 +413,12 @@ function dealLinks(item) {
 
 /**
  * Both partners' meetings and planned tours for one period, as calendar
- * entries plus the plain notes that say what may be missing. `off` means the
- * engine does not serve the read, so the page says nothing about meetings.
- * A meeting both partners attend is one entry owned by both.
+ * entries plus a note when a read failed. A partner's Outlook sync state is
+ * for whoever runs the system, so it never becomes a note (owner, 2026-11-25).
+ * `off` means the engine does not serve the read, so the page says nothing
+ * about meetings. A meeting both partners attend is one entry owned by both.
  */
-export async function readMeetings(client, range, now = Date.now()) {
+export async function readMeetings(client, range) {
   if (!client.getCalendarMeetings) return { status: "off", entries: [], notes: [] };
   let answer;
   try {
@@ -445,8 +432,6 @@ export async function readMeetings(client, range, now = Date.now()) {
     for (const section of answer.meetings) {
       if (!isText(section.partner) || !isText(section.name) || !SECTION_STATES.includes(section.state) || !Array.isArray(section.items))
         throw new Error("Meetings unreadable");
-      const who = section.name;
-      notes.push(...sectionNotes(section, who, now).map(note => named(who, note)));
       if (section.state === "unavailable") continue;
       for (const item of section.items) {
         if (!isText(item?.title) || !isInstant(item.start)) throw new Error("Meeting unreadable");
@@ -466,7 +451,7 @@ export async function readMeetings(client, range, now = Date.now()) {
     }
     const tours = answer.tours;
     if (!SECTION_STATES.includes(tours?.state) || !Array.isArray(tours.items)) throw new Error("Tours unreadable");
-    if (tours.state === "unavailable") notes.push(tours.reason || "Planned tours could not be loaded.");
+    if (tours.state === "unavailable") notes.push("Planned tours could not be loaded. Refresh to try again.");
     const planned = tours.state === "unavailable" ? [] : tours.items.map(tour => {
       if (!tour?.id || !isCalendarDay(tour.planned_on) || !isText(tour.deal_name) || !Number.isInteger(tour.stop_count))
         throw new Error("Tour unreadable");

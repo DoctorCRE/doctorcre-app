@@ -72,6 +72,9 @@ const dom = {
   panel: document.querySelector("#recordPanel"),
   panelTitle: document.querySelector("#recordTitle"),
   panelEyebrow: document.querySelector("#recordEyebrow"),
+  panelMeta: document.querySelector("#recordMeta"),
+  panelActions: document.querySelector("#recordActions"),
+  panelMore: document.querySelector("#recordMore"),
   panelBody: document.querySelector("#recordBody"),
   panelClose: document.querySelector("#recordClose"),
   navClients: document.querySelector("#navClients"),
@@ -420,7 +423,7 @@ const vendorNote = value => withoutRecordCodes((value || '')
 const shortNote = value => typeof value === 'string' ? value.split(/\n/)[0].slice(0, 140) : '';
 function vendorContactDate(contactedAt) {
   const date = contactedAt && formatDay(contactedAt);
-  return date ? `<span class="contact-note">Last contacted <time datetime="${escapeHtml(contactedAt)}">${escapeHtml(date)}</time></span>` : '';
+  return date ? `<span class="contact-note"><span class="fact-label">Last contacted </span><time datetime="${escapeHtml(contactedAt)}">${escapeHtml(date)}</time></span>` : '';
 }
 
 const vendorField = (label, value) => value ? `<div class="record-field"><dt>${label}</dt><dd>${escapeHtml(value)}</dd></div>` : '';
@@ -499,9 +502,9 @@ function rowFacts(dataset, row) {
     const stats = row.relationship;
     facts.push({ label: 'Territory', value: row.territory || 'Not recorded', known: Boolean(row.territory) });
     // The engine counts deal history and sends 0 when none is recorded, so a 0 says nothing.
-    facts.push({ label: 'Referred', value: metric(stats?.deals_referred), known: stats?.deals_referred > 0 });
-    facts.push({ label: 'Worked', value: metric(stats?.deals_worked), known: stats?.deals_worked > 0 });
-    facts.push({ label: 'Win rate', value: winRate(stats), known: stats?.win_rate != null });
+    facts.push({ label: 'Referred', value: metric(stats?.deals_referred), known: stats?.deals_referred > 0, history: true });
+    facts.push({ label: 'Worked', value: metric(stats?.deals_worked), known: stats?.deals_worked > 0, history: true });
+    facts.push({ label: 'Win rate', value: winRate(stats), known: stats?.win_rate != null, history: true });
   }
   const place = [row.city, row.state].filter(Boolean).join(", ");
   facts.push({ label: dataset === "clients" ? "Territory" : "Location", value: place || "Not recorded", known: Boolean(place) });
@@ -526,8 +529,15 @@ function rowHtml(dataset, row, selectedId) {
   const selected = row.id === selectedId;
   const vendor = dataset === "vendors";
   const facts = rowFacts(dataset, row).filter((fact) => fact.known).map((fact) =>
-    `<span class="row-fact${fact.unresolved ? " unresolved" : ""}" data-fact="${escapeHtml(fact.label)}"><span class="fact-label">${escapeHtml(fact.label)}</span><span class="fact-value">${breakAfterSlashes(fact.value)}</span></span>`).join("");
-  return `<li class="record-item"><a class="record-row${selected ? " selected" : ""}" id="row-${escapeHtml(row.id)}" data-record-id="${escapeHtml(row.id)}" href="${escapeHtml(viewHref(view.query, row.id))}"${selected ? ' aria-current="true"' : ""}><span class="row-head"><span class="row-name">${escapeHtml(vendor ? withoutRecordCodes(row.name) : row.name)}</span>${toneHtml(tone)}</span><span class="row-facts">${facts}</span>${vendor ? vendorContactDate(row.relationship?.last_contacted_at) : ''}<span class="row-foot">${owner.known ? `<span class="row-owner">Owner: ${escapeHtml(owner.text)}</span>` : ""}<span class="row-updated">Updated ${escapeHtml(formatMoment(row.updated_at))}</span></span></a>${dataset === "clients" ? dealLinks(row) : ""}</li>`;
+    `<span class="row-fact${fact.unresolved ? " unresolved" : ""}${fact.history ? " history" : ""}" data-fact="${escapeHtml(fact.label)}"><span class="fact-label">${escapeHtml(fact.label)}</span><span class="fact-value">${breakAfterSlashes(fact.value)}</span></span>`).join("");
+  return `<li class="record-item"><a class="record-row${selected ? " selected" : ""}" id="row-${escapeHtml(row.id)}" data-record-id="${escapeHtml(row.id)}" href="${escapeHtml(viewHref(view.query, row.id))}"${selected ? ' aria-current="true"' : ""}><span class="row-head"><span class="row-name">${escapeHtml(vendor ? withoutRecordCodes(row.name) : row.name)}</span>${toneHtml(tone)}</span><span class="row-facts">${facts}</span>${vendor ? vendorContactDate(row.relationship?.last_contacted_at) : ''}<span class="row-foot">${owner.known ? `<span class="row-owner"><span class="fact-label">Owner: </span>${escapeHtml(owner.text)}</span>` : ""}<span class="row-updated"><span class="fact-label">Updated </span>${escapeHtml(formatMoment(row.updated_at))}</span></span></a>${dataset === "clients" ? dealLinks(row) : ""}</li>`;
+}
+
+// Names the row columns once on a computer, where rows drop their inline labels; deal history keeps its own labels.
+function headHtml(dataset) {
+  const facts = rowFacts(dataset, {}).filter((fact) => !fact.history).map((fact) =>
+    `<span class="row-fact" data-fact="${escapeHtml(fact.label)}">${escapeHtml(fact.label)}</span>`).join("");
+  return `<li class="list-head" aria-hidden="true"><span class="row-head">Name</span><span class="row-facts">${facts}</span>${dataset === "vendors" ? '<span class="contact-note">Last contacted</span>' : ""}<span class="row-foot"><span class="row-owner">Owner</span><span class="row-updated">Updated</span></span></li>`;
 }
 
 function paintList(html, { busy = false } = {}) {
@@ -542,8 +552,7 @@ function paintList(html, { busy = false } = {}) {
 }
 
 function renderEmpty(phase) {
-  const copy = emptyCopy(view.dataset, phase);
-  paintList(`<li class="record-empty"><p class="empty-title">${escapeHtml(copy.title)}</p><p class="empty-copy">${escapeHtml(copy.copy)}</p>${hasActiveFilters(view.query) ? '<button type="button" class="action secondary-action" data-chip="all">Clear all filters</button>' : ""}</li>`);
+  paintList(`<li class="record-empty"><p class="empty-title">${escapeHtml(emptyCopy(view.dataset, phase))}</p>${hasActiveFilters(view.query) ? '<button type="button" class="action secondary-action" data-chip="all">Clear all filters</button>' : ""}</li>`);
 }
 
 function renderPager(payload) {
@@ -590,7 +599,7 @@ function renderList() {
     if (dom.source) dom.source.textContent = "Checking…";
     if (dom.pager) dom.pager.hidden = true;
     renderNotices([]);
-    paintList('<li class="record-skeleton"><span class="skeleton-line"></span><span class="skeleton-line short"></span></li>'.repeat(3), { busy: true });
+    paintList('<li class="record-skeleton"><span class="skeleton-line"></span><span class="skeleton-line short"></span></li>'.repeat(8), { busy: true });
     return;
   }
 
@@ -623,7 +632,7 @@ function renderList() {
   if (payload.rows.length === 0) {
     renderEmpty(payload.out_of_range ? "out-of-range" : hasActiveFilters(query) ? "empty-no-matches" : "empty-no-records");
   } else {
-    paintList((view.loadedRows || payload.rows).map((row) => rowHtml(dataset, row, view.recordId)).join(""));
+    paintList(headHtml(dataset) + (view.loadedRows || payload.rows).map((row) => rowHtml(dataset, row, view.recordId)).join(""));
   }
   renderPager(payload);
 }
@@ -684,11 +693,25 @@ function clientNote({ notes, record_links }) {
   return `<section class="record-section client-note"><h3>Notes</h3><p class="entry-detail">${linkRecordNames(note, record_links)}</p><details class="record-details" data-details-key="notes"><summary><span>More</span><span>Less</span></summary></details></section>`;
 }
 
+/** The header's status, owner and record actions; empty while nothing has loaded. */
+function paintPanelHead(meta = "", actions = "") {
+  if (dom.panelMeta) dom.panelMeta.innerHTML = meta;
+  if (dom.panelActions) dom.panelActions.innerHTML = actions;
+  dom.panelTitle?.removeAttribute("title");
+}
+
+/** On a phone the record actions open as a menu; it closes once one is chosen. */
+function closePanelMenu() {
+  if (dom.panelActions?.matches(":popover-open")) dom.panelActions.hidePopover();
+}
+
 function renderRecordPanel() {
   if (!dom.panel) return;
   const { record, dataset } = view;
   if (!view.signedOut) capturePanelState();
   if (!view.recordId) {
+    closePanelMenu();
+    dom.panelTitle?.classList.remove("full");
     dom.panel.hidden = true;
     dom.panel.classList.remove("open");
     applyPanelModality();
@@ -698,6 +721,10 @@ function renderRecordPanel() {
   dom.panel.classList.add("open");
   applyPanelModality();
   if (dom.panelEyebrow) dom.panelEyebrow.textContent = DATASET_SINGULAR[dataset];
+  // A redraw keeps focus on the record action that had it, such as Edit after a save.
+  const actions = () => [...(dom.panelActions?.querySelectorAll("button") ?? [])];
+  const action = actions().indexOf(document.activeElement);
+  paintPanelHead();
   // A known sign-out empties the panel before anything else can render from it.
   if (view.signedOut) {
     if (dom.panelTitle) dom.panelTitle.textContent = "Your session has ended";
@@ -722,7 +749,9 @@ function renderRecordPanel() {
   const owner = ownerPresentation(payload.record);
   const kind = partyKindText(payload.record.party_kind);
   const vendor = dataset === "vendors";
-  if (dom.panelTitle) dom.panelTitle.textContent = vendor ? withoutRecordCodes(payload.record.name) : payload.record.name;
+  paintPanelHead(`${toneHtml(tone)}${owner.known ? `<span class="row-fact"><span class="fact-label">Owner</span><span class="fact-value">${escapeHtml(owner.text)}</span></span>` : ""}`, partyEditor?.actionsHtml() ?? "");
+  if (action >= 0) focusWithoutScrolling(actions()[action]);
+  if (dom.panelTitle) dom.panelTitle.textContent = dom.panelTitle.title = vendor ? withoutRecordCodes(payload.record.name) : payload.record.name;
   const ref = recordedValue(payload.record.ref);
   const referenceDetails = !vendor && ref.known
     ? `<details class="record-details" data-details-key="reference"><summary>Details</summary><dl><div class="record-field"><dt>Internal reference</dt><dd>${escapeHtml(ref.text)}</dd></div></dl></details>`
@@ -744,13 +773,9 @@ function renderRecordPanel() {
       }).join("")}</dl></section>`;
     }).join("");
   if (dom.panelBody) {
-    // A redraw keeps focus on the record action that had it, such as Edit after a save.
-    const actions = () => [...dom.panelBody.querySelectorAll(".party-record-actions button")];
-    const action = actions().indexOf(document.activeElement);
-    dom.panelBody.innerHTML = `<p class="record-tone">${toneHtml(tone)}${owner.known ? `<span class="row-fact"><span class="fact-label">Owner</span><span class="fact-value">${escapeHtml(owner.text)}</span></span>` : ""}</p>${partyEditor?.actionsHtml() ?? ""}${dataset === 'vendors' ? vendorContactsHtml(payload.record) + relationshipHtml(payload.record) : dealLinks(payload.record)}<div class="detail-columns">${sections}</div>${dataset === "clients" ? clientNote(payload.record) : ""}${referenceDetails}${activityHtml(payload.record.id)}<p class="observed">${escapeHtml(updatedLabel(payload.source?.observed_at, BUSINESS_TIME_ZONE))}</p>`;
+    dom.panelBody.innerHTML = `${dataset === 'vendors' ? vendorContactsHtml(payload.record) + relationshipHtml(payload.record) : dealLinks(payload.record)}<div class="detail-columns">${sections}</div>${dataset === "clients" ? clientNote(payload.record) : ""}${referenceDetails}${activityHtml(payload.record.id)}<p class="observed">${escapeHtml(updatedLabel(payload.source?.observed_at, BUSINESS_TIME_ZONE))}</p>`;
     dom.panelBody.dataset.recordId = payload.record.id;
     restorePanelState();
-    if (action >= 0) focusWithoutScrolling(actions()[action]);
     const note = dom.panelBody.querySelector(".client-note > p");
     if (note) note.nextElementSibling.hidden = !note.nextElementSibling.open && note.scrollHeight <= note.clientHeight;
   }
@@ -1155,7 +1180,14 @@ function wireControls() {
   });
 
   dom.panelClose?.addEventListener("click", () => closeRecord());
-  dom.panelBody?.addEventListener("click", (event) => {
+  // Every way the menu opens or closes ends here, so the button always says which.
+  dom.panelActions?.addEventListener("toggle", (event) => {
+    dom.panelMore?.setAttribute("aria-expanded", String(event.newState === "open"));
+  });
+  dom.panel?.addEventListener("click", (event) => {
+    // A long name is cut to one line; a tap shows all of it.
+    if (event.target.closest("#recordTitle")) dom.panelTitle.classList.toggle("full");
+    if (event.target.closest("#recordActions button")) closePanelMenu();
     const edit = event.target.closest("[data-party-edit]");
     if (edit) return partyEditor?.edit();
     if (event.target.closest("[data-party-link]")) return partyEditor?.link(view.record.payload?.record?.name ?? "");
@@ -1173,6 +1205,12 @@ function wireControls() {
     if (event.key !== "Escape" || !view.recordId) return;
     // Escape leaves the panel, never the page, and never the reader's place.
     event.preventDefault();
+    // An open menu is the innermost layer: Escape closes only it.
+    if (dom.panelActions?.matches(":popover-open")) {
+      closePanelMenu();
+      dom.panelMore?.focus();
+      return;
+    }
     closeRecord();
   });
 

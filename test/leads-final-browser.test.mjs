@@ -5,6 +5,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { chromium, settles } from './browser-harness.mjs';
 import { routeLeads } from './leads-browser-fixture.mjs';
 import { lead, workspace, detail, emptyQuietFollowUps, id } from './leads-workspace-fixture.mjs';
+import { controlFloor } from "./control-floor.ts";
 
 async function capture(page, name, measurements) {
   if (!process.env.LEADS_FINAL_DIR) return;
@@ -397,7 +398,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     const link = drawer.locator('[data-link]');
     const details = drawer.getByText('More about these plans', { exact: true });
     await details.click();
-    assert.ok(await details.evaluate(el => el.getBoundingClientRect().height >= 44));
+    assert.ok((await details.boundingBox()).height >= controlFloor(width));
     const detailsText = await drawer.innerText();
     const phone = drawer.getByRole('link', { name: /555/ });
     assert.deepEqual({

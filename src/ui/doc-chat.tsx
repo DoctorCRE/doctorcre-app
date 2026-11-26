@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useEffectEvent, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { z } from "zod";
+import { centralToday } from "./central-time";
 import { docLinkMessages } from "./doc-link";
+import { submitOnEnter } from "./keyboard-input";
 import { refreshWhileVisible } from "./visible-refresh";
 
 // The app's Content Security Policy blocks dynamic code evaluation.
@@ -84,7 +87,7 @@ const conversationList = z.object({ conversations: z.array(conversation), next_b
 const conversationDetail = z.object({ conversation, turns: z.array(chatTurn) });
 const sendResponse = z.object({ conversation_id: z.guid(), turn: chatTurn });
 
-type Conversation = Pick<z.infer<typeof conversation>, "id" | "title">;
+type Conversation = z.infer<typeof conversation>;
 type Turn = z.infer<typeof chatTurn>;
 type Proposal = z.infer<typeof proposal>;
 type Confirmation = z.infer<typeof confirmation>;
@@ -167,6 +170,46 @@ function chatHref(id: string | null) {
   else query.delete("chat");
   return "/doc-chats" + (query.size ? `?${query}` : "");
 }
+
+const chatDay = (date: Date) => Date.parse(centralToday(date)) / 86_400_000;
+const centralFormat = (options: Intl.DateTimeFormatOptions) =>
+  new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", ...options });
+const chatTimes = {
+  today: centralFormat({ hour: "numeric", minute: "2-digit" }),
+  week: centralFormat({ weekday: "short" }),
+  year: centralFormat({ month: "short", day: "numeric" }),
+  older: centralFormat({ month: "short", day: "numeric", year: "numeric" }),
+};
+
+function chatTime(at: string, now: Date) {
+  const date = new Date(at);
+  const days = chatDay(now) - chatDay(date);
+  const format =
+    days === 0
+      ? chatTimes.today
+      : days > 0 && days < 7
+        ? chatTimes.week
+        : centralToday(date).slice(0, 4) === centralToday(now).slice(0, 4)
+          ? chatTimes.year
+          : chatTimes.older;
+  return format.format(date);
+}
+
+function Icon({ path }: { path: string }) {
+  return (
+    <svg className="app-shell-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path d={path} />
+    </svg>
+  );
+}
+
+const icons = {
+  chats: "M4 5h16v14H4zM9 5v14",
+  newChat: "M12 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6M18.4 2.6a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4z",
+};
+const topbar = document.getElementById("docTopbar");
+const topbarStart = document.getElementById("docTopbarStart");
+const topbarTitle = document.getElementById("docTitle");
 
 function draftReviewHref(id: string) {
   return `/inbox/card/${encodeURIComponent(`reply_draft:${id}`)}`;
@@ -496,7 +539,8 @@ function DocChat() {
   const [id, setId] = useState(initialId);
   const [recent, setRecent] = useState<Conversation[]>([]);
   const [nextBefore, setNextBefore] = useState<string | null>(null);
-  const [showRecent, setShowRecent] = useState(false);
+  const [chatsOpen, setChatsOpen] = useState(false);
+  const [title, setTitle] = useState("");
   const [olderFailed, setOlderFailed] = useState(false);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [question, setQuestion] = useState("");
@@ -509,6 +553,8 @@ function DocChat() {
   const retired = useRef(false);
   const active = useRef(false);
   const conversationPane = useRef<HTMLDivElement>(null);
+  const chatsPanel = useRef<HTMLElement>(null);
+  const chatsToggle = useRef<HTMLButtonElement>(null);
   const latest = turns.at(-1);
   const review = latest?.draft_review;
   const draftId = review?.draft_id ?? initialDraft?.id;
@@ -579,7 +625,7 @@ function DocChat() {
         if (retired.current) return;
         setRecent(conversations);
         setNextBefore(next_before);
-        const saved = chatId ? (await docFetch(conversationPath(chatId), conversationDetail)).turns : [];
+        const detail = chatId ? await docFetch(conversationPath(chatId), conversationDetail) : null;
         if (retired.current) return;
         const { privateSession, privateTextDraft } = await sessionModule();
         const session = await privateSession()?.verify({ fresh: false });
@@ -587,7 +633,8 @@ function DocChat() {
         const actor = session.actor.slug;
         const storage = (field: DraftField, id: string | null) => privateTextDraft(window, actor, field, id);
         privateDraft.current = storage;
-        setTurns(saved);
+        setTurns(detail?.turns ?? []);
+        setTitle(detail?.conversation.title ?? "");
         const draft = storage("doc-question", chatId ?? composerId);
         const savedQuestion = draft.read();
         const prefill =
@@ -614,6 +661,7 @@ function DocChat() {
       setRecent([]);
       setNextBefore(null);
       setTurns([]);
+      setTitle("");
       setQuestion("");
       setPendingAsk(null);
       setDraftSendConflict(undefined);
@@ -665,6 +713,31 @@ function DocChat() {
     };
   }, [id, waitingTurnId, showUnavailable]);
 
+  // While the phone drawer is open, keys anywhere act on it: Escape closes it and Tab stays inside it.
+  const onDrawerKey = useEffectEvent((event: KeyboardEvent) => {
+    const panel = chatsPanel.current;
+    if (event.key === "Escape") return closeChats();
+    if (event.key !== "Tab" || !panel) return;
+    const targets = [...panel.querySelectorAll<HTMLElement>("a[href], button:not(:disabled)")];
+    const [first, last] = event.shiftKey ? [targets.at(-1), targets[0]] : [targets[0], targets.at(-1)];
+    if (panel.contains(document.activeElement) && document.activeElement !== last) return;
+    event.preventDefault();
+    first?.focus();
+  });
+
+  useEffect(() => {
+    if (!chatsOpen) return;
+    const panel = chatsPanel.current;
+    (panel?.querySelector<HTMLElement>("[aria-current]") ?? panel?.querySelector("a"))?.focus();
+    document.addEventListener("keydown", onDrawerKey);
+    return () => document.removeEventListener("keydown", onDrawerKey);
+  }, [chatsOpen]);
+
+  function closeChats() {
+    setChatsOpen(false);
+    chatsToggle.current?.focus();
+  }
+
   function loadOlder() {
     if (!nextBefore) return;
     void run("load", async () => {
@@ -704,7 +777,13 @@ function DocChat() {
       if (id !== conversation_id) {
         history.replaceState(history.state, "", chatHref(conversation_id));
         setId(conversation_id);
-        setRecent((rows) => [{ id: conversation_id, title: [...turn.question].slice(0, 80).join("") }, ...rows]);
+        const chat = {
+          id: conversation_id,
+          title: [...turn.question].slice(0, 80).join(""),
+          created_at: turn.created_at,
+        };
+        setRecent((rows) => [chat, ...rows]);
+        setTitle(chat.title);
       }
       setTurns((rows) => [...rows.filter((row) => row.id !== turn.id), turn]);
       // The pane is column-reverse, so scrollTop 0 is the latest turn.
@@ -718,47 +797,78 @@ function DocChat() {
   }
 
   const noChats = ready && recent.length === 0;
+  const now = new Date();
+  const newChat = (className: string) => (
+    <a
+      className={`doc-chat__icon ${className}`}
+      href={chatHref(null)}
+      aria-label="New chat"
+      title="New chat"
+      onClick={() => privateDraft.current?.("doc-question", null).write("")}
+    >
+      <Icon path={icons.newChat} />
+    </a>
+  );
 
   return (
     <>
-      <header className="doc-chat__header">
-        <h1 className="sr-only">Ask Doc</h1>
-        <a className="btn" href={chatHref(null)} onClick={() => privateDraft.current?.("doc-question", null).write("")}>
-          New chat
-        </a>
-      </header>
-      <div className="doc-chat__layout">
-        {recent.length > 0 && (
+      {topbarStart &&
+        createPortal(
           <button
-            className="btn doc-chat__recent-toggle"
+            ref={chatsToggle}
+            className="doc-chat__icon doc-chat__chats-toggle"
             type="button"
-            aria-expanded={showRecent}
-            onClick={() => setShowRecent(!showRecent)}
+            aria-label="Recent chats"
+            title="Recent chats"
+            aria-controls="docChats"
+            aria-expanded={chatsOpen}
+            onClick={() => setChatsOpen(true)}
           >
-            {showRecent ? "Back to conversation" : "Recent chats"}
-          </button>
+            <Icon path={icons.chats} />
+          </button>,
+          topbarStart,
         )}
+      {topbar && createPortal(newChat("doc-chat__topbar-new"), topbar)}
+      {topbarTitle &&
+        title &&
+        createPortal(
+          <span className="doc-chat__title">
+            <span className="doc-chat__separator" aria-hidden="true">
+              {" / "}
+            </span>
+            {title}
+          </span>,
+          topbarTitle,
+        )}
+      <div className="doc-chat__layout">
         <aside
-          className={`doc-chat__recent${showRecent || noChats ? " doc-chat__recent--open" : ""}`}
-          aria-labelledby="docRecent"
+          id="docChats"
+          ref={chatsPanel}
+          className="doc-chat__chats"
+          data-open={chatsOpen || undefined}
+          aria-label="Chats"
         >
-          <h2 id="docRecent">Recent chats</h2>
+          {newChat("doc-chat__list-new")}
           <ul>
             {recent.map((chat) => (
               <li key={chat.id}>
                 <a href={chatHref(chat.id)} aria-current={chat.id === id ? "page" : undefined}>
-                  {chat.title}
+                  <span>{chat.title}</span>
+                  <time dateTime={chat.created_at}>{chatTime(chat.created_at, now)}</time>
                 </a>
               </li>
             ))}
           </ul>
           {noChats && <p>No conversations yet</p>}
           {nextBefore && (
-            <button className="btn" type="button" disabled={busy} onClick={loadOlder}>
-              Show older chats
+            <button className="doc-chat__older" type="button" disabled={busy} onClick={loadOlder}>
+              Older chats
             </button>
           )}
         </aside>
+        {chatsOpen && (
+          <button className="doc-chat__scrim" type="button" aria-label="Close chats" onClick={closeChats} />
+        )}
         <section aria-label="Conversation">
           {ready && draftId && (
             <p>
@@ -775,6 +885,7 @@ function DocChat() {
             </p>
           )}
           <div className="doc-chat__scroll" ref={conversationPane}>
+            {ready && !id && !pendingAsk && <p className="doc-chat__empty">What do you need?</p>}
             <ol className="doc-chat__turns" aria-live="polite">
               {turns.map((turn) => {
                 const sources = turn.answer?.sources ?? [];
@@ -863,6 +974,7 @@ function DocChat() {
               privateDraft.current?.("doc-question", id ?? composerId).write(value);
               setQuestion(value);
             }}
+            onKeyDown={(event) => submitOnEnter(event.nativeEvent, () => event.currentTarget.form?.requestSubmit())}
           />
           <div className="doc-chat__actions">
             <small id="docQuestionLength">

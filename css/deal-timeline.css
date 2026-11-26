@@ -35,7 +35,7 @@
 .critical-date p { font-size:var(--font-size-1); }
 .critical-date :is(.date-actions,.date-reason):not([hidden]) { display:flex; flex-wrap:wrap; align-items:flex-end; gap:var(--space-1); }
 .critical-date .date-reason label { display:grid; gap:var(--space-1); flex:1 1 12rem; min-width:0; font-size:var(--font-size-1); }
-.critical-date .date-reason input { min-height:44px; min-width:0; }
+.critical-date .date-reason input { min-height:var(--touch); min-width:0; }
 /* A missing date is an empty slot: dashed, quiet, and only the label reads as action. */
 .add-date { cursor:pointer; border-style:dashed; background:transparent; }
 .add-date strong { font-size:var(--font-size-1); font-weight:var(--font-weight-strong); color:var(--fg-muted); margin-top:var(--space-2); }

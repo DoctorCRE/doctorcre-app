@@ -8,6 +8,7 @@ import { openDom } from "./jsdom-harness.mjs";
 import { animationsSettled, chromium, settles } from "./browser-harness.mjs";
 import { carrInterface } from "./carr-contract.mjs";
 import { committedTourWebModule } from "./tour-producer.mjs";
+import { controlFloor } from "./control-floor.ts";
 
 const script = await buildToursAppScript();
 const html = await readFile(new URL("../tours/route-editor.html", import.meta.url), "utf8");
@@ -1119,7 +1120,7 @@ test("phone and iPad composers fit the viewport and reduced motion leaves every 
       const layout = await touchLayout(page);
       assert.ok(layout.document <= layout.viewport, `${width}px document overflow: ${JSON.stringify(layout)}`);
       assert.ok(layout.rows.every(row => row.scroll <= row.width), `${width}px stop overflow`);
-      assert.ok(layout.targets.every(target => target.height >= 44 && target.width >= 44), `${width}px touch targets: ${JSON.stringify(layout.targets.filter(target => target.height < 44 || target.width < 44))}`);
+      assert.ok(layout.targets.every(target => target.height >= controlFloor(width) && target.width >= controlFloor(width)), `${width}px touch targets: ${JSON.stringify(layout.targets.filter(target => target.height < controlFloor(width) || target.width < controlFloor(width)))}`);
     }
     await page.setViewportSize({ width: 375, height: 900 });
     await page.getByRole("button", { name: /Bay.*results/ }).click();

@@ -6,6 +6,7 @@ import { createQaServer } from '../scripts/qa-fixture-server.mjs';
 import { fileURLToPath } from 'node:url';
 import { chromium, settles, waitForAsync } from './browser-harness.mjs';
 import { createFixtureClient } from '../js/fixture-client.js';
+import { controlFloor } from "./control-floor.ts";
 const root = new URL('../', import.meta.url);
 const contract = (await import("../js/routes.js")).routeContract;
 const primary = navigationItems.filter(item => !item.secondary).map(item => item.label);
@@ -72,7 +73,7 @@ for (const width of [390, 1440]) test(`Ask Doc replaces the old shell controls a
   for (const theme of ['dark', 'light']) {
     assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
     const box = await askDoc.boundingBox();
-    assert.ok(box && box.x >= 0 && box.x + box.width <= width && box.height >= 44);
+    assert.ok(box && box.x >= 0 && box.x + box.width <= width && box.height >= controlFloor(width));
     assert.equal(await page.getByRole('button', { name: 'Search and quick switcher' }).isVisible(), true);
     assert.equal(await page.getByRole('button', { name: 'Open Doc', exact: true }).count(), 0);
     if (theme === 'dark') {
@@ -167,7 +168,7 @@ test('desktop and phone navigation, account and Call mode work with reduced moti
     assert.equal(await page.locator('[data-app-nav-item]').count(), primary.length + secondary.length);
     assert.equal(await page.locator('[data-app-nav-item][href="/tasks"]').count(), 0);
     const controls = await page.locator('.app-shell-controls').evaluate(el => [...el.querySelectorAll('button')].filter(e => e.offsetParent).map(e => ({ width: e.getBoundingClientRect().width, height: e.getBoundingClientRect().height, transition: getComputedStyle(e).transitionDuration })));
-    assert.ok(controls.every(e => e.width >= 44 && e.height >= 44)); assert.ok(controls.every(e => e.transition === '0s'));
+    assert.ok(controls.every(e => e.width >= controlFloor(width) && e.height >= controlFloor(width))); assert.ok(controls.every(e => e.transition === '0s'));
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await page.keyboard.press('Escape');
     if (width <= 760) await page.locator('#selfAvatar').click();
@@ -194,7 +195,7 @@ for (const width of [320, 390]) test(`phone destinations are named, separate 44p
     const label = node.querySelector('.app-shell-nav-label'), box = node.getBoundingClientRect(), text = label.getBoundingClientRect();
     return { name: node.getAttribute('aria-label'), shown: label.innerText.trim(), labelVisible: text.width > 8 && text.height > 8 && getComputedStyle(label).clipPath === 'none', left: box.left, right: box.right, width: box.width, height: box.height, bottom: box.bottom };
   }));
-  assert.deepEqual(bar.map(item => item.shown), ['Home', 'Deals', 'Leads', 'Vendors', 'More']);
+  assert.deepEqual(bar.map(item => item.shown), ['Home', 'Deals', 'Leads', 'Calendar', 'Vendors', 'More']);
   assert.ok(bar.every(item => item.labelVisible), 'every phone destination shows its name');
   assert.ok(bar.every(item => item.width >= 44 && item.height >= 44), 'each target is at least 44px');
   for (const [i, item] of bar.entries()) if (i) assert.ok(item.left >= bar[i - 1].right, `${item.name} does not overlap ${bar[i - 1].name}`);
@@ -205,7 +206,7 @@ for (const width of [320, 390]) test(`phone destinations are named, separate 44p
   await page.locator('.app-shell-navigation > a').first().focus();
   const order = [await page.evaluate(() => document.activeElement.getAttribute('aria-label'))];
   for (let i = 0; i < bar.length - 1; i++) { await page.keyboard.press('Tab'); order.push(await page.evaluate(() => document.activeElement.getAttribute('aria-label'))); }
-  assert.deepEqual(order, ['Home', 'Deals', 'Leads', 'Vendors', 'More'], 'keyboard order follows the visible order');
+  assert.deepEqual(order, ['Home', 'Deals', 'Leads', 'Calendar', 'Vendors', 'More'], 'keyboard order follows the visible order');
 });
 
 // 200% browser zoom on a 1280x960 window is a 640x480 CSS-pixel viewport.
@@ -353,7 +354,7 @@ for (const [width, height] of [[390, 960], [1440, 960], [390, 600], [390, 700]])
   assert.equal(await guide.getByRole('button', { name: 'Back', exact: true }).isDisabled(), true);
   const steps = [
     ['Home', '[data-app-nav-item][href="/"]'], ['Deals', '[data-app-nav-item][href="/deals"]'],
-    ['Leads', '[data-app-nav-item][href="/leads"]'], ['Calendar', '.app-shell-more-toggle'],
+    ['Leads', '[data-app-nav-item][href="/leads"]'], ['Calendar', '[data-app-nav-item][href="/calendar"]'],
     ['Call mode', '#callModeButton'],
   ];
   for (const [index, [title, selector]] of steps.entries()) {

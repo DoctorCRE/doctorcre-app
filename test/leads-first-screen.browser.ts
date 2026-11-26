@@ -441,3 +441,72 @@ for (const width of [1024, 1280, 1440])
       "the page does not scroll",
     );
   });
+
+const style = (page: Page, selector: string) =>
+  page
+    .locator(selector)
+    .first()
+    .evaluate((node) => {
+      const { backgroundColor, borderTopColor, borderTopWidth, opacity } = getComputedStyle(node);
+      return { backgroundColor, borderTopColor, borderTopWidth, opacity };
+    });
+
+test("Leads cards keep Claim on the owner line and show the drag handle on hover", async (t) => {
+  const { browser, page } = await openBoard(1440, 900);
+  t.after(() => browser.close());
+  const unclaimed = page.locator(".lead-card:has([data-claim])").first();
+  const row = await unclaimed.evaluate((card) => {
+    const owner = card.querySelector(".work-card-meta")?.getBoundingClientRect() ?? new DOMRect();
+    const claim = card.querySelector("[data-claim]")?.getBoundingClientRect() ?? new DOMRect();
+    return { owner: (owner.top + owner.bottom) / 2, claim: (claim.top + claim.bottom) / 2 };
+  });
+  assert.ok(Math.abs(row.owner - row.claim) <= 1, `Claim sits on the owner line: ${JSON.stringify(row)}`);
+  assert.equal((await style(page, ".lead-card .drag-handle")).opacity, "0", "the handle waits for the pointer");
+  await page.locator(".lead-card").first().hover();
+  assert.equal((await style(page, ".lead-card .drag-handle")).opacity, "1", "a hovered card shows its handle");
+});
+
+test("Leads stage actions are quiet and markets answer the pointer", async (t) => {
+  const { browser, page } = await openBoard(1440, 900);
+  t.after(() => browser.close());
+  const expand = await style(page, ".stage-head button");
+  assert.equal(expand.borderTopColor, "rgba(0, 0, 0, 0)", `Show all draws no box: ${JSON.stringify(expand)}`);
+  assert.equal(expand.backgroundColor, "rgba(0, 0, 0, 0)", `Show all has no fill at rest: ${JSON.stringify(expand)}`);
+  const chip = page.locator("#marketCounts [data-market]").first();
+  const rest = await style(page, "#marketCounts [data-market]");
+  assert.equal(rest.borderTopColor, "rgba(0, 0, 0, 0)", `a market chip draws no outline: ${JSON.stringify(rest)}`);
+  await chip.hover();
+  const hover = await style(page, "#marketCounts [data-market]");
+  assert.notEqual(hover.backgroundColor, rest.backgroundColor, "a hovered market changes fill");
+  const stageLine = await page
+    .locator(".stage-head")
+    .first()
+    .evaluate((node) => getComputedStyle(node).borderBottomColor);
+  for (const selector of ["#reasonsStrip", "#leadTerritory"])
+    assert.equal((await style(page, selector)).borderTopColor, stageLine, `${selector} uses the faint divider`);
+});
+
+test("Leads filters sit in no box on a phone", async (t) => {
+  const { browser, page } = await openBoard(390, 844);
+  t.after(() => browser.close());
+  assert.equal((await style(page, ".controls")).borderTopWidth, "0px");
+});
+
+for (const width of [1440, 390])
+  test(`Lead detail uses at most three text sizes at ${width}`, async (t) => {
+    const { browser, page } = await openBoard(width, 900);
+    t.after(() => browser.close());
+    await page.locator("#leadBoard .lead-open").first().click();
+    await page.locator("#detailBody .detail-score").waitFor();
+    const sizes = await page.locator("#leadDetail").evaluate((dialog) => {
+      const found = new Set<string>();
+      const walker = document.createTreeWalker(dialog, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const parent = node.parentElement;
+        if (!node.textContent?.trim() || !parent?.checkVisibility()) continue;
+        found.add(getComputedStyle(parent).fontSize);
+      }
+      return [...found];
+    });
+    assert.ok(sizes.length <= 3, `heading, body and caption only: ${JSON.stringify(sizes)}`);
+  });

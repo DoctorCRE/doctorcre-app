@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { buildArtifact } from '../scripts/artifact.mjs';
 import { createQaServer } from '../scripts/qa-fixture-server.mjs';
 import { chromium } from './browser-harness.mjs';
+import { controlFloor } from "./control-floor.ts";
 
 let outDir, server, browser, origin;
 before(async () => {
@@ -62,7 +63,7 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) {
     await panel.screenshot({ path: `out/test-artifacts/overdue-reviews/${width}-${theme}.png`, animations: 'disabled' });
     await panel.getByRole('button', { name: `Show ${width === 390 ? 2 : 1} more` }).click();
     assert.match(await panel.locator('q').nth(1).innerText(), /The floor plan may be ready/);
-    for (const box of await Promise.all((await panel.getByRole('button').all()).map(b => b.boundingBox()))) assert.ok(box.height >= 44);
+    for (const box of await Promise.all((await panel.getByRole('button').all()).map(b => b.boundingBox()))) assert.ok(box.height >= controlFloor(width));
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no horizontal overflow');
     await panel.getByRole('button', { name: 'Confirm', exact: true }).first().click();
     await panel.getByText('Task marked done.', { exact: true }).waitFor();

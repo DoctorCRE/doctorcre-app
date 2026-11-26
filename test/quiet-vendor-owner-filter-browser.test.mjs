@@ -5,6 +5,7 @@ import { chromium } from './browser-harness.mjs';
 import { ownedServer as startFixtureServer } from "./fixture-probe.ts";
 import { directoryFixture } from './fixtures/vendor-directory.synthetic.mjs';
 import { validateQuietFollowUps } from '../js/leads-client.js';
+import { controlFloor } from "./control-floor.ts";
 const meetingRecordings = JSON.parse(readFileSync(new URL('./fixtures/vendor-meetings/recordings.json', import.meta.url)));
 const recorded = () => JSON.parse(readFileSync(new URL('./fixtures/quiet-vendor-owner-filter/recordings.json', import.meta.url))).response;
 
@@ -28,7 +29,7 @@ for (const width of [390,1280]) for (const theme of ['light','dark']) test(`load
   await page.getByRole('button',{name:'Show quiet vendors'}).click();
   const select=section.getByRole('combobox',{name:'Quiet vendor owner'});
   await select.waitFor({timeout:2000});
-  assert.ok((await select.boundingBox()).height >= 44, 'Owner selector uses the existing touch control size');
+  assert.ok((await select.boundingBox()).height >= controlFloor(width), 'Owner selector uses the shared control size');
   assert.deepEqual(await select.locator('option').allTextContents(),['All owners','Joe','Dell','outside:all','Owner not recorded']);
   await section.getByRole('button',{name:'Next vendors'}).click();
   await select.focus();await page.keyboard.press('j');await page.keyboard.press('Enter');

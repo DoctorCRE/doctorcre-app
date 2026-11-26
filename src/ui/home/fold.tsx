@@ -4,8 +4,8 @@ import { type ReactNode, useState } from "react";
 export function Fold({ label, line, children }: { label: string; line: ReactNode; children: ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
-    <section className="home-fold" aria-label={label} data-open={open || undefined}>
-      <button type="button" className="home-fold-line" aria-expanded={open} onClick={() => setOpen(!open)}>
+    <section className="home-short-fold" aria-label={label} data-open={open || undefined}>
+      <button type="button" className="home-short-fold-line" aria-expanded={open} onClick={() => setOpen(!open)}>
         {line}
       </button>
       {children}
