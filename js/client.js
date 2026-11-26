@@ -6,7 +6,7 @@
  * is in-memory; the live adapter uses authenticated same-origin CARR routes.
  *
  * @typedef {'joe'|'dell'|string} Actor
- * @typedef {'phase'|'owner'|'attention'|'next_date'|'next_step'|'operating_state'} DealField
+ * @typedef {'phase'|'owner'|'next_date'|'next_step'|'operating_state'} DealField
  *
  * Morning brief: CARR derives sponsor from the authenticated session. Each
  * section independently reports ready/empty/unavailable. Browser preferences
