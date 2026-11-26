@@ -40,7 +40,7 @@ export async function observe(page) {
   await opener.click();
   const choices = page.getByRole('dialog').locator('time');
   const endpoints = await choices.evaluateAll(nodes => nodes.map(node => ({ until: node.dateTime, label: node.textContent })));
-  assert.deepEqual(endpoints, [{ until: '2026-11-02T14:00:00.000Z', label: 'Mon, Nov 2' }, { until: '2026-11-02T14:00:00.000Z', label: 'Mon, Nov 2' }], 'Tomorrow and Next week return Monday at 8:00 AM Central');
+  assert.deepEqual(endpoints, [{ until: '2026-11-02T14:00:00.000Z', label: 'Mon, Nov 2' }, { until: '2026-11-09T14:00:00.000Z', label: 'Mon, Nov 9' }], 'Tomorrow and Next week return Mondays at 8:00 AM Central');
   await page.clock.setFixedTime(new Date(Date.parse(opening) + 30000));
   assert.deepEqual(await choices.evaluateAll(nodes => nodes.map(node => node.dateTime)), endpoints.map(row => row.until));
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
