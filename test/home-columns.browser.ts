@@ -303,25 +303,26 @@ test("Reminders 15 or more days late fold into one line that opens in place", as
   assert.equal(await reminders.getByRole("heading", { level: 2 }).textContent(), "Reminders 5 · 2 late");
 });
 
-test("On a phone Today's meetings comes first, Leads after Inbox, and In motion and waiting last", async (t) => {
-  const page = await openHome(t, 390, 844);
-  await page.getByRole("region", { name: "Today's meetings", exact: true }).waitFor();
-  const tiles = await page.locator(".home-slice").evaluateAll((nodes) =>
-    nodes
-      .map((node) => ({ name: node.getAttribute("aria-label"), top: node.getBoundingClientRect().top }))
-      .sort((a, b) => a.top - b.top)
-      .map(({ name }) => name),
-  );
-  assert.deepEqual(tiles, [
-    "Today's meetings",
-    "Reminders",
-    "Inbox",
-    "Deals",
-    "Coming up",
-    "Leads",
-    "In motion and waiting",
-  ]);
-});
+for (const width of [390, 500, 999] as const)
+  test(`At ${width}px Today's meetings comes first, Leads after Inbox, and In motion and waiting last`, async (t) => {
+    const page = await openHome(t, width, 844);
+    await page.getByRole("region", { name: "Today's meetings", exact: true }).waitFor();
+    const tiles = await page.locator(".home-slice").evaluateAll((nodes) =>
+      nodes
+        .map((node) => ({ name: node.getAttribute("aria-label"), top: node.getBoundingClientRect().top }))
+        .sort((a, b) => a.top - b.top)
+        .map(({ name }) => name),
+    );
+    assert.deepEqual(tiles, [
+      "Today's meetings",
+      "Reminders",
+      "Inbox",
+      "Deals",
+      "Coming up",
+      "Leads",
+      "In motion and waiting",
+    ]);
+  });
 
 test("The Leads line counts new and late leads and opens Leads", async (t) => {
   const page = await openHome(t, 1440, 900);

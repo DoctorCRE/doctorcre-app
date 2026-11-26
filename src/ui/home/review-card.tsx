@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { cardDueLabel } from "../card-due";
 import { centralToday } from "../central-time";
-import { type DocLinkRequest, type DocLinkStatus, docLinkMessages, readDocLinkStatus } from "../doc-link";
+import { type DocLinkRequest, type DocLinkStatus, readDocLinkStatus } from "../doc-link";
 import { submitOnEnter } from "../keyboard-input";
 import type { DraftEdit, DraftEdits } from "./draft-edits.ts";
 import { DropReason } from "./drop-reason.tsx";
@@ -80,7 +80,7 @@ function DueDate({ name, suggested }: { name: string; suggested: string }) {
 }
 
 function TalkToDoc({ request, href }: { request: DocLinkRequest | undefined; href: string }) {
-  const [status, setStatus] = useState<DocLinkStatus | null>();
+  const [status, setStatus] = useState<DocLinkStatus | null>(null);
   useEffect(() => {
     if (!request) return;
     const controller = new AbortController();
@@ -90,29 +90,12 @@ function TalkToDoc({ request, href }: { request: DocLinkRequest | undefined; hre
     return () => controller.abort();
   }, [request]);
 
-  const reasonId = useId();
-  if (status === "ready")
-    return (
-      <div className="inbox-actions home-draft-doc">
-        <a className="btn" href={href}>
-          Talk to Doc about this draft
-        </a>
-      </div>
-    );
-
-  let reason = "Sign in with DoctorCRE to talk to Doc.";
-  if (request) {
-    if (status) reason = docLinkMessages[status];
-    else reason = status === null ? "Couldn't check whether Doc is ready." : "Checking Doc status…";
-  }
+  if (status !== "ready") return null;
   return (
     <div className="inbox-actions home-draft-doc">
-      <button type="button" disabled aria-describedby={reasonId}>
+      <a className="btn" href={href}>
         Talk to Doc about this draft
-      </button>
-      <p id={reasonId} className="inbox-detail" role="status">
-        {reason}
-      </p>
+      </a>
     </div>
   );
 }
