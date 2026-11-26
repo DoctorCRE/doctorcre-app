@@ -377,9 +377,10 @@ test("Deals counts the Monday review's items and the board's phases, and Coming 
   const tile = page.getByRole("region", { name: "Deals", exact: true });
   const link = (name: string) => tile.getByRole("link", { name, exact: true }).getAttribute("href");
   assert.equal(
-    (await tile.getByRole("heading", { level: 2 }).textContent())?.replaceAll("\u00a0", " "),
-    "Deals 3 open · 1 parked · 1 national · 2 prospects",
+    (await tile.locator(".home-deals-counts").textContent())?.replaceAll("\u00a0", " "),
+    "3 open · 1 parked · 1 national · 2 prospects",
   );
+  assert.equal(await tile.getByRole("heading", { level: 2 }).textContent(), "Deals");
   assert.equal(await link("3 open · 1 parked · 1 national · 2 prospects"), "/deals");
   assert.equal(await link("Research 1"), "/deals?column=research");
   assert.equal(await link("Example Deal 1 Step 3 days late"), `/deals?deal=${id(101)}`);
@@ -400,8 +401,14 @@ for (const [width, height] of [
   [1440, 900],
   [1280, 640],
 ] as const)
-  test(`At ${width}x${height} the Deals heading holds a practice's counts on one line, and the week's closings sit on the Monday review line`, async (t) => {
+  test(`At ${width}x${height} the Deals heading shows a practice's counts on one line under it, and the week's closings sit on the Monday review line`, async (t) => {
     const page = await openHome(t, width, height);
+    await page.addInitScript(() =>
+      localStorage.setItem(
+        "doctorcre.visual-preferences",
+        JSON.stringify({ theme: "light", walkthroughSeen: { joe: true } }),
+      ),
+    );
     const items = (count: number, state: string, workspace: string, operating: string) =>
       Array.from({ length: count }, () => reviewDeal(state, workspace, operating));
     const parties = Array.from({ length: 12 }, (_, n) => ({ party_id: id(410 + n), state: "open", reviewed: null }));
@@ -418,18 +425,19 @@ for (const [width, height] of [
     );
     await page.reload();
     const tile = page.getByRole("region", { name: "Deals", exact: true });
-    const heading = tile.getByRole("heading", { level: 2 });
-    await heading.getByText("37 open").waitFor();
+    const counts = tile.locator(".home-deals-counts");
+    await counts.getByText("37 open").waitFor();
     assert.equal(
-      (await heading.textContent())?.replaceAll("\u00a0", " "),
-      "Deals 37 open · 27 parked · 16 national · 12 prospects",
+      (await counts.textContent())?.replaceAll("\u00a0", " "),
+      "37 open · 27 parked · 16 national · 12 prospects",
     );
     assert.ok(
-      await heading.evaluate(
+      await counts.evaluate(
         (node) => node.getBoundingClientRect().height < 1.5 * parseFloat(getComputedStyle(node).lineHeight),
       ),
-      "the heading is one line",
+      "the counts are one line",
     );
+    assert.ok(await counts.evaluate((node) => node.scrollWidth <= node.clientWidth), "the counts are not clipped");
     assert.equal(
       (await tile.getByRole("link", { name: /^Monday review/ }).textContent())?.replaceAll("\u00a0", " "),
       "Monday review 0 of 94 includes 1 closed or lost and 1 dropped this week",

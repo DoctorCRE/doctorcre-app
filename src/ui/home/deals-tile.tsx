@@ -64,15 +64,15 @@ export function DealsTile() {
     <section className="home-slice home-deals" aria-label="Deals">
       <header>
         <h2>
-          Deals{" "}
-          <span>
-            <a href="/deals">{heading.join(" · ")}</a>
-          </span>
+          <a href="/deals">Deals</a>
         </h2>
         <a className="home-tile-door" href="/deals">
           Board
         </a>
       </header>
+      <p className="home-deals-counts">
+        <a href="/deals">{heading.join(" · ")}</a>
+      </p>
       <ul className="home-phases">
         {data.phases.map((phase) => (
           <li key={phase.slug}>
