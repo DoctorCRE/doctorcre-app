@@ -16,13 +16,14 @@ export function DropReason({
   confirm(reason: string): void;
 }) {
   const [reason, setReason] = useState("");
-  const { data: reasons = EMPTY_DROP_REASONS } = useQuery({
+  const { data: reasons = EMPTY_DROP_REASONS, isPending } = useQuery({
     queryKey: ["home-drop-reasons", category],
     queryFn: () => (category ? readDropReasons(category) : Promise.resolve(EMPTY_DROP_REASONS)),
     enabled: category !== null,
     staleTime: Number.POSITIVE_INFINITY,
     gcTime: Number.POSITIVE_INFINITY,
   });
+  const pending = category !== null && isPending;
   return (
     <dialog
       className="inbox-snooze drop-reason"
@@ -37,7 +38,7 @@ export function DropReason({
     >
       <h2>{heading}</h2>
       <p className="drop-reason-title">{title}</p>
-      {reasons.length > 0 && (
+      {reasons.length > 0 ? (
         <fieldset className="drop-chips">
           <legend className="sr-only">Common reasons</legend>
           {reasons.map((choice) => (
@@ -46,6 +47,8 @@ export function DropReason({
             </button>
           ))}
         </fieldset>
+      ) : (
+        pending && <div className="drop-chips" aria-hidden="true" />
       )}
       <form method="dialog">
         <label>

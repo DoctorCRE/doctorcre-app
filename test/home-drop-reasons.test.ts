@@ -30,6 +30,7 @@ test("DROP_CATEGORIES covers all eight engine drop-reason categories", () => {
       "tour_feedback",
     ]),
   );
+  assert.equal(dropCategoryForKey("next_step_done"), null);
   assert.equal(dropCategoryForKey("unknown_kind"), null);
   assert.equal(dropCategoryForKey("toString"), null);
   assert.equal(dropCategoryForKey(null), null);
@@ -122,6 +123,38 @@ test("dropCategoryForItem maps Reminders, Inbox, update, draft, and suggestion r
       }),
     ),
     null,
+  );
+  assert.equal(
+    dropCategoryForItem(
+      item({
+        item_id: `suggestion:${id(10)}`,
+        source_type: "email_proposal",
+        kind_label: "Suggestion",
+        suggestions: [{ id: id(10), kind: "next_step_done" }],
+      }),
+    ),
+    null,
+  );
+  assert.equal(
+    dropCategoryForItem(
+      item({
+        item_id: `next_action:${id(11)}`,
+        source_type: "notification",
+        kind_label: "Task",
+        completion_review: { proposal_id: id(12), next_step_id: id(11), can_resolve: true },
+      }),
+    ),
+    "next_step",
+  );
+  assert.equal(
+    dropCategoryForItem(
+      item({
+        item_id: `next_action:${id(13)}`,
+        source_type: "next_action",
+        completion_review: { proposal_id: id(14), next_step_id: id(13), can_resolve: true },
+      }),
+    ),
+    "next_step",
   );
 });
 

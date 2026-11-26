@@ -54,7 +54,7 @@ const stepCard = (n: number, title: string) => ({
   tile: "reminders",
 });
 
-const filingCard = (n: number, title: string) => ({
+const filingCard = (n: number, title: string, suggestionKind = "file_to_deal") => ({
   item_id: `suggestion:${id(n)}`,
   card_id: `suggestion:${id(n)}`,
   source_type: "email_proposal",
@@ -80,7 +80,7 @@ const filingCard = (n: number, title: string) => ({
   action_id: null,
   action_version: null,
   merged_source_ids: [id(n)],
-  suggestions: [{ id: id(n), kind: "file_to_deal", activity_kind: "email", activity_id: id(90) }],
+  suggestions: [{ id: id(n), kind: suggestionKind, activity_kind: "email", activity_id: id(90) }],
   waiting_version: 0,
   waiting_on: null,
   source_activity: null,
@@ -140,6 +140,8 @@ async function openDropHome(
     width?: number;
     height?: number;
     reasonsByCategory?: Record<string, string[] | "fail">;
+    holdCategories?: readonly string[];
+    extraInbox?: readonly ReturnType<typeof filingCard>[];
   } = {},
 ) {
   const {
@@ -158,7 +160,17 @@ async function openDropHome(
       reply_draft: ["Already replied", "No reply needed", "Replying myself"],
       phase_move: ["Phase is right", "Too early", "Already moved"],
     },
+    holdCategories = [],
+    extraInbox = [],
   } = options;
+  const held = new Map<string, { promise: Promise<void>; release(): void }>();
+  for (const category of holdCategories) {
+    let release!: () => void;
+    const promise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    held.set(category, { promise, release });
+  }
   const browser = await chromium.launch();
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width, height }, timezoneId: "America/Chicago" });
@@ -182,13 +194,16 @@ async function openDropHome(
   const inbox = [
     filingCard(11, "Choose the deal for Maya's email"),
     draftCard(12, 13, "Send your reply to Sam Example"),
+    ...extraInbox,
   ];
   const reasonReads: string[] = [];
   const writes: Array<{ name: string; args: Record<string, unknown> }> = [];
 
-  await page.route("**/api/engine/home/drop-reasons*", (route) => {
+  await page.route("**/api/engine/home/drop-reasons*", async (route) => {
     const category = new URL(route.request().url()).searchParams.get("category") ?? "";
     reasonReads.push(category);
+    const gate = held.get(category);
+    if (gate) await gate.promise;
     const configured = reasonsByCategory[category];
     if (configured === "fail") return route.fulfill({ status: 500, json: { error: "unavailable" } });
     return route.fulfill({ json: { category, reasons: configured ?? [] } });
@@ -297,7 +312,12 @@ async function openDropHome(
   await page.goto(`${server.origin}/?mode=live`);
   await page.getByRole("region", { name: "Reminders", exact: true }).waitFor();
   await page.waitForFunction(() => !document.querySelector(".home-placeholder"));
-  return { page, reasonReads, writes };
+  return {
+    page,
+    reasonReads,
+    writes,
+    release: (category: string) => held.get(category)?.release(),
+  };
 }
 
 test("Drop renders up to five chips from the stubbed read, saves on one tap, and fetches once per category", async (t) => {
@@ -377,6 +397,7 @@ test("When the drop-reasons read fails, Drop shows only the text box with no err
   const dialog = page.getByRole("dialog", { name: "Drop with a reason" });
   await dialog.waitFor();
   assert.equal(await dialog.getByRole("group", { name: "Common reasons" }).count(), 0);
+  assert.equal(await dialog.locator(".drop-chips").count(), 0);
   assert.equal(await dialog.getByRole("alert").count(), 0);
   assert.equal(await dialog.getByRole("status").count(), 0);
   assert.equal(await dialog.getByRole("button").count(), 2);
@@ -384,4 +405,71 @@ test("When the drop-reasons read fails, Drop shows only the text box with no err
   await dialog.getByRole("button", { name: "Drop", exact: true }).click();
   await row.waitFor({ state: "detached" });
   assert.equal(writes[0]?.args.reason, "Typed fallback reason");
+});
+
+test("Drop leaves next_step_done suggestion rows without a category or chips", async (t) => {
+  const { page, reasonReads, writes } = await openDropHome(t, {
+    extraInbox: [filingCard(14, "Confirm the sample site visit finished", "next_step_done")],
+  });
+  const reminders = page.getByRole("region", { name: "Reminders", exact: true });
+  const inbox = page.getByRole("region", { name: "Inbox", exact: true });
+  const dialog = page.getByRole("dialog", { name: "Drop with a reason" });
+
+  // Prime the next_step cache first so a wrong next_step_done -> next_step mapping would render chips immediately.
+  const stepRow = reminders.locator("[data-inbox-row]").filter({ hasText: "Call the sample landlord" });
+  await stepRow.getByRole("button", { name: "Drop", exact: true }).click();
+  await dialog.getByRole("group", { name: "Common reasons" }).getByRole("button").first().waitFor();
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await dialog.waitFor({ state: "detached" });
+
+  const row = inbox.locator("[data-inbox-row]").filter({ hasText: "Confirm the sample site visit finished" });
+  await row.getByRole("button", { name: "Drop", exact: true }).click();
+  await dialog.waitFor();
+  assert.deepEqual(reasonReads, ["next_step"]);
+  assert.equal(await dialog.locator(".drop-chips").count(), 0);
+  assert.equal(await dialog.getByRole("button").count(), 2);
+  await dialog.getByLabel("Reason for dropping").fill("Not done yet");
+  await dialog.getByRole("button", { name: "Drop", exact: true }).click();
+  await row.waitFor({ state: "detached" });
+  assert.equal(writes[0]?.name, "decide-engine-home-proposal");
+  assert.equal(writes[0]?.args.reason, "Not done yet");
+});
+
+test("Drop reserves the chip row height while reading and keeps no space on an empty read", async (t) => {
+  const { page, release } = await openDropHome(t, {
+    reasonsByCategory: {
+      next_step: ["Already handled", "Not needed"],
+      filing: [],
+    },
+    holdCategories: ["next_step", "filing"],
+  });
+  const reminders = page.getByRole("region", { name: "Reminders", exact: true });
+  const inbox = page.getByRole("region", { name: "Inbox", exact: true });
+  const dialog = page.getByRole("dialog", { name: "Drop with a reason" });
+
+  // While next_step is pending, the chip row height is reserved so the textarea does not jump when chips arrive.
+  const stepRow = reminders.locator("[data-inbox-row]").filter({ hasText: "Call the sample landlord" });
+  await stepRow.getByRole("button", { name: "Drop", exact: true }).click();
+  await dialog.waitFor();
+  const slot = dialog.locator(".drop-chips");
+  assert.equal(await slot.count(), 1, "pending read reserves a chip slot");
+  const slotHeight = (await slot.boundingBox())?.height ?? 0;
+  assert.ok(slotHeight >= 28 && slotHeight <= 32, `pending chip slot height is ${slotHeight}px`);
+  const textarea = dialog.getByLabel("Reason for dropping");
+  const pendingTop = (await textarea.boundingBox())?.y ?? 0;
+  release("next_step");
+  await dialog.getByRole("group", { name: "Common reasons" }).getByRole("button").first().waitFor();
+  const loadedTop = (await textarea.boundingBox())?.y ?? 0;
+  assert.equal(loadedTop, pendingTop, "textarea must not shift when chips load");
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await dialog.waitFor({ state: "detached" });
+
+  // When a read returns no reasons, the reserved slot disappears completely.
+  const filingRow = inbox.locator("[data-inbox-row]").filter({ hasText: "Choose the deal for Maya's email" });
+  await filingRow.getByRole("button", { name: "Drop", exact: true }).click();
+  await dialog.waitFor();
+  assert.equal(await slot.count(), 1, "pending empty read reserves a chip slot before settling");
+  release("filing");
+  await slot.waitFor({ state: "detached" });
+  assert.equal(await dialog.locator(".drop-chips").count(), 0);
 });

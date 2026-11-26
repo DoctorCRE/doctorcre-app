@@ -11,7 +11,6 @@ export type DropCategory =
 /** Maps every Home proposal kind, update kind, or card type to its engine drop-reasons category. */
 export const DROP_CATEGORIES: Readonly<Record<string, DropCategory>> = {
   next_step: "next_step",
-  next_step_done: "next_step",
   file_to_deal: "filing",
   possible_new_deal: "filing",
   phase_move: "phase_move",
@@ -59,7 +58,7 @@ export function dropCategoryForItem(item: DropItemShape): DropCategory | null {
   const candidates = [
     pendingDraft ? "reply_draft" : null,
     firstSuggestionKind(item),
-    isRecord(item.completion_review) ? "next_step_done" : null,
+    isRecord(item.completion_review) ? "next_step" : null,
     item.item_id.startsWith("reply_draft:") ? "reply_draft" : null,
     typeof item.kind === "string" ? item.kind : null,
     item.kind_label === "Tour feedback" ? "tour_feedback" : null,
