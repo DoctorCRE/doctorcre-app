@@ -32,8 +32,8 @@ import {
   displayedFreshness, echoesQuery, emptyCopy, expireSession, filterChips, freshnessSignature, hasActiveFilters,
   isSessionExpiry, listPhase, listRequestUrl, ownerPresentation, pageSummary, panelModality, panelTabTarget,
   parseViewState, partyKindText, recordRequestUrl, recordSections, recordedCode, recordedValue, refusalCopy,
-  rememberPayload, restoreSession, rowTone, sameQuery, scrollIntent, searchBoxValue, sourceIsFresh,
-  validListPayload, validRecordPayload, viewHref,
+  rememberPayload, restoreSession, sameQuery, scrollIntent, searchBoxValue, sourceIsFresh,
+  validListPayload, validRecordPayload, vendorRelationship, viewHref,
 } from "./workspace-business-model.js";
 import { resolveDealroomBoot } from "./boot-mode.js";
 import { mountNotificationBadge } from "./shell.js";
@@ -516,21 +516,32 @@ const dealLinks = row => row.active_deals?.length
   ? `<div class="client-deals">${row.active_deals.map(deal =>
       `<a href="${dealHref(deal.id)}">${escapeHtml(deal.name)}</a>`).join("")}</div>`
   : "";
-const toneHtml = tone => tone
-  ? `<span class="tone tone-${escapeHtml(tone.tone)}">${escapeHtml(tone.label)}</span>`
-  : "";
+const RELATIONSHIP_SHAPES = {
+  core: '<circle cx="6" cy="6" r="5.2" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="6" cy="6" r="2.6" fill="currentColor"/>',
+  established: '<circle cx="6" cy="6" r="5.4" fill="currentColor"/>',
+  building: '<circle cx="6" cy="6" r="4.7" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6 1.3a4.7 4.7 0 000 9.4z" fill="currentColor"/>',
+  prospective: '<circle cx="6" cy="6" r="4.7" fill="none" stroke="currentColor" stroke-width="1.4"/>',
+  not_rated: '<circle cx="6" cy="6" r="4.7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="2.2 2.2"/>',
+  parked: '<rect x="2.4" y="1.8" width="2.6" height="8.4" rx=".8" fill="currentColor"/><rect x="7" y="1.8" width="2.6" height="8.4" rx=".8" fill="currentColor"/>',
+  avoid: '<circle cx="6" cy="6" r="4.7" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M2.7 9.3l6.6-6.6" stroke="currentColor" stroke-width="1.4"/>',
+};
+const relationshipShape = key => `<svg class="rel-shape" viewBox="0 0 12 12" aria-hidden="true">${RELATIONSHIP_SHAPES[key]}</svg>`;
+const wantToMeetHtml = relationship => relationship.wantToMeet ? '<span class="want-tag">Want to meet</span>' : "";
 
 // Slash-joined places such as "Mobile/Baldwin/Dothan" wrap after a slash, never mid-word.
 const breakAfterSlashes = value => escapeHtml(value).replaceAll("/", "/<wbr>");
 
 function rowHtml(dataset, row, selectedId) {
-  const tone = rowTone(dataset, row);
   const owner = ownerPresentation(row);
   const selected = row.id === selectedId;
   const vendor = dataset === "vendors";
+  const relationship = vendor ? vendorRelationship(row) : null;
+  const name = relationship
+    ? `<span class="row-name" data-relationship="${relationship.key}">${relationshipShape(relationship.key)}${escapeHtml(withoutRecordCodes(row.name))}</span>${wantToMeetHtml(relationship)}<span class="rel-word">${relationship.word}</span>`
+    : `<span class="row-name">${escapeHtml(row.name)}</span>`;
   const facts = rowFacts(dataset, row).filter((fact) => fact.known).map((fact) =>
     `<span class="row-fact${fact.unresolved ? " unresolved" : ""}${fact.history ? " history" : ""}" data-fact="${escapeHtml(fact.label)}"><span class="fact-label">${escapeHtml(fact.label)}</span><span class="fact-value">${breakAfterSlashes(fact.value)}</span></span>`).join("");
-  return `<li class="record-item"><a class="record-row${selected ? " selected" : ""}" id="row-${escapeHtml(row.id)}" data-record-id="${escapeHtml(row.id)}" href="${escapeHtml(viewHref(view.query, row.id))}"${selected ? ' aria-current="true"' : ""}><span class="row-head"><span class="row-name">${escapeHtml(vendor ? withoutRecordCodes(row.name) : row.name)}</span>${toneHtml(tone)}</span><span class="row-facts">${facts}</span>${vendor ? vendorContactDate(row.relationship?.last_contacted_at) : ''}<span class="row-foot">${owner.known ? `<span class="row-owner"><span class="fact-label">Owner: </span>${escapeHtml(owner.text)}</span>` : ""}<span class="row-updated"><span class="fact-label">Updated </span>${escapeHtml(formatMoment(row.updated_at))}</span></span></a>${dataset === "clients" ? dealLinks(row) : ""}</li>`;
+  return `<li class="record-item"><a class="record-row${selected ? " selected" : ""}" id="row-${escapeHtml(row.id)}" data-record-id="${escapeHtml(row.id)}" href="${escapeHtml(viewHref(view.query, row.id))}"${selected ? ' aria-current="true"' : ""}><span class="row-head">${name}</span><span class="row-facts">${facts}</span>${vendor ? vendorContactDate(row.relationship?.last_contacted_at) : ''}<span class="row-foot">${owner.known ? `<span class="row-owner"><span class="fact-label">Owner: </span>${escapeHtml(owner.text)}</span>` : ""}<span class="row-updated"><span class="fact-label">Updated </span>${escapeHtml(formatMoment(row.updated_at))}</span></span></a>${dataset === "clients" ? dealLinks(row) : ""}</li>`;
 }
 
 // Names the row columns once on a computer, where rows drop their inline labels; deal history keeps its own labels.
@@ -698,6 +709,7 @@ function paintPanelHead(meta = "", actions = "") {
   if (dom.panelMeta) dom.panelMeta.innerHTML = meta;
   if (dom.panelActions) dom.panelActions.innerHTML = actions;
   dom.panelTitle?.removeAttribute("title");
+  dom.panelTitle?.removeAttribute("data-relationship");
 }
 
 /** On a phone the record actions open as a menu; it closes once one is chosen. */
@@ -745,19 +757,19 @@ function renderRecordPanel() {
   }
   const payload = record.payload;
   const current = sourceIsFresh(payload.source, dataset);
-  const tone = rowTone(dataset, payload.record);
   const owner = ownerPresentation(payload.record);
   const kind = partyKindText(payload.record.party_kind);
   const vendor = dataset === "vendors";
-  paintPanelHead(`${toneHtml(tone)}${owner.known ? `<span class="row-fact"><span class="fact-label">Owner</span><span class="fact-value">${escapeHtml(owner.text)}</span></span>` : ""}`, partyEditor?.actionsHtml() ?? "");
+  const relationship = vendor ? vendorRelationship(payload.record) : null;
+  paintPanelHead(`${relationship ? `<span class="rel-word" data-relationship="${relationship.key}">${relationshipShape(relationship.key)}${relationship.word}</span>${wantToMeetHtml(relationship)}` : ""}${owner.known ? `<span class="row-fact"><span class="fact-label">Owner</span><span class="fact-value">${escapeHtml(owner.text)}</span></span>` : ""}`, partyEditor?.actionsHtml() ?? "");
   if (action >= 0) focusWithoutScrolling(actions()[action]);
   if (dom.panelTitle) dom.panelTitle.textContent = dom.panelTitle.title = vendor ? withoutRecordCodes(payload.record.name) : payload.record.name;
+  if (relationship && dom.panelTitle) dom.panelTitle.dataset.relationship = relationship.key;
   const ref = recordedValue(payload.record.ref);
   const referenceDetails = !vendor && ref.known
     ? `<details class="record-details" data-details-key="reference"><summary>Details</summary><dl><div class="record-field"><dt>Internal reference</dt><dd>${escapeHtml(ref.text)}</dd></div></dl></details>`
     : "";
-  const hiddenFields = ['ETL status', 'What this status means', 'Version', 'What this level means', 'Vendor reference', 'Client reference', 'What they offer', 'Last touch'];
-  if (vendor) hiddenFields.push('Relationship level', 'Workable');
+  const hiddenFields = ['ETL status', 'What this status means', 'Version', 'Vendor reference', 'Client reference', 'What they offer', 'Last touch'];
   // A person vendor's only listed contact is themself, shown under Contacts & offices with their own phone and email.
   if (vendor && payload.record.party_kind === 'person' && payload.record.people?.length) hiddenFields.push('Phone', 'Mobile', 'Email');
   const sections = recordSections(dataset, payload.record)
