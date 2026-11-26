@@ -2195,10 +2195,13 @@ test("finishing a tour records one meeting through a lost response and a second 
   assert.equal(fixture.writes.length, 0, "completion leaves the saved plan untouched");
   for (const page of [joe, dell]) {
     await page.getByRole("tab", { name: "Activity" }).click();
-    const meeting = page.getByRole("tabpanel", { name: "Activity" }).getByText("Property tour", { exact: true });
-    await meeting.waitFor();
+    const meeting = page.getByRole("tabpanel", { name: "Activity" }).getByRole("button", { name: /^Property tour/ });
     assert.equal(await meeting.count(), 1);
-    assert.equal(await page.getByRole("list", { name: "Visited properties" }).count(), 0);
+    await meeting.click();
+    const visited = page.getByRole("list", { name: "Visited properties" });
+    await visited.getByText(clinic.address, { exact: false }).waitFor();
+    await visited.getByText("30 Example Way", { exact: true }).waitFor();
+    assert.equal(await visited.getByText(annex.address, { exact: true }).count(), 0);
   }
 });
 
@@ -2283,7 +2286,8 @@ test("the deal tour switch hides visited properties and the cancellation label w
   assert.equal(await page.locator("html[data-deal-tours-from-engine]").count(), 0);
   await page.getByRole("tab", { name: "Activity" }).click();
   await page.getByRole("heading", { name: "Activity", exact: true }).waitFor();
-  await page.getByText("Property tour", { exact: true }).waitFor();
+  await page.getByRole("button", { name: /^Property tour/ }).click();
+  await page.getByRole("region", { name: "Property tour" }).waitFor();
   const visitedProperties = await page.getByRole("list", { name: "Visited properties", includeHidden: true }).count();
   const cancellationLabels = await page.getByText("Tour cancelled", { exact: true }).count();
   assert.deepEqual({ visitedProperties, cancellationLabels }, { visitedProperties: 0, cancellationLabels: 0 });
