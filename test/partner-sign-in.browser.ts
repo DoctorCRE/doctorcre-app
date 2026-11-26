@@ -2718,7 +2718,7 @@ async function openCallReview(t: TestContext, callReview: (request: Request) => 
   const { server, context } = await app(t, { callReview });
   const page = await context.newPage();
   await page.goto(server.origin + dealPage);
-  await page.getByText("Call review", { exact: true }).click({ timeout: 5_000 });
+  await page.getByText("Review calls", { exact: true }).click({ timeout: 5_000 });
   return page.getByRole("region", { name: "Review recorded calls" });
 }
 
@@ -2834,7 +2834,7 @@ test("Carr sign-in keeps its deal page and makes no engine call review request",
   });
   await page.goto(server.origin + dealPage);
   await page.getByRole("region", { name: "Deal snapshot" }).waitFor();
-  assert.equal(await page.getByText("Call review", { exact: true }).count(), 0);
+  assert.equal(await page.getByText("Review calls", { exact: true }).count(), 0);
   assert.deepEqual(requests, []);
 });
 
@@ -3098,7 +3098,7 @@ test("an uncertain call decision keeps its key after leaving and reopening the d
   const page = await context.newPage();
   await page.goto(server.origin + "/deals?mode=live");
   const openDeal = page.getByRole("heading", { name: dealName });
-  const disclosure = page.getByText("Call review", { exact: true });
+  const disclosure = page.getByText("Review calls", { exact: true });
   const review = page.getByRole("region", { name: "Review recorded calls" });
   const accept = review.getByRole("button", { name: "Accept", exact: true });
   await openDeal.click();
