@@ -1288,13 +1288,13 @@ test('Park and Revive keep the reason, note, date and original phase on the new 
     const header = page.locator('#recordPanel header.workspace-header');
     const parkedStatus = header.getByText(/ · Parked$/);
     const form = page.locator('#detailParkForm');
-    await page.getByText('Park', { exact: true }).click();
+    await page.getByText('Park deal', { exact: true }).click();
     const reason = form.getByLabel('Park reason');
     await reason.waitFor({ timeout: 3000 });
     assert.equal(await parkedStatus.count(), 0);
     assert.deepEqual(await reason.locator('option:not([value=""])').allTextContents(),
       ['Client paused', 'Prospect never active', 'Other']);
-    await form.getByRole('button', { name: 'Park deal' }).click();
+    await form.getByRole('button', { name: 'Park', exact: true }).click();
     assert.equal(await form.isVisible(), true);
     await reason.selectOption({ label: 'Other' });
     const note = 'Wait for the <revised> plans';
@@ -1302,7 +1302,7 @@ test('Park and Revive keep the reason, note, date and original phase on the new 
     const artifacts = new URL('out/test-artifacts/park-revive/', root);
     await mkdir(artifacts, { recursive: true });
     await form.screenshot({ path: new URL(`${width}-form.png`, artifacts).pathname });
-    await form.getByRole('button', { name: 'Park deal' }).click();
+    await form.getByRole('button', { name: 'Park', exact: true }).click();
 
     await page.locator('#recordPanel').waitFor({ state: 'hidden' });
     await page.locator('#parkedToggle').click();
@@ -1313,7 +1313,7 @@ test('Park and Revive keep the reason, note, date and original phase on the new 
     await parked.screenshot({ path: new URL(`${width}-card.png`, artifacts).pathname });
     await parked.getByRole('button', { name: dealName, exact: true }).press('Enter');
 
-    const parking = page.locator('[data-detail-read="parking"]');
+    const parking = page.locator('[data-detail-read="parked"]');
     for (const text of ['Other', note, 'Sun, Oct 4, 2026']) {
       await parking.getByText(text, { exact: true }).waitFor();
     }
@@ -1323,9 +1323,9 @@ test('Park and Revive keep the reason, note, date and original phase on the new 
     assert.equal(await parked.count(), 0);
 
     await openDeal.click();
-    await page.getByText('Park', { exact: true }).click();
+    await page.getByText('Park deal', { exact: true }).click();
     await reason.selectOption({ label: 'Client paused' });
-    await form.getByRole('button', { name: 'Park deal' }).click();
+    await form.getByRole('button', { name: 'Park', exact: true }).click();
     await parked.getByText('Client paused', { exact: true }).waitFor();
     await parked.locator('.card-open').click();
     await parking.getByRole('button', { name: 'Revive' }).click();
