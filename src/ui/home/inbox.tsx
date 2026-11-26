@@ -1,4 +1,3 @@
-import { type BatchRequest, type BatchResult, parseBatch } from "./batch.ts";
 import { cardKey, type MarkUndo, markArgs, markDropTarget, markTarget } from "./engine-marks.ts";
 import {
   type DealFilingReason,
@@ -53,6 +52,7 @@ type BaseItem = Readonly<{
   section: "inbox" | "working" | "held" | "done" | "snoozed" | "settled";
   base_version: string;
 }>;
+export type HomeTileName = "reminders" | "inbox" | "waiting";
 export type InboxItem = BaseItem &
   Readonly<{
     waiting_version?: number;
@@ -61,7 +61,7 @@ export type InboxItem = BaseItem &
     days_late?: number;
     waiting_reason?: string;
     returns_at?: string;
-    dashboard_tile?: "reminders" | "waiting";
+    dashboard_tile?: HomeTileName;
     presentation?: { why: string; primaryAction: PrimaryAction };
     checklistItemRef?: string;
     undo_completion?: true;
@@ -671,7 +671,6 @@ export type InboxClient = {
   };
   read(signal?: AbortSignal): Promise<Snapshot>;
   run(request: Command): Promise<ItemResult[]>;
-  batch(request: BatchRequest, expected: readonly string[]): Promise<BatchResult>;
 };
 export function createInboxClient(
   rpc: (name: string, args: unknown, signal?: AbortSignal) => Promise<unknown>,
@@ -948,47 +947,6 @@ export function createInboxClient(
             : {}),
         };
       },
-    },
-    async batch(request, expected) {
-      if (navigator.onLine === false) throw Error("Offline. No change was sent. Reconnect and retry manually.");
-      let receipt: Omit<BatchResult, "snapshot">;
-      if (request.engine_marks) {
-        if (request.action !== "snooze") throw Error("Choose Snooze for selected cards.");
-        const { args } = request;
-        const change = { action: request.action, ...("until" in args && { until: args.until }) };
-        const attempts =
-          "undo_of" in args ? (request.restore ?? []) : args.items.map((target) => ({ ...target, ...change }));
-        const outcomes = await Promise.allSettled(
-          attempts.map(async (target, index) => {
-            const item_id = target.item_id;
-            if (!markTarget(item_id)) return { item_id, status: "not_allowed" as const };
-            try {
-              const undo = await saveMark(markArgs(target, target, args.idempotency_key, index));
-              return { item_id, status: "applied" as const, undo };
-            } catch (error) {
-              const code = object(error) && object(error.payload) ? error.payload.error : null;
-              if (code === "home_item_not_found") return { item_id, status: "not_found" as const };
-              if (code === "version_conflict" || code === "invalid_snooze_time" || code === "home_routing_changed")
-                return { item_id, status: "not_allowed" as const, error: code };
-              throw error;
-            }
-          }),
-        );
-        const results = outcomes.map((outcome) => {
-          if (outcome.status === "rejected") throw outcome.reason;
-          return outcome.value;
-        });
-        receipt = { batch_key: "undo_of" in args ? args.undo_of : args.idempotency_key, results };
-      } else {
-        receipt = parseBatch(await rpc(`${request.action}-home-inbox`, request.args), request, expected);
-      }
-      let snapshot: Snapshot | null = null;
-      try {
-        snapshot = await read();
-      } catch {
-        /* Receipts remain confirmed even when readback fails. */
-      }
-      return { ...receipt, snapshot };
     },
     async run(request) {
       if (navigator.onLine === false) throw Error("Offline. No change was sent. Reconnect and retry manually.");

@@ -162,9 +162,9 @@ test('W5 keyboard reaches disclosures and keeps focus across a refresh',async t=
 });
 test('W5 Back restores cached query rows while its read is pending',async t=>{
  const {page}=await open(t);await page.goto(origin+'/vendors?mode=live', {waitUntil:'domcontentloaded'});await page.waitForSelector('.record-row');await page.locator('[data-owner="joe"]').click();await page.waitForFunction(()=>document.querySelector('#resultSummary').textContent.startsWith('31 '));
- await page.locator('[data-owner="dell"]').click();await page.waitForFunction(()=>document.querySelector('.row-owner')?.textContent.includes('Dell'));
+ await page.locator('[data-owner="dell"]').click();await page.waitForFunction(()=>document.querySelector('.record-row .row-owner')?.textContent.includes('Dell'));
  const held=[];await page.route('**/api/v1/business/vendors?**',r=>new URL(r.request().url()).searchParams.get('owner')==='joe'?held.push(r):r.fallback());
- await page.goBack();await settles(async()=>{assert.equal(await page.locator('[data-owner="joe"]').getAttribute('aria-pressed'),'true');assert.equal(await page.locator('.row-owner').evaluateAll(rows=>rows.every(row=>row.textContent.includes('Joe'))),true);});
+ await page.goBack();await settles(async()=>{assert.equal(await page.locator('[data-owner="joe"]').getAttribute('aria-pressed'),'true');assert.equal(await page.locator('.record-row .row-owner').evaluateAll(rows=>rows.every(row=>row.textContent.includes('Joe'))),true);});
  for(const r of held)await r.fulfill({json:directoryFixture(r.request().url())});
 });
 test('W5 failed continuous page is visible and polling retries without scroll',async t=>{
@@ -236,9 +236,9 @@ for(const dataset of ['clients','vendors']) test(`${dataset} record panel shows 
 
 for(const dataset of ['clients','vendors']) test(`${dataset} record panel labels the owner`,async t=>{
  const {page,errors}=await open(t);await page.goto(`${origin}/${dataset}`);await page.locator('.record-row').first().click();
- const tone=page.locator('#recordBody .record-tone');await tone.waitFor();
+ const tone=page.locator('#recordPanel .record-tone').filter({hasText:'Owner'});await tone.waitFor();
  assert.match(await tone.innerText(),/Owner\s+Joe/);
- const [owner,fact]=await page.evaluate(()=>['#recordBody .record-tone .fact-label','#recordBody .record-field dt'].map(selector=>getComputedStyle(document.querySelector(selector)).color));
+ const [owner,fact]=await page.evaluate(()=>['#recordPanel .record-tone .fact-label','#recordBody .record-field dt'].map(selector=>getComputedStyle(document.querySelector(selector)).color));
  assert.equal(owner,fact,'the label reads like the other facts');
  assert.deepEqual(errors,[]);
 });
@@ -264,7 +264,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
         acquisition_source: 'not_recorded',
         acquisition_detail: 'Existing active Salesforce opportunity imported; original acquisition source unavailable.',
       });
-      if (json.rows) {
+      if (json.page === 1) {
         Object.assign(json.rows[0], { active_deals: [deal] });
         Object.assign(json.rows[1], { name: '1234', recorded_status_active_pipeline: false,
           vertical: '12345; Demo City', city: 'FL', state: null, deal_type: null });

@@ -137,27 +137,25 @@ for (const width of [360, 390, 500]) {
         "Documents",
       ]);
       const layout = await tabs.evaluate((nav) => {
-        const bounds = nav.getBoundingClientRect();
         const buttons = Array.from(nav.querySelectorAll('[role="tab"]')).filter((tab) => tab.checkVisibility());
         const clipped = buttons
           .filter((tab) => {
             const range = document.createRange();
             range.selectNodeContents(tab);
             const box = tab.getBoundingClientRect();
-            const left = Math.max(bounds.left, box.left, 0);
-            const right = Math.min(bounds.right, box.right, innerWidth);
-            return Array.from(range.getClientRects()).some((rect) => rect.left < left || rect.right > right);
+            const lines = range.getClientRects();
+            return lines.length > 1 || Array.from(lines).some((rect) => rect.left < box.left || rect.right > box.right);
           })
           .map((tab) => tab.textContent);
         return {
           clipped,
-          overflow: nav.scrollWidth - nav.clientWidth,
+          pageOverflow: document.documentElement.scrollWidth - innerWidth,
           rows: new Set(buttons.map((tab) => tab.getBoundingClientRect().top)).size,
         };
       });
       expect.soft(layout.clipped, `Deal tab labels at ${width}px`).toEqual([]);
-      expect.soft(layout.overflow, `Deal tab overflow at ${width}px`).toBeLessThanOrEqual(0);
-      expect.soft(layout.rows, `Deal tab rows at ${width}px`).toBeLessThanOrEqual(2);
+      expect.soft(layout.pageOverflow, `Page overflow at ${width}px`).toBeLessThanOrEqual(0);
+      expect.soft(layout.rows, `Deal tab rows at ${width}px`).toBe(1);
       await room.getByText(/^Deal watch settings/).click();
       const watch = room.getByRole("group", { name: "Watch settings" });
       const checkboxes = watch.getByRole("checkbox");
@@ -173,22 +171,18 @@ for (const width of [360, 390, 500]) {
       }
     });
 
-    test("Home card selection and bottom navigation work on phones", async ({ page }) => {
+    test("Home row actions and bottom navigation work on phones", async ({ page }) => {
       await page.clock.setFixedTime(new Date("2026-11-05T18:00:00Z"));
       await page.goto(server.url);
       const cards = page.getByRole("region", { name: "Reminders", exact: true });
-      const checkbox = cards.getByRole("checkbox", { name: /^Select / }).first();
-      await expect(checkbox).toBeEnabled();
-      const label = cards
-        .locator("label")
-        .filter({ has: page.getByRole("checkbox", { name: /^Select / }) })
-        .first();
-      const target = await label.boundingBox();
+      const done = cards.getByRole("button", { name: "Mark done", exact: true }).first();
+      await expect(done).toBeEnabled();
+      const target = await done.boundingBox();
       assert.ok(target);
       expect(target.width).toBeGreaterThanOrEqual(44);
       expect(target.height).toBeGreaterThanOrEqual(44);
-      await label.tap({ position: { x: 2, y: 2 } });
-      await expect(checkbox).toBeChecked();
+      await expect(cards.getByRole("checkbox")).toHaveCount(0);
+      await expect(cards.getByRole("button", { name: "Snooze", exact: true }).first()).toBeVisible();
       const navLabels = page.locator("#appShell .app-shell-navigation .app-shell-nav-label:visible");
       const sizes = await navLabels.evaluateAll((nodes) =>
         nodes.map((node) => parseFloat(getComputedStyle(node).fontSize)),

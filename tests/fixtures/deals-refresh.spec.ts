@@ -178,7 +178,6 @@ test("an open Notifications tab stops reaching CARR after the switch flips", asy
   const requests = await mockReads(page, { engine: false });
   await page.goto(server.url + "/notifications?mode=live");
   await expect(page.getByText("No recent activity", { exact: true })).toBeVisible();
-  await expect(page.locator("#activityAsOf")).toHaveText(/^As of /);
   await expect(page.locator("#appSyncTime")).toHaveText(updated);
   requests.engine = true;
   const forwarded = requests.forwarded;

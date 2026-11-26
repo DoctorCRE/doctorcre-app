@@ -1,6 +1,6 @@
-import { Component, type ReactNode, useState } from "react";
+import { Component, type ReactNode, useState, useSyncExternalStore } from "react";
 import { pageScroller } from "../../../js/touch-layout.js";
-import type { InboxItem } from "./inbox";
+import type { HomeTileName, InboxItem } from "./inbox";
 
 const dayFormat = new Intl.DateTimeFormat("en-CA", {
   timeZone: "America/Chicago",
@@ -29,36 +29,61 @@ export function completionLabel(item: InboxItem) {
 }
 
 export const tilePreviewCount = 5;
-// The wide Reminders column fits eight compact cards on a laptop screen.
-export const reminderPreviewCount = 8;
+// A stacked Reminders tile on a phone previews this many rows above See all.
+const reminderPreviewCount = 4;
 export const cardKey = (item: InboxItem) => item.card_id ?? item.item_id;
+const waitingSections: readonly InboxItem["section"][] = ["working", "held", "snoozed"];
+
+export function tileOf(item: InboxItem): HomeTileName {
+  if (item.dashboard_tile) return item.dashboard_tile;
+  if (waitingSections.includes(item.section)) return "waiting";
+  return item.action_id && item.presentation?.primaryAction !== "Review completion" ? "reminders" : "inbox";
+}
 
 export function dashboardCards(items: readonly InboxItem[], today = day(new Date())) {
-  const reminders: InboxItem[] = [];
-  const waiting: InboxItem[] = [];
+  const tiles: Record<HomeTileName, InboxItem[]> = { reminders: [], inbox: [], waiting: [] };
   for (const item of items) {
-    if (item.dashboard_tile) {
-      (item.dashboard_tile === "reminders" ? reminders : waiting).push(item);
-      continue;
+    if (!item.dashboard_tile) {
+      if (item.auto_settled || item.source_state === "done") continue;
+      const lead = !item.deal_id && /^\/(?:leads(?:[/?#]|$)|deals\?[^#]*\bprospect=)/.test(item.open_url ?? "");
+      if (item.action_id && lead) continue;
+      const due = !item.action_id || !item.due_on || item.due_on <= today;
+      if (item.section === "inbox" ? !due : !waitingSections.includes(item.section)) continue;
     }
-    if (item.auto_settled || item.source_state === "done") continue;
-    const lead = !item.deal_id && /^\/(?:leads(?:[/?#]|$)|deals\?[^#]*\bprospect=)/.test(item.open_url ?? "");
-    if (item.action_id && lead) continue;
-    if (["working", "held", "snoozed"].includes(item.section)) waiting.push(item);
-    else if (item.section === "inbox" && (!item.action_id || !item.due_on || item.due_on <= today))
-      reminders.push(item);
+    tiles[tileOf(item)].push(item);
   }
-  return {
-    reminders: reminders[0]?.dashboard_tile
-      ? reminders
-      : reminders.sort((a, b) => Number(Boolean(b.days_late)) - Number(Boolean(a.days_late))),
-    waiting,
-  };
+  return tiles;
+}
+
+const groups = ["Late", "Today", "No date", "folded"] as const;
+type ReminderGroup = (typeof groups)[number];
+// Reminders 15 or more days late fold into one line under the rest.
+function reminderGroup(item: InboxItem): ReminderGroup {
+  const late = item.days_late ?? 0;
+  if (late >= 15) return "folded";
+  if (late) return "Late";
+  return item.due_on ? "Today" : "No date";
+}
+const byGroup = (a: InboxItem, b: InboxItem) =>
+  groups.indexOf(reminderGroup(a)) - groups.indexOf(reminderGroup(b)) || (b.days_late ?? 0) - (a.days_late ?? 0);
+
+const stacked = "(max-width: 999px)";
+/** Below three columns Home is one scrolling page. */
+export function useStacked() {
+  return useSyncExternalStore(
+    (change) => {
+      const media = matchMedia(stacked);
+      media.addEventListener("change", change);
+      return () => media.removeEventListener("change", change);
+    },
+    () => matchMedia(stacked).matches,
+  );
 }
 
 export function HomeTile({
   title,
   count,
+  detail,
   children,
   expanded,
   setExpanded,
@@ -66,6 +91,7 @@ export function HomeTile({
 }: {
   title: string;
   count: number;
+  detail?: string | undefined;
   children: ReactNode;
   expanded: boolean;
   setExpanded: (expanded: boolean) => void;
@@ -75,7 +101,7 @@ export function HomeTile({
     <section className="home-slice" aria-label={title}>
       <header>
         <h2 tabIndex={-1}>
-          {title} <span>{count}</span>
+          {title} <span>{detail ? `${count} · ${detail}` : count}</span>
         </h2>
         {count > preview && (
           <button type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
@@ -124,8 +150,7 @@ export function CardTile({
   current,
   row,
   after = [],
-  showLate = false,
-  preview = tilePreviewCount,
+  grouped = false,
 }: {
   title: string;
   items: readonly InboxItem[];
@@ -133,10 +158,12 @@ export function CardTile({
   current: string | undefined;
   row: (item: InboxItem) => ReactNode;
   after?: ReactNode[];
-  showLate?: boolean;
-  preview?: number;
+  grouped?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [unfolded, setUnfolded] = useState(false);
+  const isStacked = useStacked();
+  const preview = grouped && isStacked ? reminderPreviewCount : Number.POSITIVE_INFINITY;
   const count = items.length + after.length;
   const [order, setOrder] = useState({ incoming: items, pinned, cards: items });
   const changed = order.incoming !== items || order.pinned !== pinned;
@@ -144,23 +171,45 @@ export function CardTile({
   const visible = changed ? retainOrder(order.cards, preserve ? [...items, pinned] : items) : order.cards;
   if (changed) setOrder({ incoming: items, pinned, cards: visible });
   if (!visible.length && !after.length) return null;
-  const isLate = (item: InboxItem) => showLate && Boolean(item.days_late);
-  const ordered = [...visible.filter(isLate), ...visible.filter((item) => !isLate(item))];
-  const shown = expanded
-    ? ordered
-    : ordered.filter(
-        (item, index) => index < preview || item.item_id === current || (pinned && cardKey(item) === cardKey(pinned)),
-      );
-  const late = shown.filter(isLate);
+  const ordered = grouped ? [...visible].sort(byGroup) : visible;
+  const kept = (item: InboxItem) => item.item_id === current || (pinned && cardKey(item) === cardKey(pinned));
+  const shown = expanded ? ordered : ordered.filter((item, index) => index < preview || kept(item));
+  const inGroup = (group: ReminderGroup) => shown.filter((item) => grouped && reminderGroup(item) === group);
+  const folded = inGroup("folded");
+  const late = visible.filter((item) => grouped && reminderGroup(item) === "Late").length;
   return (
-    <HomeTile title={title} count={count} expanded={expanded} setExpanded={setExpanded} preview={preview}>
-      {late.length > 0 && (
-        <section aria-label="Late">
-          <h3 className="home-late">Late</h3>
-          {late.map(row)}
-        </section>
-      )}
-      {shown.filter((item) => !isLate(item)).map(row)}
+    <HomeTile
+      title={title}
+      count={count}
+      detail={late ? `${late} late` : undefined}
+      expanded={expanded}
+      setExpanded={setExpanded}
+      preview={preview}
+    >
+      {grouped
+        ? groups.slice(0, 3).map((group) => {
+            const rows = inGroup(group);
+            return (
+              rows.length > 0 && (
+                <section key={group} aria-label={group}>
+                  <h3 className={group === "Late" ? "home-group home-late" : "home-group"}>{group}</h3>
+                  {rows.map(row)}
+                </section>
+              )
+            );
+          })
+        : shown.map(row)}
+      {folded.length > 0 &&
+        (unfolded || folded.some(kept) ? (
+          <section aria-label="More than two weeks late">
+            <h3 className="home-group home-late">More than two weeks late</h3>
+            {folded.map(row)}
+          </section>
+        ) : (
+          <button type="button" className="home-fold" onClick={() => setUnfolded(true)}>
+            {folded.length} more than two weeks late
+          </button>
+        ))}
       {expanded ? after : after.slice(0, Math.max(0, preview - items.length))}
     </HomeTile>
   );

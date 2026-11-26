@@ -9,7 +9,7 @@ import { mountNotificationBadge, mountPrefs, renderNotificationBadge } from "./s
 import { BUSINESS_TIME_ZONE, meetingTime } from "./business-date.js";
 import {
   PREFERENCE_OPERATION_KEY, QUIET_SUPPRESSED_MARK,
-  acknowledgeArgs, acknowledgeOperationKey, activityRows, changeRows, classifyPreferenceFailure, foldChanges,
+  acknowledgeArgs, acknowledgeOperationKey, activityRows, changeRows, classifyPreferenceFailure, foldChanges, groupByDay,
   classifyPreferenceReadFailure, classifyReadFailure, enginePreferenceArgs, feedState, updateFailure,
   notificationCards, preferenceState, preferenceSummary, preferenceView,
   quietNowBanner, setPreferenceArgs, unreadLine, validFeedPayload,
@@ -102,6 +102,13 @@ function recordDetailsHtml(details, path = null) {
     `<dt>${label}</dt><dd class="mono">${escapeHtml(value)}</dd>`).join("")}</dl></details>`;
 }
 
+const UNREAD_DOT = '<span class="unread-dot"><span class="sr-only">Unread</span></span>';
+const CHECK_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+
+/** Each day's rows sit under one quiet heading, so a row's clock never needs its date. */
+const byDayHtml = (rows, rowsHtml) => groupByDay(rows, savedZone())
+  .map(({ day, rows: dayRows }) => `<li class="day-head">${escapeHtml(day)}</li>${rowsHtml(dayRows)}`).join("");
+
 /** Rows a partner opened stay open across refreshes. */
 const openRows = new Set();
 
@@ -135,16 +142,17 @@ function cardHtml(card) {
   const readMark = card.reading
     ? unread ? "" : `<span class="read-mark" data-read="true">Read at ${escapeHtml(card.readClock)}</span>`
     : card.read ? `<span class="read-mark" data-read="true">Acknowledged${card.readClock ? ` at ${escapeHtml(card.readClock)}` : ""}</span>` : "";
+  const unreadRow = unread || (!card.reading && !card.read);
   const button = card.reading
-    ? unread ? `<button class="btn" type="button" data-mark-read="${escapeHtml(card.id)}">Mark read</button>` : ""
+    ? unread ? `<button class="btn icon-act" type="button" data-mark-read="${escapeHtml(card.id)}" aria-label="Mark read" title="Mark read">${CHECK_ICON}</button>` : ""
     : card.read ? "" : `<button class="btn" type="button" data-ack="${escapeHtml(card.id)}">Acknowledge</button>`;
   return rowHtml({
     key: card.id,
-    attrs: `data-priority="${card.severity === "failure" ? "overdue" : "deadline"}" data-notification="${escapeHtml(card.id)}"${unread || (!card.reading && !card.read) ? " data-unread" : ""}`,
-    chip: `<span class="severity-chip" data-severity="${escapeHtml(card.severity || "")}">${escapeHtml(card.severityLabel)}</span>`,
+    attrs: `${card.reading ? "" : `data-priority="${card.severity === "failure" ? "overdue" : "deadline"}" `}data-notification="${escapeHtml(card.id)}"${unreadRow ? " data-unread" : ""}`,
+    chip: card.severityLabel ? `<span class="severity-chip" data-severity="${escapeHtml(card.severity || "")}">${escapeHtml(card.severityLabel)}</span>` : "",
     title: card.reason,
     detail: card.subject,
-    meta: `${quiet}<span class="row-clock">${escapeHtml(card.clock)}</span>`,
+    meta: `${unreadRow ? UNREAD_DOT : ""}${quiet}<span class="row-clock">${escapeHtml(card.clock)}</span>`,
     actions: `${link}${button}${readMark}`,
     more: `${delivery}${unrouted}${card.reading ? "" : recordDetailsHtml(card.details, card.link.path)}`,
   });
@@ -164,11 +172,12 @@ function toggleRow(row) {
  * that took its place when that row left the list.
  */
 function paintList(list, html) {
+  const rowsOf = () => [...list.querySelectorAll(":scope > .update-row[data-row]")];
   const row = document.activeElement?.closest(".update-row[data-row]");
-  const index = row && list.contains(row) ? [...list.children].indexOf(row) : -1;
+  const index = row ? rowsOf().indexOf(row) : -1;
   list.innerHTML = html;
   if (index < 0) return;
-  const rows = [...list.querySelectorAll(":scope > .update-row[data-row]")];
+  const rows = rowsOf();
   const target = rows.find((next) => next.dataset.row === row.dataset.row) ?? rows[Math.min(index, rows.length - 1)];
   target?.querySelector(".row-toggle").focus();
 }
@@ -191,7 +200,12 @@ function renderFeed() {
   const block = $("feedState");
   block.setAttribute("data-state", state.state);
   const failed = ["refused", "unavailable", "unknown"].includes(state.state);
-  $("retryRead").textContent = failed ? "Retry" : "Refresh";
+  const retry = $("retryRead");
+  retry.textContent = failed ? "Retry" : "↻";
+  retry.classList.toggle("icon-btn", !failed);
+  retry.title = failed ? "" : "Refresh";
+  if (failed) retry.removeAttribute("aria-label");
+  else retry.setAttribute("aria-label", "Refresh");
   const hint = $("feedStateHint");
   if (hint) hint.textContent = FEED_HINT[state.state] || "";
   block.hidden = state.state === "ready";
@@ -204,7 +218,7 @@ function renderFeed() {
   const unread = unreadLine(payload);
   $("unreadLine").textContent = unread;
   announceFeed(state.sentence || unread);
-  paintList($("feedList"), notificationCards(payload, undefined, savedZone()).map(cardHtml).join(""));
+  paintList($("feedList"), byDayHtml(notificationCards(payload, undefined, savedZone()), (cards) => cards.map(cardHtml).join("")));
   const banner = $("quietNowBanner");
   const sentence = quietNowBanner(payload, view.preference.payload);
   banner.textContent = sentence || "";
@@ -261,7 +275,8 @@ function changeHtml(group) {
     attrs: 'data-priority="ordinary"',
     lead: many ? "" : `${recordName(row, "row-lead")}<span class="row-sep"> · </span>`,
     title: many ? `${group.length} records · ${row.verb}` : row.verb,
-    detail: row.clock ? `${row.actor} · ${row.clock}` : row.actor,
+    detail: row.actor,
+    meta: `<span class="row-clock">${escapeHtml(row.clock ?? "")}</span>`,
     more: many
       ? `<ul class="fold-list">${group.map((one) =>
         `<li>${recordName(one)}<span class="row-clock">${escapeHtml(one.clock)}</span>${recordDetailsHtml(one.details)}</li>`).join("")}</ul>`
@@ -286,7 +301,6 @@ function renderEmpty() {
 
 function renderActivity() {
   const read = view.activity;
-  $("activityAsOf").textContent = asOf(read);
   const payload = read.state === "read" ? read.payload : null;
   const rows = activityRowsOf(payload);
   $("activityState").hidden = read.state === "pending" || (Boolean(payload) && !read.refreshFailed);
@@ -296,7 +310,7 @@ function renderActivity() {
   more.disabled = read.loadingMore === true;
   more.textContent = read.moreFailed === "invalid_fields" ? "Reload activity" : read.moreFailed ? "Retry" : "Show more";
   $("activityMoreState").textContent = read.moreFailed ? "Couldn't load more" : "";
-  paintList($("activityList"), foldChanges(rows).map(changeHtml).join("")
+  paintList($("activityList"), byDayHtml(rows, (dayRows) => foldChanges(dayRows).map(changeHtml).join(""))
     || (payload ? `<li class="update-row empty-row"><h3 class="row-title">No recent activity</h3></li>` : ""));
   renderEmpty();
 }

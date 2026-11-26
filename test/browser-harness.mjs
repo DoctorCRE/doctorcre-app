@@ -10,11 +10,13 @@ import { CHROMIUM_SAFETY_ARGS } from '../scripts/chromium-safety-args.mjs';
 //  - every page waits up to WAIT_MS for a condition before it fails, no
 //    request leaves the machine unless the test routes it, and no page
 //    captures from the host's microphones;
+//  - Back and Forward sent while a page is committing wait it out (steady-history.ts);
 //  - BROWSER_CPU_THROTTLE=<n> slows Chromium pages n times (CDP emulation) and
 //    BROWSER_ROUTE_JITTER_MS=<ms> answers each routed request up to <ms> late,
 //    so a CI-starved runner can be reproduced locally.
 import { after } from 'node:test';
 import { startFixtureServer } from '../scripts/fixture-server.mjs';
+import { steadyHistory } from './steady-history.ts';
 import { execFileSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { chromium as playwrightChromium, webkit as playwrightWebkit } from 'playwright';
@@ -66,6 +68,7 @@ function browserEngine(engine) {
           contexts.add(context);
           context.once('close', () => contexts.delete(context));
           context.setDefaultTimeout(WAIT_MS);
+          context.on('page', page => steadyHistory(page, WAIT_MS));
           // Tests never reach the network. A page's Google Fonts link held its
           // load event, and so page.goto, until an outside server answered. A
           // request a test does not route itself and that leaves this machine is refused.

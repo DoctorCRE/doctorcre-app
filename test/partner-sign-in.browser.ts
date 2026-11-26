@@ -536,12 +536,13 @@ async function app(
             filing_choices: [],
           };
           const items = tourFeedback ? (feedbackOpen ? [feedback] : []) : [filingCard];
+          const dashboard = url.searchParams.get("view") === "dashboard";
           return Response.json({
             ok: true,
-            schema_version: "home-inbox.v5",
+            schema_version: dashboard ? "home-inbox.v6" : "home-inbox.v5",
             ...(tourFeedback && { home_mark_drop: true }),
-            ...(url.searchParams.get("view") === "dashboard"
-              ? { reminders: { count: items.length, items }, waiting: empty }
+            ...(dashboard
+              ? { reminders: empty, inbox: { count: items.length, items }, waiting: empty }
               : { items, truncated: false, limit: 1000, working_collapsed: true }),
           });
         }
@@ -785,8 +786,9 @@ for (const lookup of ["stalled", "unknown", "on"]) {
                 ? Response.json({ error: "engine_unavailable" }, { status: 503 })
                 : Response.json({
                     ok: true,
-                    schema_version: "home-inbox.v5",
-                    reminders: { count: 1, items: [filingCard] },
+                    schema_version: "home-inbox.v6",
+                    reminders: { count: 0, items: [] },
+                    inbox: { count: 1, items: [filingCard] },
                     waiting: { count: 0, items: [] },
                   });
             return new Response(null, { status: 404 });
@@ -807,7 +809,7 @@ for (const lookup of ["stalled", "unknown", "on"]) {
     if (lookup === "on") await page.clock.install();
     assert.ok((await page.goto(server.origin + "/?mode=live", { timeout: 5000 }))?.ok());
     if (unavailable) {
-      const failure = page.getByRole("alert").filter({ hasText: "Reminders and waiting items unavailable" });
+      const failure = page.getByRole("alert").filter({ hasText: "Reminders and Inbox unavailable" });
       await failure.waitFor({ timeout: 5000 });
       unavailable = false;
       await failure.getByRole("button", { name: "Retry", exact: true }).click({ timeout: 5000 });
@@ -818,7 +820,7 @@ for (const lookup of ["stalled", "unknown", "on"]) {
     if (lookup === "on") {
       unavailable = true;
       await page.clock.fastForward(60_001);
-      const failure = page.getByRole("status").filter({ hasText: "Reminders and waiting items unavailable" });
+      const failure = page.getByRole("status").filter({ hasText: "Reminders and Inbox unavailable" });
       await failure.waitFor({ timeout: 5000 });
       assert.ok(await page.getByText(filingTitle, { exact: true }).isVisible());
       unavailable = false;
@@ -994,7 +996,7 @@ test("Home and the old Updates link load on the engine session and handle expiry
       legacyReads.push(name);
   });
   for (const [path, reads] of [
-    ["/?mode=live", ["/api/engine/home/inbox?view=dashboard", "/api/engine/home/today"]],
+    ["/?mode=live", ["/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6", "/api/engine/home/today"]],
     ["/notifications?mode=live", ["/api/engine/updates", "/api/engine/updates/changes", "/api/engine/preferences"]],
   ] as const) {
     const pending = reads.map((read) =>
@@ -1185,7 +1187,7 @@ test("an engine action link opens the successor reply with Home review controls"
   assert.equal(await page.getByRole("textbox", { name: "Subject", exact: true }).inputValue(), "Re: Demo relocation");
   assert.equal(partnerReads.get(actionResolver + carrReply.ref), `${cookieName}=first`);
   assert.equal(partnerReads.get(linkedCardRead), `${cookieName}=first`);
-  assert.equal(partnerReads.has("/api/engine/home/inbox?view=dashboard"), false);
+  assert.equal(partnerReads.has("/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6"), false);
   assert.equal(carrChecks(), 0);
 });
 
@@ -1252,7 +1254,7 @@ test("Home filing searches vendors on the engine session", async (t) => {
   ]);
   const page = await context.newPage();
   await page.goto(server.origin + "/?mode=live");
-  await page.getByRole("button", { name: "Review filing", exact: true }).click();
+  await page.getByRole("button", { name: "Review", exact: true }).click();
   const filing = page.getByRole("region", { name: "File this email", exact: true });
   await filing.getByRole("button", { name: "Choose vendor", exact: true }).click();
   const name = "Demo Partner 62";
@@ -1698,7 +1700,7 @@ async function followTourFeedbackLink(page: Page, origin: string, engineTours = 
     });
   }
   await page.goto(`${origin}/?mode=live`);
-  await page.getByRole("button", { name: "Review feedback", exact: true }).click();
+  await page.getByRole("button", { name: "Review", exact: true }).click();
   const card = page.getByRole("region", { name: `Details for ${feedbackTitle}` });
   await card.getByText(feedbackText, { exact: true }).waitFor();
   await card.getByRole("link", { name: "Open property", exact: true }).click();
@@ -1721,11 +1723,11 @@ test("engine sign-in opens the linked property from Home and finishes the feedba
   assert.equal(await property.getByText(annex.address, { exact: true }).count(), 0);
 
   await page.goto(`${server.origin}/?mode=live`);
-  const review = page.getByRole("button", { name: "Review feedback", exact: true });
+  const review = page.getByRole("button", { name: "Review", exact: true });
   await review.click();
   const card = page.getByRole("region", { name: `Details for ${feedbackTitle}` });
   await card.getByRole("button", { name: "Done", exact: true }).click();
-  await review.waitFor({ state: "detached" });
+  await page.getByRole("link", { name: feedbackTitle, exact: true }).waitFor({ state: "detached" });
   assert.equal(partnerReads.has("/api/engine/home/marks"), true);
 });
 
@@ -3230,7 +3232,12 @@ for (const [signIn, width] of [
       ["/clients", page.getByRole("link", { name: /^Demo Practice 01\b/ })],
       ["/calendar?day=2026-11-24", page.locator("#dayPanelBody").getByText(dealName, { exact: false }).first()],
       ["/invoices", page.getByText(invoiceName, { exact: true }).first()],
-      ["/doc-chats", page.getByRole(signIn === "engine" ? "link" : "heading", { name: chat.title, exact: true })],
+      [
+        "/doc-chats",
+        signIn === "engine"
+          ? page.getByRole("complementary", { name: "Chats" }).getByText(chat.title, { exact: true })
+          : page.getByRole("heading", { name: chat.title, exact: true }),
+      ],
       ["/leases", page.getByText("Synthetic Clinic", { exact: true })],
     ] as const;
     for (const [path, ready] of screens) {

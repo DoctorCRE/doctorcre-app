@@ -127,14 +127,15 @@ async function open(
           : { items: [] };
     return route.fulfill({ json: { result: { content: [{ type: "text", text: JSON.stringify(payload) }] } } });
   });
-  await page.route("**/api/engine/home/inbox?view=dashboard", (route) =>
+  await page.route("**/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6", (route) =>
     route.fulfill({
       json: {
         ok: true,
-        schema_version: "home-inbox.v5",
+        schema_version: "home-inbox.v6",
         home_mark_drop: true,
         home_proposal_drop: true,
         reminders: { count: 1, items: [{ item_id: "example-reminder", card_id: "example-reminder" }] },
+        inbox: { count: 0, items: [] },
         waiting: { count: 0, items: [] },
       },
     }),
@@ -148,8 +149,8 @@ async function open(
         schema_version: "home-today.v1",
         viewer: "joe",
         partners: [
-          { slug: "joe", name: "Joe" },
-          { slug: "dell", name: "Dell" },
+          { slug: "joe", name: "Joe Example" },
+          { slug: "dell", name: "Dell Samplewright" },
         ],
         today: "2026-11-19",
         meetings: {
@@ -322,8 +323,8 @@ for (const width of [390, 1440])
       );
       assert.equal(await meetings.getByText(/Last synced/).count(), 0);
       const owners = today.getByRole("group", { name: "Reminders for" });
-      const both = owners.getByRole("button", { name: "Both partners" });
-      const dell = owners.getByRole("button", { name: "Dell" });
+      const both = owners.getByRole("button", { name: "Both", exact: true });
+      const dell = owners.getByRole("button", { name: "Dell", exact: true });
       assert.equal(await both.getAttribute("aria-pressed"), "true");
       await dell.click();
       assert.equal(await dell.getAttribute("aria-pressed"), "true");
