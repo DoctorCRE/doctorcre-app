@@ -1313,15 +1313,23 @@ test("On a phone the chats slide in over the conversation and close from the dim
 });
 
 test("On a phone the open chats keep Tab inside them and close on Escape wherever focus is", async (t) => {
-  const { page, origin } = await docChatFixture(t, (request) =>
-    new URL(request.url).pathname === "/api/engine/doc/conversations"
-      ? Response.json({ conversations: [conversation], next_before: id })
-      : Response.json({ conversation, turns: [{ ...answeredTurn, idempotency_key: id }] }),
-  );
+  let listArrives!: () => void;
+  const listSent = new Promise<void>((resolve) => {
+    listArrives = resolve;
+  });
+  const { page, origin } = await docChatFixture(t, async (request) => {
+    if (new URL(request.url).pathname !== "/api/engine/doc/conversations") {
+      return Response.json({ conversation, turns: [{ ...answeredTurn, idempotency_key: id }] });
+    }
+    await listSent;
+    return Response.json({ conversations: [conversation], next_before: id });
+  });
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
   const toggle = page.getByRole("button", { name: "Recent chats", exact: true });
+  // The partner opens the chats before the list has arrived.
   await toggle.click();
+  listArrives();
   const list = page.getByRole("complementary", { name: "Chats" });
   const chat = list.getByRole("link", { name: new RegExp(`^${question}`) });
   const older = list.getByRole("button", { name: "Older chats" });

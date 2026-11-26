@@ -727,11 +727,16 @@ function DocChat() {
 
   useEffect(() => {
     if (!chatsOpen) return;
-    const panel = chatsPanel.current;
-    (panel?.querySelector<HTMLElement>("[aria-current]") ?? panel?.querySelector("a"))?.focus();
     document.addEventListener("keydown", onDrawerKey);
     return () => document.removeEventListener("keydown", onDrawerKey);
   }, [chatsOpen]);
+
+  // On a slow phone the drawer can open before the list arrives; focus moves to the current chat once it shows.
+  const currentListed = recent.some((chat) => chat.id === id);
+  useEffect(() => {
+    if (!chatsOpen) return;
+    chatsPanel.current?.querySelector<HTMLElement>(currentListed ? "[aria-current]" : "a")?.focus();
+  }, [chatsOpen, currentListed]);
 
   function closeChats() {
     setChatsOpen(false);
