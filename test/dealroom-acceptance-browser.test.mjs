@@ -3639,9 +3639,9 @@ for (const width of [1440, 390]) {
       route.fulfill({ body: '<h1>Example client website</h1>', contentType: 'text/html' }));
     await page.goto(`${fixtureOrigin}/deals?deal=${deal}&tab=client-portal&mode=live`);
     const view = page.getByRole('tabpanel', { name: 'Client portal' });
-    const open = view.getByRole('button', { name: /Client website/ });
+    const open = view.getByRole('button', { name: /^Open as client/ });
     await open.waitFor();
-    assert.deepEqual(await view.getByRole('button').allTextContents(), ['Client website (opens in a new tab)']);
+    assert.deepEqual((await view.getByRole('button').allTextContents()).slice(0, 2), ['Copy client link', 'Open as client (opens in a new tab)']);
     await page.route('http://127.0.0.1:4682/api/state', route => route.fulfill({ json: { state: 'idle' } }));
     await page.getByRole('button', { name: /account and settings/i }).click();
     await page.getByRole('button', { name: 'Check call recorder status' }).click();

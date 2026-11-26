@@ -1,0 +1,10 @@
+.deal-client-portal { display: grid; gap: var(--space-3); margin-block: var(--space-4); }
+/* The right end stays clear for the deal's updated time, which heads every tab but Overview. */
+.deal-client-portal-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding-inline-end: 7rem; }
+.deal-client-portal-line > h2 { flex: 0 1 auto; margin-inline-end: var(--space-2); min-width: 0; margin-block: 0; font-size: var(--font-size-2); overflow-wrap: anywhere; }
+.deal-client-portal > button.deal-client-portal-preview { display: flex; align-items: center; justify-content: center; gap: var(--space-2); min-height: min(50vh, 360px); padding: var(--space-6) var(--space-4); border: 0; border-radius: var(--radius-3); background: var(--surface-1); color: var(--fg); font: inherit; font-size: var(--font-size-3); font-weight: var(--font-weight-strong); overflow-wrap: anywhere; cursor: pointer; transition: background-color var(--duration-hover) var(--ease-out); }
+.deal-client-portal-preview > span[aria-hidden] { color: var(--fg-quiet); }
+@media (hover: hover) { .deal-client-portal-preview:hover { background: var(--surface-2); } }
+.deal-client-portal-preview:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 2px; }
+.deal-client-portal button:disabled { cursor: wait; }
+.deal-client-portal-none { margin-block: var(--space-4); color: var(--fg-muted); }
