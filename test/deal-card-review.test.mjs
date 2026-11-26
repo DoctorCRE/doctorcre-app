@@ -222,16 +222,17 @@ test('phone deal title stays clear of Doc through the full timeline scroll',asyn
  assert.ok(maxScroll>0,'fixture exercises a scrolling snapshot');
  for(const top of [...new Set([0,44,...Array.from({length:Math.ceil(maxScroll/16)},(_,i)=>i*16),maxScroll])]){
   await page.evaluate(top=>scrollTo(0,top),top);
-  // On a phone the top bar scrolls away with the page; Doc must never cover the part still on screen.
   const obscured=await page.locator('#panelTitle').evaluate(title=>{
    const box=title.getBoundingClientRect(),hits=[];
-   for(let y=Math.max(box.top,0)+1;y<box.bottom;y+=4)for(let x=box.left+1;x<box.right;x+=4){
+   for(let y=box.top+1;y<box.bottom;y+=4)for(let x=box.left+1;x<box.right;x+=4){
     const hit=document.elementFromPoint(x,y);
     if(!title.contains(hit))hits.push({x,y,hit:hit?.id||hit?.className});
    }
    return hits.slice(0,5);
   });
   assert.deepEqual(obscured,[],`title remains hit-testable at scroll ${top}`);
+  const pinned=await page.evaluate(()=>{const title=document.getElementById('panelTitle').getBoundingClientRect(),tabs=document.getElementById('workspaceTabs').getBoundingClientRect();return title.top>=0&&title.bottom<=tabs.top;});
+  assert.ok(pinned,`title stays on screen above the tab row at scroll ${top}`);
  }
  await page.getByRole('tab',{name:'Activity',exact:true}).click();
  await page.locator('.deal-timeline').scrollIntoViewIfNeeded();

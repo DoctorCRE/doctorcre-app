@@ -1467,6 +1467,8 @@ export const workspaceTabs = [
   {id:'documents', label:'Documents'},
   {id:'client-portal', label:'Client portal'},
 ];
+// Old links name tabs that were renamed or merged.
+const renamedTabs = {timeline:'activity', correspondence:'activity', 'client-view':'client-portal'};
 let workspaceTab = 'overview';
 let requestedClientPortal = false;
 let boardScroll = 0;
@@ -2267,8 +2269,10 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   const focusStep = scope.get('deal') === dealId && scope.get('focus') === 'next-step';
   state.panelStepId = focusStep ? scope.get('step') : null;
   const toursLink = scope.get('deal') === dealId && (scope.has('property') || scope.get('tab') === 'tours');
-  workspaceTab = toursLink ? 'tours' : 'overview';
-  requestedClientPortal = !toursLink && scope.get('deal') === dealId && scope.get('tab') === 'client-portal';
+  const linkedTab = scope.get('deal') === dealId ? scope.get('tab') : null;
+  const renamedTab = renamedTabs[linkedTab] ?? linkedTab;
+  workspaceTab = toursLink ? 'tours' : renamedTab === 'activity' ? 'activity' : 'overview';
+  requestedClientPortal = !toursLink && renamedTab === 'client-portal';
   timelineType = '';
   ++panelReadSequence;
   automaticPhase.setOpenDeal(dealId);

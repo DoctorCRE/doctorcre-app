@@ -752,12 +752,12 @@ for (const width of [1280, 390]) for (const theme of ['light', 'dark']) test(`si
   await page.locator('.updates-history > summary').click();
   await page.evaluate(() => { document.getElementById('appMainSlot').scrollTo(0,220); scrollTo(0,220); });
   await page.screenshot({ path: join(evidence, `${width}-${theme}-scrolled.png`), animations: 'disabled' });
-  // A phone's top bar scrolls away with the page, so there the sticky tab row is what stays in reach.
-  const titleHitTest = await page.locator(width > 760 ? '#panelTitle' : '#workspaceTabs').evaluate(title => {
+  const titleHitTest = await page.locator('#panelTitle').evaluate(title => {
     const range = document.createRange(); range.selectNodeContents(title);
     const text = range.getBoundingClientRect();
-    const hits = [...range.getClientRects()].flatMap(rect => [rect.left + 1, (rect.left + rect.right) / 2, rect.right - 1].map(x => {
-      const hit = document.elementFromPoint(x, (rect.top + rect.bottom) / 2);
+    const shown = title.getBoundingClientRect().right;
+    const hits = [...range.getClientRects()].flatMap(({left, right, top, bottom}) => [left + 1, (left + Math.min(right, shown)) / 2, Math.min(right, shown) - 1].map(x => {
+      const hit = document.elementFromPoint(x, (top + bottom) / 2);
       return {x, visible: hit === title || title.contains(hit)};
     }));
     return {scrollTop: scrollY + document.getElementById('appMainSlot').scrollTop, text: text.toJSON(), hits};
@@ -3667,6 +3667,15 @@ for (const width of [1440, 390]) {
     const popup = await popupPromise;
     await popup.getByRole('heading', { name: 'Example client website' }).waitFor();
     assert.deepEqual(enginePaths.filter(path => path.endsWith('/open')), [`/api/engine/deals/${deal}/client-website/open`]);
+  });
+
+  test(`Old tab links open the tab that took over at ${width}px`, async t => {
+    const fixtureOrigin = await dealFixtureOrigin(t);
+    const { page, deal } = await clientWebsitePage(t, { width, fixtureOrigin });
+    for (const [old, name] of [['client-view', 'Client portal'], ['timeline', 'Activity'], ['correspondence', 'Activity'], ['market-terms', 'Overview']]) {
+      await page.goto(`${fixtureOrigin}/deals?deal=${deal}&tab=${old}&mode=live`);
+      await page.getByRole('tab', { name, exact: true }).and(page.locator('[aria-selected="true"]')).waitFor();
+    }
   });
 }
 
