@@ -19,8 +19,8 @@ const DATE_KINDS = [
   { kind: 'lease_expiration', label: 'Lease expiration', saveKind: 'lease_end', deadline: true },
   { kind: 'rent_start', label: 'Rent start', aliases: ['rent_commencement'], saveKind: 'rent_start' },
   { kind: 'option_window', label: 'Option notice', aliases: ['option_exercise'], saveKind: 'option_notice', deadline: true },
-  { kind: PHASE_DATE_KIND, label: 'Phase effective date', saveKind: PHASE_DATE_KIND, optional: true },
-  { kind: 'other', label: 'Other', saveKind: 'other', optional: true },
+  { kind: PHASE_DATE_KIND, label: 'Phase effective date', saveKind: PHASE_DATE_KIND },
+  { kind: 'other', label: 'Other', saveKind: 'other' },
 ];
 
 export const CRITICAL_DATE_OPTIONS = DATE_KINDS.flatMap(({ saveKind, label }) => saveKind ? [[saveKind, label]] : []);
@@ -48,9 +48,11 @@ export function countdown(date, now = Date.now()) {
   if (date.status === 'passed') return {state:'past',text:'Passed'};
   const days = Math.round((Date.parse(date.day)-Date.parse(today(now)))/DAY);
   if (!days) return {state:'today',text:date.deadline ? 'Due today' : 'Today'};
-  if (days > 0) return {state:days <= 7 && date.deadline ? 'soon':'upcoming',text:`${days} day${days === 1 ? '' : 's'}`};
-  return {state:date.deadline ? 'overdue':'past',text:date.deadline ? `${-days} day${days === -1 ? '' : 's'} overdue` : `${-days} day${days === -1 ? '' : 's'} ago`};
+  if (days > 0) return {state:days <= 7 && date.deadline ? 'soon':'upcoming',text:`in ${spanText(days)}`};
+  return {state:date.deadline ? 'overdue':'past',text:`${spanText(-days)} ${date.deadline ? 'late' : 'ago'}`};
 }
+const plural = (n, unit) => `${n} ${unit}${n === 1 ? '' : 's'}`;
+const spanText = days => days > 60 ? plural(Math.round(days / 30.4), 'month') : plural(days, 'day');
 export function dealTimeline(detail, now = Date.now(), dateDecisions = false) {
   const entryByPhase = new Map();
   for (const [phase, value] of Object.entries(detail.deal.phase_started_on || {})) {
@@ -88,20 +90,22 @@ export function dealTimeline(detail, now = Date.now(), dateDecisions = false) {
   }
   const dates = [...grouped.values()].map(({references,...row}) => ({...row,
     original:[...new Set(references)].join('\n\n')})).sort((a,b) => a.day.localeCompare(b.day));
-  const missing = DATE_KINDS.filter(d => !d.optional && !rows.some(row => row.kind === d.kind));
   const entries = (detail.entries || []).filter(e => e.source !== 'hold').map(e => ({...e, day:calendarDay(e.when), type:e.kind}));
-  return {phases,dates,undated,missing,entries,today:today(now)};
+  return {phases,dates,undated,entries,today:today(now)};
 }
 
 const isSavedDate = row => /^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(row.id);
+// Settled dates no longer matter for what is coming; Activity keeps their history.
+const SETTLED = new Set(['cleared', 'done', 'dropped', 'passed']);
 const DATE_STATES = new Map([['proposed','Proposed'], ['open','Confirmed'], ['cleared','Done'], ['done','Done'], ['dropped','Dropped'], ['passed','Passed']]);
 const DATE_RESOLUTIONS = new Map([['done', 'Mark done'], ['dropped', 'Drop'], ['passed', 'Mark passed']]);
 const dateAsk = resolution => `<button type="button" class="btn" data-date-ask="${resolution}">${DATE_RESOLUTIONS.get(resolution)}</button>`;
+const dateFormId = id => `critical-date-form-${id}`;
 function dateDecisionsHtml(date) {
   const open = date.status === 'open';
   const proposed = date.status === 'proposed';
   return open || proposed ? `
-    <form data-date-decision="${esc(date.id)}">
+    <form id="${esc(dateFormId(date.id))}" data-date-decision="${esc(date.id)}">
       <div class="date-reason" hidden>
         <label>Reason <input name="reason" required maxlength="1000" data-detail-focus="date-reason:${esc(date.id)}"></label>
         <button type="submit" class="btn"></button>
@@ -126,23 +130,55 @@ export function askDateReason(form, resolution) {
   submit.textContent = label;
 }
 
-const dateTitle = (label, day) => `<h3><span>${esc(label)}</span>${day ? `&nbsp;· <time datetime="${esc(day)}">${esc(dateCaption(day))}</time>` : ''}</h3>`;
-const dateDetails = (d, sourceLine) => d.original || d.evidence ? `<details><summary data-detail-focus="date-original:${esc(d.id)}">Details</summary>${sourceLine
-  ? `${d.original ? `<p class="note-original">${esc(d.original)}</p>` : ''}${d.evidence ? `<p class="date-source">Source: ${esc(d.evidence)}</p>` : ''}`
-  : `<p class="note-original">${esc(d.original || d.evidence)}</p>`}</details>` : '';
+function tileDay(day, now) {
+  const sameYear = day.slice(0, 4) === today(now).slice(0, 4);
+  return new Date(`${day}T12:00:00Z`).toLocaleDateString([], sameYear
+    ? { weekday:'short', month:'short', day:'numeric', timeZone:'UTC' }
+    : { month:'short', day:'numeric', year:'numeric', timeZone:'UTC' });
+}
+// The name is the tile's one button; its hit area stretches over the whole tile.
+function dateTile(d, body, { proposed = false, panel }) {
+  const panelId = `critical-date-${d.id}`;
+  return `<article class="critical-date" data-date-id="${esc(d.id)}" data-state="${body.state}">
+    <h3><button type="button" class="date-open" popovertarget="${esc(panelId)}" data-detail-focus="date-open:${esc(d.id)}">${esc(d.label)}</button>${proposed ? '<span class="date-proposed">proposed</span>' : ''}</h3>
+    ${body.html}
+    <div popover id="${esc(panelId)}" class="date-panel" role="dialog" aria-label="${esc(d.label)}">${panel}</div></article>`;
+}
+// A dated row's original already folds in its source; an undated row keeps them apart.
+function datePanel(d, status, decided) {
+  return `<h3>${esc(d.label)}</h3>
+    <p>${d.day ? `<time datetime="${esc(d.day)}">${esc(dateCaption(d.day))}</time>` : 'Date not recorded'}${status ? ` · ${esc(status)}` : ''}</p>
+    ${d.original ? `<p class="note-original">${esc(d.original)}</p>` : ''}${!d.day && d.evidence ? `<p class="date-source">Source: ${esc(d.evidence)}</p>` : ''}
+    ${decided ? dateDecisionsHtml(d) : ''}`;
+}
+function datedTile(d, now, dateDecisions) {
+  const decided = dateDecisions && isSavedDate(d);
+  const proposed = decided && d.status === 'proposed';
+  const count = countdown(d, now);
+  const day = `<time datetime="${esc(d.day)}">${esc(tileDay(d.day, now))}</time>`;
+  const end = proposed
+    ? `<button type="submit" class="btn date-confirm" form="${esc(dateFormId(d.id))}" value="confirm" formnovalidate>Confirm</button>`
+    : `<strong data-countdown="${esc(d.day)}" data-deadline="${Boolean(d.deadline)}" data-date-status="${esc(d.status || '')}">${esc(count.text)}</strong>`;
+  return dateTile(d, { state: count.state, html: `<p>${day}${end}</p>` },
+    { proposed, panel: datePanel(d, decided && DATE_STATES.get(d.status), decided) });
+}
+function undatedTile(d) {
+  const text = d.dateState === 'missing' ? 'Date not recorded' : 'Date unavailable';
+  return dateTile(d, { state: 'unknown', html: `<p><strong>${text}</strong>${d.status ? `<small>Status: ${esc(d.status)}</small>` : ''}</p>` },
+    { panel: datePanel(d, d.status, false) });
+}
 
-export function renderCriticalDates(detail, now = Date.now(), dateDecisions = false) {
-  const view = dealTimeline(detail,now,dateDecisions);
-  return `<section class="critical-dates" data-detail-read="dates" aria-label="Critical dates">${view.dates.map(d => {
-    const count = countdown(d,now);
-    const decided = dateDecisions && isSavedDate(d);
-    const state = decided && DATE_STATES.get(d.status);
-    const settled = state && d.status !== 'open';
-    return `<article class="critical-date" data-date-id="${esc(d.id)}" data-state="${settled ? esc(d.status) : count.state}">
-      <div class="critical-date-head">${dateTitle(d.label, d.day)}${state ? `<span class="date-badge">${state}</span>` : ''}</div>
-      ${settled ? '' : `<strong data-countdown="${esc(d.day)}" data-deadline="${Boolean(d.deadline)}" data-date-status="${esc(d.status || '')}">${esc(count.text)}</strong>`}
-      ${dateDetails(d, false)}${decided ? dateDecisionsHtml(d) : ''}</article>`;
-  }).join('')}${view.undated.map(d => `<article class="critical-date" data-date-id="${esc(d.id)}" data-state="unknown" data-date-status="${esc(d.status || '')}">${dateTitle(d.label)}<strong>${d.dateState === 'missing' ? 'Date not recorded' : 'Date unavailable'}</strong>${d.status ? `<small>Status: ${esc(d.status)}</small>` : ''}${dateDetails(d, true)}</article>`).join('')}${view.missing.map(d => `<article class="critical-date">${dateTitle(d.label)}<strong>Not recorded</strong></article>`).join('')}</section>`;
+// One row, soonest first; the add tile closes it, or one line says there are none.
+export function renderCriticalDates(detail, now = Date.now(), dateDecisions = false, canAdd = false) {
+  const view = dealTimeline(detail, now, dateDecisions);
+  const tiles = [
+    ...view.dates.filter(d => !SETTLED.has(d.status)).map(d => datedTile(d, now, dateDecisions)),
+    ...view.undated.map(undatedTile),
+  ];
+  const body = tiles.length
+    ? `${tiles.join('')}${canAdd ? '<button type="button" class="critical-date-add" popovertarget="addDatePanel" aria-label="Add date">+</button>' : ''}`
+    : `<p class="critical-dates-empty">No critical dates${canAdd ? '<button type="button" class="btn" popovertarget="addDatePanel">+ Add date</button>' : ''}</p>`;
+  return `<section class="critical-dates" data-detail-read="dates" aria-label="Critical dates">${body}</section>`;
 }
 
 const timelineActor = actor => knownAuthor(actor) ?? (actor ? 'Automatically' : '');

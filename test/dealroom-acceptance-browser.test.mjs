@@ -2243,6 +2243,7 @@ for (const width of [1440, 390]) test(`Add deal and Won or Lost save through the
 
 test('switched-on Deals selects an existing market agent and decides critical dates', async t => {
   const page = await browser.newPage({ viewport: { width: 1280, height: 960 } });
+  await page.clock.setFixedTime(new Date('2026-11-25T17:00:00Z'));
   t.after(() => page.close());
   const [deal, account, person, date, prior, older] = Array.from({ length: 6 }, () => crypto.randomUUID());
   const row = { id: deal, name: 'Example Market Deal', phase: 'research', seen: 1, owner: 'joe', account_client_id: account, market_agent: 'Previous Agent' };
@@ -2322,9 +2323,10 @@ test('switched-on Deals selects an existing market agent and decides critical da
   });
 
   await page.goto(`${origin}/deals?deal=${deal}&mode=live`);
-  await page.getByRole('heading', { name: 'Critical dates', exact: true }).waitFor();
-  assert.equal(await page.getByText('Add critical date', { exact: true }).count(), 0);
-  assert.equal(await page.locator('.critical-date').filter({ hasText: 'Jan 1, 2027' }).locator('h3 > span').textContent(), 'Phase effective date');
+  const dateRow = page.getByRole('region', { name: 'Critical dates' });
+  await dateRow.waitFor();
+  assert.equal(await dateRow.getByRole('button', { name: 'Add date' }).count(), 0);
+  assert.equal(await page.locator('.critical-date').filter({ hasText: 'Jan 1, 2027' }).locator('.date-open').textContent(), 'Phase effective date');
   await page.goto(`${origin}/deals?view=national&mode=live`);
   await page.getByRole('button', { name: /Example National Account/ }).click();
   await page.getByRole('button', { name: 'Previous Agent' }).click();
@@ -2367,16 +2369,19 @@ test('switched-on Deals selects an existing market agent and decides critical da
 
   await page.goto(`${origin}/deals?deal=${deal}&mode=live`);
   const card = page.locator('.critical-date').filter({ hasText: 'Lease expiration' });
-  await card.getByText('Jan 2, 2027', { exact: true }).waitFor();
+  await card.locator(':scope > p').getByText('Jan 2, 2027', { exact: true }).waitFor();
   await card.getByRole('button', { name: 'Confirm', exact: true }).click();
-  await card.getByText('Confirmed', { exact: true }).waitFor();
-  await card.screenshot({ path: join(evidence, 'engine-critical-date.png') });
-  await card.getByRole('button', { name: 'Mark done' }).click();
-  await card.getByLabel('Reason').fill('The review is complete');
-  await card.getByRole('button', { name: 'Mark done' }).click();
-  await card.getByText('Done', { exact: true }).waitFor();
+  await card.locator('[data-countdown]').waitFor();
+  await card.getByRole('button', { name: 'Lease expiration' }).click();
+  const opened = page.getByRole('dialog', { name: 'Lease expiration' });
+  await opened.getByText('Jan 2, 2027 · Confirmed', { exact: true }).waitFor();
+  await page.screenshot({ path: join(evidence, 'engine-critical-date.png') });
+  await opened.getByRole('button', { name: 'Mark done' }).click();
+  await opened.getByLabel('Reason').fill('The review is complete');
+  await opened.getByRole('button', { name: 'Mark done' }).click();
+  await card.waitFor({ state: 'detached' });
 
-  const add = page.getByText('Add critical date', { exact: true });
+  const add = dateRow.getByRole('button', { name: 'Add date' });
   assert.equal(await add.count(), 1);
   await add.click();
   const kind = page.getByLabel('Kind', { exact: true });
@@ -2393,10 +2398,10 @@ test('switched-on Deals selects an existing market agent and decides critical da
   await saveDate.click();
   await page.getByText('Critical date added', { exact: true }).waitFor();
   const added = page.locator('.critical-date').filter({ hasText: 'Jan 4, 2027' });
-  await added.getByText('Phase effective date', { exact: true }).waitFor();
-  await added.getByText('Details', { exact: true }).click();
-  await added.getByText('Signed by both sides', { exact: false }).waitFor();
-  await added.screenshot({ path: join(evidence, 'engine-added-phase-date.png') });
+  await added.getByRole('button', { name: 'Phase effective date' }).click();
+  await added.getByRole('dialog').getByText('Signed by both sides', { exact: false }).waitFor();
+  await page.screenshot({ path: join(evidence, 'engine-added-phase-date.png') });
+  await page.keyboard.press('Escape');
 
   for (const [value, label, day, caption] of [
     ['option_notice', 'Option notice', '2027-01-05', 'Jan 5, 2027'],
@@ -2410,20 +2415,21 @@ test('switched-on Deals selects an existing market agent and decides critical da
     await page.getByLabel('Note (optional)', { exact: true }).fill('Example clause');
     await saveDate.click();
     const card = page.locator('.critical-date').filter({ hasText: caption });
-    assert.equal(await card.locator('h3 > span').textContent(), label);
-    await card.getByText('Details', { exact: true }).click();
-    await card.getByText('Example clause', { exact: false }).waitFor();
+    assert.equal(await card.locator('.date-open').textContent(), label);
+    await card.locator('.date-open').click();
+    await card.getByRole('dialog').getByText('Example clause', { exact: false }).waitFor();
+    await page.keyboard.press('Escape');
   }
 
   await page.locator('#detailPhase').selectOption('site_selection');
   await page.getByLabel('Record this as a critical date').check();
-  await page.getByLabel('Phase effective date', { exact: true }).fill('2027-01-03');
+  await page.getByLabel('Phase effective date', { exact: true }).filter({ visible: true }).fill('2027-01-03');
   await dateSource.fill('Example agreement');
   await page.getByRole('button', { name: 'Move to Site selection' }).click();
   const effectiveDate = page.locator('.critical-date').filter({ hasText: 'Jan 3, 2027' });
-  await effectiveDate.getByText('Confirmed', { exact: true }).waitFor();
-  assert.equal(await effectiveDate.getByText('Phase effective date', { exact: true }).count(), 1);
-  assert.equal(await effectiveDate.getByText('Jan 3, 2027', { exact: true }).count(), 1);
+  await effectiveDate.locator('[data-countdown]').waitFor();
+  assert.equal(await effectiveDate.getByText('Phase effective date', { exact: true }).filter({ visible: true }).count(), 1);
+  assert.equal(await effectiveDate.getByText('Jan 3, 2027', { exact: true }).filter({ visible: true }).count(), 1);
   await effectiveDate.screenshot({ path: join(evidence, 'engine-phase-effective-date.png') });
   assert.deepEqual(writes, [
     [`/api/engine/deals/${deal}/parties`, { party_id: person, role: 'market_agent' }],
@@ -3552,7 +3558,7 @@ for (const width of [1440, 390]) {
 
     readsOn = true;
     await open();
-    const leaseDate = dates.getByText('Lease expiration · Nov 19, 2026', { exact: true });
+    const leaseDate = dates.locator('.critical-date').filter({ hasText: 'Lease expiration' }).locator(':scope > p > time[datetime="2026-11-19"]');
     await leaseDate.waitFor({ timeout: 5000 });
     // The next critical date left the header for the dates row under the tabs (design CHANGE 14).
     assert.equal(await header.locator('time').count(), 0);

@@ -28,14 +28,12 @@ test('phases use recorded entries; lease dates are exact and no rent/option date
  assert.equal(view.phases.find(p=>p.slug==='legal').day,'2026-10-03');
  assert.equal(view.phases.find(p=>p.slug==='pending').day,null);
  assert.equal(view.dates.find(d=>d.kind==='lease_commencement').day,'2026-11-01');
- assert.deepEqual(view.missing.map(d=>d.kind),['due_diligence','rent_start','option_window']);
  assert.equal(dealTimeline({...detail,lease:{...detail.lease,status:'superseded'}}).dates.some(d=>d.kind==='lease_commencement'),false);
  assert.equal(calendarDay('2026-02-30'),null);
 });
 test('conflicting contract dates remain visible; co-located originals survive; kind is never inferred from prose',()=>{
  const view=dealTimeline({...detail,critical_dates:[{kind:'lease_commencement',due_on:'2026-11-01',note:'Demo signed contract date',source:'Demo contract clause'}, {kind:'commencement',due_on:'2026-11-02'}, {label:'Rent start',due_on:'2026-11-30'}]},now);
  assert.deepEqual(view.dates.filter(d=>d.kind==='lease_commencement').map(d=>d.day),['2026-11-01','2026-11-02']);
- assert.ok(view.missing.some(d=>d.kind==='rent_start'));
  assert.match(view.dates.find(d=>d.day==='2026-11-01').original,/Demo signed contract date/);
  assert.match(view.dates.find(d=>d.day==='2026-11-01').original,/Demo clause 3/);
  const statuses=dealTimeline({...detail,critical_dates:[{kind:'loi_expiry',due_on:'2026-10-03',status:'cleared'},{kind:'loi_expiry',due_on:'2026-10-03',status:'open'}]},now);
@@ -46,18 +44,19 @@ test('other dates show each saved name when they share a day', () => {
     kind: 'other', due_on: '2026-10-04', note,
   }));
   const root = new JSDOM(renderCriticalDates({ ...detail, critical_dates }, now)).window.document;
-  const names = [...root.querySelectorAll('.critical-date h3 > span')].map(label => label.textContent);
+  const names = [...root.querySelectorAll('.critical-date .date-open')].map(label => label.textContent);
   assert.deepEqual(names.filter(name => critical_dates.some(date => date.note === name)), ['Phase effective date', 'Permit review']);
 });
 test('countdowns cross midnight and distinguish deadlines, cleared dates and past commencement',()=>{
  assert.deepEqual(countdown({day:'2026-10-04',deadline:true},now),{state:'today',text:'Due today'});
- assert.deepEqual(countdown({day:'2026-10-05',deadline:true},now),{state:'soon',text:'1 day'});
- assert.equal(countdown({day:'2026-10-03',deadline:true},now).text,'1 day overdue');
+ assert.deepEqual(countdown({day:'2026-10-05',deadline:true},now),{state:'soon',text:'in 1 day'});
+ assert.equal(countdown({day:'2026-10-03',deadline:true},now).text,'1 day late');
  assert.equal(countdown({day:'2026-10-03'},now).text,'1 day ago');
+ assert.equal(countdown({day:'2027-01-04',deadline:true},now).text,'in 3 months');
  assert.equal(countdown({day:'2026-10-03',status:'cleared'},now).text,'Cleared');
  const root=new JSDOM(renderCriticalDates(detail,now)).window.document;
  updateCountdowns(root,now+86400000);
- assert.equal(root.querySelector('[data-countdown="2026-10-03"]').textContent,'2 days overdue');
+ assert.equal(root.querySelector('[data-countdown="2026-10-03"]').textContent,'2 days late');
 });
 test('updates preserve escaped originals, author, exact date and newest-first order',()=>{
  const html=renderDealUpdates(detail);
@@ -90,14 +89,14 @@ test('zero notes omit the entire Updates section',()=>{
  assert.equal(renderDealUpdates({thread:[],activities:[]}), '');
 });
 
-test('review 1: producer cleared and passed dates do not raise deadline alarms',()=>{
- for (const [status,state,text] of [['cleared','complete','Cleared'],['passed','past','Passed'],['open','overdue','1 day overdue']]) {
+test('settled dates leave the row and raise no deadline alarm',()=>{
+ for (const [status,state,text] of [['cleared','complete','Cleared'],['passed','past','Passed'],['open','overdue','1 day late'],['done',undefined,undefined],['dropped',undefined,undefined]]) {
   const value={deal:detail.deal,critical_dates:[{id:'loi',kind:'loi_expiry',due_on:'2026-10-03',status}]};
-  assert.deepEqual(countdown(dealTimeline(value,now).dates[0],now),{state,text});
-  const root=new JSDOM(renderCriticalDates(value,now)).window.document;
+  if(state) assert.deepEqual(countdown(dealTimeline(value,now).dates[0],now),{state,text});
+  const root=new JSDOM(renderCriticalDates(value,now,false,true)).window.document;
   updateCountdowns(root,now+86400000);
-  assert.equal(root.querySelector('[data-date-id="loi"]').dataset.state,state);
-  if(status!=='open') assert.equal(root.querySelector('strong').textContent,text);
+  assert.equal(root.querySelector('[data-date-id="loi"]')?.dataset.state,status==='open'?'overdue':undefined);
+  if(status!=='open') assert.equal(root.querySelector('.critical-dates-empty').textContent,'No critical dates+ Add date');
  }
 });
 test('review 2: recorded and projected lease expiration share urgency while commencement stays a milestone',()=>{
@@ -234,11 +233,10 @@ test('recorded LOI evidence survives a missing due date without claiming the kin
  assert.ok(row,'recorded undated LOI evidence remains readable');
  assert.match(row.textContent,/Date not recorded/);
  assert.equal(row.querySelector('small').textContent,'Status: open');
- assert.match(row.querySelector('details').textContent,/Source: Synthetic clause 4/);
+ assert.match(row.querySelector('.date-source').textContent,/Source: Synthetic clause 4/);
  assert.match(row.textContent,/Synthetic LOI requires confirmation/);
  assert.match(row.textContent,/Synthetic clause 4/);
  assert.equal(row.querySelector('[data-countdown]'),null);
- assert.equal(dealTimeline(value,now).missing.some(d=>d.kind==='loi_expiry'),false);
 });
 
 test('undated originals keep their identities, status and evidence alongside conflicting dated entries', () => {
@@ -254,7 +252,6 @@ test('undated originals keep their identities, status and evidence alongside con
  const model=dealTimeline(value,now);
  assert.deepEqual(model.dates.map(d=>d.day),['2026-10-05','2026-10-06']);
  assert.deepEqual(model.undated.map(d=>[d.id,d.dateState,d.status]),[['missing','missing','cleared'],['invalid','invalid','passed'],['unknown','invalid',undefined],['second-missing','missing',undefined]]);
- assert.equal(model.missing.some(d=>d.kind==='loi_expiry'),false);
  assert.equal(model.undated.some(d=>d.kind==='lease_commencement'),false);
  const root=new JSDOM(renderCriticalDates(value,now)).window.document;
  assert.equal(root.querySelectorAll('[data-countdown]').length,2);
@@ -263,7 +260,7 @@ test('undated originals keep their identities, status and evidence alongside con
   assert.match(card.textContent,new RegExp(row.note.replace(/[<>]/g,'.')));
   if(row.source) assert.ok(card.textContent.includes(row.source));
  }
- assert.equal(root.querySelector('[data-date-id="unknown"] h3 > span').textContent,'Custom notice');
+ assert.equal(root.querySelector('[data-date-id="unknown"] .date-open').textContent,'Custom notice');
  assert.match(root.querySelector('[data-date-id="invalid"]').textContent,/Date unavailable/);
  assert.match(root.querySelector('[data-date-id="missing"]').textContent,/cleared/);
  const undatedBefore=[...root.querySelectorAll('[data-state="unknown"]')].map(n=>n.outerHTML);
@@ -288,20 +285,20 @@ test('Central disposition chart preserves precedence and calendar arithmetic', (
   [{day:null,status:'passed'},'unknown','—'],
   [{day:'2026-11-04',status:'cleared',deadline:true},'complete','Cleared'],
   [{day:'2026-11-06',status:'passed',deadline:true},'past','Passed'],
-  [{day:'2026-11-04',deadline:true},'overdue','1 day overdue'],
+  [{day:'2026-11-04',deadline:true},'overdue','1 day late'],
   [{day:'2026-11-04'},'past','1 day ago'],
   [{day:'2026-11-05',deadline:true},'today','Due today'],
   [{day:'2026-11-05'},'today','Today'],
-  [{day:'2026-11-12',deadline:true},'soon','7 days'],
-  [{day:'2026-11-13',deadline:true},'upcoming','8 days'],
-  [{day:'2026-11-06'},'upcoming','1 day'],
+  [{day:'2026-11-12',deadline:true},'soon','in 7 days'],
+  [{day:'2026-11-13',deadline:true},'upcoming','in 8 days'],
+  [{day:'2026-11-06'},'upcoming','in 1 day'],
  ]) assert.deepEqual(countdown(date,instant),{state,text});
  for (const [at,day] of [
   ['2026-03-08T07:59:59Z','2026-03-08'],['2026-03-08T08:00:00Z','2026-03-08'],
   ['2026-11-01T06:59:59Z','2026-11-01'],['2026-11-01T07:00:00Z','2026-11-01'],
  ]) assert.equal(countdown({day,deadline:true},Date.parse(at)).text,'Due today');
  const date={day:'2026-11-06',deadline:true};
- for (const [at,text] of [['2026-10-29T17:00:00Z','8 days'],['2026-10-30T17:00:00Z','7 days'],['2026-11-06T05:59:59Z','1 day'],['2026-11-06T06:00:00Z','Due today'],['2026-11-07T06:00:00Z','1 day overdue']]) assert.equal(countdown(date,Date.parse(at)).text,text);
+ for (const [at,text] of [['2026-10-29T17:00:00Z','in 8 days'],['2026-10-30T17:00:00Z','in 7 days'],['2026-11-06T05:59:59Z','in 1 day'],['2026-11-06T06:00:00Z','Due today'],['2026-11-07T06:00:00Z','1 day late']]) assert.equal(countdown(date,Date.parse(at)).text,text);
 });
 
 test('registered Deal Room response passes production parser without shifting dates or evidence', async () => {
@@ -329,11 +326,11 @@ test('countdown DOM follows upcoming to soon to today to overdue on Central days
  const value={deal:{phase:'legal'},critical_dates:[{id:'transition',kind:'loi_expiry',due_on:'2026-11-06'}]};
  const root=new JSDOM(renderCriticalDates(value,Date.parse('2026-10-29T17:00:00Z'))).window.document;
  for(const [at,state,text] of [
-  ['2026-10-29T17:00:00Z','upcoming','8 days'],
-  ['2026-10-30T17:00:00Z','soon','7 days'],
-  ['2026-11-06T05:59:59Z','soon','1 day'],
+  ['2026-10-29T17:00:00Z','upcoming','in 8 days'],
+  ['2026-10-30T17:00:00Z','soon','in 7 days'],
+  ['2026-11-06T05:59:59Z','soon','in 1 day'],
   ['2026-11-06T06:00:00Z','today','Due today'],
-  ['2026-11-07T06:00:00Z','overdue','1 day overdue'],
+  ['2026-11-07T06:00:00Z','overdue','1 day late'],
  ]) {
   updateCountdowns(root,Date.parse(at));
   assert.equal(root.querySelector('.critical-date').dataset.state,state);
