@@ -63,7 +63,7 @@ export function DealsTile() {
   return (
     <section className="home-slice home-deals" aria-label="Deals">
       <header>
-        <h2>
+        <h2 tabIndex={-1}>
           <a href="/deals">Deals</a>
         </h2>
         <a className="home-tile-door" href="/deals">

@@ -103,7 +103,7 @@ export function TodayMeetings({ data, today }: { data: MeetingRead; today: strin
   return (
     <section className="home-slice home-today" aria-label="Today's meetings">
       <header>
-        <h2>
+        <h2 tabIndex={-1}>
           <a href={calendar}>Today's meetings</a> <span>{count}</span>
         </h2>
         <a className="home-tile-door" href={calendar}>

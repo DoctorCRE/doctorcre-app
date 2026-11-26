@@ -116,6 +116,10 @@ type Props<Item extends ReviewItem> = {
   /** The close button's name when the pane covers the list, as on a phone. */
   closeLabel?: string | undefined;
   close(): void;
+  /** After a save the inbox read confirmed: returns the item when it stays open with decisions left. Closes unless given. */
+  finished?(): Item | null;
+  /** Where the item sits in its tile, with Next when another item follows. */
+  position?: { at: number; of: number; next: (() => void) | undefined } | undefined;
   blockSwitching?(value: boolean): void;
   busy?(value: boolean): void;
   confirmed?(item: Item | null, receipt?: TaskReceipt, snapshot?: Snapshot): void | Promise<void>;
@@ -139,6 +143,11 @@ export function ReviewCard<Item extends ReviewItem>({
   drafts,
   closeLabel,
   close,
+  finished = () => {
+    close();
+    return null;
+  },
+  position,
   blockSwitching,
   busy,
   confirmed,
@@ -330,7 +339,18 @@ export function ReviewCard<Item extends ReviewItem>({
         return;
       }
       if (result.snapshot && request.verb !== "edit-email-draft") {
-        close();
+        const stays = finished();
+        if (!stays) return;
+        // The same card stays open, so reload its remaining decisions in place and keep unsaved text.
+        const refreshed = await client.load(stays);
+        if (!alive.current) return;
+        anchor.current = stays;
+        setState({ phase: "ready", review: refreshed });
+        setMessage(
+          request.verb !== "decide-engine-home-proposal" || result.alreadyResolved
+            ? ""
+            : reviewDispositionLabel(request.args.decision === "accept" ? "done" : "dropped", false),
+        );
         return;
       }
       if (request.verb === "edit-email-draft") {
@@ -580,6 +600,16 @@ export function ReviewCard<Item extends ReviewItem>({
     >
       <header>
         <h4>{client ? "Review this card" : item.title}</h4>
+        {position && (
+          <span className="home-review-position">
+            {position.at} of {position.of}
+          </span>
+        )}
+        {position && position.of > 1 && (
+          <button type="button" disabled={holding || !position.next} onClick={position.next}>
+            Next
+          </button>
+        )}
         <button type="button" disabled={holding} onClick={close}>
           {closeLabel ?? (client && item.review_reference?.kind !== "action" ? "Close review" : "Close")}
         </button>

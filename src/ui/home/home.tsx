@@ -45,6 +45,7 @@ import {
   repeatsTitle,
   tileOf,
   useStacked,
+  useTileRows,
 } from "./sections";
 import { SnoozeMenu } from "./snooze-menu.tsx";
 import { snoozeUntil } from "./snooze-times.ts";
@@ -260,6 +261,24 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     );
   }
   const [reviewing, setReviewing] = useState<InboxItem | null>(null);
+  // After a save from the open item: a card with decisions left stays open, else the row after it in its tile opens.
+  function moveOn(saved: InboxItem) {
+    if (!home) {
+      setReviewing(null);
+      return null;
+    }
+    const live = dashboardCards(cache.getQueryData<Snapshot>(queryKey)?.items ?? [], day(new Date()))[tileOf(saved)];
+    const kept = live.find((item) => cardKey(item) === cardKey(saved));
+    const at = queue.findIndex((item) => cardKey(item) === cardKey(saved));
+    const following = [...queue.slice(at + 1), ...queue.slice(0, Math.max(at, 0)).reverse()];
+    setReviewing(
+      kept ??
+        following.map((row) => live.find((item) => cardKey(item) === cardKey(row))).find(Boolean) ??
+        live[0] ??
+        null,
+    );
+    return kept ?? null;
+  }
   const reviewFocus = useRef<{
     opener: HTMLElement;
     tile: Element | null;
@@ -286,7 +305,8 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
         tile?.querySelector<HTMLElement>("h2") ??
         Array.from(root.current?.querySelectorAll<HTMLElement>(`[data-inbox-row] ${cardTitle}`) ?? []).find(
           visibleRow,
-        ));
+        ) ??
+        root.current?.querySelector<HTMLElement>(".home-slice h2"));
     (target || root.current)?.focus({ preventScroll: true });
     if (covering) scrollTo({ top: focus.scrollY });
     reviewFocus.current = null;
@@ -487,11 +507,12 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
         const saved = results.filter((result) => result.ok).length;
         const snapshot = results.find((result) => result.snapshot)?.snapshot;
         if (snapshot) await updateAfterSave(snapshot);
-        else void query.refetch();
+        else await query.refetch();
         if (!mounted.current) return;
         setFailures([]);
         setUndo([]);
         if (saved === results.length) {
+          if (reviewing && operation.before.some((item) => item.item_id === reviewing.item_id)) moveOn(reviewing);
           // No Undo: it could restore only some of the covered steps.
           confirmSave(savedMessage(savedLabel(operation.request), operation.before));
           setPending(null);
@@ -508,7 +529,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
       const failed = results.filter((result) => !result.ok && !result.current_item);
       await updateAfterSave(results.find((result) => result.snapshot)?.snapshot, updates);
       if (!mounted.current) return;
-      if (reviewing && successes.some((result) => result.item_id === reviewing.item_id)) setReviewing(null);
+      if (reviewing && successes.some((result) => result.item_id === reviewing.item_id)) moveOn(reviewing);
       setFailures(failed);
       select(new Set(failed.map((result) => result.item_id)));
       const fresh = operation.undoing
@@ -669,6 +690,19 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
         placed[tile] = placed[tile].filter((item) => cardKey(item) !== cardKey(reviewing));
     return placed;
   }, [items, today, reviewing, pinnedTile]);
+  const drawn = {
+    reminders: useTileRows(tiles.reminders, pinnedTile === "reminders" ? reviewing : null, true),
+    inbox: useTileRows(tiles.inbox, pinnedTile === "inbox" ? reviewing : null),
+    waiting: useTileRows(tiles.waiting, pinnedTile === "waiting" ? reviewing : null),
+  };
+  // The open item's tile as drawn, which Next and moving on after a save walk.
+  const queue = pinnedTile ? drawn[pinnedTile] : [];
+  function position(open: InboxItem) {
+    const at = queue.findIndex((item) => cardKey(item) === cardKey(open));
+    if (at < 0) return undefined;
+    const next = queue[at + 1] ?? (at > 0 ? queue[0] : undefined);
+    return { at: at + 1, of: queue.length, next: next && !openingLocked ? () => setReviewing(next) : undefined };
+  }
   const finishedElsewhere =
     home &&
     reviewing !== null &&
@@ -1114,6 +1148,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
         )}
         {open && (
           <ReviewCard
+            key={cardKey(reviewing)}
             item={reviewing}
             docLinkRequest={docLinkRequest}
             readOnly={waitingCard || finishedElsewhere}
@@ -1122,12 +1157,15 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             blockSwitching={blockSwitching}
             closeLabel={covering ? "Back" : undefined}
             close={() => setReviewing(null)}
+            finished={() => moveOn(reviewing)}
+            position={home ? position(reviewing) : undefined}
             busy={(value) => (value ? void beginSave("review") : endSave("review"))}
             confirmed={async (current, receipt, snapshot) => {
               await updateAfterSave(snapshot, current ? [current] : []);
               if (!mounted.current) return;
               if (!current) {
-                setReviewing(null);
+                // A confirmed inbox read moves on in finished.
+                if (!snapshot) setReviewing(null);
                 return;
               }
               if (receipt)
@@ -1363,7 +1401,8 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             <CardTile
               title="Reminders"
               grouped
-              items={tiles.reminders}
+              rows={drawn.reminders}
+              count={tiles.reminders.length}
               pinned={pinnedTile === "reminders" ? reviewing : null}
               current={reviewing?.item_id || item_id}
               row={row}
@@ -1373,7 +1412,8 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             {query.isPending && <PlaceholderTile />}
             <CardTile
               title="Inbox"
-              items={tiles.inbox}
+              rows={drawn.inbox}
+              count={tiles.inbox.length}
               pinned={pinnedTile === "inbox" ? reviewing : null}
               current={reviewing?.item_id || item_id}
               after={meetingOutcomes.map((review) => (
@@ -1383,7 +1423,8 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             />
             <CardTile
               title="In motion and waiting"
-              items={tiles.waiting}
+              rows={drawn.waiting}
+              count={tiles.waiting.length}
               pinned={pinnedTile === "waiting" ? reviewing : null}
               current={reviewing?.item_id || item_id}
               row={row}

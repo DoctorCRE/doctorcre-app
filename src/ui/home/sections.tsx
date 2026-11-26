@@ -150,9 +150,20 @@ function retainOrder(previous: readonly InboxItem[], incoming: readonly InboxIte
   ];
 }
 
+/** A tile's rows as drawn: a refresh keeps their relative order, new rows join the end, and the open item keeps its place after it leaves. */
+export function useTileRows(items: readonly InboxItem[], pinned: InboxItem | null, grouped = false) {
+  const [order, setOrder] = useState({ incoming: items, pinned, cards: items });
+  const changed = order.incoming !== items || order.pinned !== pinned;
+  const preserve = pinned && !items.some((item) => cardKey(item) === cardKey(pinned));
+  const visible = changed ? retainOrder(order.cards, preserve ? [...items, pinned] : items) : order.cards;
+  if (changed) setOrder({ incoming: items, pinned, cards: visible });
+  return grouped ? [...visible].sort(byGroup) : visible;
+}
+
 export function CardTile({
   title,
-  items,
+  rows,
+  count: live,
   pinned,
   current,
   row,
@@ -160,7 +171,9 @@ export function CardTile({
   grouped = false,
 }: {
   title: string;
-  items: readonly InboxItem[];
+  /** From useTileRows. */
+  rows: readonly InboxItem[];
+  count: number;
   pinned?: InboxItem | null;
   current: string | undefined;
   row: (item: InboxItem) => ReactNode;
@@ -171,19 +184,13 @@ export function CardTile({
   const [unfolded, setUnfolded] = useState(false);
   const isStacked = useStacked();
   const preview = isStacked ? phonePreviewCount : Number.POSITIVE_INFINITY;
-  const count = items.length + after.length;
-  const [order, setOrder] = useState({ incoming: items, pinned, cards: items });
-  const changed = order.incoming !== items || order.pinned !== pinned;
-  const preserve = pinned && !items.some((item) => cardKey(item) === cardKey(pinned));
-  const visible = changed ? retainOrder(order.cards, preserve ? [...items, pinned] : items) : order.cards;
-  if (changed) setOrder({ incoming: items, pinned, cards: visible });
-  if (!visible.length && !after.length) return null;
-  const ordered = grouped ? [...visible].sort(byGroup) : visible;
+  const count = live + after.length;
+  if (!rows.length && !after.length) return null;
   const kept = (item: InboxItem) => item.item_id === current || (pinned && cardKey(item) === cardKey(pinned));
-  const shown = expanded ? ordered : ordered.filter((item, index) => index < preview || kept(item));
+  const shown = expanded ? rows : rows.filter((item, index) => index < preview || kept(item));
   const inGroup = (group: ReminderGroup) => shown.filter((item) => grouped && reminderGroup(item) === group);
   const folded = inGroup("folded");
-  const late = visible.filter((item) => grouped && reminderGroup(item) === "Late").length;
+  const late = rows.filter((item) => grouped && reminderGroup(item) === "Late").length;
   return (
     <HomeTile
       title={title}
@@ -217,7 +224,7 @@ export function CardTile({
             {folded.length} more than two weeks late
           </button>
         ))}
-      {expanded ? after : after.slice(0, Math.max(0, preview - items.length))}
+      {expanded ? after : after.slice(0, Math.max(0, preview - live))}
     </HomeTile>
   );
 }
