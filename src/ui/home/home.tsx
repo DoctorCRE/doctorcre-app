@@ -1204,7 +1204,11 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             {activity && !reviewClient && (
               <>
                 {typeof activity.contact === "string" && <p>Call with {activity.contact}</p>}
-                {activityAt && <time dateTime={activityAt}>{snoozeDate.format(new Date(activityAt))}</time>}
+                {activityAt && (
+                  <p>
+                    <time dateTime={activityAt}>{snoozeDate.format(new Date(activityAt))}</time>
+                  </p>
+                )}
                 {typeof activity.summary === "string" && <p>{sourceExcerptText(activity.summary)}</p>}
                 {typeof activity.quote === "string" && <blockquote>{sourceExcerptText(activity.quote)}</blockquote>}
               </>
