@@ -1291,7 +1291,6 @@ export async function createFixtureClient(opts = {}) {
 
     async listDealDocuments(args) { return (await dealDocumentsFixture()).listDealDocuments(args); },
 
-    async readMarketTerms(args = {}) { return readMarketTerms(args); },
     async getDeal(dealId) {
       const deal = { ...getDealOrThrow(dealId) };
       const thread = (threads.get(dealId) || [])
@@ -3044,9 +3043,4 @@ export async function createFixtureClient(opts = {}) {
     'confirmEmailFiling', 'confirmEmailNextStep', 'confirmEmailDealProgress', 'dismissEmailProposal', 'editEmailDraft', 'submitEmailDraft',
   ].map(method => [method, async args => (await emails())[method](args)])));
   return opts.docContext === false ? client : observeDocClient(client);
-}
-
-function readMarketTerms(args = {}) {
-  const rows = [{canonical_fact_id:'fixture-rent', entity_ref:'d14', fact_key:'rent', version:1, value:'35', unit:'USD/sf/year', expense_basis:'NNN', confidence:'human_review', submarket:'North', use_type:'Office', term_kind:'executed', term_date:'2026-01-01', effective_from:'2026-01-01', effective_to:null, context_source:{document_ref:'fixture-lease'}, sources:[{document_ref:'fixture-lease',page_start:1,page_end:2,quarantined:true}]}].filter(row => (!args.submarket || row.submarket === args.submarket) && (!args.use_type || row.use_type === args.use_type));
-  return {ok:true,schema_version:'market-terms.v1',empty:!rows.length,rows,coverage:{recorded_documents:40,canonical_receipts:20,classified_receipts:12,eligible_receipts:1,unsupported_receipts:7,superseded_without_context:4,unclassified_receipts:8,comparable_deals:rows.length}};
 }

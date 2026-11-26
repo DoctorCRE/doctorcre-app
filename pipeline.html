@@ -44,7 +44,7 @@
         </div>
     </div>
 
-    <div class="app-section-tabs" data-layout-slot="title"><nav aria-label="Deals pages"><a href="/deals" aria-current="page">Local Deals</a><a href="/deals?view=national" aria-label="National Accounts"><span>National<span class="wide-only"> Accounts</span></span></a></nav><h1 id="pageTitle" class="sr-only">Local Deals</h1></div>
+    <div class="app-section-tabs" data-layout-slot="title"><nav aria-label="Deals pages"><a href="/deals" aria-current="page">Local Deals</a><a href="/deals?view=national" aria-label="National Accounts"><span>National<span class="wide-only"> Accounts</span></span></a></nav><h1 id="pageTitle" class="sr-only">Local Deals</h1><div class="deal-crumb"><button id="panelClose" type="button" aria-label="Back to deals">Deals</button><h1 id="panelTitle" tabindex="-1">Deal</h1></div></div>
     <div class="dealroom-heading"><div class="deal-heading-actions"><button class="btn" type="button" id="receiptsOpen" aria-controls="appToday">Recent changes <span id="receiptsCount">0</span></button><a class="btn" id="mondayReviewLink" href="/deals?view=review" hidden>Monday review</a></div>
         <div data-layout-slot="status" class="hero-meta">
           <span id="deploymentBadge" class="small"></span>
@@ -102,7 +102,7 @@
   </dialog>
 
   <main id="recordPanel" class="deal-workspace deal-detail" aria-label="Deal Workspace" hidden>
-    <header class="workspace-header"><div class="workspace-heading"><button class="btn" id="panelClose" type="button" aria-label="Back to deals">← Back to deals</button><h1 id="panelTitle" tabindex="-1">Deal</h1></div><div id="workspaceFacts"></div><nav id="workspaceTabs" role="tablist" aria-label="Deal workspace tabs"></nav></header>
+    <header class="workspace-header"><nav id="workspaceTabs" role="tablist" aria-label="Deal workspace tabs"></nav><div id="workspaceFacts"></div></header>
     <div id="panelBody"></div>
     <div class="panel-section" id="panelContextOpenWrap" hidden>
       <button class="btn" type="button" id="panelContextOpen" aria-haspopup="dialog">Client &amp; vendor context</button>

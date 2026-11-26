@@ -21,7 +21,6 @@ export { hostNode } from "./host-node";
 export { mountIdealClientProfile } from "./ideal-client-profile";
 export { mountLeadGuidance } from "./lead-guidance";
 export { mountLeadResearch } from "./lead-research";
-export { mountMarketTerms } from "./market-terms";
 export { mountMarketStudy, mountPortal } from "./portal/shell-home-sources";
 export { mountRelationshipKindFilter, relationshipKind } from "./relationship-kind-filter";
 export { mountWorkspace } from "./workspace-shell";

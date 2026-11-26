@@ -52,7 +52,7 @@ test('every deal snapshot opens with an empty Update above a concise overview an
   assert.equal(await page.locator('.deal-note').first().locator('time').getAttribute('datetime'),'2026-10-02T17:45:00Z');
   assert.equal(await page.locator('.timeline-chart').count(),0);
   assert.equal(await page.locator('[aria-label="Deal phases and timeline"]').count(),1);
-  await page.getByRole('tab', {name:'Correspondence & notes'}).click();
+  await page.getByRole('tab', {name:'Activity'}).click();
   await page.locator('#panelEvidence [data-refresh-detail]').first().waitFor();
   assert.match(await page.locator('#recordPanel').textContent(),/Email threads unavailable/);
   assert.match(await page.locator('#recordPanel').textContent(),/No meetings/);
@@ -72,7 +72,7 @@ test('notes and updates name the assistant as author and Correspondence Refresh 
  await page.getByRole('button',{name:'Refresh deal'}).click();
  await page.locator('.updates-history > summary').click();
  assert.equal(await page.locator('.deal-note[data-id="demo-agent"] b').textContent(),'Doc (assistant)');
- await page.getByRole('tab',{name:'Correspondence & notes'}).click();
+ await page.getByRole('tab',{name:'Activity'}).click();
  const note=page.locator('[aria-label="Deal notes"] .workspace-note',{hasText:'Demo assistant note'});
  assert.equal((await note.locator('b').textContent()),'Doc (assistant)');
  await page.locator('#panelEvidence [data-refresh-detail]').first().waitFor();
@@ -148,7 +148,7 @@ test('deal review prioritizes cards, page tabs and Add deal in both themes and w
   await page.keyboard.press('Escape');
   await page.locator('[data-id="d14"] .card-open').click();await page.locator('#detailUpdateForm').waitFor();
 
-  await page.getByRole('tab',{name:'Timeline',exact:true}).click();
+  await page.getByRole('tab',{name:'Activity',exact:true}).click();
   const rails=await page.locator('.phase-rail li').evaluateAll(nodes=>nodes.map(n=>Math.round(n.getBoundingClientRect().top)));
   assert.equal(new Set(rails).size,width===390?2:1,'phase dates fit without horizontal scrolling');
   assert.ok((await page.locator('.deal-timeline').boundingBox()).height<(width===390?330:200),'phase timeline stays compact');
@@ -189,7 +189,7 @@ test('phone timeline has one rail and unlinked context opens an explicit empty s
  const {page}=await open(t,390);
 
  await t.test('compact rail',async()=>{
-  await page.getByRole('tab',{name:'Timeline',exact:true}).click();
+  await page.getByRole('tab',{name:'Activity',exact:true}).click();
   const tops=await page.locator('.phase-rail li').evaluateAll(nodes=>nodes.map(n=>Math.round(n.getBoundingClientRect().top)));
   assert.equal(new Set(tops).size,2);
  });
@@ -231,8 +231,10 @@ test('phone deal title stays clear of Doc through the full timeline scroll',asyn
    return hits.slice(0,5);
   });
   assert.deepEqual(obscured,[],`title remains hit-testable at scroll ${top}`);
+  const pinned=await page.evaluate(()=>{const title=document.getElementById('panelTitle').getBoundingClientRect(),tabs=document.getElementById('workspaceTabs').getBoundingClientRect();return title.top>=0&&title.bottom<=tabs.top;});
+  assert.ok(pinned,`title stays on screen above the tab row at scroll ${top}`);
  }
- await page.getByRole('tab',{name:'Timeline',exact:true}).click();
+ await page.getByRole('tab',{name:'Activity',exact:true}).click();
  await page.locator('.deal-timeline').scrollIntoViewIfNeeded();
  await mkdir(new URL('out/test-artifacts/dealroom-final/',root),{recursive:true});
  await page.screenshot({path:new URL('out/test-artifacts/dealroom-final/390-d14-scrolled.png',root).pathname,animations:'disabled'});
@@ -291,7 +293,7 @@ test('deal card cleanup shows dates and one summary at 390/1280 in dark/light',a
   assert.equal(await page.locator('.deal-note:visible').count(),0);
   assert.match(await page.locator('.updates-history > summary').textContent(),/Newest demo update/);
   assert.doesNotMatch(await page.locator('.updates-history > summary').textContent(),/Older demo update/);
-  await page.getByRole('tab',{name:'Timeline',exact:true}).click();
+  await page.getByRole('tab',{name:'Activity',exact:true}).click();
   assert.equal(await page.locator('.phase-rail time:visible').count(),4);
   await page.getByRole('tab',{name:'Overview',exact:true}).click();
   assert.equal(await page.locator('.phase-rail time[datetime="2026-08-31"]').textContent(),'Aug 31, 2026');

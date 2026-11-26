@@ -7,7 +7,7 @@ import { chromium } from "./browser-harness.mjs";
 
 const shots = "out/test-artifacts/deal-page-fit";
 
-test("a deal page header is compact and every tab fits on laptops", async (t) => {
+test("a deal page puts the deal in the top bar and five tabs beside its facts", async (t) => {
   const server = await startWorkerFixture({
     assets: await appAssetSnapshot(),
     env: { APP_ENV: "fixture", CARR: { fetch: async () => new Response("synthetic") } },
@@ -20,7 +20,7 @@ test("a deal page header is compact and every tab fits on laptops", async (t) =>
   for (const [width, height] of [
     [390, 844],
     [1200, 800],
-    [1280, 800],
+    [1280, 640],
     [1440, 900],
   ] as const)
     for (const theme of ["light", "dark"] as const)
@@ -31,15 +31,25 @@ test("a deal page header is compact and every tab fits on laptops", async (t) =>
         const page = await context.newPage();
         await page.goto(`${server.origin}/deals?mode=fixture&deal=d14`);
         assert.equal(await page.locator("html").getAttribute("data-theme"), theme);
-        await page.locator("#panelTitle").filter({ hasText: "Demo Surgical Practice" }).waitFor();
-        // The fixture hides engine-only tabs; a signed-in partner sees all seven.
+        const topBar = page.locator("#appTopbar");
+        await topBar.getByRole("heading", { name: "Demo Surgical Practice", level: 1 }).waitFor();
+        assert.equal(await topBar.getByRole("button", { name: "Back to deals" }).isVisible(), true, "Deals leads back");
+        assert.equal(await topBar.getByRole("link", { name: "National Accounts" }).isVisible(), false);
+        // The fixture hides the engine-only Client portal tab; a signed-in partner sees all five.
         await page.locator('#workspaceTabs [role="tab"]').evaluateAll((tabs) => {
           for (const tab of tabs) tab.removeAttribute("hidden");
         });
-        await page.getByRole("tab", { name: "Client view" }).click();
-        await page.screenshot({ path: `${shots}/deal-client-view-${width}-${theme}.png` });
-
         const strip = page.locator("#workspaceTabs");
+        assert.deepEqual(await strip.getByRole("tab").allTextContents(), [
+          "Overview",
+          "Activity",
+          "Tours",
+          "Documents",
+          "Client portal",
+        ]);
+        await page.getByRole("tab", { name: "Client portal" }).click();
+        await page.screenshot({ path: `${shots}/deal-header-${width}-${theme}.png` });
+
         const phone = width < 651;
         if (phone) {
           const boxes = await strip
@@ -67,18 +77,18 @@ test("a deal page header is compact and every tab fits on laptops", async (t) =>
             })
             .map((tab) => tab.textContent);
         });
-        if (phone) {
-          assert.equal(outside.includes("Documents"), false, "the chosen tab scrolls whole into view");
-        } else assert.deepEqual(outside, [], "every tab shows whole");
-        const [title, header] = await Promise.all([
-          page.locator("#panelTitle").boundingBox(),
-          page.locator(".workspace-header").boundingBox(),
-        ]);
-        assert.ok(title && header && title.x >= header.x + 8, "the deal name sits clear of the header's edge");
-        if (width < 651) return;
+        if (phone) assert.equal(outside.includes("Documents"), false, "the chosen tab scrolls whole into view");
+        else assert.deepEqual(outside, [], "every tab shows whole");
+        if (phone) return;
 
-        const back = await page.getByRole("button", { name: "Back to deals" }).boundingBox();
-        assert.ok(back && back.y + back.height > title.y, "Back to deals and the deal name share one row");
+        const [tabs, facts] = await Promise.all([
+          strip.boundingBox(),
+          page.locator("#workspaceFacts dl").boundingBox(),
+        ]);
+        assert.ok(tabs && facts, "tabs and facts show");
+        assert.ok(facts.x >= tabs.x + tabs.width, "the facts sit right of the tabs");
+        assert.ok(facts.y < tabs.y + tabs.height && tabs.y < facts.y + facts.height, "the facts share the tab row");
+        assert.ok(tabs.y + tabs.height <= 120, "the tabs end near the top of the page");
       });
 });
 

@@ -104,7 +104,6 @@
  * @property {(args?:{signal?:AbortSignal}) => Promise<Object>} getPostCallFollowups pending post-call-followups.v1 metadata; email bodies remain local
  * @property {() => Promise<{deals:BoardDeal[], closed_deals?:Object[], as_of:string, last_call_at:string}>} getBoard
  * @property {(args:{client_id:string,base_version:number,status:'active'|'inactive',reason:string,expected_actor?:string,idempotency_key:string}) => Promise<Object>} setProspectEngagementStatus audited transition between Leads and the deal board
- * @property {(args:{submarket?:string,use_type?:string,as_of?:string}) => Promise<Object>} readMarketTerms confirmed firm history projection, pinned to carr-system a07acbe0b9be7bd7f3365a0c74a8460c99234a27
  * @property {(dealId:string) => Promise<DealDetail>} getDeal
  * @property {boolean} [changeFeedEnabled]
  * @property {(cursor:string|null) => Promise<ChangesResponse|null>} getChanges Null when the feed is retired.

@@ -69,6 +69,7 @@ async function openDeal(
     deal_id: dealId,
     name: "Example Cedar Dental Relocation",
     client_name: "Example Cedar Dental",
+    client_id: "00000000-0000-4000-8000-00000000c150",
     phase: "site_selection",
     owner: "joe",
     seen: 4 + writes.length,
@@ -159,11 +160,22 @@ for (const [width, height] of laptops) {
     const { page } = await openDeal(t, width, height);
     await page.screenshot({ path: `${shots}/overview-${width}.png` });
     const firstStep = await box(page.locator(".deal-open-steps .deal-step-owner").first());
-    const facts = await box(page.locator(".deal-snapshot-facts"));
     assert.ok(firstStep.y + firstStep.height <= height, "the deal owner's next step is on the first screen");
-    assert.ok(facts.y + facts.height <= height, "the deal's facts are on the first screen");
-    for (const fact of ["Deal kind", "Deal reason", "Market"])
-      assert.ok(await page.locator(".deal-snapshot-facts dt").getByText(fact, { exact: true }).isVisible(), fact);
+    const facts = page.locator("#workspaceFacts");
+    assert.deepEqual(await facts.locator("dd").allTextContents(), [
+      "Example Cedar Dental",
+      "Site Selection",
+      "Joe",
+      "Lease",
+      "Relocation",
+      "Example City",
+    ]);
+    assert.equal(
+      await facts.getByRole("link", { name: "Example Cedar Dental" }).getAttribute("href"),
+      "/clients?record=00000000-0000-4000-8000-00000000c150",
+      "the client's name opens the client",
+    );
+    assert.equal(await page.locator(".deal-snapshot-facts dt").getByText("Market").count(), 0, "facts show once");
   });
 
   test(`each critical date reads as a titled row with its own state and actions at ${width}`, async (t) => {
@@ -280,7 +292,7 @@ for (const [width, height] of laptops)
     const { page } = await openDeal(t, width, height);
     const header = await box(page.locator(".workspace-header"));
     const tabs = await box(page.locator("#workspaceTabs"));
-    assert.ok(tabs.y - header.y <= 96, "the tabs sit under one heading row and one line of facts");
+    assert.ok(tabs.y - header.y <= 8, "the tabs open the header, the deal's name being in the top bar");
     const factTops = await page
       .locator(".workspace-facts dd")
       .evaluateAll((all) => all.map((fact) => Math.round(fact.getBoundingClientRect().top)));
@@ -293,8 +305,7 @@ for (const [width, height] of laptops)
     const body = await page.locator("body").evaluate((body) => getComputedStyle(body).fontSize);
     const refresh = page.getByRole("button", { name: "Refresh deal" });
     for (const [tab, heading] of [
-      ["Timeline", "Dated events"],
-      ["Correspondence & notes", "Correspondence & notes"],
+      ["Activity", "Dated events"],
       ["Documents", "Documents"],
     ] as const) {
       await page.getByRole("tab", { name: tab }).click();
@@ -308,12 +319,11 @@ for (const [width, height] of laptops)
     const open = await box(page.getByRole("button", { name: "Open text for Example lease.pdf, Version 1" }));
     assert.ok(open.y < file.y + file.height && open.x > file.x + file.width, "Open text sits on the file's row");
 
-    await page.getByRole("tab", { name: "Correspondence & notes" }).click();
+    await page.getByRole("tab", { name: "Activity" }).click();
     const email = page.locator(".evidence-item").filter({ hasText: "Example suite floor plan" });
     const [sender, when] = [await box(email.locator(".evidence-source")), await box(email.locator("time"))];
     assert.equal(Math.round(sender.y), Math.round(when.y), "the sender and time share the row's second line");
 
-    await page.getByRole("tab", { name: "Timeline" }).click();
     const event = await box(page.locator(".workspace-events li").first());
     assert.ok(event.height <= 64, `a two-line timeline row is at most 64px, not ${event.height}`);
   });

@@ -2,7 +2,7 @@
 
 ## Sub-features
 
-With deal-tours-from-engine on, open a saved plan in a deal’s Tours tab to edit it, mark it done with the visited properties, or cancel it. Completed tours appear in Correspondence & notes. Cancellations appear in Timeline.
+With deal-tours-from-engine on, open a saved plan in a deal’s Tours tab to edit it, mark it done with the visited properties, or cancel it. Completed tours and cancellations appear in Activity.
 
 The legacy Tours view is a cross-deal library. A deal-bound row opens the deal workspace Tours tab. Legacy unbound tours remain readable. Tour creation starts only inside a deal workspace. The workspace embeds the existing route editor, which owns shortlist, route and retained-write recovery.
 

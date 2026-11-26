@@ -71,7 +71,7 @@ for (const width of [390, 1280]) for (const theme of ['dark', 'light']) {
     await nextAction.click();
     await page.waitForURL('**/deals?deal=*');
     await page.locator('#detailUpdateForm').waitFor();
-    assert.match(await page.locator('#recordPanel').innerText(), /Demo Vision Center/);
+    assert.match(await page.locator('#panelTitle').innerText(), /Demo Vision Center/);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   });
 }
@@ -142,7 +142,7 @@ for (const reverse of [false, true]) {
     await action.click();
     await page.waitForURL(url => url.pathname === '/deals'
       && url.searchParams.get('deal') === 'd03' && url.searchParams.get('mode') === 'fixture');
-    await page.locator('#recordPanel').getByRole('heading', { name: 'Demo Same Name', exact: true }).waitFor();
+    await page.locator('#panelTitle').getByText('Demo Same Name', { exact: true }).waitFor();
     await page.locator('#workspace-overview').getByText('Sooner flagged action', { exact: true }).waitFor();
   });
 }

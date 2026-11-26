@@ -253,7 +253,7 @@ test('switched linked routes serve guidance through their existing auth gates', 
   }
 });
 
-test('the switched client portal takes a signed-in partner with a deal link to Client view', async () => {
+test('the switched client portal takes a signed-in partner with a deal link to Client portal', async () => {
   const path = '/client-portal?deal=example&slug=old-website';
   for (const status of [200, 302]) {
     const env = {
@@ -266,7 +266,7 @@ test('the switched client portal takes a signed-in partner with a deal link to C
     assert.equal(response.status, 302);
     const target = new URL(response.headers.get('location'), request(path).url);
     if (status === 200) {
-      assert.equal(target.pathname + target.search, '/deals?deal=example&tab=client-view');
+      assert.equal(target.pathname + target.search, '/deals?deal=example&tab=client-portal');
       assert.equal(response.headers.get('cache-control'), 'no-store');
     } else {
       assert.equal(target.pathname, '/auth/login');

@@ -61,9 +61,9 @@ for (const width of [1440, 390])
     await page.getByRole("button", { name: "Refresh deal" }).first().click();
     await page.locator(".updates-history > summary").click();
     await assertLinked(page.locator('.deal-note[data-id="demo-linked"]'));
-    await page.getByRole("tab", { name: "Timeline", exact: true }).click();
+    await page.getByRole("tab", { name: "Activity", exact: true }).click();
     await assertLinked(page.locator(".workspace-events li", { hasText: "Called Demo Dental" }));
-    await page.getByRole("tab", { name: "Correspondence & notes" }).click();
+    await page.getByRole("tab", { name: "Activity" }).click();
     const notes = page.getByRole("region", { name: "Deal notes" });
     await assertLinked(notes);
     await notes.scrollIntoViewIfNeeded();

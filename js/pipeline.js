@@ -49,7 +49,7 @@ import { lostDeals, closedDeals, urgencyOrder, concise, invoiceClose, isPhaseMov
 import { sourceTime, stepOriginLabel } from './email-source-line.js';
 import {
   mountActivityAttribution, renderDealTimeline, renderDealUpdates, renderCriticalDates, askDateReason,
-  dealTimeline, engineTimelineEntries, renderImportedDealHistory, criticalDateLabel, dateCaption, calendarDay, CRITICAL_DATE_OPTIONS,
+  dealTimeline, engineTimelineEntries, renderImportedDealHistory, dateCaption, calendarDay, CRITICAL_DATE_OPTIONS,
 } from './deal-timeline.js';
 import { uuidv4 } from './uuid.js';
 import { linkRecordNames } from './ui-record-links.generated.js';
@@ -580,7 +580,6 @@ function applyBoardSnapshot(board) {
   bindDraftActor(state.selfActor);
   if (actorChanged || saveSwitchChanged) automaticPhase.clear();
   if (actorChanged) {
-    clearMarketTermsViews();
     pageDocContext?.clear();
     const contextRead = pageDocContext?.begin('getBoard');
     pageDocContext?.finish(contextRead, board);
@@ -1271,7 +1270,6 @@ function refusePanelDetail(error) {
   ++panelReadSequence;
   ++contextReadSequence;
   automaticPhase.setOpenDeal(state.panelDeal);
-  clearMarketTermsViews();
   state.panelDetail = null;
   disposeChecklist();
   disposeWatchControl();
@@ -1464,15 +1462,15 @@ async function copyRequirementDraft() {
 }
 export const workspaceTabs = [
   {id:'overview', label:'Overview'},
-  {id:'market-terms', label:'Compare terms'},
-  {id:'timeline', label:'Timeline'},
-  {id:'correspondence', label:'Correspondence & notes'},
+  {id:'activity', label:'Activity'},
   {id:'tours', label:'Tours'},
   {id:'documents', label:'Documents'},
-  {id:'client-view', label:'Client view'},
+  {id:'client-portal', label:'Client portal'},
 ];
+// Old links name tabs that were renamed or merged.
+const renamedTabs = {timeline:'activity', correspondence:'activity', 'client-view':'client-portal'};
 let workspaceTab = 'overview';
-let requestedClientView = false;
+let requestedClientPortal = false;
 let boardScroll = 0;
 let timelineType = '';
 history.scrollRestoration = 'manual';
@@ -1483,23 +1481,28 @@ function writeWorkspaceHistory(data, url, push = false) {
   history[push ? 'pushState' : 'replaceState'](workspaceHistory, '', url);
 }
 writeWorkspaceHistory(history.state, location.href);
-function renderNextCriticalDate(date) {
-  const day = calendarDay(date?.due_on);
-  if (!day) return '';
-  return `<div class="workspace-critical-date"><dt>Next critical date</dt><dd>${esc(criticalDateLabel(date.kind))} · <time datetime="${day}">${dateWords(day)}</time></dd></div>`;
-}
-function renderWorkspaceFacts(detail) {
+function workspaceFacts(detail) {
   const d = detail.deal;
   const fromEngine = isEngineDealDetail(detail);
   const client = d.client_name || d.client_ref;
   const parked = fromEngine && !isClosedDeal(d) && d.operating_state === 'parked';
   const phase = fromEngine && d.outcome === 'lost' ? 'Lost' : columnByValue(d.phase)?.label || d.phase || 'Not recorded';
-  $('workspaceFacts').innerHTML = `<dl class="workspace-facts">
-    ${client && (fromEngine || client !== dealTitle(d)) ? `<div class="workspace-client${fromEngine ? ' workspace-client-labeled' : ''}"><dt>Client</dt><dd title="${esc(client)}">${esc(client)}</dd></div>` : ''}
-    <div><dt>Phase</dt><dd>${esc(phase)}${parked ? ' · Parked' : ''}</dd></div>
-    <div><dt>Owner</dt><dd>${esc(actorName(d.owner) || 'Unassigned')}</dd></div>
-    ${fromEngine ? renderNextCriticalDate(d.next_critical_date) : ''}
-  </dl>`;
+  const national = d.workspace_kind === 'national_account' || d.account_client_id;
+  const market = fromEngine && national ? nationalMarketLabel(d.market) : d.market;
+  return [
+    client && (fromEngine || client !== dealTitle(d))
+      ? { label: 'Client', value: client, href: fromEngine && d.client_id ? `/clients?record=${encodeURIComponent(d.client_id)}` : '' } : null,
+    { label: 'Phase', value: `${phase}${parked ? ' · Parked' : ''}` },
+    { label: 'Owner', value: actorName(d.owner) || 'Unassigned' },
+    ...(fromEngine ? dealTypeFacts(d, dealTypeLabel) : []),
+    fromEngine && market ? { label: 'Market', value: market } : null,
+  ].filter(Boolean);
+}
+function renderWorkspaceFacts(detail) {
+  $('workspaceFacts').innerHTML = `<dl class="workspace-facts">${workspaceFacts(detail).map(({ label, value, href, note }) => {
+    const text = note ? `${value} · ${note}` : value;
+    return `<div><dt>${esc(label)}</dt><dd title="${esc(text)}">${href ? `<a href="${esc(href)}">${esc(text)}</a>` : esc(text)}</dd></div>`;
+  }).join('')}</dl>`;
 }
 // Scrolls only the strip sideways; scrollIntoView would also move a phone page whose header scrolled away.
 function revealTab(tab) {
@@ -1509,7 +1512,7 @@ function revealTab(tab) {
 }
 function selectWorkspaceTab(id) {
   workspaceTab = id;
-  requestedClientView = false;
+  requestedClientPortal = false;
   for (const tab of workspaceTabs) {
     const selected = tab.id === id;
     $(`tab-${tab.id}`).setAttribute('aria-selected', String(selected));
@@ -1517,11 +1520,10 @@ function selectWorkspaceTab(id) {
     if ($(`workspace-${tab.id}`)) $(`workspace-${tab.id}`).hidden = !selected;
   }
   revealTab($(`tab-${id}`));
-  if (id === 'market-terms') void marketTermsPanel?.load();
   if (id === 'documents') void dealDocumentsPanel?.load();
   if (id === 'tours') void dealToursPanel?.load();
   $('panelContextOpenWrap').hidden = id !== 'overview' || !state.panelDetail;
-  if (id === 'correspondence') {
+  if (id === 'activity') {
     const legacyEvidence = $('panelEvidenceSection');
     if (legacyEvidence) legacyEvidence.open = true;
   }
@@ -1546,7 +1548,7 @@ function workspaceEventsHtml(detail, nextItem, fromEngine, planTours) {
   if (!events.some(event => event.type === timelineType)) timelineType = '';
   return `<h2>Dated events</h2><label for="timelineType">Filter by kind</label><select id="timelineType"><option value="">All types</option>${[...new Set(events.map(e => e.type))].map(type => `<option${type === timelineType ? ' selected' : ''}>${esc(type)}</option>`).join('')}</select><ol class="workspace-events">${events.map(e => `<li data-event-type="${esc(e.type)}"${timelineType && e.type !== timelineType ? ' hidden' : ''}>${e.actor ? `<b>${esc(e.actor)}</b> ` : ''}<time datetime="${esc(e.when)}">${esc(e.caption)}</time><small>${esc(e.type)}</small><p class="note-original">${linkRecordNames(e.text, detail.record_links)}</p></li>`).join('')}</ol>${events.length ? '' : fromEngine ? '<p>No dated events yet.</p>' : '<p>No dated events recorded.</p>'}`;
 }
-let marketTermsPanel, dealToursPanel, dealDocumentsPanel;
+let dealToursPanel, dealDocumentsPanel;
 let checklistPanel;
 function disposeChecklist() { checklistPanel?.dispose(); checklistPanel = null; }
 function disposeWatchControl() { watchControl?.dispose(); watchControl = null; watchElement = null; watchSubject = null; }
@@ -1565,12 +1567,6 @@ function mountChecklist(detail) {
     if (retired) return;
     mounted = mountDealChecklist(host, props(latest));
   }).catch(() => { if (!retired) host.textContent = 'Checklist unavailable. Reopen the deal to try again.'; });
-}
-// Each deal's comparison is kept for the session and reattached when its tab reopens; an access change discards them all.
-const marketTermsViews = new Map();
-function clearMarketTermsViews() {
-  for (const view of marketTermsViews.values()) view.mounted?.dispose();
-  marketTermsViews.clear();
 }
 
 function dueDateHtml(day, today) {
@@ -1721,14 +1717,10 @@ function dealEmailFollowupsHtml({ correspondence, email_follow_ups, next_deal_sa
 
 function renderSnapshotFacts(deal, fromEngine) {
   const facts = [];
-  const national = deal.workspace_kind === 'national_account' || deal.account_client_id;
-  const market = fromEngine && national ? nationalMarketLabel(deal.market) : deal.market;
-  if (fromEngine && market) facts.push({ label: 'Market', value: market });
-  if (national) {
+  if (deal.workspace_kind === 'national_account' || deal.account_client_id) {
     facts.push({ label: 'Market agent', value: deal.market_agent || 'Unassigned' });
   }
-  if (fromEngine) facts.push(...dealTypeFacts(deal, dealTypeLabel));
-  else if (deal.type) facts.push({ label: 'Type', value: deal.type });
+  if (!fromEngine && deal.type) facts.push({ label: 'Type', value: deal.type });
   if (deal.outcome) facts.push({ label: 'Outcome', value: deal.outcome[0].toUpperCase() + deal.outcome.slice(1) });
   if (fromEngine && deal.outcome === 'lost') {
     facts.push(
@@ -1886,12 +1878,11 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
     <div data-detail-read="add-critical-date" data-available="${canAddCriticalDate}">${canAddCriticalDate ? criticalDateFormHtml() : ''}</div>
     ${renderCriticalDates(detail, Date.now(), state.nextDealSaves && Number.isSafeInteger(d.seen))}
     <div data-detail-read="updates">${renderDealUpdates(detail, Date.now(), { engineSignIn: engineMode, noteHtml: text => linkRecordNames(text, detail.record_links) })}</div></section>
-    <section id="workspace-market-terms" role="tabpanel" aria-labelledby="tab-market-terms" hidden></section>
     <section id="workspace-documents" role="tabpanel" aria-labelledby="tab-documents" hidden>${fromEngine ? `<h2>Documents</h2>${detail.next_deal_saves ? '<div id="deal-document-upload"></div>' : ''}<div data-detail-read="filed-documents">${filedDocumentsHtml(detail.documents)}</div>` : ''}</section>
-    <section id="workspace-client-view" role="tabpanel" aria-labelledby="tab-client-view" hidden>${fromEngine ? `<div data-detail-read="client-view">${websiteLink}</div>` : ''}</section>
+    <section id="workspace-client-portal" role="tabpanel" aria-labelledby="tab-client-portal" hidden>${fromEngine ? `<div data-detail-read="client-website">${websiteLink}</div>` : ''}</section>
     <section id="workspace-tours" role="tabpanel" aria-labelledby="tab-tours" hidden>${engineMode ? '<p>Not available yet</p>' : ''}</section>
-    <section id="workspace-timeline" role="tabpanel" aria-labelledby="tab-timeline" hidden><div data-detail-read="events">${workspaceEventsHtml(detail, nextItem, fromEngine, planTours)}</div>${fromEngine ? `<div data-detail-read="old-history">${renderImportedDealHistory(detail.imported_deal_history)}</div>` : renderDealTimeline(detail)}</section>
-    <section id="workspace-correspondence" role="tabpanel" aria-labelledby="tab-correspondence" hidden><h2>Correspondence &amp; notes</h2>
+    <section id="workspace-activity" role="tabpanel" aria-labelledby="tab-activity" hidden><div data-detail-read="events">${workspaceEventsHtml(detail, nextItem, fromEngine, planTours)}</div>${fromEngine ? `<div data-detail-read="old-history">${renderImportedDealHistory(detail.imported_deal_history)}</div>` : renderDealTimeline(detail)}
+      <h2>Correspondence &amp; notes</h2>
       ${fromEngine ? `<div data-detail-read="correspondence">${renderCorrespondence(detail.correspondence, detail.email_follow_ups.filter(row => row.kind === 'file_to_deal').length, { planTours })}</div>` : '<details id="panelEvidenceSection"><summary>Threads &amp; meetings</summary><div id="panelEvidence"></div></details>'}
       <div data-detail-read="notes">${workspaceNotesHtml(detail)}</div></section>`;
 }
@@ -2074,7 +2065,6 @@ async function readPanel(id) {
           else if (focused?.id) document.getElementById(focused.id)?.focus({preventScroll:true});
         }
       }
-      void marketTermsPanel?.refresh();
       void dealToursPanel?.refresh();
       void dealDocumentsPanel?.refresh();
       if ($('panelEvidenceSection')?.open) await refreshEvidence(detail, id, seq);
@@ -2109,18 +2099,10 @@ async function refreshEvidence(detail, id, seq) {
   root.innerHTML = template.innerHTML;
   root.querySelectorAll('details').forEach(n => { if (expanded.has(n.querySelector('summary')?.textContent)) n.open = true; });
 }
-async function engineMarkets(signal) {
-  try {
-    const response = await sessionFetch('/api/engine/markets', { headers: { accept: 'application/json' }, signal });
-    const markets = response.ok ? await response.json() : [];
-    return Array.isArray(markets) ? markets.filter(row => typeof row?.name === 'string') : [];
-  } catch { return []; }
-}
 
 function paintPanel(detail) {
   $('panelTitle').textContent = dealTitle(detail.deal);
   renderWorkspaceFacts(detail);
-  marketTermsPanel?.dispose();
   disposeChecklist();
   dealDocumentsPanel?.dispose(); dealDocumentsPanel = null;
   dealToursPanel?.dispose();
@@ -2142,42 +2124,6 @@ function paintPanel(detail) {
     $('detailNextStepEditor').open = !$('detailUpdateForm').querySelector('[data-discard-update]').hidden;
   }
   updateDetailTimestamp();
-  let marketDisposed = false, marketLoading = false;
-  const marketRead = new AbortController();
-  marketTermsPanel = {
-    async load() {
-      if (marketDisposed || marketLoading) return;
-      const root = $('workspace-market-terms');
-      const cached = marketTermsViews.get(detail.deal.id);
-      if (cached) { root.replaceChildren(cached.element); return; }
-      marketLoading = true;
-      root.textContent = 'Loading comparable terms…';
-      try {
-        const element = document.createElement('div');
-        let mounted;
-        if (engineMode) {
-          // A slow markets list costs the Market pre-fill, never the tab.
-          const listed = readWithDeadline(() => engineMarkets(marketRead.signal), { timeoutMs: 2000 }).catch(() => []);
-          const [{ mountCompareTerms }, markets] = await Promise.all([import('./ui-compare-terms.generated.js'), listed]);
-          if (marketDisposed) return;
-          const { id: dealId, market, market_id } = detail.deal;
-          // Imported city text often names no market; the tab prefills only a market on the engine's list.
-          const named = market_id ? markets.find(row => row.market_id === market_id)?.name ?? null : market ?? null;
-          mounted = mountCompareTerms(element, { request: sessionFetch, dealId, market: named, markets: markets.map(row => row.name) });
-        } else {
-          const { mountMarketTerms } = document.documentElement.hasAttribute('data-deals-saves-from-engine')
-            ? await import('./ui-market-cutover.generated.js') : await import('./ui-market.generated.js');
-          if (marketDisposed) return;
-          mounted = mountMarketTerms(element, { client: state.client, entityRef: detail.deal.id, submarket: detail.deal.submarket, useType: detail.deal.use_type, dealName: ref => { const match = state.deals.get(ref); return match ? dealTitle(match) : null; } });
-        }
-        marketTermsViews.set(detail.deal.id, { element, mounted });
-        root.replaceChildren(element);
-      } catch { if (!marketDisposed) root.textContent = 'Could not load comparable terms. Try again.'; }
-      finally { marketLoading = false; }
-    },
-    refresh() { return marketTermsViews.get(detail.deal.id)?.mounted.refresh(); },
-    dispose() { marketDisposed = true; marketRead.abort(); },
-  };
   const toursParams = new URLSearchParams(location.search);
   const linkedProperty = toursParams.get('deal') === detail.deal.id ? toursParams.get('property') : null;
   const property = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(linkedProperty ?? '') ? linkedProperty : null;
@@ -2298,9 +2244,9 @@ function paintPanel(detail) {
     confirmLeave() { return documentsMounted?.confirmLeave?.() ?? true; },
     dispose() { documentsDisposed = true; documentsMounted?.dispose(); },
   };
-  $('tab-client-view').hidden = !fromEngine;
-  selectWorkspaceTab(fromEngine && requestedClientView ? 'client-view'
-    : !fromEngine && workspaceTab === 'client-view' ? 'overview' : workspaceTab);
+  $('tab-client-portal').hidden = !fromEngine;
+  selectWorkspaceTab(fromEngine && requestedClientPortal ? 'client-portal'
+    : !fromEngine && workspaceTab === 'client-portal' ? 'overview' : workspaceTab);
   mountPanelActivityAttribution();
   void mountPanelEmailFollowups(detail.deal.id);
 }
@@ -2311,8 +2257,6 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   disposeWatchControl();
   dealDocumentsPanel?.dispose(); dealDocumentsPanel = null;
   dealToursPanel?.dispose(); dealToursPanel = null;
-  marketTermsPanel?.dispose();
-  marketTermsPanel = null;
   closeFiledDocumentText();
   selectDocRecord('deal', dealId);
   const panel = $('recordPanel');
@@ -2325,8 +2269,10 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   const focusStep = scope.get('deal') === dealId && scope.get('focus') === 'next-step';
   state.panelStepId = focusStep ? scope.get('step') : null;
   const toursLink = scope.get('deal') === dealId && (scope.has('property') || scope.get('tab') === 'tours');
-  workspaceTab = toursLink ? 'tours' : 'overview';
-  requestedClientView = !toursLink && scope.get('deal') === dealId && scope.get('tab') === 'client-view';
+  const linkedTab = scope.get('deal') === dealId ? scope.get('tab') : null;
+  const renamedTab = renamedTabs[linkedTab] ?? linkedTab;
+  workspaceTab = toursLink ? 'tours' : renamedTab === 'activity' ? 'activity' : 'overview';
+  requestedClientPortal = !toursLink && renamedTab === 'client-portal';
   timelineType = '';
   ++panelReadSequence;
   automaticPhase.setOpenDeal(dealId);
@@ -2345,7 +2291,7 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   $('panelBody').innerHTML = dealPlaceholderHtml;
   $('workspaceFacts').replaceChildren();
   $('workspaceTabs').innerHTML = workspaceTabs.map(tab => `<button class="workspace-tab" type="button" role="tab" id="tab-${tab.id}" aria-controls="workspace-${tab.id}" aria-selected="${tab.id === workspaceTab}" tabindex="${tab.id === workspaceTab ? 0 : -1}" data-workspace-tab="${tab.id}">${tab.label}</button>`).join('');
-  $('tab-client-view').hidden = true;
+  $('tab-client-portal').hidden = true;
   $('main').hidden = true; panel.hidden = false;
   document.body.classList.add('workspace-open');
   pageScroller().scrollTo({ top: 0, behavior: 'instant' });
@@ -2387,8 +2333,6 @@ async function closeWorkspace({ fromHistory = false } = {}) {
   disposeWatchControl();
   dealDocumentsPanel?.dispose(); dealDocumentsPanel = null;
   dealToursPanel?.dispose(); dealToursPanel = null;
-  marketTermsPanel?.dispose();
-  marketTermsPanel = null;
   if (!fromHistory && history.state?.doctorcreDealWorkspace) { history.back(); return; }
   if (!fromHistory && incomingScope.has('deal')) {
     const origin = dealsPageOrigin('review') || dealsPageOrigin('national');
@@ -2951,7 +2895,7 @@ function wire() {
   $('panelBody').addEventListener('change', async e => {
     if (e.target.id === 'timelineType') {
       timelineType = e.target.value;
-      $('workspace-timeline').querySelectorAll('[data-event-type]').forEach(row => { row.hidden = Boolean(e.target.value && row.dataset.eventType !== e.target.value); });
+      $('workspace-activity').querySelectorAll('[data-event-type]').forEach(row => { row.hidden = Boolean(e.target.value && row.dataset.eventType !== e.target.value); });
       return;
     }
     const id = state.panelDeal;
