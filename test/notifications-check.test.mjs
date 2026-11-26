@@ -801,8 +801,8 @@ test('an Updates change names a job plainly and a partner by first name', () => 
   const row = { id: '1', who: null, job: 'agent', what: 'moved the deal to LOI', record: 'Example Deal',
     changed_at: '2026-01-15T18:30:00Z', open_url: '/deals?deal=example' };
   const { changes } = parseChangesPage({ changes: [row, { ...row, id: '2', who: 'Alex Example', job: null },
-    { ...row, id: '3', job: 'call_capture' }], next_before: null });
-  assert.deepEqual(changes.map(change => change.actor), ['Written by the assistant', 'Alex', 'Automatically']);
+    { ...row, id: '3', job: 'call_capture' }, { ...row, id: '4', who: 'joe', job: null }], next_before: null });
+  assert.deepEqual(changes.map(change => change.actor), ['Written by the assistant', 'Alex Example', 'Automatically', 'Joe']);
   assert.equal(activityRows([{ actor: 'agent', verb: 'add-deal-note', recorded_at: '2026-01-15T18:30:00Z' }])[0].actor,
     'Written by the assistant');
 });

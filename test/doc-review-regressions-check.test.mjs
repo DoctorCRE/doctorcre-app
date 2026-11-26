@@ -127,3 +127,10 @@ test('R1/R5/R14 cached projection cannot recover failure or renew its observed t
  const ticket=c.begin('getBoard');c.fail(ticket);c.filter({query:''});
  assert.equal(c.project('getBoard',{deals:[{id:'sample',name:'Sample'}]}),false);assert.equal(c.snapshot().ready,false);
 });
+
+test('a deal and a lead owned by a partner slug show the first name',()=>{
+ const [deal]=normalizeDocRead('getBoard',{deals:[{id:'d1',name:'Sample deal',owner:'dell',version:1}]});
+ const [lead]=normalizeDocRead('getLeadBoard',{leads:[{id:'l1',name:'Sample lead',owner:'joe',version:1}]});
+ assert.equal(deal.fields.find(f=>f.label==='Owner').value,'Dell');
+ assert.equal(lead.fields.find(f=>f.label==='Owner').value,'Joe');
+});

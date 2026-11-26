@@ -45,10 +45,10 @@ function record(kind, row, id, title, fields, activity = []) {
   return { kind, id: String(id), title, version, fields,
     activity: activity.filter(item => text(item.text)).map(item => ({ text: item.text, at: item.at ?? null })) };
 }
-const deal = (row = {}) => record('deal', row, row.id, row.name, [field('Owner', row.owner), field('Stage', row.phase),
+const deal = (row = {}) => record('deal', row, row.id, row.name, [field('Owner', partnerName(row.owner) || null), field('Stage', row.phase),
   field('Next step', row.next_step), field('Due', row.next_date), field('Needs attention', row.attention)]);
 const lead = (row = {}) => record('lead', row, row.id, leadName(row),
-  [field('Owner', row.owner), field('Stage', row.stage), field('Score', row.score), field('Next step', row.next_action), field('Market', row.city || row.market)]);
+  [field('Owner', partnerName(row.owner) || null), field('Stage', row.stage), field('Score', row.score), field('Next step', row.next_action), field('Market', row.city || row.market)]);
 const conversation = (row = {}) => record('conversation', row, row.id, row.title,
   [field('Visibility', row.visibility), field('Last activity', row.latest_turn_at), field('Status', row.archived_at ? 'Archived' : 'Open')]);
 
@@ -70,7 +70,7 @@ export function normalizeDocRead(method, payload, args = []) {
       return [row];
     }
     case 'getLeadBoard': rows = payload.leads; map = row => record('lead', row, row.id, row.name,
-      [field('Owner', row.owner), field('Stage', row.stage), field('Score', row.score), field('Next step', row.next_action), field('Market', row.city || row.market)]); break;
+      [field('Owner', partnerName(row.owner) || null), field('Stage', row.stage), field('Score', row.score), field('Next step', row.next_action), field('Market', row.city || row.market)]); break;
     case 'getWorkspace': rows = payload.leads; map = lead; break;
     case 'getLeadDetail': {
       const row = lead(payload.detail);

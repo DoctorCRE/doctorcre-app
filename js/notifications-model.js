@@ -312,13 +312,16 @@ export function activityRows(events, zone = BUSINESS_TIME_ZONE) {
     }));
 }
 
+// Only a partner's sign-in slug reads as a first name; anyone else keeps the name as recorded.
+const changeActor = (who) => /^(joe|dell)$/i.test(who.trim()) ? partnerName(who) : who;
+
 export function parseChangesPage(page) {
   if (!Array.isArray(page?.changes) || (page.next_before !== null && !isText(page.next_before))) throw new Error("Invalid changes page");
   const changes = page.changes.map((row) => {
     const link = deepLinkView(row?.open_url);
     if (![row?.id, row?.what, row?.record].every(isText) || !(isText(row.who) || isText(row.job)) || !link.href ||
         !isDate(row.changed_at)) throw new Error("Invalid change");
-    return { id: row.id, actor: isText(row.who) ? partnerName(row.who) : knownAuthor(row.job) ?? "Automatically", verb: row.what, subject: row.record, at: row.changed_at, link, details: {} };
+    return { id: row.id, actor: isText(row.who) ? changeActor(row.who) : knownAuthor(row.job) ?? "Automatically", verb: row.what, subject: row.record, at: row.changed_at, link, details: {} };
   });
   const cursor = page.next_before === null ? { kind: "end" } : { kind: "more", before: page.next_before };
   return { changes, cursor };

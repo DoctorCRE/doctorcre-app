@@ -435,3 +435,10 @@ test('a client keeps its linked deal when Scope hides Deals', () => {
     assert.deepEqual(client.deals.map(deal => deal.name), [listedDeal.name, otherDeal.name]);
   }
 });
+
+test('a deal result names its partner owner by first name', () => {
+  const deal = { name: 'Synthetic deal', phase: 'closed', owner: 'joe', client_ref: null,
+    invoiced_on: null, closed_on: null, lane: null, outcome: null };
+  const group = groupSearchResults({ ...emptyPayload, deals: [deal] }).find(one => one.id === 'deals');
+  assert.equal(group.rows[0].facts.find(fact => fact.label === 'Owner').value, 'Joe');
+});
