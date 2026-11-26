@@ -10,7 +10,8 @@ const repository = fileURLToPath(new URL('../', import.meta.url));
 export async function createQaServer({buildRoot} = {}) {
   const assets = await appAssetSnapshot(buildRoot);
   const seed = JSON.parse(await readFile(resolve(repository,'data/board-seed.json'),'utf8'));
-  return {dispatch:createQaDispatcher({seed,assets}),start:({port=0}={}) => startWorkerFixture({assets,qaSeed:seed,port})};
+  // A QA server outlives one test: a lifetime request cap fails whichever test runs last.
+  return {dispatch:createQaDispatcher({seed,assets}),start:({port=0}={}) => startWorkerFixture({assets,qaSeed:seed,port,limits:{requests:Number.MAX_SAFE_INTEGER}})};
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
