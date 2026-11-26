@@ -8,6 +8,12 @@ const MS_PER_DAY = 86_400_000;
 // A bar's name has this much padding either side, and its metadata one gap and a right pad.
 const NAME_PAD = 16;
 const META_PAD = 16;
+const ARROW_CORNER = 5;
+const ARROW_EXIT = 10;
+const ARROW_ENTRY = 14;
+const ARROW_TIP_INSET = 1.5;
+const ARROW_HEAD_DEPTH = 4.5;
+const ARROW_HEAD_WING = 4;
 
 // A day is a whole number of days since 1970-01-01, so its place on the chart is plain arithmetic.
 export function dayOf(iso: string): number {
@@ -20,6 +26,21 @@ export function dayOf(iso: string): number {
 const dateOf = (day: number) => new Date(day * MS_PER_DAY);
 const label = (day: number, options: Intl.DateTimeFormatOptions) =>
   dateOf(day).toLocaleDateString("en-US", { timeZone: "UTC", ...options });
+
+export const yearOf = (day: number) => dateOf(day).getUTCFullYear();
+
+export function shortDate(day: number, refYear: number): string {
+  return label(day, { month: "short", day: "numeric", ...(yearOf(day) !== refYear && { year: "numeric" }) });
+}
+
+export function weekdayDate(day: number, refYear: number): string {
+  return label(day, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    ...(yearOf(day) !== refYear && { year: "numeric" }),
+  });
+}
 
 interface Tick {
   day: number;
@@ -80,4 +101,41 @@ export function labelLayout(nameWidth: number, metaWidth: number, barWidth: numb
     outside: !nameFits,
     showMeta: nameFits && metaWidth > 0 && nameWidth + NAME_PAD + metaWidth + META_PAD <= barWidth,
   };
+}
+
+export interface Point {
+  x: number;
+  y: number;
+}
+
+export interface ArrowRoute {
+  path: string;
+  backRoute: boolean;
+}
+
+// Right-angle route with rounded corners and an open arrowhead; routes back along the row divider when
+// the target starts left of (or too close to) the drop column.
+export function arrowPath(from: Point, to: Point, rowHeight: number): ArrowRoute {
+  const tx = to.x - ARROW_TIP_INSET;
+  const head = `M${tx - ARROW_HEAD_DEPTH} ${to.y - ARROW_HEAD_WING}L${tx} ${to.y}L${tx - ARROW_HEAD_DEPTH} ${to.y + ARROW_HEAD_WING}`;
+  const dy = to.y - from.y;
+  if (Math.abs(dy) < 1 && to.x >= from.x + ARROW_HEAD_DEPTH + ARROW_TIP_INSET) {
+    return { path: `M${from.x} ${from.y}H${tx}${head}`, backRoute: false };
+  }
+  const s = dy < 0 ? -1 : 1;
+  const mx = from.x + ARROW_EXIT;
+  if (Math.abs(dy) >= 1 && to.x >= mx + ARROW_CORNER + 5) {
+    const r = Math.min(ARROW_CORNER, Math.abs(dy) / 2);
+    const body = `M${from.x} ${from.y}H${mx - r}Q${mx} ${from.y} ${mx} ${from.y + r * s}V${to.y - r * s}Q${mx} ${to.y} ${mx + r} ${to.y}H${tx}`;
+    return { path: `${body}${head}`, backRoute: false };
+  }
+  const gy = from.y + (s * rowHeight) / 2;
+  const nx = Math.min(to.x - ARROW_ENTRY, mx - 2 * ARROW_CORNER);
+  const rv = Math.min(ARROW_CORNER, Math.abs(gy - from.y) / 2, Math.abs(to.y - gy) / 2 || ARROW_CORNER);
+  const body =
+    `M${from.x} ${from.y}H${mx - rv}Q${mx} ${from.y} ${mx} ${from.y + rv * s}` +
+    `V${gy - rv * s}Q${mx} ${gy} ${mx - rv} ${gy}` +
+    `H${nx + rv}Q${nx} ${gy} ${nx} ${gy + rv * s}` +
+    `V${to.y - rv * s}Q${nx} ${to.y} ${nx + rv} ${to.y}H${tx}`;
+  return { path: `${body}${head}`, backRoute: true };
 }

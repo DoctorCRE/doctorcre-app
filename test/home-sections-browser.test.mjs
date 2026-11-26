@@ -13,6 +13,7 @@ import { controlFloor } from "./control-floor.ts";
 const closeReview = /^(Close review|Back)$/;
 const closeItem = /^(Close|Back)$/;
 const closeAny = /^(Close|Back)/;
+const snoozedToast = title => new RegExp(`Snoozed until \\w{3}, \\w{3} \\d+: ${title}\\.`);
 
 describe('test/home-sections-browser.test.mjs', () => {
 const NOW = new Date('2026-11-03T10:00:00-06:00');
@@ -209,16 +210,13 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   };
   const openRow = async row => {
     await closeOther(row);
-    await row.getByRole('button', { name: 'Review', exact: true }).click();
+    await row.locator('h3 a').click();
   };
-  // A row opens from Review, or from its title when it has none, and closes from inside the review.
+  // A row opens from its title and closes from inside the review.
   const toggle = async row => {
     await closeOther(row);
-    for (const name of [closeReview, 'Review']) {
-      const button = row.getByRole('button', { name, exact: true });
-      if (await button.count()) return button.click();
-    }
-    return row.locator('h3 a').click();
+    const close = row.getByRole('button', { name: closeReview });
+    return (await close.count()) ? close.click() : row.locator('h3 a').click();
   };
   const waiting = inbox.getByRole('region', { name: 'In motion and waiting', exact: true });
   const confirmDrop = async (reason) => {
@@ -271,7 +269,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   const undo = page.getByRole('button', { name: 'Undo', exact: true });
   const clickSnooze = async () => {
     await card.getByRole('button', { name: 'Snooze', exact: true }).click();
-    await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
+    await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^Tomorrow/ }).click();
   };
   const original = state.items[0].base_version;
   const id = state.items[0].item_id;
@@ -308,7 +306,6 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   const notice = { ...state.items[3] };
   const update = inbox.getByRole('region', { name: 'Inbox', exact: true }).locator('[data-inbox-row]')
     .filter({ has: page.getByRole('link', { name: /The sample deal moved ahead/ }) });
-  await update.getByRole('button', { name: 'Review', exact: true }).click();
   await update.getByRole('button', { name: 'Drop', exact: true }).click();
   await confirmDrop('Already reviewed.');
   await update.waitFor({ state: 'detached' });
@@ -405,7 +402,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   const review = cardFor(/Did this happen\? Review the sample site/);
   await toggle(review);
   await review.getByRole('button', { name: 'Snooze', exact: true }).click();
-  await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
+  await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^Tomorrow/ }).click();
   await review.waitFor({ state: 'detached' });
   await closeOpen();
   assert.equal(writes.at(-1)[1].item_id, state.items[2].item_id);
@@ -426,7 +423,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
     const base_version = state.items.find(card => card.item_id === id).base_version;
     await toggle(row);
     await row.getByRole('button', { name: 'Snooze', exact: true }).click();
-    await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
+    await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^Tomorrow/ }).click();
     await today.locator(`[data-inbox-row="${id}"]`).waitFor({ state: 'detached' });
     await closeOpen();
     assert.equal(writes.at(-1)[1].item_id, id);
@@ -643,7 +640,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   assert.deepEqual(writes.at(-1)[1], { idempotency_key: writes.at(-1)[1].idempotency_key, version: 1, reason: 'Already answered.' });
   const lease = inbox.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: /Read the revised sample lease/ }) });
   await lease.getByRole('button', { name: 'Snooze', exact: true }).click();
-  await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
+  await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^Tomorrow/ }).click();
   const earlierUntil = writes.at(-1)[1].until;
   async function undoRestore(label, action, until, advanceClock = false) {
     // The bottom toast sits over In motion and waiting at 1440px, so this uses the keyboard.
@@ -785,7 +782,7 @@ for (const [width, theme, planner] of [[390, 'light'], [390, 'dark'], [1440, 'li
   };
   const section = name => page.getByRole('region', { name, exact: true });
   const reminder_ = item => item.action_id !== null;
-  const button = item => card(item).getByRole('button', { name: reminder_(item) ? 'Mark done' : 'Review', exact: true });
+  const button = item => reminder_(item) ? card(item).getByRole('button', { name: 'Mark done', exact: true }) : card(item).locator('h3 a');
   await card(task).waitFor();
   const seeAll = section('Inbox').getByRole('button', { name: /^See all/ });
   if (await seeAll.count()) await seeAll.click();
@@ -798,7 +795,7 @@ for (const [width, theme, planner] of [[390, 'light'], [390, 'dark'], [1440, 'li
   for (const item of [task, followUp, reminder, requirement, completion, meeting, call, feedback]) {
     const title = card(item).getByRole('heading', { name: item.title, exact: true });
     assert.ok((await title.evaluate(heading => heading.nextElementSibling?.textContent)).endsWith(item.why));
-    const box = await button(item).boundingBox();
+    const box = await (reminder_(item) ? button(item) : card(item).getByRole('button').first()).boundingBox();
     assert.ok(box?.width >= controlFloor(width) && box?.height >= controlFloor(width), `${item.primary_action} touch target`);
   }
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
@@ -809,12 +806,14 @@ for (const [width, theme, planner] of [[390, 'light'], [390, 'dark'], [1440, 'li
     assert.deepEqual(violations, []);
   }
   for (const item of [task, followUp, reminder, requirement, completion, meeting, call, feedback]) {
-    assert.deepEqual(await card(item).getByRole('button').allTextContents(), reminder_(item) ? ['Mark done', 'Snooze', 'Drop'] : ['Review']);
+    const actions = await card(item).getByRole('button').allTextContents();
+    if (reminder_(item)) assert.deepEqual(actions, ['Mark done', 'Snooze', 'Drop']);
+    else assert.ok(actions.includes('Snooze') && !actions.includes('Review'), `${item.title} snoozes from its row: ${actions}`);
   }
   await card(task).getByText('1 day late', { exact: false }).waitFor();
   assert.equal(await card(ownDone).count(), 0);
   assert.equal(await card(otherDone).count(), 0);
-  assert.deepEqual(await card(legacy).getByRole('button').allTextContents(), ['Review']);
+  assert.deepEqual(await card(legacy).getByRole('button').allTextContents(), ['Snooze', 'Drop']);
 
   await button(meeting).click();
   await card(meeting).getByText(/From this meeting.*Nov 2/).waitFor();
@@ -1292,8 +1291,7 @@ for (const { name, choices, kind, focus, dismiss, reasonRefused, reasonRequired,
   }));
   await open('/?mode=live');
   const card = page.getByRole('link', { name: mailCard.title });
-  if (choices) await page.locator('[data-inbox-row]').filter({ has: card }).getByRole('button', { name: 'Review', exact: true }).click();
-  else await card.click();
+  await card.click();
   const review = page.getByRole('region', { name: `Details for ${mailCard.title}` });
   const filing = review.getByRole('region', { name: 'File this email' });
   await filing.waitFor();
@@ -1663,7 +1661,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   state.items = [draft];
   await open('/?mode=live');
   const background = locator => locator.evaluate(node => getComputedStyle(node).backgroundColor);
-  const opener = page.getByRole('button', { name: 'Review', exact: true });
+  const opener = page.getByRole('button', { name: 'Snooze', exact: true });
   const accent = await page.evaluate(() => {
     const probe = document.body.appendChild(document.createElement('i'));
     probe.style.background = 'var(--accent)';
@@ -1671,7 +1669,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
     probe.remove();
     return color;
   });
-  assert.notEqual(await background(opener), accent, 'Review is a quiet button');
+  assert.notEqual(await background(opener), accent, 'Snooze is a quiet button');
   await page.getByRole('link', { name: draft.title }).click();
   const review = page.getByRole('region', { name: `Details for ${draft.title}` });
   const edit = review.getByRole('button', { name: 'Edit', exact: true });
@@ -1725,15 +1723,15 @@ for (const width of [1440]) test(`Home keeps other cards usable while a review i
   }
   for (const name of ['Snooze', 'Drop', 'Mark done']) assert.equal(await button(other.title, name).isDisabled(), false, name);
   await button(other.title, 'Snooze').click();
-  await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
-  await page.getByRole('status').filter({ hasText: `Snoozed: ${other.title}.` }).waitFor();
+  await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^Tomorrow/ }).click();
+  await page.getByRole('status').filter({ hasText: snoozedToast(other.title) }).waitFor();
   await card(swiped.title).evaluate(node => {
     const touch = x => new Touch({ identifier: 1, target: node, clientX: x, clientY: 100 });
     node.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, touches: [touch(300)] }));
     node.dispatchEvent(new TouchEvent('touchend', { bubbles: true, changedTouches: [touch(180)] }));
   });
-  await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
-  await page.getByRole('status').filter({ hasText: `Snoozed: ${swiped.title}.` }).waitFor();
+  await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^Tomorrow/ }).click();
+  await page.getByRole('status').filter({ hasText: snoozedToast(swiped.title) }).waitFor();
   assert.equal(await review.getByRole('button', { name: 'Send reply', exact: true }).isVisible(), true, 'the review stays open');
 });
 
@@ -1770,8 +1768,8 @@ for (const [width, height] of [[1280, 800], [1440, 900]]) test(`Home keeps other
   for (const other of [snoozed, finished, dropped]) for (const name of ['Snooze', 'Drop', 'Mark done'])
     assert.equal(await button(other.title, name).isDisabled(), false, `${name} on ${other.title} stays usable while the review saves`);
   await button(snoozed.title, 'Snooze').click();
-  await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
-  await page.getByRole('status').filter({ hasText: `Snoozed: ${snoozed.title}.` }).waitFor();
+  await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^Tomorrow/ }).click();
+  await page.getByRole('status').filter({ hasText: snoozedToast(snoozed.title) }).waitFor();
   await button(finished.title, 'Mark done').click();
   await page.getByRole('status').filter({ hasText: `Marked done: ${finished.title}.` }).waitFor();
   await button(dropped.title, 'Drop').click();
@@ -1866,7 +1864,7 @@ test('Home moves a snoozed card while the open review saves', async t => {
   hold = new Promise(resolve => { release = resolve; });
   const followUp = page.waitForRequest('**/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6');
   await snoozedRow.locator(':scope > .inbox-actions').getByRole('button', { name: 'Snooze', exact: true }).click();
-  await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
+  await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^Tomorrow/ }).click();
   await followUp;
   await review.getByRole('region', { name: 'Next step' }).getByRole('button', { name: 'Accept', exact: true }).click();
   await review.getByText('Waiting for server confirmation…', { exact: true }).waitFor();
@@ -1974,7 +1972,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
 });
 
 for (const width of [390, 1440]) {
-  test(`Home shows all 90 characters of an action on the first card view at ${width}px`, async t => {
+  test(`Home keeps a 90-character action on one line in Reminders and shows it in full when opened at ${width}px`, async t => {
     const { page, open, state } = await dashboard(t, width, 'light');
     const title = 'Send the revised floor plan to the practice manager before the lease review next Thursday.';
     state.items[0] = step(1, title);
@@ -1984,9 +1982,15 @@ for (const width of [390, 1440]) {
     await heading.waitFor();
     assert.deepEqual(await heading.evaluate(node => {
       const style = getComputedStyle(node);
-      const textFits = node.scrollHeight <= node.clientHeight && node.scrollWidth <= node.clientWidth;
-      return { lineClamp: style.webkitLineClamp, textOverflow: style.textOverflow, textFits };
-    }), { lineClamp: 'none', textOverflow: 'clip', textFits: true });
+      const link = node.querySelector('a') ?? node;
+      const oneLine = node.getBoundingClientRect().height < 1.5 * parseFloat(getComputedStyle(link).lineHeight);
+      return { lineClamp: style.webkitLineClamp, oneLine };
+    }), { lineClamp: '1', oneLine: true });
+    await heading.getByRole('link', { name: title, exact: true }).click();
+    const details = page.getByRole('region', { name: `Details for ${title}` });
+    await details.waitFor();
+    const detailHeading = details.getByRole('heading', { level: 4, name: title, exact: true });
+    assert.equal(await detailHeading.evaluate(node => node.scrollWidth <= node.clientWidth && node.scrollHeight <= node.clientHeight), true);
   });
 
   test(`Home explains when a next step failed at ${width}px`, async t => {
@@ -3232,19 +3236,12 @@ async function homeDropFixture(t, width, { items, invalidDrop = false, theme, pa
   await open(`${path}?mode=live`);
   const rows = items.map(card => page.locator(`[data-inbox-row="${card.item_id}"]`));
   for (const row of rows) await row.waitFor();
-  // Inbox rows offer Snooze and Drop inside the open review.
-  const review = async row => {
-    const opener = row.getByRole('button', { name: 'Review', exact: true });
-    if (!(await opener.count())) return;
-    await opener.click();
-    await row.getByRole('region', { name: /^Details for/ }).waitFor();
-  };
   const dialog = page.getByRole('dialog', { name: 'Drop with a reason' });
   const confirm = async (reason) => {
     await dialog.getByRole('textbox', { name: 'Reason for dropping' }).fill(reason);
     await dialog.getByRole('button', { name: 'Drop', exact: true }).click();
   };
-  return { page, state, rows, review, writes, dialog, confirm, confirmation: page.locator('.toast[role="status"]'), alert: page.locator('.inbox-notice[role="alert"]') };
+  return { page, state, rows, writes, dialog, confirm, confirmation: page.locator('.toast[role="status"]'), alert: page.locator('.inbox-notice[role="alert"]') };
 }
 
 const dropCard = (number, fields) => ({
@@ -3286,8 +3283,7 @@ for (const [label, card, expectedPath, expectedBody, path = '/'] of [
     '/inbox',
   ],
 ]) for (const width of [390, 1440]) test(`${path === '/' ? 'Home' : 'Inbox'} drops a ${label} card through its engine route with a trimmed reason at ${width}px`, async t => {
-  const { page, rows: [row], review, writes, dialog, confirm, confirmation } = await homeDropFixture(t, width, { items: [card], path });
-  await review(row);
+  const { page, rows: [row], writes, dialog, confirm, confirmation } = await homeDropFixture(t, width, { items: [card], path });
   const buttons = await row.getByRole('button').allTextContents();
   assert.equal(buttons[buttons.indexOf('Snooze') + 1], 'Drop', buttons.join(', '));
   const drop = row.getByRole('button', { name: 'Drop', exact: true });
@@ -3319,22 +3315,19 @@ for (const width of [390, 1440]) test(`Home hides Drop on Tour feedback, Fact re
     dropCard(76, { item_id: `reply_draft:${id(76)}`, source_type: 'email_proposal', kind_label: 'Reply draft',
       title: 'Failed reply to the sample landlord', source_state: 'failed', reply_draft_id: id(76), reply_draft_status: 'failed' }),
   ];
-  const { rows, review } = await homeDropFixture(t, width, { items });
+  const { rows } = await homeDropFixture(t, width, { items });
   for (const row of rows) {
-    await review(row);
     await row.getByRole('button', { name: 'Snooze', exact: true }).waitFor();
     assert.equal(await row.getByRole('button', { name: 'Drop', exact: true }).count(), 0);
-    await row.getByRole('button', { name: closeAny }).click();
   }
 });
 
 for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Home confirms a snooze at the bottom with Undo at ${width}px in ${theme}`, async t => {
   const card = dropCard(78, { item_id: `notification:${id(78)}`, source_type: 'notification', kind_label: 'Update', title: 'Sample reminder to snooze' });
-  const { page, rows: [row], review, writes } = await homeDropFixture(t, width, { items: [card], theme });
-  await review(row);
+  const { page, rows: [row], writes } = await homeDropFixture(t, width, { items: [card], theme });
   await row.getByRole('button', { name: 'Snooze', exact: true }).click();
-  await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
-  const toast = page.getByRole('status').filter({ hasText: 'Snoozed: Sample reminder to snooze.' });
+  await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^Tomorrow/ }).click();
+  const toast = page.getByRole('status').filter({ hasText: snoozedToast('Sample reminder to snooze') });
   await toast.waitFor();
   assert.equal(await toast.getAttribute('aria-atomic'), 'true');
   const box = await toast.boundingBox();
@@ -3349,18 +3342,80 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   await undone.waitFor();
   assert.deepEqual(writes.map(write => write.body.action), ['snooze', 'unsnooze']);
   assert.equal(await undone.getByRole('button').count(), 0, 'an undo is not itself offered for undo');
-  await row.getByRole('button', { name: 'Review', exact: true }).waitFor();
+  await row.getByRole('button', { name: 'Snooze', exact: true }).waitFor();
   await page.clock.runFor(5_000);
   await undone.waitFor({ state: 'detached' });
 });
 
+for (const width of [390, 1440]) test(`An Inbox row snoozes and drops without opening, with no Review button, at ${width}px`, async t => {
+  const cards = [82, 83].map(n => dropCard(n, { item_id: `notification:${id(n)}`, source_type: 'notification', kind_label: 'Update', title: `Sample update ${n}` }));
+  const { page, rows: [first, second], writes, confirm } = await homeDropFixture(t, width, { items: cards });
+  const inbox = page.getByRole('region', { name: 'Inbox', exact: true });
+  assert.equal(await inbox.getByRole('button', { name: 'Review', exact: true }).count(), 0);
+  await first.getByRole('button', { name: 'Drop', exact: true }).click();
+  await confirm('Already handled.');
+  await first.waitFor({ state: 'detached' });
+  await second.getByRole('button', { name: 'Snooze', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^Next week/ }).click();
+  await page.getByRole('status').filter({ hasText: snoozedToast('Sample update 83') }).waitFor();
+  assert.equal(await page.getByRole('region', { name: /^Details for/ }).count(), 0, 'neither row opened');
+  assert.deepEqual(writes.map(write => write.body.action), ['drop', 'snooze']);
+  assert.equal(writes[1].body.until, '2026-11-09T14:00:00.000Z', 'Next week is Monday 8:00 AM Central');
+});
+
+for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Snooze's calendar picks a later month's day at 8:00 AM Central at ${width}px in ${theme}`, async t => {
+  const card = dropCard(84, { item_id: `notification:${id(84)}`, source_type: 'notification', kind_label: 'Update', title: 'Sample update to schedule' });
+  const { page, rows: [row], writes } = await homeDropFixture(t, width, { items: [card], theme });
+  await row.getByRole('button', { name: 'Snooze', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Snooze cards' });
+  const calendar = dialog.getByRole('region', { name: 'Pick a date' });
+  assert.deepEqual(await dialog.getByRole('button', { name: /^(Tomorrow|Next week|1 hour)/ }).allTextContents(), ['TomorrowWed, Nov 4', 'Next weekMon, Nov 9']);
+  await calendar.getByRole('heading', { name: 'November 2026' }).waitFor();
+  assert.equal(await calendar.getByRole('button', { name: 'Previous month' }).isDisabled(), true);
+  assert.equal(await calendar.getByRole('button', { name: 'Monday, November 2, 2026' }).isDisabled(), true, 'a past day');
+  assert.equal(await calendar.getByRole('button', { name: 'Tuesday, November 3, 2026' }).isDisabled(), true, "today, after 8:00 AM");
+  assert.equal(await calendar.getByRole('button', { name: 'Tuesday, November 3, 2026' }).evaluate(node => getComputedStyle(node).fontWeight), '400', 'a disabled today is not bold');
+  assert.equal(await calendar.getByRole('button', { name: 'Wednesday, November 4, 2026' }).isDisabled(), false);
+  const day = calendar.getByRole('button', { name: 'Tuesday, December 1, 2026' });
+  await calendar.getByRole('button', { name: 'Next month' }).click();
+  await calendar.getByRole('heading', { name: 'December 2026' }).waitFor();
+  const ring = () => day.evaluate(node => getComputedStyle(node).borderColor);
+  assert.equal(await ring(), 'rgba(0, 0, 0, 0)');
+  await day.hover();
+  assert.notEqual(await ring(), 'rgba(0, 0, 0, 0)', 'hovering draws a circle');
+  assert.equal(await day.evaluate(node => getComputedStyle(node).borderRadius), '999px');
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  await mkdir('test-artifacts/snooze-calendar', { recursive: true });
+  await page.screenshot({ path: `test-artifacts/snooze-calendar/home-${width}-${theme}.png` });
+  await calendar.getByRole('button', { name: 'Previous month' }).click();
+  await calendar.getByRole('heading', { name: 'November 2026' }).waitFor();
+  await calendar.getByRole('button', { name: 'Next month' }).click();
+  await day.click();
+  await page.getByRole('status').filter({ hasText: 'Snoozed until Tue, Dec 1: Sample update to schedule.' }).waitFor();
+  assert.deepEqual(writes.map(write => [write.body.action, write.body.until]), [['snooze', '2026-12-01T14:00:00.000Z']]);
+});
+
+for (const width of [1280, 1440]) for (const theme of ['light', 'dark']) test(`a long Inbox title never sits under Snooze and Drop on hover at ${width}px in ${theme}`, async t => {
+  const title = 'Reply to the broker about the revised lease terms and confirm the tour times for the second building before Friday so the client can decide';
+  const card = dropCard(85, { item_id: `notification:${id(85)}`, source_type: 'notification', kind_label: 'Update', title });
+  const { page, rows: [row] } = await homeDropFixture(t, width, { items: [card], theme });
+  await row.hover();
+  const overlap = await row.evaluate(node => {
+    const copy = node.querySelector('.inbox-copy').getBoundingClientRect();
+    const actions = node.querySelector('.inbox-actions').getBoundingClientRect();
+    return copy.right - actions.left;
+  });
+  assert.ok(overlap <= 0, `the title ends ${overlap}px past where the actions begin`);
+  await mkdir('test-artifacts/snooze-calendar', { recursive: true });
+  await page.screenshot({ path: `test-artifacts/snooze-calendar/long-row-${width}-${theme}.png` });
+});
+
 test('Home keeps the bottom Undo unusable while a later save is unresolved', async t => {
   const cards = [80, 81].map(n => dropCard(n, { item_id: `notification:${id(n)}`, source_type: 'notification', kind_label: 'Update', title: `Sample reminder ${n}` }));
-  const { page, state, rows: [first, second], review, writes } = await homeDropFixture(t, 1440, { items: cards });
+  const { page, state, rows: [first, second], writes } = await homeDropFixture(t, 1440, { items: cards });
   const snooze = async row => {
-    await review(row);
     await row.getByRole('button', { name: 'Snooze', exact: true }).click();
-    await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
+    await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^Tomorrow/ }).click();
   };
   await snooze(first);
   const undo = page.locator('.toast').getByRole('button', { name: 'Undo', exact: true });
@@ -3371,15 +3426,14 @@ test('Home keeps the bottom Undo unusable while a later save is unresolved', asy
   assert.equal(await undo.isDisabled(), true, 'Undo waits while the later save is unresolved');
   state.unanswered = false;
   await page.getByRole('button', { name: 'Retry same request', exact: true }).click();
-  await page.getByRole('status').filter({ hasText: 'Snoozed: Sample reminder 81.' }).waitFor();
+  await page.getByRole('status').filter({ hasText: snoozedToast('Sample reminder 81') }).waitFor();
   assert.deepEqual(writes.map(write => [write.body.action, write.body.item_id]),
     [['snooze', cards[0].item_id], ['snooze', cards[1].item_id], ['snooze', cards[1].item_id]]);
 });
 
 for (const width of [390, 1440]) test(`Home alerts and keeps a card when the engine refuses Drop with 400 invalid_field_value at ${width}px`, async t => {
   const card = dropCard(77, { item_id: `notification:${id(77)}`, source_type: 'notification', kind_label: 'Update', title: 'Reminder the server refuses to drop' });
-  const { page, rows: [row], review, writes, confirm, alert } = await homeDropFixture(t, width, { items: [card], invalidDrop: true });
-  await review(row);
+  const { page, rows: [row], writes, confirm, alert } = await homeDropFixture(t, width, { items: [card], invalidDrop: true });
   await row.getByRole('button', { name: 'Drop', exact: true }).click();
   await confirm('Already handled.');
   await alert.getByText("This card can't be dropped. Nothing was saved.", { exact: true }).waitFor();

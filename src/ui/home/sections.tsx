@@ -34,11 +34,11 @@ const phonePreviewCount = 4;
 export const cardKey = (item: InboxItem) => item.card_id ?? item.item_id;
 const waitingSections: readonly InboxItem["section"][] = ["working", "held", "snoozed"];
 
-/** The whole instruction when a reminder's heading is that instruction, or the start of it cut with "…". */
-export function wholeInstruction(title: string, why: string | undefined) {
-  if (!why) return null;
+/** Whether why only repeats the reminder's heading, or expands a heading cut with "…". */
+export function repeatsTitle(title: string, why: string | undefined) {
+  if (!why) return false;
   const cut = title.endsWith("…") && why.startsWith(title.slice(0, -1).trimEnd());
-  return cut || why === title ? why : null;
+  return cut || why === title;
 }
 
 export function tileOf(item: InboxItem): HomeTileName {

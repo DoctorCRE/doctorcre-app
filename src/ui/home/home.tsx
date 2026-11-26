@@ -42,19 +42,17 @@ import {
   HomeGrid,
   lateDays,
   PlaceholderTile,
+  repeatsTitle,
   tileOf,
   useStacked,
   useTileRows,
-  wholeInstruction,
 } from "./sections";
+import { SnoozeMenu } from "./snooze-menu.tsx";
+import { snoozeUntil } from "./snooze-times.ts";
 import { sourceExcerptText } from "./source-excerpt.ts";
 import { TodayMeetings } from "./today-meetings.tsx";
 
-type SnoozePreview = Readonly<{
-  items: readonly InboxItem[];
-  choices: ReadonlyArray<Readonly<{ hours: number; until: string; label: string }>>;
-  error: string;
-}>;
+type SnoozePreview = Readonly<{ items: readonly InboxItem[]; error: string }>;
 type Pending = { request: Command; before: readonly InboxItem[]; undoing?: true };
 type Save = "card" | "review";
 type Undo = { items: readonly InboxItem[] } & (
@@ -85,12 +83,11 @@ function snoozeLabel(item: InboxItem) {
     : null;
 }
 
-const SAVED: Record<Exclude<Command["action"], "cover">, string> = {
+const SAVED: Record<Exclude<Command["action"], "cover" | "snooze">, string> = {
   complete: "Marked done",
   done: "Marked done",
   reopen: "Reopened",
   undo_done: "Reopened",
-  snooze: "Snoozed",
   settle: "Hidden from inbox",
   unsettle: "Back in your inbox",
   unsnooze: "Back in your inbox",
@@ -105,6 +102,15 @@ function coveredNames(covers: readonly Cover[]) {
   const shown = names.slice(0, 2);
   return `${shown.join(", ")} and ${names.length + unnamed - shown.length} more`;
 }
+function coveredSummary(covers: readonly Cover[]) {
+  const names = [...new Set(covers.flatMap((entry) => (entry.record_name ? [entry.record_name] : [])))];
+  const unnamed = covers.filter((entry) => !entry.record_name).length;
+  const list =
+    names.length > 1 || (names.length === 1 && unnamed > 0)
+      ? `${names.join(", ")}${unnamed ? ` and ${unnamed} more` : ""}`
+      : null;
+  return list ? `Covers ${covers.length} reminders · ${list}` : `Covers ${covers.length} reminders`;
+}
 // Names the people whose reminders did not save when the card lists people, else counts them.
 function coverFailure(covers: readonly Cover[], results: readonly ItemResult[]) {
   const failed = covers.filter((_, index) => !results[index]?.ok);
@@ -116,8 +122,14 @@ function coverFailure(covers: readonly Cover[], results: readonly ItemResult[]) 
       : `${failed.length} ${failed.length === 1 ? "wasn't" : "weren't"} saved.`;
   return saved ? `Saved ${saved} of ${covers.length}. ${rest}` : `None of the ${covers.length} reminders were saved.`;
 }
-const savedMessage = (action: keyof typeof SAVED, items: readonly InboxItem[]) =>
-  `${SAVED[action]}: ${items.length === 1 ? items[0]?.title : `${items.length} cards`}.`;
+const snoozedLabel = (until: string) => `Snoozed until ${callDate.format(new Date(until))}`;
+function savedLabel(request: Command) {
+  if (request.action === "cover")
+    return request.change === "snooze" ? snoozedLabel(request.until) : SAVED[request.change];
+  return request.action === "snooze" ? snoozedLabel(request.args.until) : SAVED[request.action];
+}
+const savedMessage = (label: string, items: readonly InboxItem[]) =>
+  `${label}: ${items.length === 1 ? items[0]?.title : `${items.length} cards`}.`;
 // An Undo stays offered only while the card is still the version this save produced.
 function undoable(entry: Undo, items: readonly InboxItem[]) {
   if (!("mark" in entry)) return true;
@@ -141,6 +153,23 @@ function homeCardCue(item: InboxItem) {
   if (item.source_state === "needs_attention" && item.kind_label === "Reply draft") return "Draft ready";
   return null;
 }
+
+/** A hyphenated word is one word, so a one-line cut never ends inside it. */
+function keepWordsWhole(title: string): ReactNode {
+  let at = 0;
+  return title.split(/(\S+-\S+)/).map((part, index) => {
+    const key = at;
+    at += part.length;
+    return index % 2 ? (
+      <span key={key} className="home-whole-word">
+        {part}
+      </span>
+    ) : (
+      part
+    );
+  });
+}
+
 export function inboxRefusal(code: unknown): string {
   switch (code) {
     case "version_conflict":
@@ -423,24 +452,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
   const snoozeOpener = useRef<HTMLElement | null>(null);
   const [snoozeCancelled, setSnoozeCancelled] = useState(0);
   function openSnooze(items: readonly InboxItem[]) {
-    const openedAt = Date.now();
-    const formatter = new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/Chicago",
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-      second: "2-digit",
-    });
-    setSnooze({
-      items,
-      error: "",
-      choices: [1, 24].map((hours) => {
-        const until = new Date(openedAt + hours * 3_600_000).toISOString();
-        return { hours, until, label: formatter.format(new Date(until)) };
-      }),
-    });
+    setSnooze({ items, error: "" });
   }
   function cancelSnooze() {
     setSnooze(null);
@@ -492,7 +504,6 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
       const results = await client.run(operation.request);
       if (!mounted.current) return;
       if (operation.request.action === "cover") {
-        const { change } = operation.request;
         const saved = results.filter((result) => result.ok).length;
         const snapshot = results.find((result) => result.snapshot)?.snapshot;
         if (snapshot) await updateAfterSave(snapshot);
@@ -503,7 +514,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
         if (saved === results.length) {
           if (reviewing && operation.before.some((item) => item.item_id === reviewing.item_id)) moveOn(reviewing);
           // No Undo: it could restore only some of the covered steps.
-          confirmSave(savedMessage(change, operation.before));
+          confirmSave(savedMessage(savedLabel(operation.request), operation.before));
           setPending(null);
         } else showNotice(coverFailure(operation.request.covers, results), true);
         focusRow(neighbours);
@@ -553,7 +564,10 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
       const otherUndo = operation.undoing && undo.some((entry) => entry.items !== operation.before);
       // One card's save is confirmed at the bottom; a multi-card save keeps an Undo per card here.
       if (settled && fresh.length <= 1 && !otherUndo) {
-        confirmSave(operation.undoing ? "Undone." : savedMessage(operation.request.action, operation.before), fresh[0]);
+        confirmSave(
+          operation.undoing ? "Undone." : savedMessage(savedLabel(operation.request), operation.before),
+          fresh[0],
+        );
         if (!operation.undoing) setUndo([]);
         setPending(null);
         focusRow(operation.undoing ? operation.before.map((item) => item.item_id) : neighbours);
@@ -854,7 +868,6 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             : (namedRecord && item.context_label) || `Open ${sourcePage}`}
       </a>
     );
-    const whole = home && tileOf(item) === "reminders" ? wholeInstruction(item.title, presentation?.why) : null;
     const titleLink = canOpen ? (
       <Link
         data-shortcut-open={home ? "" : undefined}
@@ -869,10 +882,10 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
           if (!openingLocked && !directUrl) openCard(item, event.currentTarget);
         }}
       >
-        {whole ?? item.title}
+        {keepWordsWhole(item.title)}
       </Link>
     ) : (
-      (whole ?? item.title)
+      keepWordsWhole(item.title)
     );
     const snoozeButton = snoozable && (
       <button
@@ -909,15 +922,16 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
         : item.due_on === today
           ? "Today"
           : item.due_on && cardDate.format(new Date(item.due_on)));
+    const repeats = tile === "reminders" && repeatsTitle(item.title, presentation?.why);
     const line =
       tile === "waiting"
         ? [snoozeLabel(item) || hold || waitingOn || detail, returns]
         : [
-            item.context_label,
+            covered ? null : item.context_label,
             cue,
             item.covers && `Covers ${item.covers.length} reminders`,
             covered,
-            whole ? detail : presentation?.why || detail,
+            repeats ? detail : presentation?.why || detail,
             emailAt && `Received ${snoozeDate.format(new Date(emailAt))}`,
           ];
     const deepLinked = item_id === item.item_id && !open && (
@@ -981,13 +995,8 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             {edge && <span className={daysLate ? "home-edge home-late" : "home-edge"}>{edge}</span>}
             {!open && (
               <div className="inbox-actions">
-                {tile === "reminders" && snoozeButton}
-                {tile === "reminders" && dropButton}
-                {tile === "inbox" && (
-                  <button type="button" disabled={openingLocked} onClick={(event) => openDetails(event.currentTarget)}>
-                    Review
-                  </button>
-                )}
+                {tile !== "waiting" && snoozeButton}
+                {tile !== "waiting" && dropButton}
                 {tile === "waiting" && wakeable && (
                   <button type="button" disabled={busy} onClick={() => act(markAction, [item])}>
                     {primary}
@@ -1160,7 +1169,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
                 return;
               }
               if (receipt)
-                confirmSave(savedMessage("complete", [current]), { action: "reopen", items: [current], receipt });
+                confirmSave(savedMessage(SAVED.complete, [current]), { action: "reopen", items: [current], receipt });
             }}
           >
             {finishedElsewhere && <p role="status">This card was finished elsewhere.</p>}
@@ -1173,7 +1182,8 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
               </div>
             )}
             {!finishedElsewhere && !item.engine_marks && due && <p>Due {due}</p>}
-            {presentation && (feedbackReview || isDoneStep(item)) && <p>{presentation.why}</p>}
+            {presentation && (tile === "reminders" || feedbackReview || isDoneStep(item)) && <p>{presentation.why}</p>}
+            {home && item.covers && <p>{coveredSummary(item.covers)}</p>}
             {isDoneStep(item) && <p>{completionLabel(item)}</p>}
             {linkedRecord}
             {!finishedElsewhere && tourDone && (
@@ -1495,53 +1505,23 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
         />
       )}
       {snooze && (
-        <dialog
-          className="inbox-snooze"
-          ref={(node) => {
-            if (node && !node.open) node.showModal();
+        <SnoozeMenu
+          count={snooze.items.length}
+          error={snooze.error}
+          cancel={cancelSnooze}
+          choose={(day) => {
+            const until = snoozeUntil(day);
+            if (Date.parse(until) <= Date.now()) {
+              setSnooze({ ...snooze, error: "That day's 8:00 AM has passed. Choose a later day." });
+              return;
+            }
+            const rows = snooze.items;
+            setSnooze(null);
+            const [only] = rows;
+            if (rows.length === 1 && only?.covers) saveCovers(only, { change: "snooze", until });
+            else act("snooze", rows, until);
           }}
-          onCancel={() => {
-            cancelSnooze();
-          }}
-          aria-label="Snooze cards"
-        >
-          <h2>Snooze {snooze.items.length === 1 ? "card" : `${snooze.items.length} cards`}</h2>
-          <p>Choose when this returns to your inbox.</p>
-          {snooze.error && <p role="alert">{snooze.error}</p>}
-          {snooze.choices.map((choice) => (
-            <button
-              type="button"
-              ref={(button) => {
-                if (choice.hours === 1) button?.focus();
-              }}
-              key={choice.hours}
-              onClick={() => {
-                if (Date.parse(choice.until) <= Date.now()) {
-                  setSnooze({
-                    ...snooze,
-                    error: "This return time has passed. Cancel and reopen Snooze to choose a new time.",
-                  });
-                  return;
-                }
-                const rows = snooze.items;
-                setSnooze(null);
-                const [only] = rows;
-                if (rows.length === 1 && only?.covers) saveCovers(only, { change: "snooze", until: choice.until });
-                else act("snooze", rows, choice.until);
-              }}
-            >
-              {choice.hours === 1 ? "1 hour" : "24 hours"} · <time dateTime={choice.until}>{choice.label}</time>
-            </button>
-          ))}
-          <button
-            type="button"
-            onClick={() => {
-              cancelSnooze();
-            }}
-          >
-            Cancel
-          </button>
-        </dialog>
+        />
       )}
       {!home && (
         <footer className="inbox-footer">

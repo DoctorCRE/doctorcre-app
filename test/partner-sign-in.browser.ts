@@ -1233,7 +1233,7 @@ test("Home filing searches vendors on the engine session", async (t) => {
   ]);
   const page = await context.newPage();
   await page.goto(server.origin + "/?mode=live");
-  await page.getByRole("button", { name: "Review", exact: true }).click();
+  await page.locator("[data-inbox-row] h3 a").first().click();
   const filing = page.getByRole("region", { name: "File this email", exact: true });
   await filing.getByRole("button", { name: "Choose vendor", exact: true }).click();
   const name = "Demo Partner 62";
@@ -1655,7 +1655,7 @@ async function followTourFeedbackLink(page: Page, origin: string, engineTours = 
     });
   }
   await page.goto(`${origin}/?mode=live`);
-  await page.getByRole("button", { name: "Review", exact: true }).click();
+  await page.getByRole("link", { name: feedbackTitle, exact: true }).click();
   const card = page.getByRole("region", { name: `Details for ${feedbackTitle}` });
   await card.getByText(feedbackText, { exact: true }).waitFor();
   await card.getByRole("link", { name: "Open property", exact: true }).click();
@@ -1678,8 +1678,7 @@ test("engine sign-in opens the linked property from Home and finishes the feedba
   assert.equal(await property.getByText(annex.address, { exact: true }).count(), 0);
 
   await page.goto(`${server.origin}/?mode=live`);
-  const review = page.getByRole("button", { name: "Review", exact: true });
-  await review.click();
+  await page.getByRole("link", { name: feedbackTitle, exact: true }).click();
   const card = page.getByRole("region", { name: `Details for ${feedbackTitle}` });
   await card.getByRole("button", { name: "Done", exact: true }).click();
   await page.getByRole("link", { name: feedbackTitle, exact: true }).waitFor({ state: "detached" });

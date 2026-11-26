@@ -325,8 +325,8 @@ for (const width of [390, 1440]) for (const surface of ['/', '/inbox', '/inbox/c
   const card = page.locator('[data-inbox-row="one"]');
   const home = surface === '/';
   const opener = home ? card.locator('h3 a') : card.getByRole('button', { name: 'Open', exact: true });
-  const finish = row.action_id && sourceState === 'needs_attention' ? 'Mark done' : home ? 'Review' : 'Open';
-  if (home) assert.equal(await card.getByRole('button', { name: finish, exact: true }).count(), 1);
+  const finish = row.action_id && sourceState === 'needs_attention' ? 'Mark done' : home ? null : 'Open';
+  if (home) assert.equal(await card.getByRole('button', { name: finish ?? 'Review', exact: true }).count(), finish ? 1 : 0);
   else assert.equal(await card.getByRole('button', { name: finish, exact: true }).getAttribute('class'), 'inbox-primary');
   assert.equal(await opener.count(), 1);
   assert.equal(await card.getByRole('button', { name: 'Hide from inbox', exact: true }).count(), sourceState === 'working' || surface === '/' ? 0 : 1);

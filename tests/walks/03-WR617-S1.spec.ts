@@ -7,7 +7,7 @@ test("03 WR617.S1", async ({ page }) => {
   await row.getByRole("button", { name: "Snooze", exact: true }).click();
   await page
     .getByRole("dialog", { name: "Snooze cards", exact: true })
-    .getByRole("button", { name: /^1 hour/ })
+    .getByRole("button", { name: /^Tomorrow/ })
     .click();
   const waiting = page.getByRole("region", { name: "In motion and waiting", exact: true });
   await visible(
