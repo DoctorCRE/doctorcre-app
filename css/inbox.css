@@ -87,6 +87,11 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
   .home-column:first-child { flex-grow: 1.15; }
   .home-column.home-side { flex-grow: 0.75; }
   .home-column:empty { display: none; }
+  /* An opened item covers the middle and right columns beside Reminders; it stays in its row for reading order. */
+  .home-sections { position: relative; }
+  .home-sections:has(.home-inline-review) > .home-column:not(:first-child) :is(.home-column > :not(:has(.home-inline-review)), .inbox-row:not(:has(.home-inline-review))) { visibility: hidden; }
+  .home-sections .home-slice .inbox-row:has(> .home-inline-review) { position: static; }
+  .home-sections .home-inline-review { visibility: visible; position: absolute; z-index: 2; inset-block: 0; inset-inline-end: 0; inset-inline-start: calc((100% - 2 * var(--space-4)) * 1.15 / 2.9 + var(--space-4)); overflow-y: auto; overscroll-behavior: contain; padding: var(--space-3) var(--space-4); border-top: 0; background: var(--surface-1); border-radius: var(--panel-radius); }
 }
 @media (min-width: 1000px) and (min-height: 600px) {
   .has-app-layout main:has(.home-inbox) .inbox-shell { padding-bottom: 0; }

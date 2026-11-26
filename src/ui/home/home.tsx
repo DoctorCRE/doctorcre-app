@@ -43,6 +43,7 @@ import {
   lateDays,
   PlaceholderTile,
   tileOf,
+  wholeInstruction,
 } from "./sections";
 import { sourceExcerptText } from "./source-excerpt.ts";
 import { TodayMeetings } from "./today-meetings.tsx";
@@ -812,6 +813,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             : (namedRecord && item.context_label) || `Open ${sourcePage}`}
       </a>
     );
+    const whole = home && tileOf(item) === "reminders" ? wholeInstruction(item.title, presentation?.why) : null;
     const titleLink = canOpen ? (
       <Link
         data-shortcut-open={home ? "" : undefined}
@@ -826,10 +828,10 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
           if (!openingLocked && !directUrl) openCard(item, event.currentTarget);
         }}
       >
-        {item.title}
+        {whole ?? item.title}
       </Link>
     ) : (
-      item.title
+      (whole ?? item.title)
     );
     const snoozeButton = snoozable && (
       <button
@@ -868,7 +870,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             cue,
             item.covers && `Covers ${item.covers.length} reminders`,
             covered,
-            presentation?.why || detail,
+            whole ? detail : presentation?.why || detail,
             emailAt && `Received ${snoozeDate.format(new Date(emailAt))}`,
           ];
     const deepLinked = item_id === item.item_id && !open && (

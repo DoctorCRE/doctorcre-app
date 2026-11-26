@@ -142,3 +142,38 @@ test("text a person wrote never folds", () => {
   ])
     assert.deepEqual(splitSignature(body, "Pat Example"), { text: body, signature: null });
 });
+
+// Shape seen on a bank's mail: a social line, a table-cell signature with Unicode hyphens, then a legal notice and a banner.
+const bankSignature = [
+  "Pat Example",
+  ",",
+  "SVP/Example Market President",
+  "100 Example Coast Pkwy, Suite 106",
+  ",",
+  "Exampleton",
+  ",",
+  "FL",
+  "30000",
+  "D:",
+  "(555) 010‑0100",
+  "C:",
+  "(555) 010‑0101",
+  "E:",
+  "pat@example.test",
+  "NMLS# 000000",
+].join("\n");
+const legalFooter =
+  "Notice: This communication is intended only for the person or entity to whom it is addressed. If you received this in error, please reply and delete it.\n\nExample Bank | Share Portal – click to send documents securely.";
+
+test("a signature with Unicode-hyphen phones and a legal notice under it folds with the notice", () => {
+  const body = `What's the story on this building?\n\nFollow us\n${bankSignature}\n${legalFooter}`;
+  assert.deepEqual(splitSignature(body, "Pat Example"), {
+    text: "What's the story on this building?\n\nFollow us\nPat Example",
+    signature: `${bankSignature.slice("Pat Example\n".length)}\n${legalFooter}`,
+  });
+});
+
+test("a legal notice with no signature above it stays visible", () => {
+  const body = `Please review the attached lease.\n${legalFooter}`;
+  assert.deepEqual(splitSignature(body, "Pat Example"), { text: body, signature: null });
+});

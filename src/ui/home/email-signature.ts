@@ -28,7 +28,8 @@ const signOffs = [
 ];
 // Punctuation or a line end after the phrase, so "Thanks for the tour." stays a sentence.
 const signOff = new RegExp(String.raw`^(?:${signOffs.join("|")})(?:[,.!]|(?=[^\S\n]*(?:\n|$)))\s*`, "iu");
-const reachableSource = String.raw`\(?\b\d{3}\)?[\s.-]*\d{3}[\s.-]\d{4}\b|[\w.+-]+@[\w-]+(?:\.[\w-]+)+|(?:https?:\/\/|www\.)\S+|\b[\w-]+(?:\.[\w-]+)*\.(?:com|net|org|co|io|us)\b(?:\/\S*)?`;
+// Phone separators include Unicode hyphens, which Outlook signatures often use.
+const reachableSource = String.raw`\(?\b\d{3}\)?[\s.\-‐‑–]*\d{3}[\s.\-‐‑–]\d{4}\b|[\w.+-]+@[\w-]+(?:\.[\w-]+)+|(?:https?:\/\/|www\.)\S+|\b[\w-]+(?:\.[\w-]+)*\.(?:com|net|org|co|io|us)\b(?:\/\S*)?`;
 const reachable = new RegExp(reachableSource, "i");
 const everyReachable = new RegExp(reachableSource, "gi");
 const contactLabelSource = String.raw`\b(?:(?:phone|tel|cell|mobile|fax|office|direct|email|e-mail|web|ext|x)\b\s*[:.]?|[pfmcote]\s*[:.)])`;
@@ -73,8 +74,23 @@ function anchorEnd(body: string, start: number, sender: string | null): number |
   return start + (line.length < rest.length && !reachable.test(line) ? line.length : name.length);
 }
 
-/** Folds the contact details after a message's sign-off or sender's name; with neither, or with writing after them, nothing folds. */
+// A legal notice that opens a company's footer, such as "Notice: This communication is intended only for…".
+const legalNotice =
+  /^(?:(?:confidentiality |legal |important )?notice|disclaimer|confidential(?:ity)?)\s*:|^this (?:e-?mail|message|communication)\b[^\n]*\bintended (?:only |solely )?for\b/i;
+
+/** Folds the contact details after a message's sign-off or sender's name, and a legal footer right after them; with neither, or with other writing after them, nothing folds. */
 export function splitSignature(body: string, sender: string | null): { text: string; signature: string | null } {
+  const footerAt = [...body.matchAll(/\n\s*(?=\S)/g)]
+    .map(({ index, 0: gap }) => index + gap.length)
+    .find((start) => legalNotice.test(body.slice(start)));
+  if (footerAt !== undefined) {
+    const { text, signature } = contactFold(body.slice(0, footerAt), sender);
+    if (signature !== null) return { text, signature: body.slice(text.length).trim() };
+  }
+  return contactFold(body, sender);
+}
+
+function contactFold(body: string, sender: string | null): { text: string; signature: string | null } {
   const breaks = [...body.matchAll(sentenceOrLineBreak)];
   const parts = [0, ...breaks.map(({ index, 0: gap }) => index + gap.length)].map((start, at) => ({
     start,
