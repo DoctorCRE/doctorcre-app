@@ -53,7 +53,7 @@ export function DealsTile() {
   const heading = line([
     [review.open, "open"],
     [review.parked, "parked"],
-    [review.national, "in national accounts"],
+    [review.national, "national"],
     [review.prospects, review.prospects === 1 ? "prospect" : "prospects"],
   ]);
   const thisWeek = line([

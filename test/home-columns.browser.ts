@@ -378,9 +378,9 @@ test("Deals counts the Monday review's items and the board's phases, and Coming 
   const link = (name: string) => tile.getByRole("link", { name, exact: true }).getAttribute("href");
   assert.equal(
     (await tile.getByRole("heading", { level: 2 }).textContent())?.replaceAll("\u00a0", " "),
-    "Deals 3 open · 1 parked · 1 in national accounts · 2 prospects",
+    "Deals 3 open · 1 parked · 1 national · 2 prospects",
   );
-  assert.equal(await link("3 open · 1 parked · 1 in national accounts · 2 prospects"), "/deals");
+  assert.equal(await link("3 open · 1 parked · 1 national · 2 prospects"), "/deals");
   assert.equal(await link("Research 1"), "/deals?column=research");
   assert.equal(await link("Example Deal 1 Step 3 days late"), `/deals?deal=${id(101)}`);
   assert.equal(await link("Example Deal 2 Flagged by a partner"), `/deals?deal=${id(102)}`);
@@ -400,7 +400,7 @@ for (const [width, height] of [
   [1440, 900],
   [1280, 640],
 ] as const)
-  test(`At ${width}x${height} the Deals heading holds a practice's counts in two lines, and the week's closings sit on the Monday review line`, async (t) => {
+  test(`At ${width}x${height} the Deals heading holds a practice's counts on one line, and the week's closings sit on the Monday review line`, async (t) => {
     const page = await openHome(t, width, height);
     const items = (count: number, state: string, workspace: string, operating: string) =>
       Array.from({ length: count }, () => reviewDeal(state, workspace, operating));
@@ -422,13 +422,13 @@ for (const [width, height] of [
     await heading.getByText("37 open").waitFor();
     assert.equal(
       (await heading.textContent())?.replaceAll("\u00a0", " "),
-      "Deals 37 open · 27 parked · 16 in national accounts · 12 prospects",
+      "Deals 37 open · 27 parked · 16 national · 12 prospects",
     );
     assert.ok(
       await heading.evaluate(
-        (node) => node.getBoundingClientRect().height < 2.5 * parseFloat(getComputedStyle(node).lineHeight),
+        (node) => node.getBoundingClientRect().height < 1.5 * parseFloat(getComputedStyle(node).lineHeight),
       ),
-      "the heading is at most two lines",
+      "the heading is one line",
     );
     assert.equal(
       (await tile.getByRole("link", { name: /^Monday review/ }).textContent())?.replaceAll("\u00a0", " "),
