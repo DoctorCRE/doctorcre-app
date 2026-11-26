@@ -727,11 +727,24 @@ function DocChat() {
 
   useEffect(() => {
     if (!chatsOpen) return;
-    const panel = chatsPanel.current;
-    (panel?.querySelector<HTMLElement>("[aria-current]") ?? panel?.querySelector("a"))?.focus();
     document.addEventListener("keydown", onDrawerKey);
     return () => document.removeEventListener("keydown", onDrawerKey);
   }, [chatsOpen]);
+
+  // On a slow phone the drawer can open before the list arrives; focus moves to the current chat once it shows,
+  // unless the partner has moved focus since the drawer placed it.
+  const currentListed = recent.some((chat) => chat.id === id);
+  const drawerFocus = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!chatsOpen) {
+      drawerFocus.current = null;
+      return;
+    }
+    if (drawerFocus.current && drawerFocus.current !== document.activeElement) return;
+    drawerFocus.current =
+      chatsPanel.current?.querySelector<HTMLElement>(currentListed ? "[aria-current]" : "a") ?? null;
+    drawerFocus.current?.focus();
+  }, [chatsOpen, currentListed]);
 
   function closeChats() {
     setChatsOpen(false);
@@ -861,7 +874,7 @@ function DocChat() {
           </ul>
           {noChats && <p>No conversations yet</p>}
           {nextBefore && (
-            <button className="doc-chat__older" type="button" disabled={busy} onClick={loadOlder}>
+            <button className="doc-chat__older" type="button" aria-disabled={busy || undefined} onClick={loadOlder}>
               Older chats
             </button>
           )}
