@@ -18,9 +18,7 @@ import {
 const IDEM_TTL_MS = 60 * 60 * 1000;
 const PORTAL_ORIGIN = 'https://share.doctorcre.com';
 /** The cells patch-deal-field bases on; mirrors the record layer's DEAL_ROOM_FIELDS. */
-const BASED_FIELDS = ['phase', 'owner', 'attention', 'next_date', 'operating_state'];
-// A deal's `attention` is the engine's { reason, since }; the partner-set flag it replaced is stored as `needs_attention`.
-const storedField = field => field === 'attention' ? 'needs_attention' : field;
+const BASED_FIELDS = ['phase', 'owner', 'next_date', 'operating_state'];
 
 export function createFixtureDealStore(seed) {
   const events = structuredClone(seed.seed_events || []).sort((a, b) => a.recorded_at.localeCompare(b.recorded_at));
@@ -318,7 +316,7 @@ export async function createFixtureClient(opts = {}) {
         conflict_id,
         deal,
         field,
-        a: { actor: 'server', value: d[storedField(field)], event_id: last },
+        a: { actor: 'server', value: d[field], event_id: last },
         b: { actor, value, event_id: null },
       };
       conflicts.set(conflict_id, { ...payload, pending_value: value, pending_actor: actor, verb });
@@ -327,9 +325,8 @@ export async function createFixtureClient(opts = {}) {
 
     const old = field === 'operating_state'
       ? { state:d.operating_state, reason:d.parking_reason, note:d.parking_note }
-      : d[storedField(field)];
-    if (field === 'attention') d.needs_attention = !!value;
-    else if (field === 'owner') d.owner = value || null;
+      : d[field];
+    if (field === 'owner') d.owner = value || null;
     else if (field === 'phase') {
       if (!PHASES.includes(value)) throw new Error(`bad phase ${value}`);
       d.phase = value;
@@ -1441,9 +1438,8 @@ export async function createFixtureClient(opts = {}) {
         const actor = winner === 'a' ? selfActor : c.pending_actor;
         const old = c.field === 'operating_state'
           ? { state:d.operating_state, reason:d.parking_reason, note:d.parking_note }
-          : d[storedField(c.field)];
-        if (c.field === 'attention') d.needs_attention = !!chosen;
-        else if (c.field === 'operating_state') {
+          : d[c.field];
+        if (c.field === 'operating_state') {
           d.operating_state = chosen.state;
           d.parking_reason = chosen.state === 'parked' ? chosen.reason : null;
           d.parking_note = chosen.state === 'parked' ? chosen.note || null : null;

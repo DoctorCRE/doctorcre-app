@@ -616,7 +616,6 @@ function nextDealSave(verb, args) {
       }
       if (field === 'owner' && isString(value) && value) return changes({ fields: { owner: value } });
       if (field === 'market' && (value === null || isUuid(value))) return changes({ fields: { market_id: value } });
-      if (field === 'attention') return changes({ fields: { needs_attention: value } });
       if (field === 'operating_state' && value?.state === 'parked') {
         return changes({ fields: { parking_reason: value.reason, parking_note: value.note || null } });
       }
