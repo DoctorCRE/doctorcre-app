@@ -57,12 +57,9 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
 .home-edge { flex: none; color: var(--fg-muted); font-size: var(--font-size-1); }
 .home-group { margin: var(--space-3) 0 var(--space-1); color: var(--fg-muted); font-size: var(--font-size-1); font-weight: 600; }
 .inbox-shell .home-fold { min-height: var(--touch); padding: 0; border: 0; background: transparent; color: var(--fg-muted); font-size: var(--font-size-1); }
-/* With a pointer, Snooze and Drop on Reminders and Inbox rows cover the due label while the row is hovered or focused. */
+/* With a pointer, Snooze and Drop keep their own space at the row's end and show on hover or focus; the title shortens instead of sitting under them. */
 @media (hover: hover) {
-  .home-slice:is([aria-label="Reminders"], [aria-label="Inbox"]) .inbox-row { position: relative; }
-  .home-slice:is([aria-label="Reminders"], [aria-label="Inbox"]) .inbox-row > .inbox-actions { position: absolute; inset-inline-end: var(--space-2); top: 50%; translate: 0 -50%; }
   .home-slice:is([aria-label="Reminders"], [aria-label="Inbox"]) .inbox-row:not(:hover, :focus-within) > .inbox-actions { opacity: 0; }
-  .home-slice:is([aria-label="Reminders"], [aria-label="Inbox"]) .inbox-row:is(:hover, :focus-within) > .home-edge { visibility: hidden; }
 }
 /* By touch, Snooze and Drop sit under the row's text. */
 @media (max-width: 999px), (hover: none) {
@@ -135,6 +132,6 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
 .snooze-days { display: grid; grid-template-columns: repeat(7, var(--touch)); justify-content: space-between; row-gap: var(--space-1); margin-block: var(--space-2) var(--space-3); }
 .inbox-snooze.snooze-menu .snooze-days button { margin: 0; width: var(--touch); height: var(--touch); min-height: 0; padding: 0; border: 1px solid transparent; border-radius: var(--radius-round); background: transparent; color: var(--fg); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; }
 .inbox-snooze.snooze-menu .snooze-days button:not(:disabled):is(:hover, :focus-visible) { border-color: var(--fg); background: transparent; }
-.snooze-days button[aria-current="date"] { font-weight: 700; color: var(--accent-ink); }
+.snooze-days button[aria-current="date"]:not(:disabled) { font-weight: 700; color: var(--accent-ink); }
 .inbox-snooze.snooze-menu .snooze-days button:disabled { color: var(--fg-quiet); cursor: default; opacity: 1; }
 .inbox-snooze.snooze-menu .snooze-month header button:disabled { color: var(--fg-quiet); opacity: 1; }

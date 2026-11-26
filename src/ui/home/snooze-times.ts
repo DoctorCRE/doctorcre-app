@@ -10,10 +10,10 @@ export const snoozeUntil = (day: string) => centralInstant(`${day}T08:00`);
 
 export const snoozeTomorrow = (now: Date) => addDays(centralToday(now), 1);
 
-/** The coming Monday; on a Monday, the one after. */
+/** The coming Monday; on a Monday, the one after; on a Sunday, the one after tomorrow. */
 export function snoozeNextWeek(now: Date) {
   const today = centralToday(now);
-  return addDays(today, (8 - weekday(today)) % 7 || 7);
+  return addDays(today, 8 - weekday(today));
 }
 
 export const canSnoozeTo = (day: string, now: Date) => Date.parse(snoozeUntil(day)) > now.getTime();

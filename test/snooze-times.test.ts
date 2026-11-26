@@ -23,7 +23,7 @@ test("Tomorrow across the spring-forward night returns at 8:00 AM daylight time"
 
 test("Next week is the coming Monday at 8:00 AM Central", () => {
   assert.equal(snoozeNextWeek(at("2026-11-26T15:00:00Z")), "2026-11-30");
-  assert.equal(snoozeNextWeek(at("2026-11-29T20:00:00Z")), "2026-11-30", "Sunday means tomorrow");
+  assert.equal(snoozeNextWeek(at("2026-11-29T20:00:00Z")), "2026-12-07", "Sunday skips tomorrow's Monday");
   assert.equal(snoozeNextWeek(at("2026-11-30T15:00:00Z")), "2026-12-07", "Monday means the following Monday");
   assert.equal(snoozeNextWeek(at("2026-12-01T04:00:00Z")), "2026-12-07", "Monday 10 PM Central, Tuesday in UTC");
   assert.equal(snoozeUntil(snoozeNextWeek(at("2026-10-29T15:00:00Z"))), "2026-11-02T14:00:00.000Z", "after fall-back");

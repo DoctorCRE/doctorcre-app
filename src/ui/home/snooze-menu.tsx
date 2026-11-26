@@ -79,9 +79,9 @@ export function SnoozeMenu({
           </button>
         </header>
         <div className="snooze-days">
-          {WEEKDAYS.map((weekday) => (
-            <span key={weekday} aria-hidden="true">
-              {weekday}
+          {WEEKDAYS.map((label) => (
+            <span key={label} aria-hidden="true">
+              {label}
             </span>
           ))}
           {monthDays(month).map((day, index) => (

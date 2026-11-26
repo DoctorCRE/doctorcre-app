@@ -3348,6 +3348,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Sn
   assert.equal(await calendar.getByRole('button', { name: 'Previous month' }).isDisabled(), true);
   assert.equal(await calendar.getByRole('button', { name: 'Monday, November 2, 2026' }).isDisabled(), true, 'a past day');
   assert.equal(await calendar.getByRole('button', { name: 'Tuesday, November 3, 2026' }).isDisabled(), true, "today, after 8:00 AM");
+  assert.equal(await calendar.getByRole('button', { name: 'Tuesday, November 3, 2026' }).evaluate(node => getComputedStyle(node).fontWeight), '400', 'a disabled today is not bold');
   assert.equal(await calendar.getByRole('button', { name: 'Wednesday, November 4, 2026' }).isDisabled(), false);
   const day = calendar.getByRole('button', { name: 'Tuesday, December 1, 2026' });
   await calendar.getByRole('button', { name: 'Next month' }).click();
@@ -3366,6 +3367,21 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Sn
   await day.click();
   await page.getByRole('status').filter({ hasText: 'Snoozed until Tue, Dec 1: Sample update to schedule.' }).waitFor();
   assert.deepEqual(writes.map(write => [write.body.action, write.body.until]), [['snooze', '2026-12-01T14:00:00.000Z']]);
+});
+
+for (const width of [1280, 1440]) for (const theme of ['light', 'dark']) test(`a long Inbox title never sits under Snooze and Drop on hover at ${width}px in ${theme}`, async t => {
+  const title = 'Reply to the broker about the revised lease terms and confirm the tour times for the second building before Friday so the client can decide';
+  const card = dropCard(85, { item_id: `notification:${id(85)}`, source_type: 'notification', kind_label: 'Update', title });
+  const { page, rows: [row] } = await homeDropFixture(t, width, { items: [card], theme });
+  await row.hover();
+  const overlap = await row.evaluate(node => {
+    const copy = node.querySelector('.inbox-copy').getBoundingClientRect();
+    const actions = node.querySelector('.inbox-actions').getBoundingClientRect();
+    return copy.right - actions.left;
+  });
+  assert.ok(overlap <= 0, `the title ends ${overlap}px past where the actions begin`);
+  await mkdir('test-artifacts/snooze-calendar', { recursive: true });
+  await page.screenshot({ path: `test-artifacts/snooze-calendar/long-row-${width}-${theme}.png` });
 });
 
 test('Home keeps the bottom Undo unusable while a later save is unresolved', async t => {

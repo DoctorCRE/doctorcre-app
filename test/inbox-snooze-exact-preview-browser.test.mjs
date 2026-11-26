@@ -25,8 +25,8 @@ for (const width of [390, 1280]) for (const theme of ['light', 'dark']) test(`fi
   await observe(page);
   assert.equal(calls.filter(call => call.name === 'snooze-home-inbox').length, 0);
 });
-// Sunday 1:30 AM before fall-back and Sunday 1:30 AM before spring-forward: both choices are Monday 8:00 AM Central.
-const expected = { [opening]: ['2026-11-02T14:00:00.000Z', '2026-11-02T14:00:00.000Z'], '2026-03-08T07:30:00.000Z': ['2026-03-09T13:00:00.000Z', '2026-03-09T13:00:00.000Z'] };
+// Sunday 1:30 AM before fall-back and Sunday 1:30 AM before spring-forward: Tomorrow is Monday and Next week is the Monday after.
+const expected = { [opening]: ['2026-11-02T14:00:00.000Z', '2026-11-09T14:00:00.000Z'], '2026-03-08T07:30:00.000Z': ['2026-03-09T13:00:00.000Z', '2026-03-16T13:00:00.000Z'] };
 for (const time of Object.keys(expected)) test(`delayed click sends the 8:00 AM Central endpoint across DST ${time}`, async t => {
   const { page, calls } = await open(t, { time });
   await page.getByRole('button', { name: 'Snooze', exact: true }).click();
