@@ -15,7 +15,9 @@ function DocLinkSettings({ request }: { request: DocLinkRequest }) {
   const [busy, setBusy] = useState(true);
   const [notice, setNotice] = useState("");
   const [code, setCode] = useState("");
+  const [copiedCode, setCopiedCode] = useState("");
   const codeView = useRef(0);
+  const codeText = useRef<HTMLElement>(null);
 
   useEffect(() => {
     const lifetime = new AbortController();
@@ -28,6 +30,25 @@ function DocLinkSettings({ request }: { request: DocLinkRequest }) {
     addEventListener("doctorcre-session-invalidated", clearCode, { signal: lifetime.signal });
     return () => lifetime.abort();
   }, []);
+
+  useEffect(() => {
+    if (!copiedCode) return;
+    // eslint-disable-next-line no-restricted-syntax -- One 2 s reset of the Copied label, cancelled on a new copy or unmount.
+    const timer = setTimeout(() => setCopiedCode(""), 2000);
+    return () => clearTimeout(timer);
+  }, [copiedCode]);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(code);
+      setNotice("");
+      setCopiedCode(code);
+    } catch {
+      const selection = getSelection();
+      if (codeText.current && selection) selection.selectAllChildren(codeText.current);
+      setNotice("Press Cmd+C to copy.");
+    }
+  }
 
   const refresh = useCallback(async () => {
     setBusy(true);
@@ -88,11 +109,16 @@ function DocLinkSettings({ request }: { request: DocLinkRequest }) {
         <>
           <p>Paste this code at the Doc setup prompt on your Mac. The app shows it once.</p>
           <p className="mono">
-            <code>{code}</code>
+            <code ref={codeText}>{code}</code>
           </p>
-          <button className="btn" type="button" onClick={() => setCode("")}>
-            Done
-          </button>
+          <div className="pref-act">
+            <button className="btn" type="button" onClick={() => void copy()}>
+              {copiedCode === code ? "Copied" : "Copy"}
+            </button>
+            <button className="btn" type="button" onClick={() => setCode("")}>
+              Done
+            </button>
+          </div>
         </>
       ) : (
         <div className="pref-act">

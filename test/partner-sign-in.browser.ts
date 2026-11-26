@@ -1337,6 +1337,41 @@ test("Doc settings show each Mac status and keep link codes private", async (t) 
   await settings.getByText("Doc isn't set up on your Mac yet.").waitFor();
 });
 
+test("Copy puts the shown Doc link code on the clipboard", async (t) => {
+  const { server, context } = await app(t);
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  const page = await context.newPage();
+  await page.goto(server.origin + "/settings?mode=live");
+  const settings = page.getByRole("region", { name: "Doc link" });
+  await settings.getByRole("button", { name: "Make link code" }).click();
+  const shown = await settings.locator("code").textContent();
+  assert.match(shown ?? "", /^[A-Za-z0-9_-]{43}$/);
+  await settings.getByRole("button", { name: "Copy", exact: true }).click();
+  await settings.getByRole("button", { name: "Copied", exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), shown);
+  await settings.getByRole("button", { name: "Copy", exact: true }).waitFor();
+  await settings.getByRole("button", { name: "Done", exact: true }).click();
+  assert.equal(await settings.locator("code").count(), 0);
+});
+
+test("a blocked clipboard selects the Doc link code to copy by hand", async (t) => {
+  const { server, context } = await app(t);
+  const page = await context.newPage();
+  await page.goto(server.origin + "/settings?mode=live");
+  await page.evaluate(() =>
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async () => Promise.reject(new Error("synthetic clipboard denial")) },
+    }),
+  );
+  const settings = page.getByRole("region", { name: "Doc link" });
+  await settings.getByRole("button", { name: "Make link code" }).click();
+  const shown = await settings.locator("code").textContent();
+  await settings.getByRole("button", { name: "Copy", exact: true }).click();
+  await settings.getByText("Press Cmd+C to copy.", { exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => getSelection()?.toString()), shown);
+});
+
 test("phone notifications are available only with CARR sign-in", async (t) => {
   for (const signIn of ["engine", "carr"] as const) {
     const { server, context } = await app(t, { signIn });
