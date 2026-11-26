@@ -64,7 +64,7 @@ for (const next_date of ['2026-10-18', '2026-10-20']) {
   test(`Next account action breaks exact name and date ties by record ID for ${next_date}`, async t => {
     const seed = { deals: ['demo-z', 'demo-a'].map(id => ({
       id, name: 'Demo Same Name', next_date, next_step: `Review ${id}`, phase: 'Legal',
-      attention: true, last_touch: '2026-10-18',
+      attention: { reason: 'A suggestion has waited 2 days.', since: '2026-10-19' }, last_touch: '2026-10-18',
     })) };
     const page = await accountPage(t, { seed });
     await page.locator('.account-card').first().click();

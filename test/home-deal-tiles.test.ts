@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { type BoardRules, comingUp, parseCriticalDates, reviewCounts, reviewWeek } from "../src/ui/home/deal-tiles.ts";
+import {
+  type BoardRules,
+  comingUp,
+  dealsAtAGlance,
+  parseCriticalDates,
+  reviewCounts,
+  reviewWeek,
+} from "../src/ui/home/deal-tiles.ts";
 
 const rules: BoardRules = {
   ...(await import("../js/" + "deal-items.js")),
@@ -81,25 +88,26 @@ test("the Deals heading counts the Monday review's own items, so its parts add u
   assert.throws(() => reviewCounts({ items: [null] }));
 });
 
-const step = (owner: string, due_on: string) => ({
-  id: `${owner}-${due_on}`,
-  owner,
-  due_on,
-  description: "Call the landlord",
-});
 const deal = (id: string, fields: Record<string, unknown> = {}) => ({
   id,
   name: `Example ${id}`,
   owner: "joe",
-  attention: false,
-  open_actions: [step("joe", "2026-12-01")],
+  phase: "Research",
+  attention: null,
+  open_actions: [{ id: `step-${id}`, owner: "joe", due_on: "2026-11-01", description: "Call the landlord" }],
   ...fields,
 });
 
-test("the board and Home share one Needs attention rule", () => {
-  assert.deepEqual(rules.attentionReasons(deal("a", { open_actions: [step("joe", "2026-11-22")] }), TODAY), [
-    "Step 3 days late",
-  ]);
-  assert.deepEqual(rules.attentionReasons(deal("b", { attention: true }), TODAY), ["Flagged by a partner"]);
-  assert.deepEqual(rules.attentionReasons(deal("c", { open_actions: [step("dell", "2026-11-22")] }), TODAY), []);
+test("Home lists the deals the engine says need attention, with the board's reason", () => {
+  const reason = "A next step is late.";
+  const board = {
+    deals: [
+      deal("a", { attention: { reason, since: "2026-11-02" } }),
+      deal("b", { attention: true }),
+      deal("c", { attention: { reason: " ", since: "2026-11-02" } }),
+      deal("d"),
+    ],
+  };
+  assert.deepEqual(dealsAtAGlance(board, rules).attention, [{ id: "a", name: "Example a", reason }]);
+  assert.equal(rules.attentionReason(deal("b", { attention: true })), null, "a stored flag is not attention");
 });

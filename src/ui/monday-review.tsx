@@ -83,7 +83,10 @@ function parseReview(result: unknown): ReviewItem[] {
           : row.operating_state === "parked"
             ? "parked"
             : null,
-      attention: row.attention === true || row.needs_attention === true,
+      // A deal's attention is the engine's reason; a prospect keeps its partner-set flag.
+      attention: deal
+        ? Boolean(record(row.attention) && text(row.attention.reason)?.trim())
+        : row.needs_attention === true,
       step: deal ? text(row.next_step) : (text(step?.display_title) ?? text(step?.what)),
       due: text(deal ? row.next_date : step?.due_on),
       note: note && summary ? { ...stamp(note), id, summary } : null,

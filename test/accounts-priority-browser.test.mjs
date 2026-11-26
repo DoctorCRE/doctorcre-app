@@ -119,11 +119,11 @@ for (const reverse of [false, true]) {
     await page.route('**/api/**', route => route.fulfill({ json: {} }));
     await page.route('**/data/board-seed.json', async route => {
       const seed = await (await route.fetch()).json();
-      seed.deals = seed.deals.slice(0, 5).map(deal => ({ ...deal, attention: false, next_date: '2026-11-30' }));
+      seed.deals = seed.deals.slice(0, 5).map(deal => ({ ...deal, attention: null, next_date: '2026-11-30' }));
       Object.assign(seed.deals[0], { next_step: 'Later action' });
-      Object.assign(seed.deals[2], { name: 'Demo Same Name', next_date: '2026-10-20', next_step: 'Sooner flagged action', attention: true });
+      Object.assign(seed.deals[2], { name: 'Demo Same Name', next_date: '2026-10-20', next_step: 'Sooner flagged action', attention: { reason: 'A suggestion has waited 2 days.', since: '2026-10-19' } });
       Object.assign(seed.deals[3], { name: 'Demo Same Name', next_date: '2026-10-20', next_step: 'Tied action' });
-      Object.assign(seed.deals[4], { next_date: null, next_step: 'Undated flagged action', attention: true });
+      Object.assign(seed.deals[4], { next_date: null, next_step: 'Undated flagged action', attention: { reason: 'A suggestion has waited 2 days.', since: '2026-10-19' } });
       if (reverse) seed.deals.reverse();
       await route.fulfill({ json: seed });
     });

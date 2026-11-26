@@ -19,6 +19,8 @@ const IDEM_TTL_MS = 60 * 60 * 1000;
 const PORTAL_ORIGIN = 'https://share.doctorcre.com';
 /** The cells patch-deal-field bases on; mirrors the record layer's DEAL_ROOM_FIELDS. */
 const BASED_FIELDS = ['phase', 'owner', 'attention', 'next_date', 'operating_state'];
+// A deal's `attention` is the engine's { reason, since }; the partner-set flag it replaced is stored as `needs_attention`.
+const storedField = field => field === 'attention' ? 'needs_attention' : field;
 
 export function createFixtureDealStore(seed) {
   const events = structuredClone(seed.seed_events || []).sort((a, b) => a.recorded_at.localeCompare(b.recorded_at));
@@ -316,18 +318,17 @@ export async function createFixtureClient(opts = {}) {
         conflict_id,
         deal,
         field,
-        a: { actor: 'server', value: field === 'attention' ? d.attention : d[field], event_id: last },
+        a: { actor: 'server', value: d[storedField(field)], event_id: last },
         b: { actor, value, event_id: null },
       };
       conflicts.set(conflict_id, { ...payload, pending_value: value, pending_actor: actor, verb });
       return { status: 'conflict', conflict: payload };
     }
 
-    const mapField = field === 'next_step' ? 'next_step' : field;
     const old = field === 'operating_state'
       ? { state:d.operating_state, reason:d.parking_reason, note:d.parking_note }
-      : d[mapField];
-    if (field === 'attention') d.attention = !!value;
+      : d[storedField(field)];
+    if (field === 'attention') d.needs_attention = !!value;
     else if (field === 'owner') d.owner = value || null;
     else if (field === 'phase') {
       if (!PHASES.includes(value)) throw new Error(`bad phase ${value}`);
@@ -1440,8 +1441,8 @@ export async function createFixtureClient(opts = {}) {
         const actor = winner === 'a' ? selfActor : c.pending_actor;
         const old = c.field === 'operating_state'
           ? { state:d.operating_state, reason:d.parking_reason, note:d.parking_note }
-          : d[c.field];
-        if (c.field === 'attention') d.attention = !!chosen;
+          : d[storedField(c.field)];
+        if (c.field === 'attention') d.needs_attention = !!chosen;
         else if (c.field === 'operating_state') {
           d.operating_state = chosen.state;
           d.parking_reason = chosen.state === 'parked' ? chosen.reason : null;
@@ -1614,7 +1615,7 @@ export async function createFixtureClient(opts = {}) {
           type: deal_type || 'Other',
           phase: initialPhase,
           owner: owner || selfActor,
-          attention: false,
+          attention: null,
           last_touch: nowIso().slice(0, 10),
           next_step: '',
           next_date: null,
@@ -2670,8 +2671,8 @@ export async function createFixtureClient(opts = {}) {
       });
       const active = [...deals.values()].filter((deal) => deal.operating_state === 'active');
       const mineActive = active.filter((deal) => deal.owner === selfActor);
-      const teamFlagged = active.filter((deal) => deal.attention === true);
-      const myFlagged = mineActive.filter((deal) => deal.attention === true);
+      const teamFlagged = active.filter((deal) => deal.attention);
+      const myFlagged = mineActive.filter((deal) => deal.attention);
       const needs = [
         { kind: 'team_flagged_deals', scope: 'team', count: teamFlagged.length, destination: TEAM_FLAGGED_DESTINATION },
         { kind: 'my_flagged_deals', scope: 'mine', count: myFlagged.length, destination: MY_FLAGGED_DESTINATION },

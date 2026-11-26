@@ -8,7 +8,7 @@ import { daysBetween, toDay } from './calendar-model.js';
 import { formatCalendarDate } from './visual-system.js';
 import { automaticPhaseReceipt, dealDueDate, dealItemRows, dealLastCaption, dealNextCaption, renderEndedDealList } from './deal-items.js';
 import { dealTypeLabel } from './live-client.js';
-import { requireReviewReceipt } from './deal-review-model.js';
+import { attentionReason, requireReviewReceipt } from './deal-review-model.js';
 import { showToast } from './toast.js';
 import {onDialogClosed} from './dialog-lifecycle.js';
 import { CLOSED_SLUG, columnByValue } from './pipeline-model.js';
@@ -132,7 +132,8 @@ function isStale(deal) {
 function reasonFor(deal) {
   if (deal.operating_state === 'parked') return parkingReasonLabel(deal.parking_reason);
   const days = daysFromNow(deal.next_date, engineToday());
-  if (deal.attention) return 'Flagged for attention';
+  const attention = attentionReason(deal);
+  if (attention) return attention;
   if (days !== null && days < 0) return `${Math.abs(days)} day${Math.abs(days) === 1 ? '' : 's'} overdue`;
   if (!deal.next_step) return 'No next step';
   if (isStale(deal)) return deal.last_touch ? `Gone quiet ${relative(deal.last_touch)}` : 'No recent touch captured';
@@ -142,7 +143,7 @@ function reasonFor(deal) {
 
 function priority(deal) {
   const days = daysFromNow(deal.next_date, engineToday());
-  return (deal.attention ? 10000 : 0) + (days !== null && days < 0 ? 7000 + Math.abs(days) : 0)
+  return (attentionReason(deal) ? 10000 : 0) + (days !== null && days < 0 ? 7000 + Math.abs(days) : 0)
     + (!deal.next_step ? 4000 : 0) + (isStale(deal) ? 2000 : 0)
     + (deal.workspace_kind === 'national_account' && !deal.market_agent ? 1000 : 0);
 }
@@ -349,8 +350,7 @@ function workspaceDeals() {
   if (state.filter === 'parked') deals = deals.filter((deal) => deal.operating_state === 'parked');
   else deals = deals.filter((deal) => (deal.operating_state || 'active') === 'active');
   if (state.filter === 'mine') deals = deals.filter((deal) => deal.owner === state.selfActor);
-  if (state.filter === 'attention') deals = deals.filter((deal) => deal.attention === true || (!state.boardFromEngine && (daysFromNow(deal.next_date) ?? 0) < 0));
-  if (state.filter === 'flagged') deals = deals.filter((deal) => deal.attention === true);
+  if (state.filter === 'attention') deals = deals.filter((deal) => attentionReason(deal) !== null);
   if (state.filter === 'stale') deals = deals.filter(isStale);
   if (state.filter === 'missing') deals = deals.filter((deal) => !deal.next_step);
   if (state.filter === 'delta') deals = deals.filter((deal) => state.changed.has(deal.id));
@@ -508,7 +508,7 @@ function renderBoardOnly() {
   const undoDeal = document.activeElement?.dataset?.undoPhase;
   boardRows ||= mountDealRoomBoard(rows);
   boardRows.render({
-    rows: deals.map(deal => boardRow(deal, nationalAccountRows, accountDetail)),
+    rows: deals.map(deal => boardRow(deal, accountDetail)),
     phases: PHASES.map(value => ({ value, label: phaseLabel(value) })),
     nationalAccountRows,
   });
@@ -571,19 +571,19 @@ function renderFocus(deals) {
 }
 
 
-function boardRow(deal, nationalAccountRows, accountDetail) {
+function boardRow(deal, accountDetail) {
   const days = daysFromNow(deal.next_date, engineToday());
   const parked = deal.operating_state === 'parked';
   const presence = state.presence.filter(lease => lease.deal_id === deal.id && lease.actor !== state.selfActor && new Date(lease.expires_at) > new Date());
   const today = state.boardFromEngine ? businessDay() : new Date().toLocaleDateString('en-CA');
   const market = state.boardFromEngine && deal.account_client_id ? nationalMarketLabel(deal.market) : deal.market;
+  const attention = attentionReason(deal) !== null;
   return {
-    id: deal.id, name: deal.name, parked, attention: Boolean(deal.attention), phase: deal.phase,
-    classes: [parked ? 'parked' : '', deal.attention ? 'attention' : '', days !== null && days < 0 ? 'overdue' : ''].join(' '),
-    icon: deal.attention ? '⚠' : (PHICON[deal.phase] || '○'),
+    id: deal.id, name: deal.name, parked, attention, phase: deal.phase,
+    classes: [parked ? 'parked' : '', attention ? 'attention' : '', days !== null && days < 0 ? 'overdue' : ''].join(' '),
+    icon: attention ? '⚠' : (PHICON[deal.phase] || '○'),
     meta: Object.entries({
-      // The row's own flag button waits for hover, so the flag itself shows here.
-      attention: nationalAccountRows && deal.attention ? 'Needs attention' : null,
+      attention: attention ? 'Needs attention' : null,
       market,
       type: deal.type,
       account: state.query ? deal.account_name : null,
@@ -1760,7 +1760,6 @@ function wireEvents() {
     const phaseUndo = event.target.closest('[data-undo-phase], #closedDealsView [data-undo-invoice]'); if (phaseUndo) { await automaticPhase.undo(phaseUndo); return; }
     const open = event.target.closest('[data-open-deal]');
     if (open) { await openDeal(open.dataset.openDeal); return; }
-    const attention = event.target.closest('[data-attention]'); if (attention) { const deal=state.deals.get(attention.dataset.attention); await patchField(deal.id,'attention',!deal.attention); return; }
     const step = event.target.closest('[data-next-step],[data-agenda-step]');
     if (step) {
       try { await nextStepForm(step.dataset.nextStep || step.dataset.agendaStep); }
