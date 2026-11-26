@@ -458,6 +458,28 @@ for (const [width, height] of [
     );
   });
 
+for (const width of [1440, 500] as const)
+  test(`At ${width} each Needs attention reason sits closer to its own deal than to the next`, async (t) => {
+    const page = await openHome(t, width, 900);
+    const list = page.locator(".home-deals-attention");
+    await list.scrollIntoViewIfNeeded();
+    const [first, second] = await list.evaluate((ul) =>
+      [...ul.querySelectorAll("a")].map((link) => {
+        const label = link.firstChild;
+        const reason = link.querySelector("span")?.getBoundingClientRect();
+        if (!label || !reason) throw Error("a deal line has a name and a reason");
+        const name = document.createRange();
+        name.selectNodeContents(label);
+        const { top, bottom } = name.getBoundingClientRect();
+        return { top, bottom, reasonTop: reason.top, reasonBottom: reason.bottom };
+      }),
+    );
+    assert.ok(first && second, "two deals need attention");
+    const own = first.reasonTop - first.bottom;
+    const next = second.top - first.reasonBottom;
+    assert.ok(own < next, `a reason sits ${own}px under its deal and ${next}px above the next deal`);
+  });
+
 test("At 1280x640 the attention list and Coming up fold to one line each that opens in place", async (t) => {
   const page = await openHome(t, 1280, 640);
   const tile = page.getByRole("region", { name: "Deals", exact: true });

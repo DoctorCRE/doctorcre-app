@@ -7,7 +7,7 @@ import { dealPathHtml, pathQuestionHtml } from './ui-deal-path.generated.js';
 import { workCard } from './work-card.js';
 import { bindCardQuickMenu } from './ui-card-menu.generated.js';
 import {
-  attentionLineHtml, attentionReason, autoHtml, automaticPhaseReceipt, dealDueDate, dealNextStep, dealTypeFacts, lossReasonLabel, renderDealFacts, renderDealItemButton,
+  attentionLineHtml, autoHtml, automaticPhaseReceipt, dealDueDate, dealNextStep, dealTypeFacts, lossReasonLabel, renderDealFacts, renderDealItemButton,
   missingNextStep, renderDealItems, renderEndedDealList, renderInvoiceClose, renderOverdueFlag, renderPhaseReceipt, stepText,
 } from './deal-items.js';
 import { mountDealItemSheet } from './deal-item-sheet.js';
@@ -47,7 +47,7 @@ import {
   boardHeadline, columnLabel, completionPlan, contextDrawerSections, groupByColumn, keyboardTarget,
   loadDealContext, moveIntent, moveSummary, moveTitle, noteText, dealName,
 } from './pipeline-model.js';
-import { isClosedDeal, localDeals, overdueLabel, overdueSince } from './deal-review-model.js';
+import { attentionReason, isClosedDeal, localDeals, overdueLabel, overdueSince } from './deal-review-model.js';
 import { lostDeals, closedDeals, urgencyOrder, concise, invoiceClose, isPhaseMoveReceipt, isEngineDealDetail, prepareDealDetail, dealStepVersion, nationalMarketLabel, ordinaryOpenSteps, partnerDealStep, PARKING_REASONS, PHASE_TRIGGERS } from './local-deals-model.js';
 import { sourceTime, stepOriginLabel } from './email-source-line.js';
 import {

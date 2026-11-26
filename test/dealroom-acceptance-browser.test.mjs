@@ -1623,7 +1623,7 @@ for (const width of [1440, 390]) {
   });
 }
 
-for (const width of [1440, 390]) test(`National account rows open the deal before offering attention at ${width}px`, async t => {
+for (const width of [1440, 390]) test(`National account rows open the deal and show the engine's attention at ${width}px`, async t => {
   const fixture = await (await createQaServer({ buildRoot: join(outDir, 'site') })).start();
   t.after(() => fixture.close());
   const { origin } = fixture;
@@ -1640,8 +1640,9 @@ for (const width of [1440, 390]) test(`National account rows open the deal befor
     phase: 'legal', prior_phase: 'research', evidence_date: '2026-10-19' };
   const deal = { id: crypto.randomUUID(), name: 'Example Clinic Expansion', phase: 'legal', owner: 'joe', seen: 1, phase_change: receipt,
     account_client_id: account, market: 'Market unspecified in source', next_date: '2026-11-17', next_step: 'Review the floor plan',
+    attention: { reason: 'A next step is late.', since: '2026-11-18' },
     open_actions: [{ id: crypto.randomUUID(), owner: 'joe', description: 'Review the floor plan', due_on: '2026-11-17' }] };
-  const closing = { ...deal, id: crypto.randomUUID(), name: 'Example Dental Office', phase: 'closing', phase_change: null,
+  const closing = { ...deal, id: crypto.randomUUID(), name: 'Example Dental Office', phase: 'closing', phase_change: null, attention: null, needs_attention: true,
     market: 'Example City', next_date: '2026-11-23', next_step: 'Sign the lease',
     open_actions: [{ id: crypto.randomUUID(), owner: 'joe', description: 'Sign the lease', due_on: '2026-11-23' }] };
   const writes = [];
@@ -1662,10 +1663,7 @@ for (const width of [1440, 390]) test(`National account rows open the deal befor
         Object.assign(deal, { phase: receipt.prior_phase, phase_change: null, seen: deal.seen + 1 });
         return Response.json({ deal_id: deal.id, phase: deal.phase, phase_changed_at: '2026-11-19T15:01:00Z' });
       }
-      assert.equal(path, `/api/engine/deals/${deal.id}/changes`);
-      const { fields } = await request.json();
-      writes.push(fields);
-      deal.attention = fields.needs_attention;
+      writes.push(path);
       return Response.json({ deal_id: deal.id, change_id: ++deal.seen });
     } },
   };
@@ -1684,11 +1682,11 @@ for (const width of [1440, 390]) test(`National account rows open the deal befor
   await page.goto(accountUrl);
   assert.ok(await page.getByRole('link', { name: 'Local Deals', exact: true }).isVisible());
   await openAccount();
-  assert.equal(await row.getByRole('button').first().getAttribute('aria-label'), `Flag for attention on ${deal.name}`);
+  assert.equal(await row.getByRole('button').first().innerText(), deal.name);
+  assert.equal(await row.getByRole('button', { name: /attention/i }).count(), 0, 'no partner sets or clears it');
   assert.match(await page.locator('#stats').innerText(), /2 active work · 1 overdue dates · 1 at closing/);
   assert.equal(await row.getByRole('button', { name: 'Undo', exact: true }).count(), 0);
   await row.getByText('Moved automatically', { exact: true }).waitFor({ timeout: 5000 });
-  assert.equal(await row.getByRole('button', { name: /Mark needs attention/ }).count(), 0);
 
   savesOn = true;
   await page.goto(accountUrl);
@@ -1700,9 +1698,7 @@ for (const width of [1440, 390]) test(`National account rows open the deal befor
   assert.equal(await row.locator('time[datetime="2026-10-19"]').textContent(), 'Mon, Oct 19, 2026');
   assert.equal(await page.getByRole('row').filter({ hasText: closing.name })
     .getByRole('button', { name: 'Undo', exact: true }).count(), 0);
-  const mark = row.getByRole('button', { name: `Mark needs attention on ${deal.name}`, exact: true });
-  await mark.waitFor();
-  assert.ok((await mark.innerText()).startsWith('Mark needs attention'));
+  assert.equal(await row.getByRole('button', { name: /attention/i }).count(), 0, 'no partner sets or clears it');
   assert.match(await row.innerText(), /No market recorded/);
   assert.equal(await row.locator('.due').innerText(), 'Due Tue, Nov 17, 2026 · 1 day late');
   assert.match(await page.getByRole('row').filter({ hasText: closing.name }).innerText(), /Example City/);
@@ -1722,22 +1718,17 @@ for (const width of [1440, 390]) test(`National account rows open the deal befor
   await row.waitFor({ timeout: 5000 });
   await page.locator('#boardSection').screenshot({ path: join(evidence, `national-account-${width}.png`) });
   const show = page.getByLabel('Show', { exact: true });
-  await show.selectOption({ label: 'Needs attention' });
-  assert.equal(await row.count(), 0);
-  await show.selectOption({ label: 'Active' });
-  assert.equal(await row.getByText('Needs attention', { exact: true }).count(), 0);
-  await mark.click();
-  const clear = row.getByRole('button', { name: `Clear needs attention on ${deal.name}`, exact: true });
-  await clear.waitFor();
+  const closingRow = page.getByRole('row').filter({ hasText: closing.name });
   await page.mouse.move(0, 0);
-  assert.equal(await row.getByText('Needs attention', { exact: true }).isVisible(), true, 'the flag shows without hover');
-  assert.equal(await row.getByText('1 day late', { exact: true }).isVisible(), true, 'a flagged late row still says it is late');
+  assert.equal(await row.getByText('Needs attention', { exact: true }).isVisible(), true, 'attention shows without hover');
+  assert.equal(await row.getByText('1 day late', { exact: true }).isVisible(), true, 'a late row still says it is late');
+  assert.equal(await closingRow.getByText('Needs attention', { exact: true }).count(), 0, 'a stored flag is not attention');
   await show.selectOption({ label: 'Needs attention' });
-  await clear.click();
-  await row.waitFor({ state: 'detached' });
+  await closingRow.waitFor({ state: 'detached' });
+  assert.equal(await row.count(), 1);
   await show.selectOption({ label: 'Active' });
-  await mark.waitFor();
-  assert.deepEqual(writes, [{ needs_attention: true }, { needs_attention: false }]);
+  await closingRow.waitFor();
+  assert.deepEqual(writes, []);
   assert.equal(undoModuleReads, 0);
   await row.getByRole('button', { name: 'Undo', exact: true }).press('Enter');
   await moved.waitFor({ state: 'detached' });
@@ -1764,7 +1755,7 @@ for (const [width, height, today] of [[1280, 800, 'closed'], [1280, 800, 'open']
     const deal = (name, fields) => ({ id: crypto.randomUUID(), name, phase: 'research', seen: 1, owner: 'joe', account_client_id: account,
       workspace_kind: 'national_account', market: 'Example City', next_step: 'Call the landlord', next_date: '2026-11-24', ...fields });
     const step = crypto.randomUUID();
-    const flagged = deal('Example Flagged Late Deal', { attention: true, next_date: '2026-11-17',
+    const flagged = deal('Example Flagged Late Deal', { attention: { reason: 'A next step is late.', since: '2026-11-18' }, next_date: '2026-11-17',
       open_actions: [{ id: step, owner: 'joe', due_on: '2026-11-17', item_id: `next_action:${step}`, description: 'Call the landlord' }] });
     const deals = [flagged, deal('Example Quiet Deal'), deal('Example Closing Deal', { phase: 'closing' })];
     const env = {
@@ -1808,8 +1799,8 @@ for (const [width, height, today] of [[1280, 800, 'closed'], [1280, 800, 'open']
     });
     assert.equal(fit.sideways, false, 'nothing scrolls sideways');
     assert.ok(fit.lineEnds.every(text => text !== '·'), `no line of row details ends in a separator: ${JSON.stringify(fit.lineEnds)}`);
-    assert.equal(await row.getByText('Needs attention', { exact: true }).isVisible(), true, 'the flag shows without hover');
-    assert.equal(await row.getByText('2 days late', { exact: true }).isVisible(), true, 'the flagged row still says its step is late');
+    assert.equal(await row.getByText('Needs attention', { exact: true }).isVisible(), true, 'attention shows without hover');
+    assert.equal(await row.getByText('2 days late', { exact: true }).isVisible(), true, 'the row still says its step is late');
     assert.equal(fit.toolbar, 3, 'Monday review, the owner and Show sit in the toolbar');
     if (phone) {
       assert.deepEqual(fit.tabs, ['Local Deals', 'National Accounts', 'Open deals', 'Closed deals'], 'the phone tab bar holds the four views');
@@ -2811,10 +2802,10 @@ for (const width of [1440, 390]) {
       dropped: { at: '2026-11-10T01:00:00Z', by: 'dell', reason: 'Plans changed' }, needs_attention: false,
       follow_ups: [] };
     const parkedRow = { deal_id: parked, name: 'Alder Deal', phase: 'pending', reviewed: null, seen: 2,
-      state: 'open', seen_change_id: 0, operating_state: 'parked' };
+      state: 'open', seen_change_id: 0, operating_state: 'parked', needs_attention: true };
     const reviewId = crypto.randomUUID();
     let review = [
-      { ...row, reviewed: { review_id: reviewId, by: 'joe', at: '2026-11-09T15:00:00Z' }, state: 'open' }, prospectRow, droppedRow, parkedRow,
+      { ...row, attention: { reason: 'A next step is late.', since: '2026-11-11' }, reviewed: { review_id: reviewId, by: 'joe', at: '2026-11-09T15:00:00Z' }, state: 'open' }, prospectRow, droppedRow, parkedRow,
     ];
     await page.request.post(`${origin}/api/test/seed`, { data: { namespace: `monday-review-${width}`, viewer: 'joe', reset: true } });
     let enabled = false, savesOn = false, boardReads = 0, refuseMark = false, raceStep = false;
@@ -2950,6 +2941,8 @@ for (const width of [1440, 390]) {
     await latestNotes.click();
     await note.waitFor({ state: 'hidden' });
     await items.filter({ hasText: parkedRow.name }).getByText(/Unassigned · Parked/).waitFor();
+    assert.equal(await items.filter({ hasText: parkedRow.name }).getByText(/Needs attention/).count(), 0, 'a stored flag on a deal is not attention');
+    assert.equal(await items.filter({ hasText: row.name }).getByText(/Needs attention/).count(), 1, "the engine's attention shows");
     await page.getByRole('checkbox', { name: 'Not reviewed' }).check();
     assert.deepEqual(await items.getByRole('link').allTextContents(), ['Birch Prospect', 'Cedar Prospect', 'Alder Deal']);
     const droppedItem = items.filter({ hasText: droppedRow.name });

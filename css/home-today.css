@@ -39,7 +39,7 @@ details.home-today-row > :not(summary) { margin: 0 0 var(--space-1); padding-inl
 .home-deals .home-deals-line:has(small) { flex-wrap: wrap; row-gap: 0; padding-block: var(--space-1); }
 .home-deals-line small { flex-basis: 100%; color: var(--fg-muted); font-size: var(--font-size-1); }
 /* The engine's reason is a full sentence, so it sits under the deal's name. */
-.home-deals-attention a { flex-wrap: wrap; row-gap: 0; padding-block: var(--space-1); }
+.home-deals .home-deals-attention a { flex-wrap: wrap; row-gap: 0; padding-block: var(--space-1); }
 .home-deals .home-deals-attention a > span { flex-basis: 100%; margin-inline-start: calc(6px + var(--space-2)); white-space: normal; }
 .home-deals-attention a::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: var(--radius-round); background: var(--status-warn-ink); }
 .home-coming-up li > a { display: grid; grid-template-columns: 88px minmax(0, 1fr); }

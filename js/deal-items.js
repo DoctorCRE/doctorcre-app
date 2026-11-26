@@ -1,5 +1,5 @@
 import { workCard } from './work-card.js';
-import { overdueLabel } from './deal-review-model.js';
+import { attentionReason, overdueLabel } from './deal-review-model.js';
 import { dealName, noteText } from './pipeline-model.js';
 import { calendarDay } from './deal-timeline.js';
 import { daysBetween } from './calendar-model.js';
@@ -69,12 +69,6 @@ export function dealDueDate(value, today) {
   if (!day) return null;
   const daysLate = today && day < today ? daysBetween(day, today) : 0;
   return { day, date: formatCalendarDate(day), late: daysLate ? `${daysLate} day${daysLate === 1 ? '' : 's'} late` : '' };
-}
-
-/** The engine's sentence for why a deal needs attention, or null. A partner's stored flag is never attention. */
-export function attentionReason(deal) {
-  const reason = deal.attention?.reason;
-  return typeof reason === 'string' && reason.trim() ? reason.trim() : null;
 }
 
 /** The deal page's one amber Needs attention line, drawn only when the engine gives a reason. */

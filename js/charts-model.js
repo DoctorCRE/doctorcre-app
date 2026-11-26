@@ -27,6 +27,7 @@
 //     no forecast at all rather than a fabricated one.
 import { COLUMNS, columnByValue } from "./pipeline-model.js";
 import { ACTOR_LABEL } from "./client.js";
+import { attentionReason } from "./deal-review-model.js";
 
 /* --------------------------------------------------------- the frozen sentences */
 
@@ -174,19 +175,19 @@ export function barShare(row, rows) {
 /* --------------------------------------------------------------- the six cards */
 
 /**
- * `operating_state` plus the attention flag. The attention count is printed as
+ * `operating_state` plus the engine's attention. The attention count is printed as
  * "n of m", so a legitimate 0 is readable as a real zero out of a real total
  * rather than as an unexplained blank.
  */
 export function waitingSummary(deals) {
   const rows = Array.isArray(deals) ? deals : [];
-  const flagged = rows.filter((deal) => isObject(deal) && deal.attention === true).length;
+  const attention = rows.filter((deal) => isObject(deal) && attentionReason(deal) !== null).length;
   const parked = rows.filter((deal) => isObject(deal) && deal.operating_state === "parked");
   return Object.freeze({
     states: bucketRows(rows, "operating_state"),
-    attention: flagged,
+    attention,
     total: rows.length,
-    attentionLine: `${flagged} of ${rows.length} flagged for attention`,
+    attentionLine: `${attention} of ${rows.length} need attention`,
     parked: Object.freeze(parked.map((deal) => Object.freeze({
       id: deal.id,
       name: nonEmptyString(deal.name) ? deal.name : "unnamed record",

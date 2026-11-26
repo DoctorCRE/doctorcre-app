@@ -5,7 +5,13 @@ export function validDealBoard(board) {
     && board.deals.every(deal => deal && typeof deal === 'object' && !Array.isArray(deal)
       && typeof deal.id === 'string' && deal.id.trim().length > 0
       && ['name', 'owner', 'phase', 'operating_state', 'workspace_kind', 'account_client_id'].every(key => deal[key] == null || typeof deal[key] === 'string')
-      && ['attention', 'in_market'].every(key => deal[key] == null || typeof deal[key] === 'boolean'));
+      && (deal.in_market == null || typeof deal.in_market === 'boolean'));
+}
+
+/** The engine's sentence for why a deal needs attention, or null. A partner's stored flag is never attention. */
+export function attentionReason(deal) {
+  const reason = deal.attention?.reason;
+  return typeof reason === 'string' && reason.trim() ? reason.trim() : null;
 }
 
 export function scopedDeals(board, scope) {
