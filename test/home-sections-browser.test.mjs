@@ -1952,7 +1952,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
 });
 
 for (const width of [390, 1440]) {
-  test(`Home shows all 90 characters of an action on the first card view at ${width}px`, async t => {
+  test(`Home keeps a 90-character action on one line in Reminders and shows it in full when opened at ${width}px`, async t => {
     const { page, open, state } = await dashboard(t, width, 'light');
     const title = 'Send the revised floor plan to the practice manager before the lease review next Thursday.';
     state.items[0] = step(1, title);
@@ -1962,9 +1962,15 @@ for (const width of [390, 1440]) {
     await heading.waitFor();
     assert.deepEqual(await heading.evaluate(node => {
       const style = getComputedStyle(node);
-      const textFits = node.scrollHeight <= node.clientHeight && node.scrollWidth <= node.clientWidth;
-      return { lineClamp: style.webkitLineClamp, textOverflow: style.textOverflow, textFits };
-    }), { lineClamp: 'none', textOverflow: 'clip', textFits: true });
+      const link = node.querySelector('a') ?? node;
+      const oneLine = node.getBoundingClientRect().height < 1.5 * parseFloat(getComputedStyle(link).lineHeight);
+      return { lineClamp: style.webkitLineClamp, oneLine };
+    }), { lineClamp: '1', oneLine: true });
+    await heading.getByRole('link', { name: title, exact: true }).click();
+    const details = page.getByRole('region', { name: `Details for ${title}` });
+    await details.waitFor();
+    const detailHeading = details.getByRole('heading', { level: 4, name: title, exact: true });
+    assert.equal(await detailHeading.evaluate(node => node.scrollWidth <= node.clientWidth && node.scrollHeight <= node.clientHeight), true);
   });
 
   test(`Home explains when a next step failed at ${width}px`, async t => {

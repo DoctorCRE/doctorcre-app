@@ -42,9 +42,9 @@ import {
   HomeGrid,
   lateDays,
   PlaceholderTile,
+  repeatsTitle,
   tileOf,
   useStacked,
-  wholeInstruction,
 } from "./sections";
 import { SnoozeMenu } from "./snooze-menu.tsx";
 import { snoozeUntil } from "./snooze-times.ts";
@@ -101,6 +101,15 @@ function coveredNames(covers: readonly Cover[]) {
   const shown = names.slice(0, 2);
   return `${shown.join(", ")} and ${names.length + unnamed - shown.length} more`;
 }
+function coveredSummary(covers: readonly Cover[]) {
+  const names = [...new Set(covers.flatMap((entry) => (entry.record_name ? [entry.record_name] : [])))];
+  const unnamed = covers.filter((entry) => !entry.record_name).length;
+  const list =
+    names.length > 1 || (names.length === 1 && unnamed > 0)
+      ? `${names.join(", ")}${unnamed ? ` and ${unnamed} more` : ""}`
+      : null;
+  return list ? `Covers ${covers.length} reminders · ${list}` : `Covers ${covers.length} reminders`;
+}
 // Names the people whose reminders did not save when the card lists people, else counts them.
 function coverFailure(covers: readonly Cover[], results: readonly ItemResult[]) {
   const failed = covers.filter((_, index) => !results[index]?.ok);
@@ -143,6 +152,23 @@ function homeCardCue(item: InboxItem) {
   if (item.source_state === "needs_attention" && item.kind_label === "Reply draft") return "Draft ready";
   return null;
 }
+
+/** A hyphenated word is one word, so a one-line cut never ends inside it. */
+function keepWordsWhole(title: string): ReactNode {
+  let at = 0;
+  return title.split(/(\S+-\S+)/).map((part, index) => {
+    const key = at;
+    at += part.length;
+    return index % 2 ? (
+      <span key={key} className="home-whole-word">
+        {part}
+      </span>
+    ) : (
+      part
+    );
+  });
+}
+
 export function inboxRefusal(code: unknown): string {
   switch (code) {
     case "version_conflict":
@@ -808,7 +834,6 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             : (namedRecord && item.context_label) || `Open ${sourcePage}`}
       </a>
     );
-    const whole = home && tileOf(item) === "reminders" ? wholeInstruction(item.title, presentation?.why) : null;
     const titleLink = canOpen ? (
       <Link
         data-shortcut-open={home ? "" : undefined}
@@ -823,10 +848,10 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
           if (!openingLocked && !directUrl) openCard(item, event.currentTarget);
         }}
       >
-        {whole ?? item.title}
+        {keepWordsWhole(item.title)}
       </Link>
     ) : (
-      (whole ?? item.title)
+      keepWordsWhole(item.title)
     );
     const snoozeButton = snoozable && (
       <button
@@ -863,15 +888,16 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
         : item.due_on === today
           ? "Today"
           : item.due_on && cardDate.format(new Date(item.due_on)));
+    const repeats = tile === "reminders" && repeatsTitle(item.title, presentation?.why);
     const line =
       tile === "waiting"
         ? [snoozeLabel(item) || hold || waitingOn || detail, returns]
         : [
-            item.context_label,
+            covered ? null : item.context_label,
             cue,
             item.covers && `Covers ${item.covers.length} reminders`,
             covered,
-            whole ? detail : presentation?.why || detail,
+            repeats ? detail : presentation?.why || detail,
             emailAt && `Received ${snoozeDate.format(new Date(emailAt))}`,
           ];
     const deepLinked = item_id === item.item_id && !open && (
@@ -1118,7 +1144,8 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
               </div>
             )}
             {!finishedElsewhere && !item.engine_marks && due && <p>Due {due}</p>}
-            {presentation && (feedbackReview || isDoneStep(item)) && <p>{presentation.why}</p>}
+            {presentation && (tile === "reminders" || feedbackReview || isDoneStep(item)) && <p>{presentation.why}</p>}
+            {home && item.covers && <p>{coveredSummary(item.covers)}</p>}
             {isDoneStep(item) && <p>{completionLabel(item)}</p>}
             {linkedRecord}
             {!finishedElsewhere && tourDone && (

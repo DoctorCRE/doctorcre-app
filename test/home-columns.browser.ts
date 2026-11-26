@@ -72,8 +72,9 @@ const reply = (n: number, title: string) =>
     tile: "inbox",
   });
 const group = (items: unknown[]) => ({ count: items.length, items });
+const longTitle = "Ask the sample contractor for an estimate on the second-floor buildout and the new parking…";
 const longInstruction =
-  "Ask the sample contractor for an estimate on the second-floor buildout and the new parking lot lighting before Friday";
+  "Ask the sample contractor for an estimate on the second-floor buildout and the new parking lot lighting before Friday, including separate line items for the lobby canopy, patient drop-off lane, and signage conduit. Follow-up set on Aug 13, 2026.";
 const dashboard = {
   ok: true,
   schema_version: "home-inbox.v6",
@@ -84,7 +85,7 @@ const dashboard = {
     late(2, "Send the sample lease comments", 14),
     late(3, "Follow up on the old sample", 15),
     card(4, "Send the sample floor plan", { due_on: today }),
-    card(5, "Ask the sample contractor for an estimate on the second-floor buildout and the new parking…", {
+    card(5, longTitle, {
       why: longInstruction,
     }),
   ]),
@@ -476,18 +477,119 @@ test("Coming up is not drawn when no open deal has a date in the next 14 days", 
   assert.equal(await page.getByText("Coming up").count(), 0);
 });
 
-test("A reminder's action reads in full on line one instead of its cut heading", async (t) => {
-  const page = await openHome(t, 1280, 640);
-  const row = page.getByRole("region", { name: "No date" }).getByRole("article");
-  const title = row.getByRole("heading", { level: 3 });
-  assert.equal(await title.textContent(), longInstruction);
-  assert.equal(await row.locator(".inbox-why").textContent(), "Example Dental");
-  assert.ok(
-    await title.evaluate((node) => node.scrollWidth <= node.clientWidth && node.scrollHeight <= node.clientHeight),
-    "the action is not clipped",
-  );
-  assert.equal(await page.evaluate(() => document.scrollingElement?.scrollHeight), 640, "the page does not scroll");
-});
+for (const [width, height] of [
+  [1440, 900],
+  [1280, 640],
+] as const)
+  test(`At ${width}x${height} a long reminder stays two lines on the list and shows its full instruction when opened`, async (t) => {
+    const page = await openHome(t, width, height);
+    const shortRow = page.getByRole("region", { name: "Today", exact: true }).getByRole("article");
+    const row = page.getByRole("region", { name: "No date", exact: true }).getByRole("article");
+    const title = row.getByRole("heading", { level: 3 });
+    const caption = row.locator(".inbox-why");
+    assert.equal(await title.textContent(), longTitle);
+    assert.equal(await caption.textContent(), "Example Dental");
+    assert.ok(
+      await title.evaluate(
+        (node) => node.getBoundingClientRect().height < 1.5 * parseFloat(getComputedStyle(node).lineHeight),
+      ),
+      "the action heading stays on one line",
+    );
+    assert.ok(
+      await caption.evaluate(
+        (node) => node.getBoundingClientRect().height < 1.5 * parseFloat(getComputedStyle(node).lineHeight),
+      ),
+      "the second line stays on one line",
+    );
+    const shortBox = (await shortRow.boundingBox()) ?? assert.fail("short row is not drawn");
+    const longBox = (await row.boundingBox()) ?? assert.fail("long row is not drawn");
+    assert.ok(
+      Math.abs(longBox.height - shortBox.height) <= 2,
+      `long row height ${longBox.height}px matches a two-line row ${shortBox.height}px`,
+    );
+    assert.equal(
+      await page.evaluate(() => document.scrollingElement?.scrollHeight),
+      height,
+      "the page does not scroll",
+    );
+    assert.ok(
+      await title.evaluate((node) => {
+        const text = node.textContent ?? "";
+        const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+        const top = node.getBoundingClientRect().top;
+        let seen = 0;
+        let lastOnLine = -1;
+        for (let text_node = walker.nextNode(); text_node; text_node = walker.nextNode()) {
+          const range = document.createRange();
+          for (let at = 0; at < (text_node.textContent ?? "").length; at += 1) {
+            range.setStart(text_node, at);
+            range.setEnd(text_node, at + 1);
+            const rect = range.getBoundingClientRect();
+            if (rect.width > 0 && rect.top < top + 4) lastOnLine = seen + at;
+          }
+          seen += (text_node.textContent ?? "").length;
+        }
+        return lastOnLine >= 0 && lastOnLine < text.length - 1 && /\s/.test(text.slice(lastOnLine, lastOnLine + 2));
+      }),
+      "the heading is cut between whole words",
+    );
+    await row.getByRole("link", { name: longTitle }).click();
+    const details = page.getByRole("region", { name: `Details for ${longTitle}` });
+    await details.waitFor();
+    await details.getByText(longInstruction, { exact: true }).waitFor();
+    assert.equal(await title.evaluate((node) => node.scrollLeft), 0, "opening the row does not scroll its heading");
+    const close = details.getByRole("button", { name: /^Close/ });
+    assert.ok(
+      await close.evaluate((node) => {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        return range.getClientRects().length === 1;
+      }),
+      "Close stays on one line",
+    );
+  });
+
+for (const [width, height] of [
+  [1440, 900],
+  [1280, 640],
+] as const)
+  test(`At ${width}x${height} three copies of a long reminder show once as two lines and open with every covered name`, async (t) => {
+    const names = ["Maya Example", "Sam Example", "Lee Example"];
+    const grouped = card(50, longTitle, {
+      context_label: names[0],
+      why: longInstruction,
+      merged_source_ids: [id(50), id(51), id(52)],
+      covers: names.map((record_name, index) => ({
+        item_id: `next_action:${id(50 + index)}`,
+        base_version: "1:0:inbox",
+        action_id: id(50 + index),
+        action_version: 1,
+        record_name,
+      })),
+    });
+    const page = await openHome(t, width, height, [], comingUpDates, {
+      ...dashboard,
+      reminders: group([...dashboard.reminders.items, grouped]),
+    });
+    const noDate = page.getByRole("region", { name: "No date", exact: true });
+    const row = noDate.getByRole("article").filter({ hasText: "Covers 3 reminders" });
+    assert.equal(await row.count(), 1);
+    const title = row.getByRole("heading", { level: 3 });
+    const caption = row.locator(".inbox-why");
+    assert.equal(await title.textContent(), longTitle);
+    assert.equal(await caption.textContent(), "Covers 3 reminders · Maya Example, Sam Example and Lee Example");
+    assert.ok(
+      await title.evaluate(
+        (node) => node.getBoundingClientRect().height < 1.5 * parseFloat(getComputedStyle(node).lineHeight),
+      ),
+      "grouped action heading stays on one line",
+    );
+    await row.getByRole("link", { name: longTitle }).click();
+    const details = page.getByRole("region", { name: `Details for ${longTitle}` });
+    await details.waitFor();
+    await details.getByText(longInstruction, { exact: true }).waitFor();
+    await details.getByText("Covers 3 reminders · Maya Example, Sam Example, Lee Example", { exact: true }).waitFor();
+  });
 
 test("An opened Inbox item shows beside Reminders over the middle and right columns, and Close brings them back", async (t) => {
   const page = await openHome(t, 1440, 900);
