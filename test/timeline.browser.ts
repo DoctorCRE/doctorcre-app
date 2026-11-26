@@ -5,6 +5,7 @@ import type { Locator, Page } from "playwright";
 import { type Descriptor, startFixture } from "../scripts/fixture-http.mjs";
 import { uiAssets } from "../scripts/ui-bundle.mjs";
 import type {
+  RowBox,
   TimelineDate,
   TimelineGroup,
   TimelineLink,
@@ -850,4 +851,179 @@ test("hovering a bar brightens its arrows, fades the rest, and shows a note with
   assert.equal(await tip.count(), 1);
   await page.keyboard.press("Escape");
   assert.equal(await tip.count(), 0);
+});
+
+test("hover notes wrap inside the visible track at 390px and clamp bold titles inside right-edge desktop viewports", async (t) => {
+  const { page, scroller } = await open(t, { width: 390, height: 844 });
+  const tip = page.getByRole("tooltip");
+  for (const theme of ["dark", "light"]) {
+    await page.evaluate((value) => {
+      document.documentElement.dataset.theme = value;
+    }, theme);
+    for (const zoom of ["Day", "Week", "Month"]) {
+      await page.getByRole("group", { name: "Zoom" }).getByRole("button", { name: zoom, exact: true }).click();
+      for (const id of ["loi-expiry", "closing1", "terms"]) {
+        const target = page.locator(`[data-row="${id}"] .timeline-date-mark, [data-row="${id}"] .timeline-bar`);
+        await target.focus();
+        await frames(page);
+        const view = await box(scroller);
+        const corner = await box(page.locator(".timeline-corner"));
+        const tipBox = await box(tip);
+        assert.ok(
+          tipBox.x >= corner.x + corner.width - 0.5,
+          `390px ${theme} ${zoom} ${id}: note stays right of list (${tipBox.x} vs ${corner.x + corner.width})`,
+        );
+        assert.ok(
+          tipBox.x + tipBox.width <= view.x + view.width + 0.5,
+          `390px ${theme} ${zoom} ${id}: note stays inside right edge (${tipBox.x + tipBox.width} vs ${view.x + view.width})`,
+        );
+      }
+    }
+  }
+
+  for (const viewport of [
+    { width: 1280, height: 640 },
+    { width: 1440, height: 900 },
+  ]) {
+    const desktop = await open(t, viewport);
+    const wideTitle = "Comprehensive healthcare lease review and compliance sign-off";
+    await desktop.mount({
+      ...CHART,
+      foldKey: `right-edge-${viewport.width}`,
+      groups: [
+        {
+          id: "edge",
+          name: "Legal",
+          count: "0 of 1",
+          startsFolded: false,
+          rows: [expTodo("wide-bold", "legal", wideTitle, "2027-02-20", "2027-03-06", "exp. Mar 6", "14d")],
+        },
+      ],
+      links: [],
+    });
+    const bar = desktop.page.locator('[data-row="wide-bold"] .timeline-bar');
+    const barOffset = await bar.evaluate((n) => (n instanceof HTMLElement ? n.offsetLeft : 0));
+    await desktop.scroller.evaluate((n, left) => {
+      const list = n.querySelector<HTMLElement>(".timeline-corner")?.offsetWidth ?? 0;
+      n.scrollTo({ left: Math.max(0, left - (n.clientWidth - list) + 40) });
+    }, barOffset);
+    await bar.focus();
+    await frames(desktop.page);
+    const view = await box(desktop.scroller);
+    const tipBox = await box(desktop.page.getByRole("tooltip"));
+    assert.ok(
+      tipBox.x + tipBox.width <= view.x + view.width + 0.5,
+      `${viewport.width}px bold title note stays inside right edge (${tipBox.x + tipBox.width} vs ${view.x + view.width})`,
+    );
+  }
+});
+
+test("a diamond mark and its label form one continuous hover target with no dead gap", async (t) => {
+  const { page } = await open(t);
+  const mark = page.locator('[data-row="loi-expiry"] .timeline-date-mark');
+  const diamond = page.locator('[data-row="loi-expiry"] .timeline-diamond');
+  const label = page.locator('[data-row="loi-expiry"] .timeline-diamond-label');
+  const markBox = await box(mark);
+  const diamondBox = await box(diamond);
+  const labelBox = await box(label);
+  assert.ok(markBox.width >= labelBox.x + labelBox.width - diamondBox.x - 2, "button spans diamond and label");
+
+  const midY = diamondBox.y + diamondBox.height / 2;
+  const gapX = (diamondBox.x + diamondBox.width + labelBox.x) / 2;
+  const tip = page.getByRole("tooltip");
+
+  await page.mouse.move(diamondBox.x + diamondBox.width / 2, midY);
+  assert.equal(await tip.getAttribute("data-for"), "loi-expiry");
+  assert.equal(await page.locator(".timeline-links").getAttribute("data-dim"), "");
+
+  await page.mouse.move(gapX, midY);
+  assert.equal(await tip.getAttribute("data-for"), "loi-expiry", "hover stays active across diamond-to-label gap");
+  assert.equal(await page.locator(".timeline-links").getAttribute("data-dim"), "");
+
+  await page.mouse.move(labelBox.x + 12, midY);
+  assert.equal(await tip.getAttribute("data-for"), "loi-expiry");
+
+  await mark.focus();
+  assert.equal(await mark.evaluate((n) => getComputedStyle(n).outlineStyle), "none", "focus ring stays on the diamond");
+});
+
+test("row metadata is computed once per visible row during layout and RowBox pairs each row kind with its spec", async (t) => {
+  const { page } = await open(t);
+  const result = await page.evaluate(async (baseChart) => {
+    const { layoutTimeline, mountTimeline } = await import("/js/ui-timeline.generated.js");
+    const start = Date.parse(`${baseChart.from}T00:00:00Z`) / 86_400_000;
+    const now = Date.parse(`${baseChart.today}T00:00:00Z`) / 86_400_000;
+    const layout = layoutTimeline(baseChart.groups, {}, 34, start, now, 12, (text) => text.length * 7);
+    const describeBox = (box: RowBox | undefined) => {
+      if (!box) return null;
+      return box.kind === "date"
+        ? { kind: box.kind, day: box.row.day, center: box.spec.center }
+        : { kind: box.kind, mark: box.spec.mark, rowKind: box.row.kind };
+    };
+    const neg = layout.groups.find((g) => g.group.id === "neg");
+    const sharedMeta = neg?.rows.every((entry) => !entry.box || entry.meta === entry.box.meta) ?? false;
+
+    const host = document.createElement("div");
+    host.style.height = "400px";
+    document.body.append(host);
+    const handle = mountTimeline(host, { ...baseChart, foldKey: "meta-dedupe" });
+    await document.fonts?.ready;
+    await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+    let visibleReads = 0;
+    let foldedReads = 0;
+    const countedRow = (id: string, onRead: () => void) => {
+      const row = { id, kind: "todo" as const, phase: "closing" as const, name: "Move-in", state: "waiting" as const };
+      Object.defineProperty(row, "when", {
+        enumerable: true,
+        get() {
+          onRead();
+          return "no date yet";
+        },
+      });
+      return row;
+    };
+    handle.update({
+      ...baseChart,
+      foldKey: "meta-dedupe",
+      groups: [
+        {
+          id: "folded",
+          name: "Folded",
+          startsFolded: true,
+          rows: [
+            countedRow("folded-wait", () => {
+              foldedReads++;
+            }),
+          ],
+        },
+        {
+          id: "open",
+          name: "Open",
+          startsFolded: false,
+          rows: [
+            countedRow("open-wait", () => {
+              visibleReads++;
+            }),
+          ],
+        },
+      ],
+      links: [],
+    });
+    handle.dispose();
+    host.remove();
+    return {
+      visibleReads,
+      foldedReads,
+      sharedMeta,
+      dateBox: describeBox(layout.boxes.get("loi-expiry")),
+      barBox: describeBox(layout.boxes.get("terms")),
+    };
+  }, CHART);
+  assert.equal(result.visibleReads, 1, "rowMeta reads visible row metadata once per render");
+  assert.equal(result.foldedReads, 0, "folded rows skip rowMeta");
+  assert.equal(result.sharedMeta, true, "each laid-out row reuses its box's RowMeta");
+  assert.equal(result.dateBox?.kind, "date");
+  assert.equal(result.dateBox?.day, "2026-12-03");
+  assert.equal(result.barBox?.kind, "bar");
+  assert.equal(result.barBox?.mark, "todo-current");
 });

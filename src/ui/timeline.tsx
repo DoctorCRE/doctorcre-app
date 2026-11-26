@@ -155,7 +155,9 @@ const BESIDE_CUTOUT_OFFSET = 13;
 const DIAMOND_LABEL_OFFSET = 13;
 const DIAMOND_DETAIL_GAP = 8;
 const CUTOUT_PAD_Y = 6;
-const TIP_CLEARANCE = 84;
+const TIP_LEFT_GAP = 4;
+const TIP_RIGHT_GAP = 8;
+const TIP_OFFSET = 6;
 
 // Marks the chart while it is being scrolled, so the scrollbar can show only then.
 function useScrollCue(scroller: RefObject<HTMLElement | null>) {
@@ -194,6 +196,58 @@ function useCoveredLabels(scroller: RefObject<HTMLElement | null>, corner: RefOb
     node.addEventListener("scroll", cover, { passive: true });
     return () => node.removeEventListener("scroll", cover);
   }, [scroller, cover]);
+}
+
+// Clamps the hover note to its rendered box inside the visible track, wrapping when the track is narrow.
+function useTipPosition(
+  tip: RefObject<HTMLDivElement | null>,
+  scroller: RefObject<HTMLElement | null>,
+  corner: RefObject<HTMLElement | null>,
+  hoveredBox: RowBox | undefined,
+  rowHeight: number,
+  note: NoteContent | undefined,
+  font: string,
+) {
+  const hoveredRowId = hoveredBox?.row.id;
+  const anchorLeft = hoveredBox?.left;
+  const rowTop = hoveredBox?.rowTop;
+  const tipKey = note ? `${note.title}\n${note.dates}\n${note.source}\n${font}` : "";
+
+  const position = useCallback(() => {
+    const tipNode = tip.current;
+    const scrollNode = scroller.current;
+    if (!tipNode || !scrollNode || anchorLeft === undefined || rowTop === undefined) return;
+    const trackWidth = visibleTrack(scrollNode, corner.current);
+    if (trackWidth <= 0) return;
+    const maxWidth = Math.max(1, trackWidth - TIP_LEFT_GAP - TIP_RIGHT_GAP);
+    tipNode.style.left = "0px";
+    tipNode.style.maxWidth = `${maxWidth}px`;
+    const { width: tipWidth, height: tipHeight } = tipNode.getBoundingClientRect();
+    const scrollLeft = scrollNode.scrollLeft;
+    const minLeft = scrollLeft + TIP_LEFT_GAP;
+    const maxLeft = Math.max(minLeft, scrollLeft + trackWidth - Math.ceil(tipWidth) - TIP_RIGHT_GAP);
+    const left = Math.min(Math.max(anchorLeft, minLeft), maxLeft);
+    const place = rowTop - scrollNode.scrollTop < tipHeight + TIP_OFFSET + 4 ? "below" : "above";
+    tipNode.dataset.place = place;
+    tipNode.style.left = `calc(var(--list) + ${left}px)`;
+    tipNode.style.top = `${place === "above" ? rowTop - TIP_OFFSET : rowTop + rowHeight + TIP_OFFSET}px`;
+  }, [tip, scroller, corner, anchorLeft, rowTop, rowHeight]);
+
+  useLayoutEffect(() => {
+    if (!hoveredRowId || !tipKey) return;
+    position();
+  }, [hoveredRowId, tipKey, position]);
+
+  useEffect(() => {
+    if (!hoveredRowId) return;
+    const scrollNode = scroller.current;
+    scrollNode?.addEventListener("scroll", position, { passive: true });
+    window.addEventListener("resize", position);
+    return () => {
+      scrollNode?.removeEventListener("scroll", position);
+      window.removeEventListener("resize", position);
+    };
+  }, [hoveredRowId, scroller, position]);
 }
 
 function textMeasurer(font: string): Measure {
@@ -305,7 +359,6 @@ interface Cutout {
 }
 
 interface BarSpec {
-  kind: "bar";
   mark: string;
   left: number;
   width: number;
@@ -319,20 +372,33 @@ interface BarSpec {
 }
 
 interface DateSpec {
-  kind: "date";
   center: number;
   detail: string;
 }
 
-interface RowBox {
-  row: TimelineRow;
+interface RowBoxBase {
   meta: RowMeta;
   rowTop: number;
   left: number;
   right: number;
   y: number;
-  spec: BarSpec | DateSpec;
   cutout?: Cutout;
+}
+
+export type RowBox =
+  | (RowBoxBase & { kind: "bar"; row: TimelineTodo | TimelineStep; spec: BarSpec })
+  | (RowBoxBase & { kind: "date"; row: TimelineDate; spec: DateSpec });
+
+interface LaidOutRow {
+  row: TimelineRow;
+  meta: RowMeta;
+  box: RowBox | null;
+}
+
+interface LaidOutGroup {
+  group: TimelineGroup;
+  open: boolean;
+  rows: LaidOutRow[];
 }
 
 const dateDetail = (row: TimelineDate) =>
@@ -345,7 +411,7 @@ function barSpec(
   start: number,
   now: number,
   px: number,
-): Omit<BarSpec, "kind" | "outside" | "showMeta"> | null {
+): Omit<BarSpec, "outside" | "showMeta"> | null {
   if (row.kind === "step") {
     const startDay = dayOf(row.start);
     const left = (startDay - start) * px;
@@ -404,13 +470,14 @@ function rowBox(
     const detail = dateDetail(row);
     const labelWidth = measure(row.name) + (detail ? DIAMOND_DETAIL_GAP + measure(detail) : 0);
     return {
+      kind: "date",
       row,
       meta,
       rowTop,
       left: center - DIAMOND_HALF,
       right: center + DIAMOND_HALF,
       y,
-      spec: { kind: "date", center, detail },
+      spec: { center, detail },
       ...(labelWidth > 0 && {
         cutout: {
           id: row.id,
@@ -429,13 +496,14 @@ function rowBox(
   const { outside, showMeta } = labelLayout(nameWidth, metaWidth, base.width);
   const right = base.left + base.width;
   return {
+    kind: "bar",
     row,
     meta,
     rowTop,
     left: base.left,
     right,
     y,
-    spec: { kind: "bar", ...base, outside, showMeta },
+    spec: { ...base, outside, showMeta },
     ...(outside &&
       nameWidth > 0 && {
         cutout: {
@@ -449,6 +517,36 @@ function rowBox(
   };
 }
 
+export function layoutTimeline(
+  groups: readonly TimelineGroup[],
+  folds: Folds,
+  rowHeight: number,
+  start: number,
+  now: number,
+  px: number,
+  measure: Measure,
+) {
+  const boxes = new Map<string, RowBox>();
+  const cutouts: Cutout[] = [];
+  let rowIndex = 0;
+  const laidOutGroups = groups.map((group): LaidOutGroup => {
+    const open = !(folds[group.id] ?? group.startsFolded);
+    rowIndex++;
+    if (!open) return { group, open, rows: [] };
+    const rows = group.rows.map((row): LaidOutRow => {
+      const meta = rowMeta(row, now);
+      const box = rowBox(row, meta, rowIndex++, rowHeight, start, now, px, measure);
+      if (box) {
+        boxes.set(row.id, box);
+        if (box.cutout) cutouts.push(box.cutout);
+      }
+      return { row, meta, box };
+    });
+    return { group, open, rows };
+  });
+  return { groups: laidOutGroups, boxes, cutouts, bodyHeight: rowIndex * rowHeight };
+}
+
 interface MarkProps {
   box: RowBox | null;
   hovered: boolean;
@@ -459,7 +557,6 @@ interface MarkProps {
 
 function RowMark({ box, hovered, tipId, onEnter, onLeave }: MarkProps) {
   if (!box) return null;
-  const { row, meta, spec } = box;
   const events = {
     "data-hovered": hovered ? "" : undefined,
     "aria-describedby": hovered ? tipId : undefined,
@@ -471,7 +568,8 @@ function RowMark({ box, hovered, tipId, onEnter, onLeave }: MarkProps) {
       if (event.key === "Escape") onLeave();
     },
   };
-  if (spec.kind === "date" && row.kind === "date") {
+  if (box.kind === "date") {
+    const { row, meta, spec } = box;
     return (
       <button type="button" className="timeline-date-mark" {...events} style={{ left: spec.center }}>
         <i
@@ -492,7 +590,7 @@ function RowMark({ box, hovered, tipId, onEnter, onLeave }: MarkProps) {
       </button>
     );
   }
-  if (spec.kind !== "bar") return null;
+  const { row, spec } = box;
   const fullFill = spec.spent !== undefined && spec.spent >= spec.width - 1;
   return (
     <button
@@ -710,6 +808,7 @@ function Timeline({ foldKey, today, from, to, groups, links = [] }: TimelineProp
   const corner = useRef<HTMLDivElement>(null);
   const pill = useRef<HTMLSpanElement>(null);
   const probe = useRef<HTMLSpanElement>(null);
+  const tipRef = useRef<HTMLDivElement>(null);
   const [pillWidth, setPillWidth] = useState(0);
   const [rowHeight, setRowHeight] = useState(DEFAULT_ROW_HEIGHT);
   const [font, setFont] = useState("");
@@ -767,39 +866,19 @@ function Timeline({ foldKey, today, from, to, groups, links = [] }: TimelineProp
   }
 
   const allRows = useMemo(() => new Map(groups.flatMap((g) => g.rows.map((r) => [r.id, r] as const))), [groups]);
-  const boxes = new Map<string, RowBox>();
-  const cutouts: Cutout[] = [];
-  let rowIndex = 0;
-  for (const group of groups) {
-    const open = !(folds[group.id] ?? group.startsFolded);
-    rowIndex++;
-    if (!open) continue;
-    for (const row of group.rows) {
-      const placed = rowBox(row, rowMeta(row, now), rowIndex++, rowHeight, start, now, px, measure);
-      if (placed) {
-        boxes.set(row.id, placed);
-        if (placed.cutout) cutouts.push(placed.cutout);
-      }
-    }
-  }
-  const bodyHeight = rowIndex * rowHeight;
+  const {
+    groups: laidOutGroups,
+    boxes,
+    cutouts,
+    bodyHeight,
+  } = layoutTimeline(groups, folds, rowHeight, start, now, px, measure);
   const activeHovered = hoveredId !== null && boxes.has(hoveredId) ? hoveredId : null;
   const hoveredBox = activeHovered ? boxes.get(activeHovered) : undefined;
   const note = hoveredBox ? noteForRow(hoveredBox.row, hoveredBox.meta, now, links, allRows) : undefined;
   const tipId = `${uid}-tip`;
   const maskId = `${uid}-arrow-mask`;
   const clearHover = (id: string) => setHoveredId((current) => (current === id ? null : current));
-  const tipPlace =
-    hoveredBox && hoveredBox.rowTop - (scroller.current?.scrollTop ?? 0) < TIP_CLEARANCE ? "below" : "above";
-  const tipLeft = (() => {
-    if (!hoveredBox || !note) return 0;
-    const scrollLeft = scroller.current?.scrollLeft ?? 0;
-    const trackWidth = visibleTrack(scroller.current, corner.current);
-    const noteWidth = Math.max(measure(note.title), measure(note.dates), measure(note.source)) + 28;
-    const maxLeft =
-      trackWidth > 0 ? Math.max(scrollLeft + 4, scrollLeft + trackWidth - noteWidth - 8) : hoveredBox.left;
-    return Math.min(Math.max(hoveredBox.left, scrollLeft + 4), maxLeft);
-  })();
+  useTipPosition(tipRef, scroller, corner, hoveredBox, rowHeight, note, font);
 
   return (
     <section className="timeline" ref={rootRef} data-day-width={px}>
@@ -876,8 +955,7 @@ function Timeline({ foldKey, today, from, to, groups, links = [] }: TimelineProp
               rowHeight={rowHeight}
               maskId={maskId}
             />
-            {groups.map((group) => {
-              const open = !(folds[group.id] ?? group.startsFolded);
+            {laidOutGroups.map(({ group, open, rows }) => {
               const heading = (
                 <>
                   <span className="timeline-group-title">
@@ -914,8 +992,7 @@ function Timeline({ foldKey, today, from, to, groups, links = [] }: TimelineProp
                     </div>
                   </div>
                   {open &&
-                    group.rows.map((row) => {
-                      const meta = rowMeta(row, now);
+                    rows.map(({ row, meta, box }) => {
                       const { when, tone, alert, quiet } = meta;
                       return (
                         <div
@@ -941,7 +1018,7 @@ function Timeline({ foldKey, today, from, to, groups, links = [] }: TimelineProp
                           </div>
                           <div className="timeline-track" data-phase={row.phase} style={{ width }}>
                             <RowMark
-                              box={boxes.get(row.id) ?? null}
+                              box={box}
                               hovered={activeHovered === row.id}
                               tipId={tipId}
                               onEnter={() => setHoveredId(row.id)}
@@ -956,17 +1033,7 @@ function Timeline({ foldKey, today, from, to, groups, links = [] }: TimelineProp
             })}
             <div className="timeline-list-fill" />
             {hoveredBox && note && (
-              <div
-                id={tipId}
-                role="tooltip"
-                className="timeline-tip"
-                data-place={tipPlace}
-                data-for={hoveredBox.row.id}
-                style={{
-                  left: `calc(var(--list) + ${tipLeft}px)`,
-                  top: tipPlace === "above" ? hoveredBox.rowTop - 6 : hoveredBox.rowTop + rowHeight + 6,
-                }}
-              >
+              <div ref={tipRef} id={tipId} role="tooltip" className="timeline-tip" data-for={hoveredBox.row.id}>
                 <strong className="timeline-tip-title">{note.title}</strong>
                 <span className="timeline-tip-line">{note.dates}</span>
                 {note.source && (
