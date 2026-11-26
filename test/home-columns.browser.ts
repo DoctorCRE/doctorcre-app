@@ -181,9 +181,6 @@ async function openHome(t: TestContext, width: number, height: number, tours: un
         },
       }),
     );
-  await page.route("**/api/engine/prospects", (route) =>
-    route.fulfill({ json: { prospects: [{ party_id: id(400) }] } }),
-  );
   await page.route("**/api/engine/weekly-reviews?week_of=2026-11-23", (route) =>
     route.fulfill({ json: { items: [{ reviewed: { by: "joe" } }, { reviewed: null }] } }),
   );
@@ -349,7 +346,8 @@ for (const [width, height] of [
 test("Deals counts the board's open deals and Coming up lists the next 14 days, each opening what it counts", async (t) => {
   const page = await openHome(t, 1440, 900);
   const tile = page.getByRole("region", { name: "Deals", exact: true });
-  assert.equal(await tile.getByRole("heading", { level: 2 }).textContent(), "Deals 3 open · 1 prospect");
+  assert.equal(await tile.getByRole("heading", { level: 2 }).textContent(), "Deals 3 open");
+  assert.equal(await tile.getByRole("link", { name: "3 open", exact: true }).getAttribute("href"), "/deals");
   const link = (name: string) => tile.getByRole("link", { name, exact: true }).getAttribute("href");
   assert.equal(await link("Research 1"), "/deals?column=research");
   assert.equal(await link("Example Deal 1 Step 3 days late"), `/deals?deal=${id(101)}`);
@@ -358,10 +356,12 @@ test("Deals counts the board's open deals and Coming up lists the next 14 days, 
   assert.equal(await link("Monday review 1 of 2"), "/deals?view=review");
   const comingUp = page.getByRole("region", { name: "Coming up", exact: true });
   assert.deepEqual(await comingUp.getByRole("link").allTextContents(), [
+    "2",
     "Wed, Nov 25Due diligence ends · Example Deal 1",
     "Fri, Nov 27Due diligence ends · Example Deal 1",
   ]);
-  assert.equal(await comingUp.getByRole("link").first().getAttribute("href"), `/calendar?day=${today}`);
+  assert.equal(await comingUp.getByRole("link", { name: "2", exact: true }).getAttribute("href"), "/calendar");
+  assert.equal(await comingUp.getByRole("link").nth(1).getAttribute("href"), `/calendar?day=${today}`);
 });
 
 test("At 1280x640 the attention list and Coming up fold to one line each that opens in place", async (t) => {

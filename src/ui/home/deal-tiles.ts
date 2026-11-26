@@ -53,17 +53,6 @@ export function reviewProgress(answer: unknown) {
   return { reviewed: answer.items.filter((item) => record(item.reviewed)).length, total: answer.items.length };
 }
 
-/** How many prospects the Deals board's lane shows, one per person or company. */
-export function prospectCount(answer: unknown) {
-  if (
-    !record(answer) ||
-    !Array.isArray(answer.prospects) ||
-    !answer.prospects.every((row) => record(row) && text(row.party_id))
-  )
-    throw Error("Prospects unavailable");
-  return new Set(answer.prospects.map((row: Record<string, unknown>) => row.party_id)).size;
-}
-
 type BoardDeal = { id: string; name: unknown; attention?: unknown };
 /** The Deals board's own rules, which Home loads from the board's modules at run time. */
 export type BoardRules = {

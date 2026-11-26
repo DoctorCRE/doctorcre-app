@@ -35,7 +35,10 @@ export function ComingUpTile() {
     <section className="home-slice home-coming-up" aria-label="Coming up">
       <header>
         <h2>
-          Coming up <span>{rows.length}</span>
+          Coming up{" "}
+          <span>
+            <a href="/calendar">{rows.length}</a>
+          </span>
         </h2>
       </header>
       <Fold

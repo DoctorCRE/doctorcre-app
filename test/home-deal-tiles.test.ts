@@ -4,7 +4,6 @@ import {
   type BoardRules,
   comingUp,
   parseCriticalDates,
-  prospectCount,
   reviewProgress,
   reviewWeek,
 } from "../src/ui/home/deal-tiles.ts";
@@ -56,11 +55,9 @@ test("the Monday review week starts on the Monday holding today", () => {
   assert.equal(reviewWeek("2026-11-30"), "2026-11-30");
 });
 
-test("Monday review progress counts marked items and prospects count once per party", () => {
+test("Monday review progress counts marked items", () => {
   const items = [{ reviewed: { by: "joe", at: "2026-11-23T15:00:00Z" } }, { reviewed: null }, {}];
   assert.deepEqual(reviewProgress({ items }), { reviewed: 1, total: 3 });
-  assert.equal(prospectCount({ prospects: [{ party_id: "p1" }, { party_id: "p2" }, { party_id: "p1" }] }), 2);
-  assert.throws(() => prospectCount({ prospects: [{ name: "Sample Person" }] }));
 });
 
 const step = (owner: string, due_on: string) => ({
