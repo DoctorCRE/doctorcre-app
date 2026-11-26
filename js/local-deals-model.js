@@ -36,8 +36,6 @@ export function urgencyOrder(rows, now = Date.now()) {
     || (Date.parse(a.next_date || '') || Infinity) - (Date.parse(b.next_date || '') || Infinity)
     || String(a.name).localeCompare(String(b.name)));
 }
-// Starred deals lead, each group keeping the order it was given.
-export const starredFirst = rows => [...rows.filter(d => d.starred === true), ...rows.filter(d => d.starred !== true)];
 export function concise(value, limit = 100) {
   const text = noteText(value).replace(/\s+/g,' ').trim();
   return text.length <= limit ? text : text.slice(0, limit - 1).trimEnd() + '…';

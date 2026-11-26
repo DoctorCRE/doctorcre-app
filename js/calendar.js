@@ -284,7 +284,7 @@ function paintDayPanel(day) {
   } else {
     body.textContent = phase === "loading" || phase === "reading" ? "Reading Calendar…"
       : !day ? "Select a day to see its items."
-      : phase === "partial" ? "This day may be incomplete. Refresh to try again." : "Nothing on this day.";
+      : phase === "partial" ? "This day may be incomplete. Refresh to try again." : "No events scheduled.";
   }
 }
 
@@ -519,8 +519,9 @@ function wire() {
     if (chip) { openDay(chip.dataset.day, { entry: chip.dataset.entry }); return; }
     const more = event.target.closest(".cal-more");
     if (more) { openDay(more.dataset.more); return; }
-    const open = event.target.closest(".cal-day-open");
-    if (open) openDay(open.dataset.selectDay);
+    // Anywhere on a day opens it, empty or not; its number button stays the keyboard's way in.
+    const cell = event.target.closest(".cal-day");
+    if (cell) openDay(cell.dataset.day);
   });
   $("calGrid")?.addEventListener("keydown", (event) => {
     const open = event.target.closest(".cal-day-open");

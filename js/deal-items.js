@@ -6,7 +6,7 @@ import { daysBetween } from './calendar-model.js';
 import { fieldLabel } from './change-receipts.mjs';
 import { ACTOR_LABEL } from './client.js';
 import { renderDealVendors } from './deal-vendors.js';
-import { automaticMove, invoiceClose, isPhaseMoveReceipt } from './local-deals-model.js';
+import { automaticMove, invoiceClose, isPhaseMoveReceipt, ordinaryOpenSteps } from './local-deals-model.js';
 import { sourceTime } from './email-source-line.js';
 import { formatCalendarDate } from './visual-system.js';
 
@@ -70,6 +70,16 @@ export function dealDueDate(value, today) {
   const daysLate = today && day < today ? daysBetween(day, today) : 0;
   return { day, date: formatCalendarDate(day), late: daysLate ? `${daysLate} day${daysLate === 1 ? '' : 's'} late` : '' };
 }
+
+/** Why the board marks a deal Needs attention: a partner flagged it, or the deal owner's step is late. */
+export function attentionReasons(deal, today, fallbackDue = null) {
+  const step = ordinaryOpenSteps(deal.open_actions ?? []).find(step => step.owner === deal.owner);
+  const late = dealDueDate(step?.due_on ?? fallbackDue, today)?.late;
+  return [deal.attention === true && 'Flagged by a partner', late && `Step ${late}`].filter(Boolean);
+}
+
+/** The engine's own flag: the deal has no step, or its step has no date. */
+export const missingNextStep = deal => deal.next_step_required === true;
 
 /** A step read from the deal's client says so. */
 export function stepText(step) {

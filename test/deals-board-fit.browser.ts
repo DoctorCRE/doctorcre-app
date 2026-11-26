@@ -269,6 +269,99 @@ test("the Deals board keeps deals in reach on a phone and fits one screen on lap
       });
 });
 
+test("the board scrolls with no visible bar and a faint thumb shows only while a column scrolls", async (t) => {
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const server = await openBoard(page);
+  t.after(() => server.close());
+  const column = page.locator('.kanban-column[data-column="pending"]');
+  assert.deepEqual(
+    await page
+      .locator("#kanban, .kanban-column[data-column]")
+      .evaluateAll((scrollers) => [...new Set(scrollers.map((s) => getComputedStyle(s).scrollbarWidth))]),
+    ["none"],
+    "neither the board nor a column draws a scroll bar",
+  );
+  assert.equal(await page.locator(".scroll-thumb").count(), 0, "no thumb before scrolling");
+
+  const box = await column.boundingBox();
+  assert.ok(box);
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.wheel(0, 400);
+  const thumb = page.locator(".scroll-thumb");
+  await thumb.waitFor();
+  assert.ok(await column.evaluate((c) => c.scrollTop > 0), "the wheel scrolls the column");
+  const shown = await thumb.boundingBox();
+  assert.ok(shown && shown.width <= 4, "the thumb is thin");
+  assert.ok(shown.x >= box.x && shown.x + shown.width <= box.x + box.width, "the thumb sits on its column");
+  assert.ok(shown.y >= box.y && shown.y + shown.height <= box.y + box.height + 1, "the thumb stays inside its column");
+  const alpha = await thumb.evaluate((t) =>
+    Number(/[\d.]+(?=\)$)/.exec(getComputedStyle(t).backgroundColor)?.[0] ?? 1),
+  );
+  assert.ok(alpha <= 0.3, `the thumb is faint (${alpha})`);
+  await thumb.waitFor({ state: "detached" });
+});
+
+test("a sideways board scroll shows no thumb", async (t) => {
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1000, height: 800 } });
+  const server = await openBoard(page);
+  t.after(() => server.close());
+  const board = page.locator("#kanban");
+  // A short window leaves the board itself scrolling both ways; a fixed height stands in for it.
+  await board.evaluate((k) => {
+    k.style.flex = "none";
+    k.style.minHeight = "0";
+    k.style.height = "240px";
+  });
+  const scroll = (axis: "scrollLeft" | "scrollTop") =>
+    board.evaluate(
+      (k, axis) =>
+        new Promise<number>((resolve) => {
+          k.addEventListener("scroll", () => resolve(k[axis]), { once: true });
+          k[axis] = 60;
+        }),
+      axis,
+    );
+  assert.ok((await scroll("scrollLeft")) > 0, "the board moved sideways");
+  assert.equal(await page.locator(".scroll-thumb").count(), 0, "no up-and-down thumb for a sideways scroll");
+  assert.ok((await scroll("scrollTop")) > 0, "the board moved down");
+  assert.equal(await page.locator(".scroll-thumb").count(), 1, "moving down still shows the thumb");
+});
+
+test("with reduced motion the thumb holds, then leaves without fading", async (t) => {
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
+  t.after(() => context.close());
+  await context.addInitScript(() =>
+    localStorage.setItem("doctorcre.visual-preferences", JSON.stringify({ theme: "light" })),
+  );
+  const page = await context.newPage();
+  const server = await openBoard(page);
+  t.after(() => server.close());
+  assert.equal(await page.locator("html").getAttribute("data-theme"), "light");
+  const box = await page.locator('.kanban-column[data-column="pending"]').boundingBox();
+  assert.ok(box);
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.wheel(0, 400);
+  const thumb = page.locator(".scroll-thumb");
+  await thumb.waitFor();
+  await mkdir("out/test-artifacts/deals-board-fit", { recursive: true });
+  await page.screenshot({ path: "out/test-artifacts/deals-board-fit/thumb-light-reduced.png" });
+  const opacities = await thumb.evaluate((t) =>
+    t
+      .getAnimations()
+      .flatMap(({ effect }) =>
+        effect instanceof KeyframeEffect ? effect.getKeyframes().map((k) => Number(k.opacity ?? 1)) : [],
+      ),
+  );
+  assert.ok(opacities.length > 0 && opacities.every((o) => o === 1), `the thumb never fades (${opacities})`);
+  await thumb.waitFor({ state: "detached" });
+});
+
 test("the Deals list and the Prospects lane never cover each other", async (t) => {
   const browser = await chromium.launch();
   t.after(() => browser.close());

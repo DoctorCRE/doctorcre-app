@@ -105,6 +105,12 @@ test('blocking 17: committed duplicate city/state labels never choose an arbitra
  assert.equal(marketCounts(rows)[0].count,3,'ambiguous markets keep their count in the list');
 });
 
+test('a lead served with a city and no state is placed only when that city name is found once', () => {
+ const places=[{id:'1',name:'Pensacola',state:'FL',position:[-87.2,30.4]},{id:'2',name:'Geneva',state:'AL',position:[-85.9,31]},{id:'3',name:'Geneva',state:'FL',position:[-81.1,28.7]}];
+ const features=projectMarkets([lead(1,{city:'Pensacola',state:null}),lead(2,{city:'Geneva',state:null})],places).features;
+ assert.deepEqual(features.map(feature=>[feature.properties.place,feature.properties.leadIds]),[['Pensacola',[lead(1).id]]]);
+});
+
 test('market features exclude missing, malformed and zero coordinates without losing list members', () => {
  const rows=[lead(1,{city:'Synthetic'})];
  for(const position of [undefined,null,[],[0,0],['-88',30],[-88,NaN],[181,30],[-88,91]]) {

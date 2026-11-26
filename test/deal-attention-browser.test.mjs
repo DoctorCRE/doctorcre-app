@@ -59,3 +59,60 @@ test('Home counts overdue agenda dates while board badges retain next-step atten
   assert.match(await page.locator('#dealFlags').textContent(), /No overdue next steps/);
   assert.deepEqual(errors, []);
 });
+
+test('Home opens the Deals list at deals with no next step and the board at a phase', async t => {
+  const browser = await chromium.launch(); t.after(() => browser.close());
+  const page = await browser.newPage({ timezoneId: 'America/Chicago', reducedMotion: 'reduce' });
+  await page.clock.install({ time: now });
+  const seed = JSON.parse(await readFile(new URL('data/board-seed.json', root), 'utf8'));
+  seed.deals.forEach((deal, i) => Object.assign(deal, { id: `synthetic-plan-${i}`, name: `Demo Plan ${i}`, phase: i % 2 ? 'Legal' : 'Research',
+    owner: 'joe', attention: false, operating_state: 'active', workspace_kind: 'team', account_client_id: null, outcome: null,
+    invoiced_on: null, next_step_required: i === 5 || i === 6 }));
+  await page.route('**/*', async route => {
+    const url = new URL(route.request().url());
+    if (url.origin !== 'http://localhost') return route.abort();
+    if (url.pathname === '/data/board-seed.json') return route.fulfill({ json: seed });
+    if (url.pathname.startsWith('/api/') || url.pathname === '/app-release') return route.fulfill({ json: {} });
+    const file = url.pathname === '/deals' ? 'pipeline.html' : url.pathname.slice(1);
+    try { return route.fulfill({ body: await readFile(new URL(file, root)), contentType: /\.m?js$/.test(file) ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' }); }
+    catch { return route.fulfill({ status: 404, body: '' }); }
+  });
+  await page.goto('http://localhost/deals?view=list&filter=no-next-step');
+  await page.locator('.deal-row').first().waitFor();
+  assert.deepEqual((await page.locator('.deal-row h4').allTextContents()).sort(), ['Demo Plan 5', 'Demo Plan 6']);
+  await page.goto('http://localhost/deals?column=legal');
+  await page.locator('.kanban-card').first().waitFor();
+  assert.equal(await page.evaluate(() => document.activeElement?.closest('.kanban-column')?.dataset.column), 'legal');
+});
+
+test('Deals with no next step hide the Prospects lane and its count', async t => {
+  const browser = await chromium.launch(); t.after(() => browser.close());
+  const page = await browser.newPage({ timezoneId: 'America/Chicago', reducedMotion: 'reduce' });
+  await page.addInitScript(() => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ walkthroughSeen: { joe: true } })));
+  await page.route('**/*', async route => {
+    const url = new URL(route.request().url());
+    if (url.origin !== 'http://localhost') return route.abort();
+    if (url.pathname === '/auth/session') return route.fulfill({ json: { actor: { slug: 'joe' }, csrf_token: 'synthetic' } });
+    if (url.pathname === '/mcp') {
+      const { id, params } = route.request().postDataJSON();
+      const board = { schema_version: 'local-deals-board.v2', actor: 'joe', deals: [], board_from_engine: true, engine_prospects: true, next_deal_saves: true };
+      const value = params.name === 'deal-room-board' ? board : { items: [] };
+      return route.fulfill({ json: { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(value) }] } } });
+    }
+    if (url.pathname === '/api/engine/deals') return route.fulfill({ json: { schema_version: 'local-deals-board.v2', actor: 'joe', deals: [], board_from_engine: true, engine_prospects: true, next_deal_saves: true } });
+    if (url.pathname === '/api/engine/prospects') return route.fulfill({ json: { count: 0, prospects: [] } });
+    if (url.pathname.startsWith('/api/') || url.pathname === '/app-release') return route.fulfill({ json: {} });
+    const file = url.pathname === '/deals' ? 'pipeline.html' : url.pathname.slice(1);
+    try { return route.fulfill({ body: await readFile(new URL(file, root)), contentType: /\.m?js$/.test(file) ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' }); }
+    catch { return route.fulfill({ status: 404, body: '' }); }
+  });
+  await page.goto('http://localhost/deals?mode=live');
+  await page.locator('#prospectsLane').waitFor({ state: 'attached' });
+  await page.waitForFunction(() => /0 prospects/.test(document.querySelector('#boardLive')?.textContent || ''));
+  assert.equal(await page.locator('#prospectsLane').isVisible(), true);
+  await page.goto('http://localhost/deals?view=list&filter=no-next-step&mode=live');
+  await page.locator('#prospectsLane').waitFor({ state: 'attached' });
+  await page.waitForFunction(() => document.querySelector('#boardLive')?.textContent);
+  assert.equal(await page.locator('#prospectsLane').isHidden(), true);
+  assert.doesNotMatch(await page.locator('#boardLive').textContent(), /prospect/i);
+});

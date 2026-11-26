@@ -18,7 +18,7 @@ import { observeDocRead, pageDocContext, publishDocRead, selectDocRecord, setDoc
 import { createLeadBoardClient, hasLeadVersion, validateLeadWorkspace as validateWorkspace, validateLeadDetail as validateDetail } from "./leads-client.js";
 import { mountAutoRefresh, updatedLabel } from "./auto-refresh.mjs";
 import { BOARD_STAGES, FILTER_STAGES, stageLabel, normalizedStage, eligibleLead, leadTitle, leadMarket, marketKey, specialtyKey,
-  visibleLeads, marketCounts, stageReview, automaticMove, undoReview, leadTimestamp, leadReachability } from "./leads-model.js";
+  visibleLeads, marketCounts, quietLeadIndex, quietFollowUp, stageReview, automaticMove, undoReview, leadTimestamp, leadReachability } from "./leads-model.js";
 import { mountTerritoryMap } from "./leads-territory-map.js";
 
 const historyKeys = { correspondence: "id", stage_history: "event_id" };
@@ -39,9 +39,6 @@ const summary = value => String(value || "").split(/\n\s*\n/)[0].slice(0, 230);
 const ownerName = owner => owner ? partnerName(owner) : "Unclaimed";
 const claimButton = lead => !lead.owner && normalizedStage(lead) !== "archived" ? `<button data-claim="${esc(lead.id)}">Claim</button>` : "";
 const readOnlyMessage = "Can't edit right now. Refresh to try again.";
-const quietLeadIndex = proposals => new Map(proposals.filter(row => row.subject_type === "lead").flatMap(row =>
-  row.ref ? [[row.subject_id, row], [row.ref, row]] : [[row.subject_id, row]]
-));
 const skeletonCard = '<div class="lead-skeleton" aria-hidden="true"><span class="skeleton-line"></span><span class="skeleton-line"></span><span class="skeleton-line"></span></div>';
 const options = (rows, selected, all) => `<option value="">${all}</option>${rows.map(([key, text]) => `<option value="${esc(key)}"${key === selected ? " selected" : ""}>${esc(text)}</option>`).join("")}`;
 
@@ -80,7 +77,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     if (draft && input) draft.answer = input.value;
     return draft;
   }
-  const followUp = lead => state.quiet?.rows?.get(lead.id) || state.quiet?.rows?.get(lead.registry_ref);
+  const followUp = lead => state.quiet?.rows && quietFollowUp(state.quiet.rows, lead);
   function paintDetailFollowUp() {
     const lead = leadById(state.detailId);
     const row = lead && followUp(lead);
@@ -945,7 +942,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     button.disabled = true; button.textContent = "Loading territory…";
     button.setAttribute("aria-expanded", "true"); root.hidden = false;
     try {
-      const map = await mapFactory(root, selectMarket, readDetail, { describeLead: id => leadTitle(leadById(id) || {}) });
+      const map = await mapFactory(root, readDetail, { describeLead: id => leadTitle(leadById(id) || {}) });
       if (disposed) { map.dispose(); return; }
       state.map = map; button.hidden = true;
       if (!state.drag && !touch) render();

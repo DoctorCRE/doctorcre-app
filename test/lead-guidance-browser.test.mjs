@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { chromium, settles } from './browser-harness.mjs';
 import { routeLeads } from './leads-browser-fixture.mjs';
 import { detail, workspace } from './leads-workspace-fixture.mjs';
+import { controlFloor } from "./control-floor.ts";
 
 const screenshots = process.env.LEAD_GUIDANCE_EVIDENCE || `test-artifacts/lead-guidance-${randomUUID()}`;
 await mkdir(screenshots, { recursive: true });
@@ -43,7 +44,7 @@ for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
     assert.match(await page.locator('#leadGuidance').innerText(), /Decision window\s+Unavailable/);
     assert.match(await page.locator('#leadGuidance').innerText(), /not verified prospect intent/);
     assert.equal(await page.locator('#leadGuidance').evaluate(el => el.scrollWidth <= el.clientWidth), true);
-    assert.equal(await page.locator('#leadGuidance summary').evaluate(el => el.getBoundingClientRect().height >= 44), true);
+    assert.ok((await page.locator('#leadGuidance summary').boundingBox()).height >= controlFloor(width));
     if (width === 1280) assert.equal(await page.getByText('Decision window', { exact: true }).evaluate(el =>
       el.getBoundingClientRect().height <= parseFloat(getComputedStyle(el).lineHeight) + 1), true);
     await page.locator('#leadGuidance').screenshot({ path: `${screenshots}/${width}-${theme}-strategy.png` });

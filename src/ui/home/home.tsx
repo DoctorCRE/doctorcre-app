@@ -5,8 +5,9 @@ import { BrowserRouter, Link, Route, Routes, useLocation, useParams } from "reac
 import { showToast } from "../../../js/toast.js";
 import type { DocLinkRequest } from "../doc-link";
 import { HomeWatchDetail } from "../watches/home-detail.tsx";
-import { BulkControls } from "./bulk-controls";
+import { ComingUpTile } from "./coming-up-tile";
 import { readDashboard } from "./dashboard-read";
+import { DealsTile } from "./deals-tile";
 import { createDraftEdits, type DraftEdits, type PrivateReplyDraft } from "./draft-edits.ts";
 import { DropReason } from "./drop-reason.tsx";
 import { type MarkUndo, markTarget, restoreMark } from "./engine-marks.ts";
@@ -28,7 +29,8 @@ import {
   type TaskReceipt,
   taskCommand,
 } from "./inbox";
-import { earlierMeetingReviews, MeetingReview, MeetingTile, readMeetings } from "./meetings";
+import { LeadsLine } from "./leads-line.tsx";
+import { MeetingReview, readMeetings, useMeetingOutcomes } from "./meetings";
 import { ReviewCard, reviewDispositionLabel } from "./review-card";
 import { recordPages, recordRoutes } from "./routes";
 import {
@@ -40,9 +42,10 @@ import {
   HomeGrid,
   lateDays,
   PlaceholderTile,
-  reminderPreviewCount,
+  tileOf,
 } from "./sections";
 import { sourceExcerptText } from "./source-excerpt.ts";
+import { TodayMeetings } from "./today-meetings.tsx";
 
 type SnoozePreview = Readonly<{
   items: readonly InboxItem[];
@@ -50,7 +53,7 @@ type SnoozePreview = Readonly<{
   error: string;
 }>;
 type Pending = { request: Command; before: readonly InboxItem[]; undoing?: true };
-type Save = "card" | "batch" | "review";
+type Save = "card" | "review";
 type Undo = { items: readonly InboxItem[] } & (
   | { mark: MarkUndo }
   | { action: Action | "reopen"; until?: string; receipt?: TaskReceipt }
@@ -124,6 +127,7 @@ function undoable(entry: Undo, items: readonly InboxItem[]) {
 }
 
 const cardTitle = ":is(h3 a, h3[tabindex])";
+const rowButtons = ":scope > button.home-done, :scope > .inbox-actions > button";
 const visibleRow = (node: HTMLElement) => !node.closest("details:not([open])") && node.getClientRects().length > 0;
 const isEngineStep = (item: InboxItem) => item.engine_marks && item.source_type === "next_action";
 const isDoneStep = (item: InboxItem) =>
@@ -182,16 +186,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
   const mounted = useRef(true);
   const query = useQuery({
     queryKey,
-    queryFn: async ({ signal }) => {
-      if (home && engineHome) {
-        const dashboard = await readDashboard(signal);
-        if (dashboard) return dashboard;
-        const current = cache.getQueryData<Snapshot | { grouped: true }>(queryKey);
-        if (inFlight.current.size && current && "grouped" in current)
-          throw Error("Reminders and waiting items unavailable.");
-      }
-      return client.read(signal);
-    },
+    queryFn: async ({ signal }) => (home && engineHome ? readDashboard(signal) : client.read(signal)),
     // eslint-disable-next-line no-restricted-syntax -- One read per 60000ms while visible and online; paused during writes and cleared on unmount by Query.
     refetchInterval: () =>
       navigator.onLine && document.visibilityState === "visible" && !saving.size ? 60_000 : false,
@@ -210,6 +205,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     setNoticeAlert(false);
     setNotice(message);
   }, []);
+  const meetingOutcomes = useMeetingOutcomes(meetings.data, meetingDay, handledMeetings);
   useEffect(() => {
     const host = document.getElementById("homeRoot");
     if (home && !query.isPending && host) markHomeReady(host);
@@ -246,13 +242,18 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     );
     const target = visibleRow(opener)
       ? opener
-      : (links.find((link) => !preceding.has(link)) ?? links.at(-1) ?? tile?.querySelector<HTMLElement>("h2"));
+      : (links.find((link) => !preceding.has(link)) ??
+        links.at(-1) ??
+        tile?.querySelector<HTMLElement>("h2") ??
+        Array.from(root.current?.querySelectorAll<HTMLElement>(`[data-inbox-row] ${cardTitle}`) ?? []).find(
+          visibleRow,
+        ));
     (target || root.current)?.focus({ preventScroll: true });
     reviewFocus.current = null;
   }, [reviewing]);
   const [selected, select] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState<Pending | null>(null);
-  const busy = saving.has("card") || saving.has("batch");
+  const busy = saving.has("card");
   function beginSave(save: Save) {
     const alone = !inFlight.current.size;
     inFlight.current.add(save);
@@ -305,7 +306,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
           name: (row) => row.querySelector("h3")?.textContent ?? "",
           actions: (row) => {
             // Only the row's own buttons: an open review card has actions of its own.
-            const buttons = Array.from(row.querySelectorAll<HTMLButtonElement>(":scope > .inbox-actions > button"))
+            const buttons = Array.from(row.querySelectorAll<HTMLButtonElement>(rowButtons))
               .filter((button) => !button.disabled)
               .map((button) => ({ label: button.textContent?.trim() ?? "", control: button }));
             const title = row.querySelector<HTMLElement>("h3 a");
@@ -313,7 +314,8 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
           },
           focusTarget: (row) =>
             row.querySelector<HTMLElement>("h3 a") ??
-            row.querySelector<HTMLElement>(":scope > .inbox-actions > button:not(:disabled)"),
+            Array.from(row.querySelectorAll<HTMLButtonElement>(rowButtons)).find((button) => !button.disabled) ??
+            null,
         });
       })
       // Without the menu every card still has its own buttons.
@@ -435,12 +437,6 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     target?.focus();
     target?.scrollIntoView({ block: "center" });
   }, [focusTargets]);
-  function finishBatch() {
-    const next = root.current?.querySelector<HTMLElement>('.home-slice[aria-label="Reminders"] h3 a');
-    const target = next || root.current?.querySelector<HTMLElement>(".home-slice h2") || root.current;
-    target?.focus();
-    target?.scrollIntoView({ block: "center" });
-  }
   async function run(operation: Pending) {
     if (inFlight.current.has("card")) return;
     setPending(operation);
@@ -490,6 +486,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
       const failed = results.filter((result) => !result.ok && !result.current_item);
       await updateAfterSave(results.find((result) => result.snapshot)?.snapshot, updates);
       if (!mounted.current) return;
+      if (reviewing && successes.some((result) => result.item_id === reviewing.item_id)) setReviewing(null);
       setFailures(failed);
       select(new Set(failed.map((result) => result.item_id)));
       const fresh = operation.undoing
@@ -639,13 +636,12 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
   }
   const items = query.data?.items ?? EMPTY_ITEMS;
   const today = day(new Date(query.dataUpdatedAt || Date.now()));
-  const pinnedTile =
-    reviewing?.dashboard_tile ??
-    (reviewing && ["working", "held", "snoozed"].includes(reviewing.section) ? "waiting" : "reminders");
+  const pinnedTile = reviewing && tileOf(reviewing);
   const tiles = useMemo(() => {
     const placed = dashboardCards(items, today);
-    const otherTile = pinnedTile === "reminders" ? "waiting" : "reminders";
-    if (reviewing) placed[otherTile] = placed[otherTile].filter((item) => cardKey(item) !== cardKey(reviewing));
+    for (const tile of ["reminders", "inbox", "waiting"] as const)
+      if (reviewing && tile !== pinnedTile)
+        placed[tile] = placed[tile].filter((item) => cardKey(item) !== cardKey(reviewing));
     return placed;
   }, [items, today, reviewing, pinnedTile]);
   const finishedElsewhere =
@@ -816,6 +812,72 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             : (namedRecord && item.context_label) || `Open ${sourcePage}`}
       </a>
     );
+    const titleLink = canOpen ? (
+      <Link
+        data-shortcut-open={home ? "" : undefined}
+        aria-current={item_id === item.item_id ? "true" : undefined}
+        aria-expanded={directUrl ? undefined : open}
+        aria-disabled={openingLocked}
+        to={directUrl ?? recordRoutes.card(item.item_id)}
+        reloadDocument={Boolean(directUrl)}
+        onClick={(event) => {
+          if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+          if (openingLocked || !directUrl) event.preventDefault();
+          if (!openingLocked && !directUrl) openCard(item, event.currentTarget);
+        }}
+      >
+        {item.title}
+      </Link>
+    ) : (
+      item.title
+    );
+    const snoozeButton = snoozable && (
+      <button
+        type="button"
+        disabled={busy}
+        onClick={(event) => {
+          snoozeOpener.current = event.currentTarget;
+          openSnooze([item]);
+        }}
+      >
+        Snooze
+      </button>
+    );
+    const dropButton = droppable && (
+      <button
+        type="button"
+        disabled={busy || !!pending || !online}
+        onClick={(event) => setDropping({ item, opener: event.currentTarget })}
+      >
+        Drop
+      </button>
+    );
+    const tile = home ? tileOf(item) : null;
+    const edge =
+      tile === "reminders" &&
+      (daysLate
+        ? `${daysLate} day${daysLate === 1 ? "" : "s"} late`
+        : item.due_on === today
+          ? "Today"
+          : item.due_on && cardDate.format(new Date(item.due_on)));
+    const line =
+      tile === "waiting"
+        ? [snoozeLabel(item) || hold || waitingOn || detail, returns]
+        : [
+            item.context_label,
+            cue,
+            item.covers && `Covers ${item.covers.length} reminders`,
+            covered,
+            presentation?.why || detail,
+            emailAt && `Received ${snoozeDate.format(new Date(emailAt))}`,
+          ];
+    const deepLinked = item_id === item.item_id && !open && (
+      <>
+        {!directUrl && linkedRecord}
+        {item.source_type === "notification" && <HomeWatchDetail open_url={item.open_url} />}
+        {item.open_url && !source && <p role="status">This link can't be opened here.</p>}
+      </>
+    );
     return (
       <article
         key={cardKey(item)}
@@ -847,186 +909,184 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
           }
         }}
       >
-        <label className="inbox-select">
-          <input
-            type="checkbox"
-            aria-label={`Select ${item.title}`}
-            checked={selected.has(item.item_id)}
-            disabled={busy || !!reviewing || !snoozable || item.source_state === "working" || !!item.covers}
-            onChange={(event) =>
-              select((previous) => {
-                const next = new Set(previous);
-                if (event.target.checked) next.add(item.item_id);
-                else next.delete(item.item_id);
-                return next;
-              })
-            }
-          />
-        </label>
-        <div className="inbox-copy">
-          {!home && (
-            <p className="inbox-meta">
-              <span>{item.kind_label}</span>
-              {!item.engine_marks && (
-                <span className={`inbox-badge inbox-${item.source_state}`}>
-                  {item.source_state.replaceAll("_", " ")}
-                </span>
-              )}
-            </p>
-          )}
-          <h3
-            className={presentation || open || item_id === item.item_id ? "inbox-title-expanded" : undefined}
-            tabIndex={canOpen ? undefined : -1}
-          >
-            {canOpen ? (
-              <Link
-                data-shortcut-open={home ? "" : undefined}
-                aria-current={item_id === item.item_id ? "true" : undefined}
-                aria-expanded={directUrl ? undefined : open}
-                aria-disabled={openingLocked}
-                to={directUrl ?? recordRoutes.card(item.item_id)}
-                reloadDocument={Boolean(directUrl)}
-                onClick={(event) => {
-                  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-                  if (openingLocked || !directUrl) event.preventDefault();
-                  if (!openingLocked && !directUrl) openCard(item, event.currentTarget);
-                }}
-              >
-                {item.title}
-              </Link>
-            ) : (
-              item.title
+        {home ? (
+          <>
+            {tile === "reminders" &&
+              (completable || tourDone ? (
+                <button
+                  type="button"
+                  className="home-done"
+                  disabled={busy || open}
+                  onClick={() => finish(item, tourDone ? "done" : "complete")}
+                >
+                  <span className="sr-only">Mark done</span>
+                </button>
+              ) : (
+                <span className="home-done" />
+              ))}
+            <div className="inbox-copy">
+              <h3 tabIndex={canOpen ? undefined : -1}>{titleLink}</h3>
+              <p className="inbox-why">{line.filter(Boolean).join(" · ")}</p>
+              {deepLinked}
+            </div>
+            {edge && <span className={daysLate ? "home-edge home-late" : "home-edge"}>{edge}</span>}
+            {!open && (
+              <div className="inbox-actions">
+                {tile === "reminders" && snoozeButton}
+                {tile === "reminders" && dropButton}
+                {tile === "inbox" && (
+                  <button type="button" disabled={openingLocked} onClick={(event) => openDetails(event.currentTarget)}>
+                    Review
+                  </button>
+                )}
+                {tile === "waiting" && wakeable && (
+                  <button type="button" disabled={busy} onClick={() => act(markAction, [item])}>
+                    {primary}
+                  </button>
+                )}
+              </div>
             )}
-          </h3>
-          {cue && (
-            <p className="inbox-detail">
-              <strong>{cue}</strong>
-            </p>
-          )}
-          {covered && <p className="inbox-detail">{covered}</p>}
-          {presentation && <p className="inbox-why">{presentation.why}</p>}
-          {(item.context_label || due || item.covers) && (
-            <p className="inbox-context">
-              {item.context_label}
-              {due && (
-                <>
-                  {" "}
-                  {item.context_label && "· "}
-                  {dueCaption}
-                </>
-              )}
-              {item.covers && ` · Covers ${item.covers.length} reminders`}
-            </p>
-          )}
-          {callAt && !presentation && (
-            <p className="inbox-detail">
-              From your call{callContact && ` with ${callContact}`} on{" "}
-              <time dateTime={callAt}>{callDate.format(new Date(callAt))}</time>
-            </p>
-          )}
-          {emailAt && (
-            <p className="inbox-detail">
-              Received <time dateTime={emailAt}>{snoozeDate.format(new Date(emailAt))}</time>
-            </p>
-          )}
-          {(detail || hold || waitingOn || returns || item.section === "held") && (
-            <p className="inbox-detail">
-              {[waitingOn, detail, returns, hold || (item.section === "held" && "On hold")].filter(Boolean).join(" · ")}
-            </p>
-          )}
-          {item_id === item.item_id && !open && !directUrl && linkedRecord}
-          {item_id === item.item_id && !open && item.source_type === "notification" && (
-            <HomeWatchDetail open_url={item.open_url} />
-          )}
-          {item_id === item.item_id && item.open_url && !source && <p role="status">This link can't be opened here.</p>}
-        </div>
-        {(!open || !finishedElsewhere) && (!waitingCard || wakeable) && (
-          <div className="inbox-actions">
-            {!waitingCard && presentation && !(open && namedAction === "Mark done") && (
-              <button
-                type="button"
-                className={open ? undefined : "inbox-primary"}
-                aria-expanded={directUrl || namedAction === "Mark done" ? undefined : open}
-                disabled={namedAction === "Mark done" ? busy || !completable : openingLocked}
-                onClick={(event) => {
-                  if (namedAction === "Mark done") finish(item, "complete");
-                  else openDetails(event.currentTarget);
-                }}
-              >
-                {namedAction}
-              </button>
-            )}
-            {!presentation && !waitingCard && canOpen && (
-              <button
-                type="button"
-                className={completable || tourDone || reviewLabel ? undefined : "inbox-primary"}
-                aria-expanded={directUrl ? undefined : open}
-                disabled={openingLocked}
-                onClick={(event) => openDetails(event.currentTarget)}
-              >
-                Open
-              </button>
-            )}
-            {!presentation && reviewLabel && (
-              <button
-                type="button"
-                className={open ? undefined : "inbox-primary"}
-                aria-expanded={open}
-                disabled={openingLocked}
-                onClick={(event) => openCard(item, event.currentTarget)}
-              >
-                {reviewLabel}
-              </button>
-            )}
-            {reopenable && !open && (
-              <button type="button" disabled={busy || !!pending} onClick={() => act("reopen", [item], undefined, true)}>
-                Undo
-              </button>
-            )}
-            {!presentation && (completable || tourDone) && !open && (
-              <button
-                type="button"
-                className="inbox-primary"
-                disabled={busy || open}
-                onClick={() => finish(item, tourDone ? "done" : "complete")}
-              >
-                {tourDone ? "Done" : "Mark done"}
-              </button>
-            )}
-            {legacyFailedReply && (
-              <p className="inbox-detail inbox-guidance">
-                {home
-                  ? "This reply didn't send. Send it from your email."
-                  : "This reply didn't send. Send it from your email, then press Hide from inbox."}
+          </>
+        ) : (
+          <>
+            <label className="inbox-select">
+              <input
+                type="checkbox"
+                aria-label={`Select ${item.title}`}
+                checked={selected.has(item.item_id)}
+                disabled={busy || !!reviewing || !snoozable || item.source_state === "working" || !!item.covers}
+                onChange={(event) =>
+                  select((previous) => {
+                    const next = new Set(previous);
+                    if (event.target.checked) next.add(item.item_id);
+                    else next.delete(item.item_id);
+                    return next;
+                  })
+                }
+              />
+            </label>
+            <div className="inbox-copy">
+              <p className="inbox-meta">
+                <span>{item.kind_label}</span>
+                {!item.engine_marks && (
+                  <span className={`inbox-badge inbox-${item.source_state}`}>
+                    {item.source_state.replaceAll("_", " ")}
+                  </span>
+                )}
               </p>
-            )}
-            {wakeable && !open && (
-              <button type="button" disabled={busy} onClick={() => act(markAction, [item])}>
-                {primary}
-              </button>
-            )}
-            {snoozable && !open && (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={(event) => {
-                  snoozeOpener.current = event.currentTarget;
-                  openSnooze([item]);
-                }}
+              <h3
+                className={presentation || open || item_id === item.item_id ? "inbox-title-expanded" : undefined}
+                tabIndex={canOpen ? undefined : -1}
               >
-                Snooze
-              </button>
+                {titleLink}
+              </h3>
+              {covered && <p className="inbox-detail">{covered}</p>}
+              {presentation && <p className="inbox-why">{presentation.why}</p>}
+              {(item.context_label || due || item.covers) && (
+                <p className="inbox-context">
+                  {item.context_label}
+                  {due && (
+                    <>
+                      {" "}
+                      {item.context_label && "· "}
+                      {dueCaption}
+                    </>
+                  )}
+                  {item.covers && ` · Covers ${item.covers.length} reminders`}
+                </p>
+              )}
+              {callAt && !presentation && (
+                <p className="inbox-detail">
+                  From your call{callContact && ` with ${callContact}`} on{" "}
+                  <time dateTime={callAt}>{callDate.format(new Date(callAt))}</time>
+                </p>
+              )}
+              {emailAt && (
+                <p className="inbox-detail">
+                  Received <time dateTime={emailAt}>{snoozeDate.format(new Date(emailAt))}</time>
+                </p>
+              )}
+              {(detail || hold || waitingOn || returns || item.section === "held") && (
+                <p className="inbox-detail">
+                  {[waitingOn, detail, returns, hold || (item.section === "held" && "On hold")]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
+              )}
+              {deepLinked}
+            </div>
+            {(!waitingCard || wakeable) && (
+              <div className="inbox-actions">
+                {!waitingCard && presentation && !(open && namedAction === "Mark done") && (
+                  <button
+                    type="button"
+                    className={open ? undefined : "inbox-primary"}
+                    aria-expanded={directUrl || namedAction === "Mark done" ? undefined : open}
+                    disabled={namedAction === "Mark done" ? busy || !completable : openingLocked}
+                    onClick={(event) => {
+                      if (namedAction === "Mark done") finish(item, "complete");
+                      else openDetails(event.currentTarget);
+                    }}
+                  >
+                    {namedAction}
+                  </button>
+                )}
+                {!presentation && !waitingCard && canOpen && (
+                  <button
+                    type="button"
+                    className={completable || tourDone || reviewLabel ? undefined : "inbox-primary"}
+                    aria-expanded={directUrl ? undefined : open}
+                    disabled={openingLocked}
+                    onClick={(event) => openDetails(event.currentTarget)}
+                  >
+                    Open
+                  </button>
+                )}
+                {!presentation && reviewLabel && (
+                  <button
+                    type="button"
+                    className={open ? undefined : "inbox-primary"}
+                    aria-expanded={open}
+                    disabled={openingLocked}
+                    onClick={(event) => openCard(item, event.currentTarget)}
+                  >
+                    {reviewLabel}
+                  </button>
+                )}
+                {reopenable && !open && (
+                  <button
+                    type="button"
+                    disabled={busy || !!pending}
+                    onClick={() => act("reopen", [item], undefined, true)}
+                  >
+                    Undo
+                  </button>
+                )}
+                {!presentation && (completable || tourDone) && !open && (
+                  <button
+                    type="button"
+                    className="inbox-primary"
+                    disabled={busy || open}
+                    onClick={() => finish(item, tourDone ? "done" : "complete")}
+                  >
+                    {tourDone ? "Done" : "Mark done"}
+                  </button>
+                )}
+                {legacyFailedReply && (
+                  <p className="inbox-detail inbox-guidance">
+                    This reply didn't send. Send it from your email, then press Hide from inbox.
+                  </p>
+                )}
+                {wakeable && !open && (
+                  <button type="button" disabled={busy} onClick={() => act(markAction, [item])}>
+                    {primary}
+                  </button>
+                )}
+                {!open && snoozeButton}
+                {!open && dropButton}
+              </div>
             )}
-            {droppable && !open && (
-              <button
-                type="button"
-                disabled={busy || !!pending || !online}
-                onClick={(event) => setDropping({ item, opener: event.currentTarget })}
-              >
-                Drop
-              </button>
-            )}
-          </div>
+          </>
         )}
         {open && (
           <ReviewCard
@@ -1050,11 +1110,18 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             }}
           >
             {finishedElsewhere && <p role="status">This card was finished elsewhere.</p>}
+            {home && !waitingCard && !finishedElsewhere && (snoozeButton || dropButton) && (
+              <div className="inbox-actions">
+                {snoozeButton}
+                {/* A loaded review offers its own Drop for each decision. */}
+                {!reviewClient && dropButton}
+              </div>
+            )}
             {!finishedElsewhere && !item.engine_marks && due && <p>Due {due}</p>}
             {presentation && (feedbackReview || isDoneStep(item)) && <p>{presentation.why}</p>}
             {isDoneStep(item) && <p>{completionLabel(item)}</p>}
             {linkedRecord}
-            {!finishedElsewhere && feedbackReview && tourDone && (
+            {!finishedElsewhere && tourDone && (
               <div className="inbox-actions">
                 <button
                   type="button"
@@ -1201,7 +1268,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
         </p>
       ) : query.isError && !query.data ? (
         <div className="inbox-empty" role="alert">
-          <h2>{home ? "Reminders and waiting items unavailable" : "Inbox unavailable"}</h2>
+          <h2>{home ? "Reminders and Inbox unavailable" : "Inbox unavailable"}</h2>
           <p>{message(query.error)}</p>
           {home ? (
             <button type="button" disabled={!online || query.isFetching} onClick={() => void query.refetch()}>
@@ -1264,41 +1331,44 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
       )}
       {home && (
         <HomeGrid snapshot={query.data} calendar={meetings.data}>
-          {query.isPending && (
-            <>
-              <PlaceholderTile />
-              <PlaceholderTile />
-            </>
-          )}
-          <CardTile
-            title="Reminders"
-            preview={reminderPreviewCount}
-            showLate
-            items={tiles.reminders}
-            pinned={pinnedTile === "reminders" ? reviewing : null}
-            current={reviewing?.item_id || item_id}
-            after={earlierMeetingReviews(meetings.data, meetingDay, handledMeetings).map((review) => (
-              <MeetingReview key={review.key} data={meetings.data} review={review} finish={finishMeeting} />
-            ))}
-            row={row}
-          />
-          <CardTile
-            title="In motion and waiting"
-            items={tiles.waiting}
-            pinned={pinnedTile === "waiting" ? reviewing : null}
-            current={reviewing?.item_id || item_id}
-            row={row}
-          />
-          {engineHome && meetings.isPending && <PlaceholderTile />}
-          {meetings.data && (
-            <MeetingTile
-              data={meetings.data}
-              stale={meetings.isError}
-              today={meetingDay}
-              handled={handledMeetings}
-              finish={finishMeeting}
+          <div className="home-column">
+            {query.isPending && <PlaceholderTile />}
+            <CardTile
+              title="Reminders"
+              grouped
+              items={tiles.reminders}
+              pinned={pinnedTile === "reminders" ? reviewing : null}
+              current={reviewing?.item_id || item_id}
+              row={row}
             />
-          )}
+          </div>
+          <div className="home-column">
+            {query.isPending && <PlaceholderTile />}
+            <CardTile
+              title="Inbox"
+              items={tiles.inbox}
+              pinned={pinnedTile === "inbox" ? reviewing : null}
+              current={reviewing?.item_id || item_id}
+              after={meetingOutcomes.map((review) => (
+                <MeetingReview key={review.key} data={meetings.data} review={review} finish={finishMeeting} />
+              ))}
+              row={row}
+            />
+            <CardTile
+              title="In motion and waiting"
+              items={tiles.waiting}
+              pinned={pinnedTile === "waiting" ? reviewing : null}
+              current={reviewing?.item_id || item_id}
+              row={row}
+            />
+          </div>
+          <div className="home-column home-side">
+            {engineHome && meetings.isPending && <PlaceholderTile />}
+            {meetings.data && <TodayMeetings data={meetings.data} today={meetingDay} />}
+            {engineHome && <DealsTile />}
+            {engineHome && <ComingUpTile />}
+            {engineHome && <LeadsLine />}
+          </div>
         </HomeGrid>
       )}
       {home && meetings.isError && (
@@ -1308,9 +1378,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
       )}
       {home && ((query.isError && query.data) || !online) && (
         <p className="home-read-status" role="status">
-          <span>
-            {!online ? "Offline. Showing the last available update." : "Reminders and waiting items unavailable."}
-          </span>
+          <span>{!online ? "Offline. Showing the last available update." : "Reminders and Inbox unavailable."}</span>
           {online && (
             <>
               {" "}
@@ -1321,53 +1389,37 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
           )}
         </p>
       )}
-      {home ? (
-        <BulkControls
-          finish={finishBatch}
-          client={client}
-          engine={query.data?.engine_marks === true}
-          picked={picked}
-          selected={selected}
-          locked={saving.has("card") || !!pending || !!reviewing || !online}
-          select={select}
-          snapshot={updateAfterSave}
-          prepare={() => cache.cancelQueries({ queryKey })}
-          lock={(value) => (value ? void beginSave("batch") : endSave("batch"))}
-        />
-      ) : (
-        !query.data?.engine_marks &&
-        picked.length > 0 && (
-          <div role="toolbar" className="inbox-bulk" aria-label="Selected cards">
-            <strong>{picked.length} selected</strong>
-            <button
-              type="button"
-              disabled={busy || !!reviewing || picked.length > 100}
-              onClick={() => act("settle", picked)}
-            >
-              Hide selected
-            </button>
-            <button
-              type="button"
-              disabled={busy || !!reviewing || picked.length > 100}
-              onClick={() => act("unsettle", picked)}
-            >
-              Show selected
-            </button>
-            <button
-              type="button"
-              disabled={busy || !!reviewing || picked.length > 100}
-              onClick={(event) => {
-                snoozeOpener.current = event.currentTarget;
-                openSnooze(picked);
-              }}
-            >
-              Snooze selected
-            </button>
-            <button type="button" onClick={() => select(new Set())}>
-              Clear
-            </button>
-          </div>
-        )
+      {!home && !query.data?.engine_marks && picked.length > 0 && (
+        <div role="toolbar" className="inbox-bulk" aria-label="Selected cards">
+          <strong>{picked.length} selected</strong>
+          <button
+            type="button"
+            disabled={busy || !!reviewing || picked.length > 100}
+            onClick={() => act("settle", picked)}
+          >
+            Hide selected
+          </button>
+          <button
+            type="button"
+            disabled={busy || !!reviewing || picked.length > 100}
+            onClick={() => act("unsettle", picked)}
+          >
+            Show selected
+          </button>
+          <button
+            type="button"
+            disabled={busy || !!reviewing || picked.length > 100}
+            onClick={(event) => {
+              snoozeOpener.current = event.currentTarget;
+              openSnooze(picked);
+            }}
+          >
+            Snooze selected
+          </button>
+          <button type="button" onClick={() => select(new Set())}>
+            Clear
+          </button>
+        </div>
       )}
       {dropping && (
         <DropReason
