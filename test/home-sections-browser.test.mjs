@@ -202,6 +202,11 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
     const close = page.locator('.home-inline-review > header button');
     if (!(await row.locator('.home-inline-review').count()) && (await close.count())) await close.click();
   };
+  // A save from an open item opens the next one; the steps below go on from the list.
+  const closeOpen = async () => {
+    const close = page.locator('.home-inline-review > header button');
+    if (await close.count()) await close.click();
+  };
   const openRow = async row => {
     await closeOther(row);
     await row.getByRole('button', { name: 'Review', exact: true }).click();
@@ -396,11 +401,13 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await leadReview.getByRole('button', { name: 'Accept', exact: true }).click();
   await leadCard.waitFor({ state: 'detached' });
   assert.equal(writes.at(-1)[1].decision, 'accept');
+  await closeOpen();
   const review = cardFor(/Did this happen\? Review the sample site/);
   await toggle(review);
   await review.getByRole('button', { name: 'Snooze', exact: true }).click();
   await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
   await review.waitFor({ state: 'detached' });
+  await closeOpen();
   assert.equal(writes.at(-1)[1].item_id, state.items[2].item_id);
   await undo.click();
   await toggle(review);
@@ -411,6 +418,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   assert.equal(await review.getByRole('button', { name: 'Yes, it’s done' }).isDisabled(), true);
   await review.getByRole('button', { name: 'Not yet', exact: true }).click();
   await review.waitFor({ state: 'detached' });
+  await closeOpen();
   assert.equal(writes.at(-1)[1].decision, 'dismiss');
   const suggestions = cardFor(/Call suggestions/);
   const reply = cardFor(/Reply to the sample email/);
@@ -420,6 +428,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
     await row.getByRole('button', { name: 'Snooze', exact: true }).click();
     await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^1 hour/ }).click();
     await today.locator(`[data-inbox-row="${id}"]`).waitFor({ state: 'detached' });
+    await closeOpen();
     assert.equal(writes.at(-1)[1].item_id, id);
     assert.equal(writes.at(-1)[1].base_version, base_version);
     if (id === log) {
@@ -449,7 +458,8 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await toggle(suggestions);
   await suggestions.getByRole('heading', { name: 'Log a call · Example Dental' }).waitFor();
   await suggestions.getByRole('button', { name: 'Accept', exact: true }).first().click();
-  await openRow(suggestions);
+  // The card stays open on the decision left.
+  await suggestions.getByRole('button', { name: 'Accept', exact: true }).nth(1).waitFor({ state: 'detached' });
   assert.equal(writes.at(-1)[1].decision, 'accept');
   proposalRefusals.set(phase, ['version_conflict', 409]);
   await suggestions.getByRole('button', { name: 'Accept', exact: true }).click();
@@ -465,6 +475,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await callDrop.click();
   await confirmDrop('The deal already moved.');
   await suggestions.waitFor({ state: 'detached' });
+  await closeOpen();
   assert.equal(writes.at(-1)[1].decision, 'dismiss');
   const email = inbox.locator(`[data-inbox-row="suggestion:${leading}"]`);
   const sameSubject = inbox.locator(`[data-inbox-row="suggestion:${otherEmail}"]`);
@@ -551,9 +562,10 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await toggle(email);
   await openRow(reply);
   await reply.getByRole('button', { name: 'Send reply', exact: true }).click();
+  await reply.waitFor({ state: 'detached' });
+  await closeOpen();
   const fallback = cardFor(/Remaining email suggestion/);
   await fallback.locator('.inbox-why').getByText(/(^| · )Sending( · |$)/).waitFor();
-  assert.equal(await reply.count(), 0);
   assert.deepEqual(writes.at(-1)[1], { idempotency_key: writes.at(-1)[1].idempotency_key, version: 3, subject: 'Revised sample reply',
     body: 'Final edited reply.', to: 'sender@example.test', cc: 'partner@example.test', document_ids: [dealId] });
   await toggle(fallback);
@@ -585,6 +597,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await fallback.locator('.inbox-why').getByText(/(^| · )Sending( · |$)/).waitFor();
   assert.deepEqual(writes.at(-1)[1], { idempotency_key: writes.at(-1)[1].idempotency_key, version: 4, subject: 'Revised sample reply',
     body: 'Final edited reply.', to: 'sender@example.org', cc: 'partner@example.org', document_ids: [dealId] });
+  await closeOpen();
   Object.assign(draftRecord, { status: 'failed', failure_reason: 'mailbox_rejected' });
   Object.assign(fallbackCard.fallback_reply_draft, { status: 'failed', failure_reason: draftRecord.failure_reason });
   await page.clock.fastForward(60_000);
@@ -601,8 +614,9 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await toggle(fallback);
   await fallback.getByRole('button', { name: 'Send reply', exact: true }).click();
   // Home pauses polling while the reply is saving.
-  const fallbackReview = fallback.getByRole('region', { name: /Details for Remaining email suggestion/ });
-  await fallbackReview.waitFor({ state: 'detached' });
+  // The card keeps its suggestion, so it stays open.
+  await fallback.getByRole('status').filter({ hasText: 'Sending' }).waitFor();
+  await closeOpen();
   await fallback.locator('.inbox-why').getByText(/(^| · )Sending( · |$)/).waitFor();
   assert.equal(writes.at(-1)[1].version, 5);
   details.set(decline, { ...details.get(draft), draft_id: decline, version: 1, status: 'pending' });
@@ -625,6 +639,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await draftDrop.click();
   await confirmDrop('Already answered.');
   await declined.waitFor({ state: 'detached' });
+  await closeOpen();
   assert.deepEqual(writes.at(-1)[1], { idempotency_key: writes.at(-1)[1].idempotency_key, version: 1, reason: 'Already answered.' });
   const lease = inbox.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: /Read the revised sample lease/ }) });
   await lease.getByRole('button', { name: 'Snooze', exact: true }).click();
@@ -763,6 +778,11 @@ for (const [width, theme, planner] of [[390, 'light'], [390, 'dark'], [1440, 'li
   });
   await open('/?mode=live');
   const card = item => page.locator(`[data-inbox-row="${item.item_id}"]`);
+  // A save from an open item opens the next one; the steps below go on from the list.
+  const closeOpen = async () => {
+    const close = page.locator('.home-inline-review > header button');
+    if (await close.count()) await close.click();
+  };
   const section = name => page.getByRole('region', { name, exact: true });
   const reminder_ = item => item.action_id !== null;
   const button = item => card(item).getByRole('button', { name: reminder_(item) ? 'Mark done' : 'Review', exact: true });
@@ -805,12 +825,14 @@ for (const [width, theme, planner] of [[390, 'light'], [390, 'dark'], [1440, 'li
   await card(call).getByRole('button', { name: 'Accept', exact: true }).click();
   await card(call).waitFor({ state: 'detached' });
   assert.deepEqual(writes.at(-1), ['decide-engine-home-proposal', id(13), 'accept']);
+  await closeOpen();
   await button(completion).click();
   const detail = card(completion).getByRole('region', { name: /Details for/ });
   await detail.getByText('Discussed the plan.', { exact: true }).waitFor();
   assert.equal(await detail.getByRole('link', { name: 'Example Dental', exact: true }).getAttribute('href'), stepUrl(reviewStep));
   await detail.getByRole('button', { name: 'Yes, it’s done', exact: true }).click();
   await card(completion).waitFor({ state: 'detached' });
+  await closeOpen();
   assert.deepEqual(writes.at(-1), ['decide-engine-home-proposal', id(8), 'accept']);
   await button(feedback).click();
   const feedbackReview = card(feedback).getByRole('region', { name: /Details for/ });
@@ -826,6 +848,7 @@ for (const [width, theme, planner] of [[390, 'light'], [390, 'dark'], [1440, 'li
   await button(feedback).click();
   await feedbackReview.getByRole('button', { name: 'Done', exact: true }).click();
   await card(feedback).waitFor({ state: 'detached' });
+  await closeOpen();
   assert.deepEqual(writes.at(-1), ['save-engine-home-mark', feedback.item_id, 'done']);
   await button(task).click();
   await card(task).waitFor({ state: 'detached' });
@@ -1238,8 +1261,8 @@ for (const { name, choices, kind, focus, dismiss, reasonRefused, reasonRequired,
   { name: 'an unavailable check keeps the chosen deal and allows retry', choices: [dealChoice], kind: 'deal', retryCheck: true },
   { name: 'a reason refusal keeps the chosen deal and allows retry', choices: [dealChoice], kind: 'deal', reasonRefused: true },
   { name: 'vendor-only choices file to a vendor', choices: [vendorChoice], kind: 'vendor' },
-  { name: 'an already decided filing focuses the next card', choices: [vendorChoice], kind: 'vendor', focus: 'next' },
-  { name: 'an already decided last filing focuses the previous card', choices: [vendorChoice], kind: 'vendor', focus: 'previous' },
+  { name: 'an already decided filing opens the next card', choices: [vendorChoice], kind: 'vendor', focus: 'next' },
+  { name: 'an already decided last filing opens the previous card', choices: [vendorChoice], kind: 'vendor', focus: 'previous' },
   { name: 'a filing can be dismissed', choices: [dealChoice], dismiss: true },
   { name: 'an older filing keeps Accept', choices: undefined },
 ]) test(`Home filing: ${name}`, async t => {
@@ -1370,10 +1393,7 @@ for (const { name, choices, kind, focus, dismiss, reasonRefused, reasonRequired,
   const { idempotency_key, ...request } = state.filingWrites.at(-1);
   assert.match(idempotency_key, /^[a-f0-9-]{36}$/);
   assert.deepEqual(request, expected);
-  if (focus) {
-    const target = page.getByRole('link', { name: (focus === 'next' ? next : previous).title });
-    assert.equal(await target.evaluate(node => node === document.activeElement), true);
-  }
+  if (focus) await page.getByRole('region', { name: `Details for ${(focus === 'next' ? next : previous).title}` }).waitFor();
 });
 
 for (const width of [390, 1440]) test(`Home preserves authored lines and empty message disclosures at ${width}px`, async t => {

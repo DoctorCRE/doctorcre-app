@@ -231,6 +231,28 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     );
   }
   const [reviewing, setReviewing] = useState<InboxItem | null>(null);
+  // Each move-on draws a fresh review, even of the same card, so no finished save state carries over.
+  const [movedOn, setMovedOn] = useState(0);
+  // After a save from the open item: a card with decisions left stays open, else the next row in its tile opens.
+  function moveOn(saved: InboxItem) {
+    if (!home) return setReviewing(null);
+    setMovedOn((count) => count + 1);
+    const rows = dashboardCards(cache.getQueryData<Snapshot>(queryKey)?.items ?? [], day(new Date()))[tileOf(saved)];
+    // The saved row is still drawn while it is open, so the drawn order says which row follows it.
+    const tileRows = root.current
+      ?.querySelector(`[data-inbox-row="${CSS.escape(saved.item_id)}"]`)
+      ?.closest(".home-slice")
+      ?.querySelectorAll<HTMLElement>("[data-inbox-row]");
+    const drawn = Array.from(tileRows ?? [], (node) => node.dataset.inboxRow);
+    const at = drawn.indexOf(saved.item_id);
+    const following = [...drawn.slice(at + 1), ...drawn.slice(0, Math.max(at, 0)).reverse()];
+    setReviewing(
+      rows.find((item) => cardKey(item) === cardKey(saved)) ??
+        following.map((id) => rows.find((item) => item.item_id === id)).find(Boolean) ??
+        rows[0] ??
+        null,
+    );
+  }
   const reviewFocus = useRef<{
     opener: HTMLElement;
     tile: Element | null;
@@ -476,11 +498,12 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
         const saved = results.filter((result) => result.ok).length;
         const snapshot = results.find((result) => result.snapshot)?.snapshot;
         if (snapshot) await updateAfterSave(snapshot);
-        else void query.refetch();
+        else await query.refetch();
         if (!mounted.current) return;
         setFailures([]);
         setUndo([]);
         if (saved === results.length) {
+          if (reviewing && operation.before.some((item) => item.item_id === reviewing.item_id)) moveOn(reviewing);
           // No Undo: it could restore only some of the covered steps.
           confirmSave(savedMessage(change, operation.before));
           setPending(null);
@@ -497,7 +520,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
       const failed = results.filter((result) => !result.ok && !result.current_item);
       await updateAfterSave(results.find((result) => result.snapshot)?.snapshot, updates);
       if (!mounted.current) return;
-      if (reviewing && successes.some((result) => result.item_id === reviewing.item_id)) setReviewing(null);
+      if (reviewing && successes.some((result) => result.item_id === reviewing.item_id)) moveOn(reviewing);
       setFailures(failed);
       select(new Set(failed.map((result) => result.item_id)));
       const fresh = operation.undoing
@@ -1105,6 +1128,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
         )}
         {open && (
           <ReviewCard
+            key={movedOn}
             item={reviewing}
             docLinkRequest={docLinkRequest}
             readOnly={waitingCard || finishedElsewhere}
@@ -1113,12 +1137,14 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             blockSwitching={blockSwitching}
             closeLabel={covering ? "Back" : undefined}
             close={() => setReviewing(null)}
+            finished={() => moveOn(reviewing)}
             busy={(value) => (value ? void beginSave("review") : endSave("review"))}
             confirmed={async (current, receipt, snapshot) => {
               await updateAfterSave(snapshot, current ? [current] : []);
               if (!mounted.current) return;
               if (!current) {
-                setReviewing(null);
+                // A confirmed inbox read moves on in finished.
+                if (!snapshot) setReviewing(null);
                 return;
               }
               if (receipt)

@@ -133,6 +133,8 @@ type Props<Item extends ReviewItem> = {
   /** The close button's name when the pane covers the list, as on a phone. */
   closeLabel?: string | undefined;
   close(): void;
+  /** After a save the inbox read confirmed; closes unless given. */
+  finished?(): void;
   blockSwitching?(value: boolean): void;
   busy?(value: boolean): void;
   confirmed?(item: Item | null, receipt?: TaskReceipt, snapshot?: Snapshot): void | Promise<void>;
@@ -156,6 +158,7 @@ export function ReviewCard<Item extends ReviewItem>({
   drafts,
   closeLabel,
   close,
+  finished = close,
   blockSwitching,
   busy,
   confirmed,
@@ -347,7 +350,7 @@ export function ReviewCard<Item extends ReviewItem>({
         return;
       }
       if (result.snapshot && request.verb !== "edit-email-draft") {
-        close();
+        finished();
         return;
       }
       if (request.verb === "edit-email-draft") {
