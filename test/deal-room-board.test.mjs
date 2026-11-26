@@ -80,10 +80,6 @@ for (const width of [390, 1440]) test(`national board commands survive React ren
   const next = initial === 'Closing' ? 'Research' : 'Closing';
   await phase.selectOption(next);
   await page.waitForFunction(({ id, next }) => document.querySelector(`[data-phase="${id}"]`)?.value === next, { id, next });
-  const attention = await target.locator('[data-attention]').getAttribute('aria-pressed') !== 'true';
-  await target.locator('[data-attention]').click();
-  await page.waitForFunction(({ id, next, attention }) => document.querySelector(`[data-phase="${id}"]`)?.value === next
-    && document.querySelector(`[data-attention="${id}"]`)?.getAttribute('aria-pressed') === String(attention), { id, next, attention });
   await target.locator('[data-operating-state]').click();
   await page.locator('#dialogSubmit').click();
   await target.waitFor({ state: 'detached' });

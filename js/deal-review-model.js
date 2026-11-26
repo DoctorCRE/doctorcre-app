@@ -1,12 +1,17 @@
 import { toDay } from './calendar-model.js';
-import { businessDay } from './business-date.js';
 
 export function validDealBoard(board) {
   return board && typeof board === 'object' && !Array.isArray(board) && Array.isArray(board.deals)
     && board.deals.every(deal => deal && typeof deal === 'object' && !Array.isArray(deal)
       && typeof deal.id === 'string' && deal.id.trim().length > 0
       && ['name', 'owner', 'phase', 'operating_state', 'workspace_kind', 'account_client_id'].every(key => deal[key] == null || typeof deal[key] === 'string')
-      && ['attention', 'in_market'].every(key => deal[key] == null || typeof deal[key] === 'boolean'));
+      && (deal.in_market == null || typeof deal.in_market === 'boolean'));
+}
+
+/** The engine's sentence for why a deal needs attention, or null. A partner's stored flag is never attention. */
+export function attentionReason(deal) {
+  const reason = deal.attention?.reason;
+  return typeof reason === 'string' && reason.trim() ? reason.trim() : null;
 }
 
 export function scopedDeals(board, scope) {
@@ -32,9 +37,6 @@ export function overdueSince(deal, today) {
     ? deal.items.filter(item => item.status === 'open').map(item => toDay(item.due_on))
     : typeof deal.next_step === 'string' && deal.next_step.trim() ? [toDay(deal.next_date)] : [];
   return dues.filter(due => due && due < today).sort()[0] || null;
-}
-export function needsAttention(deal, now = Date.now()) {
-  return overdueSince(deal, businessDay(new Date(now))) !== null;
 }
 /** "N days overdue" between two calendar days, or '' when `since` is not before `today`. */
 export function overdueLabel(since, today) {

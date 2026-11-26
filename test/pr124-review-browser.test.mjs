@@ -9,10 +9,10 @@ async function open(t, { width = 1440, reducedMotion = 'no-preference', many = f
   const page = await browser.newPage({ viewport: { width, height: 960 }, reducedMotion });
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   const seed = JSON.parse(await readFile(new URL('data/board-seed.json', root), 'utf8'));
-  seed.deals.forEach((d, i) => Object.assign(d, { phase: phases[i % 8], next_step: 'Confirm the next appointment', last_touch: '2026-10-01', last_review_at: '2026-10-01T16:00:00Z', next_date: null, attention: false }));
+  seed.deals.forEach((d, i) => Object.assign(d, { phase: phases[i % 8], next_step: 'Confirm the next appointment', last_touch: '2026-10-01', last_review_at: '2026-10-01T16:00:00Z', next_date: null, attention: null }));
   seed.deals.find(d => d.id === 'd14').phase = 'Negotiation';
-  Object.assign(seed.deals.find(d => d.id === 'd14'), {owner:'joe',attention:true,next_date:'2026-09-30'});
-  Object.assign(seed.deals.find(d => d.id === 'd20'), {owner:'dell',attention:true});
+  Object.assign(seed.deals.find(d => d.id === 'd14'), {owner:'joe',attention:{ reason: 'A next step is late.', since: '2026-10-01' },next_date:'2026-09-30'});
+  Object.assign(seed.deals.find(d => d.id === 'd20'), {owner:'dell',needs_attention:true});
   seed.deals.find(d => d.id === 'd20').phase = 'Closed';
   seed.deals.find(d => d.id === 'd23').invoiced_on = '2026-10-01';
   seed.seed_events = [{ id: 'auto-loi', actor: 'claude', verb: 'patch-deal-field', subject_type: 'deal', subject_id: 'd14', field: 'phase', old_value: 'Research', new_value: 'Negotiation', automatic: true, change_reason: 'LOI sent', evidence_date: '2026-10-03', recorded_at: '2026-10-03T12:00:00Z' },

@@ -198,8 +198,10 @@ test("B06-5 a missing date is counted as missing and never rendered as a zero or
     assert.ok(!/new Date\(/.test(source.replace("view.readAt = new Date().toISOString();", "")), `${name} parses no date into an age`);
     assert.ok(!source.includes("Date.now()"), `${name} measures no record against the clock`);
   }
-  // The attention flag is false on all 74, and is stated as 0 OF 74.
-  assert.equal(waitingSummary(board.deals).attentionLine, "0 of 74 flagged for attention");
+  // None of the 74 has an engine reason, so it is stated as 0 OF 74.
+  assert.equal(waitingSummary(board.deals).attentionLine, "0 of 74 need attention");
+  const flaggedOnly = board.deals.map((deal, i) => ({ ...deal, attention: i === 0 ? { reason: "A next step is late.", since: "2026-01-02" } : true }));
+  assert.equal(waitingSummary(flaggedOnly).attentionLine, "1 of 74 need attention", "a stored flag is not attention");
 });
 
 /* ------------------------------------------------------------------------ B06-6 */

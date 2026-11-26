@@ -40,16 +40,6 @@ test('item detail uses dated fact bullets and offers instruction and completion 
   assert.equal(doc.querySelectorAll('time').length, 3);
 });
 
-test('attention follows open item deadlines and clears when the last overdue item is done', async () => {
-  const { needsAttention } = await import('../js/deal-review-model.js');
-  const row = { ...deal, next_date: '2020-01-01' };
-  const now = Date.parse('2026-10-22T15:00:00Z');
-  assert.equal(needsAttention(row, now), true);
-  assert.equal(needsAttention({ ...row, items: row.items.map(item => ({ ...item, status: 'done' })) }, now), false);
-  assert.equal(needsAttention({ ...row, items: [] }, now), false);
-});
-
-
 test('the item sheet keeps the overdue date visible as a due chip', () => {
   const doc = new JSDOM(renderDealItemDetail(deal.items[0], { today: '2026-10-22' })).window.document;
   assert.match(doc.querySelector('.deal-item-date').textContent, /Overdue/);
@@ -126,11 +116,12 @@ test('field audit writes preserve the recorded Last step and stay off board card
   seed.history = { d14: [{ id: 'recorded-note', actor: 'joe', summary: 'Met the client', recorded_at: '2026-10-22T10:00:00Z' }] };
   const fixture = await createFixtureClient({ seedUrl: `data:application/json;base64,${Buffer.from(JSON.stringify(seed)).toString('base64')}`, docContext: false });
   const before = (await fixture.getBoard()).deals.find(row => row.id === 'd14');
-  const result = await fixture.patchDealField({ deal: 'd14', field: 'attention', value: !before.attention,
+  const result = await fixture.patchDealField({ deal: 'd14', field: 'attention', value: true,
     base_event_id: null, idempotency_key: 'board-field-audit' });
   assert.equal(result.status, 'ok');
   const after = (await fixture.getBoard()).deals.find(row => row.id === 'd14');
-  assert.equal(after.attention, !before.attention);
+  assert.equal(after.needs_attention, true);
+  assert.deepEqual(after.attention, before.attention, "the stored flag never changes the engine's attention");
   assert.deepEqual(after.last_step, before.last_step);
   const detail = await fixture.getDeal('d14');
   assert.ok(detail.history.some(entry => /attention/.test(entry.summary)));
