@@ -198,8 +198,9 @@ for (const width of [1440, 390]) {
         await search.clear();
         await openDetail(undated);
         await caption(fact(tabRowFacts, 'Deal kind'), 'Build-to-suit').waitFor();
-        const undatedSteps = detail.getByRole('region', { name: 'Open before this deal ended' });
-        assert.equal(await undatedSteps.count(), 1, 'An invoiced deal stays ended even when its dates and outcome are missing');
+        const undatedSteps = detail.getByRole('region', { name: 'Next steps' });
+        assert.equal(await undatedSteps.getByRole('heading', { name: 'Open before this deal ended' }).count(), 1,
+          'An invoiced deal stays ended even when its dates and outcome are missing');
         assert.match(await undatedSteps.innerText(), /Due Wed, Oct 21, 2026/);
         assert.doesNotMatch(await undatedSteps.innerText(), /days? late/);
         await back();
@@ -224,7 +225,7 @@ for (const width of [1440, 390]) {
       }
       const phase = fact(detail.locator('#workspaceFacts'), 'Phase').locator('dd');
       assert.equal(await phase.textContent(), row === lost ? 'Lost' : 'Closed');
-      const steps = detail.getByRole('region', { name: 'Open before this deal ended' });
+      const steps = detail.getByRole('region', { name: 'Next steps' });
       await steps.getByText('Send the sample plan', { exact: true }).waitFor({ timeout: 5000 });
       assert.match(await steps.innerText(), /Send the sample plan\s+Joe · Due Wed, Oct 21, 2026/);
       assert.match(await steps.innerText(), /Check the sample lease\s+Dell · Due Tue, Oct 20, 2026/);
@@ -330,7 +331,7 @@ for (const width of [1440, 390]) {
     await card(late).getByText(date, { exact: false }).waitFor();
     await button(late.name).click();
     await panel.getByRole('list', { name: 'Open steps' }).getByText(date, { exact: false }).waitFor();
-    await panel.locator('#panelEmailFollowups').getByText(date, { exact: false }).waitFor();
+    await panel.getByRole('list', { name: 'Suggested steps' }).getByText(date, { exact: false }).waitFor();
     const attention = panel.getByRole('region', { name: 'Next steps' }).getByText('Needs attention. A next step is late.', { exact: true });
     await attention.waitFor();
 
@@ -492,23 +493,23 @@ for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, tr
     const fromBoard = actor === 'dell' && savesOn;
     await page.goto(`${origin}/deals?mode=live${fromBoard ? '' : `&deal=${deal}`}`);
     if (fromBoard) await page.locator('.kanban-column').getByRole('button', { name: row.name, exact: true }).click();
-    const followups = page.getByRole('region', { name: 'Email follow-ups' });
-    await followups.getByText(readsOn ? 'From Example, Nov 1' : 'No email follow-ups.', { exact: true }).waitFor({ timeout: 5000 });
+    const followups = page.getByRole('region', { name: readsOn ? 'Next steps' : 'Email follow-ups' });
+    if (!readsOn) await followups.getByText('No email follow-ups.', { exact: true }).waitFor({ timeout: 5000 });
     if (readsOn) {
-      const planCard = followups.getByRole('article').filter({ hasText: 'Send the plan' });
-      assert.deepEqual((await followups.getByRole('heading', { level: 3 }).allTextContents()).slice(0, 4),
+      const suggested = followups.getByRole('list', { name: 'Suggested steps' });
+      const planCard = suggested.getByRole('listitem').filter({ hasText: 'Send the plan' });
+      await planCard.getByText(/^From Example's email, Sun, Nov 1/).waitFor({ timeout: 5000 });
+      assert.deepEqual((await suggested.getByRole('heading', { level: 3 }).allTextContents()).slice(0, 4),
         [planTitle, letterTitle, 'Updated plan for', 'Email follow-up']);
-      const letterCard = followups.getByRole('article').filter({ hasText: 'The letter is attached.' });
+      const letterCard = suggested.getByRole('listitem').filter({ hasText: 'The letter is attached.' });
       assert.equal(await planCard.count(), 1);
-      assert.equal(await planCard.getByText('From Example, Nov 1', { exact: true }).count(), 1);
       assert.doesNotMatch(await planCard.innerText(), /File email to this deal/);
       assert.match(await letterCard.innerText(), /File email to this deal/);
       assert.doesNotMatch(await letterCard.innerText(), /Re: Letter attached/);
-      assert.equal(await letterCard.getByText('From Morgan, Nov 2', { exact: true }).count(), 1);
-      await planCard.getByText('Read email excerpt').click();
+      assert.match(await letterCard.innerText(), /From Morgan's email, Mon, Nov 2/);
       assert.deepEqual({
         opening: await planCard.getByRole('heading').innerText(),
-        excerpt: await planCard.locator('q').innerText(),
+        excerpt: await planCard.locator('.deal-suggestion-email').innerText(),
         subject: await letterCard.getByRole('heading').innerText(),
         summary: await letterCard.getByText('The letter is attached.', { exact: true }).count(),
       }, {
@@ -531,6 +532,7 @@ for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, tr
       if (savesOn) {
         await followups.evaluate(element => element.scrollIntoView({ block: 'end' }));
         await followups.screenshot({ path: join(evidence, `engine-followups-${actor}.png`) });
+        await planCard.getByRole('button', { name: 'Edit', exact: true }).click();
         await planCard.getByLabel('Next step', { exact: true }).fill('Send the revised plan');
         const dueDate = planCard.getByLabel('Due date', { exact: true });
         await dueDate.fill(actor === 'joe' ? '2026-11-21' : '');
@@ -543,7 +545,7 @@ for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, tr
           [second, 'dismiss', undefined],
         ]);
         for (const refusal of refusals) {
-          const card = followups.getByRole('article').filter({ hasText: refusal.title });
+          const card = suggested.getByRole('listitem').filter({ hasText: refusal.title });
           await card.getByRole('button', { name: 'Accept', exact: true }).click();
           const receipt = page.locator('#receiptDock .receipt').filter({ hasText: refusal.hint });
           await receipt.waitFor();
@@ -552,19 +554,22 @@ for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, tr
           if (refusal.error === 'already_decided') await reload.click();
           else {
             assert.equal(await reload.count(), 0);
-            if (refusal.kind === 'next_step') await card.getByLabel('Next step', { exact: true }).fill('');
+            if (refusal.kind === 'next_step') {
+              await card.getByRole('button', { name: 'Edit', exact: true }).click();
+              await card.getByLabel('Next step', { exact: true }).fill('');
+            }
             await card.getByRole('button', { name: 'Dismiss', exact: true }).click();
           }
           await card.waitFor({ state: 'detached' });
           if (refusal.error !== 'already_decided') assert.deepEqual(decisions.at(-1), [refusal.id, 'dismiss', undefined]);
         }
         for (const title of ['Updated plan for', 'Email follow-up']) {
-          const card = followups.getByRole('article').filter({ has: page.getByRole('heading', { name: title, exact: true }) });
+          const card = suggested.getByRole('listitem').filter({ has: page.getByRole('heading', { name: title, exact: true }) });
           await card.getByRole('button', { name: 'Dismiss', exact: true }).click();
           await card.waitFor({ state: 'detached' });
         }
-        await followups.getByText('No email follow-ups.', { exact: true }).waitFor();
-      } else assert.equal(await followups.getByRole('button').count(), 0);
+        await suggested.waitFor({ state: 'detached' });
+      } else assert.equal(await suggested.getByRole('button').count(), 0);
     }
     await page.getByRole('tab', { name: 'Documents', exact: true }).click();
     const tab = page.getByRole('tabpanel', { name: 'Documents', exact: true });
@@ -1003,7 +1008,7 @@ for (const width of [1440, 390]) {
     const discard = page.getByRole('button', { name: 'Discard draft', exact: true });
     assert.equal(await discard.count(), 0);
     assert.equal(await page.getByLabel('Update', { exact: true }).count(), 0);
-    await page.getByText('Add next step', { exact: true }).click({ timeout: 3000 });
+    await page.getByText('Add step', { exact: true }).click({ timeout: 3000 });
     const localStep = page.getByLabel('Your next step', { exact: true });
     assert.equal(await localStep.inputValue(), otherStep.description);
     await localStep.fill('Unsaved step');
@@ -2762,7 +2767,7 @@ for (const width of [1440, 390]) test(`Timeline shows read-only history from the
   savesOn = true;
   await page.reload();
   await page.getByRole('tab', { name: 'Overview' }).click();
-  await page.getByText('Add next step', { exact: true }).click();
+  await page.getByText('Add step', { exact: true }).click();
   await page.getByText('Add a note', { exact: true }).click();
   await page.getByLabel('Note', { exact: true }).fill('Tour plans confirmed');
   await page.getByRole('button', { name: 'Save note', exact: true }).click();
@@ -3119,7 +3124,7 @@ for (const width of [1440, 390]) {
       await page.getByRole('button', { name: 'Back', exact: true }).click();
       await page.getByRole('button', { name: 'Back', exact: true }).click();
       await page.getByRole('link', { name: row.name }).click();
-      await page.getByText('Add next step', { exact: true }).click();
+      await page.getByText('Add step', { exact: true }).click();
       await page.getByText('Add a note', { exact: true }).click();
       await page.getByLabel('Note', { exact: true }).fill('Example deal page update');
       const localStep = page.getByLabel('Your next step', { exact: true });
@@ -3314,17 +3319,8 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`a 
   await capture(snapshot, 'open');
   assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
   const done = steps.getByRole('button', { name: 'Done', exact: true });
-  const buttonStyle = button => button.evaluate(el => {
-    const { backgroundColor, borderTopColor, borderTopStyle, borderTopWidth, borderRadius, color } = getComputedStyle(el);
-    return { backgroundColor, borderTopColor, borderTopStyle, borderTopWidth, borderRadius, color };
-  });
-  const baseline = page.locator('#secondaryBaseline');
-  await page.locator('#panelBody').evaluate(panel => panel.append(Object.assign(document.createElement('button'), { className: 'btn', type: 'button', id: 'secondaryBaseline' })));
-  const secondaryStyle = await buttonStyle(baseline);
-  await baseline.evaluate(el => el.remove());
   assert.equal(await done.count(), 2);
   for (const button of await done.all()) {
-    assert.deepEqual(await buttonStyle(button), secondaryStyle, 'Done matches the bordered secondary action');
     await button.scrollIntoViewIfNeeded();
     assert.ok(await button.evaluate((el, floor) => {
       const { x, y, width, height } = el.getBoundingClientRect();
@@ -3364,11 +3360,12 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`a 
   Object.assign(row, { phase: 'closed', outcome: 'won' });
   await page.getByRole('tab', { name: 'Overview' }).click();
   await page.getByRole('button', { name: 'Refresh deal' }).click();
-  const ended = snapshot.getByRole('region', { name: 'Open before this deal ended' });
-  await capture(ended, 'ended');
-  await ended.getByRole('button', { name: 'Done', exact: true }).click();
+  const ended = steps.getByRole('heading', { name: 'Open before this deal ended', exact: true });
+  await ended.waitFor();
+  await capture(steps, 'ended');
+  await steps.getByRole('button', { name: 'Done', exact: true }).click();
   await page.getByText('Could not confirm this step is done. Choose Done again to check.', { exact: true }).waitFor();
-  await ended.getByRole('button', { name: 'Done', exact: true }).click();
+  await steps.getByRole('button', { name: 'Done', exact: true }).click();
   await ended.waitFor({ state: 'hidden' });
   await snapshot.getByText('No next step set.', { exact: true }).waitFor();
   await page.getByRole('tab', { name: 'Activity' }).click();

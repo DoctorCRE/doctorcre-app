@@ -1,4 +1,4 @@
-p.deal-attention-line { display: flex; align-items: baseline; gap: var(--space-2); margin: 0 0 var(--space-2); padding: var(--space-2); border-radius: var(--radius-2); background: color-mix(in srgb, var(--status-warn) 10%, transparent); color: var(--fg); font-size: var(--font-size-1); }
+p.deal-attention-line { display: flex; align-items: baseline; gap: var(--space-2); margin: 0 var(--space-4) var(--space-2); padding: var(--space-2); border-radius: var(--radius-2); background: color-mix(in srgb, var(--status-warn) 10%, transparent); color: var(--fg); font-size: var(--font-size-1); }
 .deal-attention-line strong { color: var(--status-warn-ink); font-weight: var(--font-weight-strong); }
 .deal-attention-dot { flex: none; width: 6px; height: 6px; border-radius: var(--radius-round); background: var(--status-warn-ink); transform: translateY(-2px); }
 

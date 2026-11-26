@@ -1,8 +1,8 @@
+import type { EmailThread } from "./email-thread.ts";
 import { cardKey, type MarkUndo, markArgs, markDropTarget, markTarget } from "./engine-marks.ts";
 import {
   type DealFilingReason,
   draftReference,
-  type EmailThread,
   hasEngineReview,
   loadEngineReview,
   proposalIds,
