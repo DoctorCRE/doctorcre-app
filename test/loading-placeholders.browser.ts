@@ -283,10 +283,10 @@ test("Engine Home holds a grey tile where Today's meetings will appear while the
     },
   );
   await page.getByRole("link", { name: /^Send the sample floor plan/ }).waitFor();
-  assert.equal(await page.locator(".home-placeholder").count(), 1);
+  assert.equal(await page.locator(".home-side > .home-placeholder:first-child").count(), 1);
   release();
   await page.getByRole("region", { name: "Today's meetings" }).waitFor();
-  assert.equal(await page.locator(".home-placeholder").count(), 0);
+  await page.waitForFunction(() => !document.querySelector(".home-placeholder"));
   assert.deepEqual(errors, []);
 });
 
