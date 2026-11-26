@@ -7,6 +7,7 @@ import { uiAssets } from "../scripts/ui-bundle.mjs";
 import type {
   TimelineDate,
   TimelineGroup,
+  TimelineLink,
   TimelinePartner,
   TimelinePhase,
   TimelinePhaseBar,
@@ -202,7 +203,7 @@ const GROUPS: readonly TimelineGroup[] = [
         "2026-11-27",
         "Fri, Nov 27",
       ),
-      dateRow("loi-due", "negotiation", "LOI response due", "2026-12-10", "confirmed", "Dec 10"),
+      dateRow("loi-expiry", "negotiation", "LOI expiry", "2026-12-03", "confirmed", "Dec 3", true),
       expTodo("agreed", "negotiation", "Agreed business terms", "2026-12-07", "2026-12-27", "exp. Dec 27", "20d", true),
       dateRow("space-held", "negotiation", "Space held until", "2026-11-30", "confirmed", "Nov 30", true),
     ],
@@ -228,11 +229,31 @@ const GROUPS: readonly TimelineGroup[] = [
     startsFolded: false,
     rows: [
       expTodo("closing0", "closing", "Executed lease", "2027-02-20", "2027-03-06", "exp. Mar 6", "14d"),
+      expTodo("closing1", "closing", "Commencement letter", "2027-03-06", "2027-03-16", "exp. Mar 16", "10d"),
       dateRow("comm-date", "closing", "Lease commencement", "2027-03-22", "proposed", "Mar 22"),
       dateRow("sign-exp", "closing", "Lease signed", "2027-03-06", "expected", "exp. Mar 6"),
       { id: "closing-wait", kind: "todo", phase: "closing", name: "Move-in", state: "waiting" } satisfies TimelineRow,
     ],
   },
+];
+
+// Only workflow to-do order plus LOI expiry and lease commencement among critical dates get arrows.
+const LINKS: readonly TimelineLink[] = [
+  { kind: "workflow", from: "rep", to: "req" },
+  { kind: "workflow", from: "req", to: "survey" },
+  { kind: "workflow", from: "survey", to: "tours" },
+  { kind: "workflow", from: "tours", to: "loi" },
+  { kind: "workflow", from: "loi", to: "terms" },
+  { kind: "deadline", from: "terms", to: "loi-expiry", atRisk: true },
+  { kind: "workflow", from: "terms", to: "agreed" },
+  { kind: "workflow", from: "agreed", to: "legal0" },
+  { kind: "workflow", from: "legal0", to: "legal1" },
+  { kind: "workflow", from: "legal1", to: "legal2" },
+  { kind: "workflow", from: "legal2", to: "legal3" },
+  { kind: "workflow", from: "legal3", to: "closing0" },
+  { kind: "workflow", from: "closing0", to: "closing1" },
+  { kind: "deadline", from: "closing1", to: "comm-date" },
+  { kind: "workflow", from: "closing1", to: "closing-wait" },
 ];
 
 const CHART: TimelineProps = {
@@ -241,6 +262,7 @@ const CHART: TimelineProps = {
   from: "2026-09-28",
   to: "2027-04-05",
   groups: GROUPS,
+  links: LINKS,
 };
 const MS_PER_DAY = 86_400_000;
 const dayIndex = (iso: string) => (Date.parse(`${iso}T00:00:00Z`) - Date.parse(`${CHART.from}T00:00:00Z`)) / MS_PER_DAY;
@@ -693,4 +715,139 @@ test("a label beside a bar that starts under the list column never shows its tai
   await scroller.evaluate((n) => n.scrollTo({ left: 230 }));
   await frames(page);
   assert.deepEqual(await leaks(), []);
+});
+
+test("arrows draw workflow and allowed critical-date links with right-angle routes, back routes for at-risk links, and mask cutouts around labels", async (t) => {
+  const { page } = await open(t);
+  const paths = await page.locator(".timeline-link").evaluateAll((ns) =>
+    ns.map((n) => ({
+      from: n.getAttribute("data-from"),
+      to: n.getAttribute("data-to"),
+      kind: n.getAttribute("data-link-kind"),
+      atRisk: n.hasAttribute("data-at-risk"),
+      backRoute: n.hasAttribute("data-back-route"),
+      d: n.getAttribute("d") ?? "",
+    })),
+  );
+  // Research starts folded and closing-wait has no mark, so 12 of the 15 links draw.
+  assert.equal(paths.length, 12);
+  assert.equal(
+    paths.some((p) => p.from === "rep" || p.to === "closing-wait" || p.to === "space-held"),
+    false,
+    "folded, dayless and non-gated critical date rows get no arrow",
+  );
+  const forward = paths.find((p) => p.from === "closing1" && p.to === "comm-date");
+  assert.ok(forward, "Lease commencement gets a forward deadline arrow");
+  assert.equal(forward.kind, "deadline");
+  assert.equal(forward.atRisk, false);
+  assert.equal(forward.backRoute, false);
+  assert.match(forward.d, /Q.*M[\d.-]+ [\d.-]+L[\d.-]+ [\d.-]+L[\d.-]+ [\d.-]+$/);
+
+  const atRisk = paths.find((p) => p.from === "terms" && p.to === "loi-expiry");
+  assert.ok(atRisk, "LOI expiry gets an at-risk back-route arrow from Terms comparison");
+  assert.equal(atRisk.atRisk, true);
+  assert.equal(atRisk.backRoute, true);
+
+  // Unfolding Research brings its two workflow arrows onto the chart.
+  await page.getByRole("button", { name: /Research/ }).click();
+  assert.equal(await page.locator('.timeline-link[data-from="rep"][data-to="req"]').count(), 1);
+  assert.equal(await page.locator('.timeline-link[data-from="req"][data-to="survey"]').count(), 1);
+
+  // Mask cutouts cover beside-bar and diamond labels in track coordinates without gradients.
+  const maskCheck = await page.evaluate(() => {
+    const svg = document.querySelector(".timeline-links");
+    const svgBox = svg?.getBoundingClientRect();
+    if (!svg || !svgBox) throw Error("no arrows svg");
+    const cutouts = new Map(
+      [...svg.querySelectorAll("mask rect[data-cutout]")].map((r) => [
+        r.getAttribute("data-cutout") ?? "",
+        { x: Number(r.getAttribute("x")), width: Number(r.getAttribute("width")) },
+      ]),
+    );
+    const missing: string[] = [];
+    for (const row of document.querySelectorAll<HTMLElement>("[data-row]")) {
+      const id = row.dataset.row ?? "";
+      const label = row.querySelector<HTMLElement>(
+        '.timeline-bar[data-label-pos="beside"] .timeline-bar-name, .timeline-diamond-label',
+      );
+      if (!label) continue;
+      const c = cutouts.get(id);
+      const box = label.getBoundingClientRect();
+      const pad = parseFloat(getComputedStyle(label).paddingLeft);
+      const textLeft = box.left + pad - svgBox.left;
+      const textRight = box.right - svgBox.left;
+      if (!c || c.x > textLeft || c.x + c.width < textRight - 1) missing.push(id);
+    }
+    return { missing, count: cutouts.size };
+  });
+  assert.ok(maskCheck.count > 0);
+  assert.deepEqual(maskCheck.missing, [], "every beside and diamond label is covered by a mask cutout");
+});
+
+test("hovering a bar brightens its arrows, fades the rest, and shows a note with dates and source in both themes", async (t) => {
+  const { page } = await open(t);
+  const termsBar = page.locator('[data-row="terms"] .timeline-bar');
+  await termsBar.hover();
+  assert.equal(await page.locator(".timeline-links").getAttribute("data-dim"), "");
+  assert.equal(
+    await page.locator('.timeline-link[data-from="terms"][data-to="loi-expiry"]').getAttribute("data-active"),
+    "",
+  );
+  assert.equal(
+    await page.locator('.timeline-link[data-from="terms"][data-to="agreed"]').getAttribute("data-active"),
+    "",
+  );
+  assert.equal(await page.locator('.timeline-link[data-from="loi"][data-to="terms"]').getAttribute("data-active"), "");
+  assert.equal(
+    await page.locator('.timeline-link[data-from="survey"][data-to="tours"]').getAttribute("data-active"),
+    null,
+  );
+
+  const tip = page.getByRole("tooltip");
+  assert.equal(await tip.count(), 1);
+  const tipText = (await tip.textContent()) ?? "";
+  assert.match(tipText, /Terms comparison/);
+  assert.match(tipText, /Nov 16 to Dec 7/);
+  assert.match(tipText, /Expected 4 days after LOI expiry/);
+
+  // Hovering an at-risk diamond names the to-do expected after it.
+  await page.locator('[data-row="loi-expiry"] .timeline-diamond').hover();
+  const dateTip = (await tip.textContent()) ?? "";
+  assert.match(dateTip, /LOI expiry/);
+  assert.match(dateTip, /Thu, Dec 3/);
+  assert.match(dateTip, /Terms comparison is expected 4 days after it/);
+
+  // Hovering the top visible bar flips the note below so it never clips under the sticky header.
+  await page.locator('[data-row="survey"] .timeline-bar').hover();
+  const surveyTip = await box(tip);
+  const head = await box(page.locator(".timeline-head"));
+  assert.ok(surveyTip.y >= head.y + head.height - 1, "top-row hover note stays clear of the sticky date header");
+
+  // No gradients and at most four text sizes even with arrows and hover note visible.
+  for (const theme of ["dark", "light"]) {
+    await page.evaluate((value) => {
+      document.documentElement.dataset.theme = value;
+    }, theme);
+    const audit = await page.evaluate(() => {
+      const sizes = new Set<string>();
+      let gradient = false;
+      for (const el of document.querySelectorAll(".timeline, .timeline *")) {
+        const s = getComputedStyle(el);
+        if (el.textContent?.trim()) sizes.add(s.fontSize);
+        if (s.backgroundImage.includes("gradient") || s.maskImage.includes("gradient")) gradient = true;
+      }
+      return { sizes: [...sizes], gradient };
+    });
+    assert.equal(audit.gradient, false, `${theme} uses no gradients with arrows and hover note`);
+    assert.ok(audit.sizes.length <= 4, `${theme} keeps <=4 text sizes: ${audit.sizes.join(", ")}`);
+  }
+
+  // Moving away clears dim state and removes the hover note; keyboard focus + Escape works too.
+  await page.locator(".timeline-tools").hover();
+  assert.equal(await page.locator(".timeline-links").getAttribute("data-dim"), null);
+  assert.equal(await tip.count(), 0);
+  await termsBar.focus();
+  assert.equal(await tip.count(), 1);
+  await page.keyboard.press("Escape");
+  assert.equal(await tip.count(), 0);
 });

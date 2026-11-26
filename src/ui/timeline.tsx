@@ -1,5 +1,6 @@
 import {
   Fragment,
+  type KeyboardEvent,
   type RefObject,
   useCallback,
   useEffect,
@@ -12,13 +13,17 @@ import {
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import {
+  arrowPath,
   DAY_WIDTH,
   dayOf,
   labelLayout,
   MIN_BAR_WIDTH,
   scale,
+  shortDate,
   spanBox,
   spentWidth,
+  weekdayDate,
+  yearOf,
   ZOOMS,
   type Zoom,
 } from "./timeline-scale.ts";
@@ -40,6 +45,7 @@ interface TimelineRowBase {
   name: string;
   phase: TimelinePhase;
   when?: string;
+  note?: string;
 }
 
 export type TimelineTodo = TimelineRowBase &
@@ -91,6 +97,10 @@ export interface TimelineGroup {
   rows: readonly TimelineRow[];
 }
 
+export type TimelineLink =
+  | { kind: "workflow"; from: string; to: string }
+  | { kind: "deadline"; from: string; to: string; atRisk?: boolean };
+
 export interface TimelineProps {
   // Folds are remembered per chart, so a deal's plan and Deals Timeline keep their own.
   foldKey: string;
@@ -98,6 +108,7 @@ export interface TimelineProps {
   from: string;
   to: string;
   groups: readonly TimelineGroup[];
+  links?: readonly TimelineLink[];
 }
 
 type Folds = Record<string, boolean>;
@@ -138,6 +149,13 @@ const BESIDE_LABELS = '.timeline-bar[data-label-pos="beside"] .timeline-bar-name
 const CHECK_WIDTH = 12;
 const UNDATED_MIN_WIDTH = 60;
 const UNDATED_TAIL_DAYS = 4;
+const DEFAULT_ROW_HEIGHT = 34;
+const DIAMOND_HALF = 8.5;
+const BESIDE_CUTOUT_OFFSET = 13;
+const DIAMOND_LABEL_OFFSET = 13;
+const DIAMOND_DETAIL_GAP = 8;
+const CUTOUT_PAD_Y = 6;
+const TIP_CLEARANCE = 84;
 
 // Marks the chart while it is being scrolled, so the scrollbar can show only then.
 function useScrollCue(scroller: RefObject<HTMLElement | null>) {
@@ -278,144 +296,422 @@ function PhaseBar({ bar, start, now, px }: { bar: TimelinePhaseBar; start: numbe
   );
 }
 
-interface BarProps {
+interface Cutout {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+interface BarSpec {
+  kind: "bar";
   mark: string;
-  name: string;
   left: number;
   width: number;
-  measure: Measure;
-  spent?: number;
+  outside: boolean;
+  showMeta: boolean;
+  spent?: number | undefined;
   meta?: string | undefined;
-  check?: boolean;
-  metaTone?: Tone;
-  step?: boolean;
+  metaTone?: Tone | undefined;
+  check?: boolean | undefined;
+  step?: boolean | undefined;
 }
 
-function Bar({ mark, name, left, width, measure, spent, meta, check, metaTone = "default", step }: BarProps) {
-  const metaWidth = meta ? measure(meta) : check ? CHECK_WIDTH : 0;
-  const { outside, showMeta } = labelLayout(measure(name), metaWidth, width);
-  const fullFill = spent !== undefined && spent >= width - 1;
-  return (
-    <div
-      className={step ? "timeline-bar timeline-step" : "timeline-bar"}
-      data-mark={mark}
-      data-label-pos={outside ? "beside" : "inside"}
-      style={{ left, width }}
-    >
-      {spent !== undefined && spent > 0 && (
-        <i className="timeline-bar-fill" data-full={fullFill ? "" : undefined} style={{ width: spent }} />
-      )}
-      <span className="timeline-bar-name">{name}</span>
-      {showMeta && (
-        <span className="timeline-bar-meta" data-tone={optTone(metaTone)}>
-          {check ? <CheckIcon size={CHECK_WIDTH} /> : meta}
-        </span>
-      )}
-    </div>
-  );
+interface DateSpec {
+  kind: "date";
+  center: number;
+  detail: string;
 }
 
-interface MarkProps {
+interface RowBox {
   row: TimelineRow;
   meta: RowMeta;
-  start: number;
-  now: number;
-  px: number;
-  measure: Measure;
+  rowTop: number;
+  left: number;
+  right: number;
+  y: number;
+  spec: BarSpec | DateSpec;
+  cutout?: Cutout;
 }
 
-function RowMark({ row, meta, start, now, px, measure }: MarkProps) {
-  if (row.kind === "date") {
-    const day = dayOf(row.day);
-    const center = (day - start) * px + px / 2;
-    const suffix = row.atRisk ? "at risk" : row.state === "proposed" ? "proposed" : undefined;
-    const detail = row.detail ?? [row.when, suffix].filter(Boolean).join(" · ");
-    return (
-      <>
-        <i
-          className="timeline-diamond"
-          data-mark={`date-${row.state}`}
-          data-state={row.state}
-          data-at-risk={row.atRisk ? "" : undefined}
-          style={{ left: center }}
-        />
-        <span className="timeline-diamond-label" style={{ left: center + 13 }}>
-          {row.name}
-          {detail && (
-            <span className="timeline-diamond-detail" data-tone={optTone(meta.tone)}>
-              {detail}
-            </span>
-          )}
-        </span>
-      </>
-    );
-  }
+const dateDetail = (row: TimelineDate) =>
+  row.detail ??
+  [row.when, row.atRisk ? "at risk" : row.state === "proposed" ? "proposed" : undefined].filter(Boolean).join(" · ");
+
+function barSpec(
+  row: TimelineTodo | TimelineStep,
+  meta: RowMeta,
+  start: number,
+  now: number,
+  px: number,
+): Omit<BarSpec, "kind" | "outside" | "showMeta"> | null {
   if (row.kind === "step") {
     const startDay = dayOf(row.start);
     const left = (startDay - start) * px;
     if (row.state === "undated") {
-      const width = Math.max((now - startDay + UNDATED_TAIL_DAYS) * px, UNDATED_MIN_WIDTH);
-      return <Bar mark="step-undated" name={row.name} left={left} width={width} measure={measure} step />;
+      return {
+        mark: "step-undated",
+        left,
+        width: Math.max((now - startDay + UNDATED_TAIL_DAYS) * px, UNDATED_MIN_WIDTH),
+        step: true,
+      };
     }
     const { width } = spanBox(startDay, dayOf(row.state === "done" ? row.end : row.due), start, px);
-    if (row.state === "done")
-      return <Bar mark="step-done" name={row.name} left={left} width={width} measure={measure} step />;
-    return (
-      <Bar
-        mark={meta.lateDays > 0 ? "step-late" : "step-open"}
-        name={row.name}
-        left={left}
-        width={width}
-        measure={measure}
-        meta={meta.lateDays > 0 ? `${meta.lateDays}d late` : undefined}
-        metaTone={meta.tone}
-        step
-      />
-    );
+    if (row.state === "done") return { mark: "step-done", left, width, step: true };
+    return {
+      mark: meta.lateDays > 0 ? "step-late" : "step-open",
+      left,
+      width,
+      meta: meta.lateDays > 0 ? `${meta.lateDays}d late` : undefined,
+      metaTone: meta.tone,
+      step: true,
+    };
   }
   if (row.state === "unrecorded" || row.state === "waiting") return null;
   const startDay = dayOf(row.start);
   if (row.state === "stale") {
     const width = Math.max((now - startDay + 0.5) * px, MIN_BAR_WIDTH);
-    return (
-      <Bar
-        mark="todo-stale"
-        name={row.name}
-        left={(startDay - start) * px}
-        width={width}
-        measure={measure}
-        spent={width}
-      />
-    );
+    return { mark: "todo-stale", left: (startDay - start) * px, width, spent: width };
   }
   const { left, width } = spanBox(startDay, dayOf(row.end), start, px);
-  if (row.state === "done")
-    return <Bar mark="todo-done" name={row.name} left={left} width={width} measure={measure} check />;
-  if (row.state === "expected")
-    return <Bar mark="todo-expected" name={row.name} left={left} width={width} measure={measure} meta={row.length} />;
+  if (row.state === "done") return { mark: "todo-done", left, width, check: true };
+  if (row.state === "expected") return { mark: "todo-expected", left, width, meta: row.length };
+  return {
+    mark: "todo-current",
+    left,
+    width,
+    spent: spentWidth(startDay, width, now, px),
+    meta: row.progress,
+    metaTone: row.overTypical ? "soon" : "default",
+  };
+}
+
+function rowBox(
+  row: TimelineRow,
+  meta: RowMeta,
+  rowIndex: number,
+  rowHeight: number,
+  start: number,
+  now: number,
+  px: number,
+  measure: Measure,
+): RowBox | null {
+  const rowTop = rowIndex * rowHeight;
+  const y = rowTop + rowHeight / 2;
+  if (row.kind === "date") {
+    const center = (dayOf(row.day) - start) * px + px / 2;
+    const detail = dateDetail(row);
+    const labelWidth = measure(row.name) + (detail ? DIAMOND_DETAIL_GAP + measure(detail) : 0);
+    return {
+      row,
+      meta,
+      rowTop,
+      left: center - DIAMOND_HALF,
+      right: center + DIAMOND_HALF,
+      y,
+      spec: { kind: "date", center, detail },
+      ...(labelWidth > 0 && {
+        cutout: {
+          id: row.id,
+          x: center + DIAMOND_LABEL_OFFSET - 3,
+          y: rowTop + CUTOUT_PAD_Y,
+          width: labelWidth + 6,
+          height: rowHeight - CUTOUT_PAD_Y * 2,
+        },
+      }),
+    };
+  }
+  const base = barSpec(row, meta, start, now, px);
+  if (!base) return null;
+  const nameWidth = measure(row.name);
+  const metaWidth = base.meta ? measure(base.meta) : base.check ? CHECK_WIDTH : 0;
+  const { outside, showMeta } = labelLayout(nameWidth, metaWidth, base.width);
+  const right = base.left + base.width;
+  return {
+    row,
+    meta,
+    rowTop,
+    left: base.left,
+    right,
+    y,
+    spec: { kind: "bar", ...base, outside, showMeta },
+    ...(outside &&
+      nameWidth > 0 && {
+        cutout: {
+          id: row.id,
+          x: right + BESIDE_CUTOUT_OFFSET,
+          y: rowTop + CUTOUT_PAD_Y,
+          width: nameWidth + 6,
+          height: rowHeight - CUTOUT_PAD_Y * 2,
+        },
+      }),
+  };
+}
+
+interface MarkProps {
+  box: RowBox | null;
+  hovered: boolean;
+  tipId: string;
+  onEnter: () => void;
+  onLeave: () => void;
+}
+
+function RowMark({ box, hovered, tipId, onEnter, onLeave }: MarkProps) {
+  if (!box) return null;
+  const { row, meta, spec } = box;
+  const events = {
+    "data-hovered": hovered ? "" : undefined,
+    "aria-describedby": hovered ? tipId : undefined,
+    onMouseEnter: onEnter,
+    onMouseLeave: onLeave,
+    onFocus: onEnter,
+    onBlur: onLeave,
+    onKeyDown: (event: KeyboardEvent) => {
+      if (event.key === "Escape") onLeave();
+    },
+  };
+  if (spec.kind === "date" && row.kind === "date") {
+    return (
+      <button type="button" className="timeline-date-mark" {...events} style={{ left: spec.center }}>
+        <i
+          className="timeline-diamond"
+          data-mark={`date-${row.state}`}
+          data-state={row.state}
+          data-at-risk={row.atRisk ? "" : undefined}
+          aria-hidden="true"
+        />
+        <span className="timeline-diamond-label">
+          {row.name}
+          {spec.detail && (
+            <span className="timeline-diamond-detail" data-tone={optTone(meta.tone)}>
+              {spec.detail}
+            </span>
+          )}
+        </span>
+      </button>
+    );
+  }
+  if (spec.kind !== "bar") return null;
+  const fullFill = spec.spent !== undefined && spec.spent >= spec.width - 1;
   return (
-    <Bar
-      mark="todo-current"
-      name={row.name}
-      left={left}
-      width={width}
-      measure={measure}
-      spent={spentWidth(startDay, width, now, px)}
-      meta={row.progress}
-      metaTone={row.overTypical ? "soon" : "default"}
-    />
+    <button
+      type="button"
+      className={spec.step ? "timeline-bar timeline-step" : "timeline-bar"}
+      data-mark={spec.mark}
+      data-label-pos={spec.outside ? "beside" : "inside"}
+      {...events}
+      style={{ left: spec.left, width: spec.width }}
+    >
+      {spec.spent !== undefined && spec.spent > 0 && (
+        <i className="timeline-bar-fill" data-full={fullFill ? "" : undefined} style={{ width: spec.spent }} />
+      )}
+      <span className="timeline-bar-name">{row.name}</span>
+      {spec.showMeta && (
+        <span className="timeline-bar-meta" data-tone={optTone(spec.metaTone ?? "default")}>
+          {spec.check ? <CheckIcon size={CHECK_WIDTH} /> : spec.meta}
+        </span>
+      )}
+    </button>
   );
 }
 
-function Timeline({ foldKey, today, from, to, groups }: TimelineProps) {
+interface NoteContent {
+  title: string;
+  dates: string;
+  source: string;
+  tone: Tone;
+}
+
+const pluralDays = (days: number) => `${days} ${days === 1 ? "day" : "days"}`;
+const isDeadline = (link: TimelineLink): link is Extract<TimelineLink, { kind: "deadline" }> =>
+  link.kind === "deadline";
+
+function noteForRow(
+  row: TimelineRow,
+  meta: RowMeta,
+  now: number,
+  links: readonly TimelineLink[],
+  rows: ReadonlyMap<string, TimelineRow>,
+): NoteContent {
+  const ref = yearOf(now);
+  if (row.kind === "date") {
+    const day = dayOf(row.day);
+    const suffix = row.atRisk ? " · at risk" : row.state === "proposed" ? " · proposed" : "";
+    const dates = row.state === "expected" ? `Expected ${weekdayDate(day, ref)}` : `${weekdayDate(day, ref)}${suffix}`;
+    const blocker = links
+      .filter((l) => isDeadline(l) && Boolean(l.atRisk) && l.to === row.id)
+      .map((l) => rows.get(l.from))
+      .find((r): r is Extract<TimelineTodo, { end: string }> => r?.kind === "todo" && "end" in r);
+    if (row.atRisk && blocker) {
+      const over = dayOf(blocker.end) - day;
+      return {
+        title: row.name,
+        dates,
+        source: over > 0 ? `${blocker.name} is expected ${pluralDays(over)} after it` : `${blocker.name} is at risk`,
+        tone: "late",
+      };
+    }
+    const fallback = row.atRisk
+      ? "Expected work finishes after this date"
+      : row.state === "proposed"
+        ? "Proposed, not confirmed"
+        : row.state === "expected"
+          ? "From workflow typical lengths"
+          : "Recorded";
+    return { title: row.name, dates, source: row.note ?? fallback, tone: row.atRisk ? "late" : "default" };
+  }
+  if (row.kind === "step") {
+    const set = `${row.owner} · set ${shortDate(dayOf(row.start), ref)}`;
+    if (row.state === "done")
+      return {
+        title: row.name,
+        dates: `${set} · done ${shortDate(dayOf(row.end), ref)}`,
+        source: row.note ?? "Recorded",
+        tone: "default",
+      };
+    if (row.state === "undated")
+      return { title: row.name, dates: `${set} · no due date`, source: row.note ?? "Recorded", tone: "default" };
+    return {
+      title: row.name,
+      dates: `${set} · due ${weekdayDate(dayOf(row.due), ref)}`,
+      source: meta.lateDays > 0 ? `${pluralDays(meta.lateDays)} late` : (row.note ?? "Recorded"),
+      tone: meta.lateDays > 0 ? "late" : "default",
+    };
+  }
+  if (row.state === "done")
+    return {
+      title: row.name,
+      dates: `Finished ${weekdayDate(dayOf(row.end), ref)}`,
+      source: row.note ?? "Recorded",
+      tone: "default",
+    };
+  if (row.state === "stale") {
+    return {
+      title: row.name,
+      dates: `Started ${shortDate(dayOf(row.start), ref)}${row.when ? ` · ${row.when}` : ""}`,
+      source: row.note ?? "Too far past typical to expect a date",
+      tone: "soon",
+    };
+  }
+  if (row.state === "unrecorded" || row.state === "waiting")
+    return { title: row.name, dates: meta.when ?? "", source: row.note ?? "", tone: "default" };
+  const startDay = dayOf(row.start);
+  const endDay = dayOf(row.end);
+  const span = `${shortDate(startDay, ref)} to ${shortDate(endDay, ref)}`;
+  const dates = row.state === "current" ? `${span}${row.progress ? ` · ${row.progress}` : ""}` : `Expected ${span}`;
+  const missed = links
+    .filter((l) => isDeadline(l) && Boolean(l.atRisk) && l.from === row.id)
+    .map((l) => rows.get(l.to))
+    .find((r): r is TimelineDate => r?.kind === "date");
+  if (missed) {
+    const over = endDay - dayOf(missed.day);
+    return {
+      title: row.name,
+      dates,
+      source: over > 0 ? `Expected ${pluralDays(over)} after ${missed.name}` : `At risk for ${missed.name}`,
+      tone: "late",
+    };
+  }
+  return {
+    title: row.name,
+    dates,
+    source: row.note ?? `Typical length ${pluralDays(Math.max(1, endDay - startDay))}`,
+    tone: row.atRisk ? "late" : row.state === "current" && row.overTypical ? "soon" : "default",
+  };
+}
+
+function Arrows({
+  links,
+  boxes,
+  cutouts,
+  hoveredId,
+  width,
+  height,
+  rowHeight,
+  maskId,
+}: {
+  links: readonly TimelineLink[];
+  boxes: ReadonlyMap<string, RowBox>;
+  cutouts: readonly Cutout[];
+  hoveredId: string | null;
+  width: number;
+  height: number;
+  rowHeight: number;
+  maskId: string;
+}) {
+  const routed = links
+    .flatMap((link) => {
+      const from = boxes.get(link.from);
+      const to = boxes.get(link.to);
+      if (!from || !to) return [];
+      const atRisk = isDeadline(link) && Boolean(link.atRisk);
+      const active = hoveredId !== null && (link.from === hoveredId || link.to === hoveredId);
+      return [
+        { link, atRisk, active, route: arrowPath({ x: from.right, y: from.y }, { x: to.left, y: to.y }, rowHeight) },
+      ];
+    })
+    // Paint normal links first, at-risk links above them, and hovered links on top.
+    .sort((a, b) => Number(a.active) - Number(b.active) || Number(a.atRisk) - Number(b.atRisk));
+  if (routed.length === 0) return null;
+  const maskWidth = Math.max(width, ...cutouts.map((c) => c.x + c.width)) + 20;
+  return (
+    <svg
+      className="timeline-links"
+      data-dim={hoveredId !== null ? "" : undefined}
+      width={width}
+      height={height}
+      aria-hidden="true"
+    >
+      <defs>
+        <mask id={maskId} maskUnits="userSpaceOnUse" x={0} y={0} width={maskWidth} height={height}>
+          <rect x={0} y={0} width={maskWidth} height={height} fill="white" stroke="none" />
+          {cutouts.map((c) => (
+            <rect
+              key={c.id}
+              data-cutout={c.id}
+              x={c.x}
+              y={c.y}
+              width={c.width}
+              height={c.height}
+              rx={4}
+              fill="black"
+              stroke="none"
+            />
+          ))}
+        </mask>
+      </defs>
+      <g mask={`url(#${maskId})`}>
+        {routed.map(({ link, atRisk, active, route }) => (
+          <path
+            key={`${link.kind}:${link.from}->${link.to}`}
+            className="timeline-link"
+            data-from={link.from}
+            data-to={link.to}
+            data-link-kind={link.kind}
+            data-at-risk={atRisk ? "" : undefined}
+            data-back-route={route.backRoute ? "" : undefined}
+            data-active={active ? "" : undefined}
+            d={route.path}
+          />
+        ))}
+      </g>
+    </svg>
+  );
+}
+
+function Timeline({ foldKey, today, from, to, groups, links = [] }: TimelineProps) {
   // middle is the day to centre after a zoom change; null puts today a third of the way in.
   const [view, setView] = useState<{ zoom: Zoom; middle: number | null }>({ zoom: "week", middle: null });
   const [folds, setFolds] = useState(() => readFolds(foldKey));
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const rootRef = useRef<HTMLElement>(null);
   const scroller = useRef<HTMLElement>(null);
   const corner = useRef<HTMLDivElement>(null);
   const pill = useRef<HTMLSpanElement>(null);
   const probe = useRef<HTMLSpanElement>(null);
   const [pillWidth, setPillWidth] = useState(0);
+  const [rowHeight, setRowHeight] = useState(DEFAULT_ROW_HEIGHT);
   const [font, setFont] = useState("");
   const uid = useId();
   useScrollCue(scroller);
@@ -430,6 +726,19 @@ function Timeline({ foldKey, today, from, to, groups }: TimelineProps) {
   const pillCovers = (day: number) => Math.abs(labelCentre(day) - (x(now) + px / 2)) < pillWidth / 2 + DATE_LABEL_HALF;
 
   useLayoutEffect(() => setPillWidth(pill.current?.offsetWidth ?? 0), []);
+
+  // Row height changes at the mobile breakpoint, so arrows read the live token value.
+  useLayoutEffect(() => {
+    const read = () => {
+      const value = rootRef.current
+        ? parseFloat(getComputedStyle(rootRef.current).getPropertyValue("--row"))
+        : Number.NaN;
+      setRowHeight(Number.isFinite(value) && value > 0 ? value : DEFAULT_ROW_HEIGHT);
+    };
+    read();
+    window.addEventListener("resize", read);
+    return () => window.removeEventListener("resize", read);
+  }, []);
 
   // Labels are measured in the font the bars really use, once it has loaded.
   useLayoutEffect(() => {
@@ -457,8 +766,43 @@ function Timeline({ foldKey, today, from, to, groups }: TimelineProps) {
     writeFolds(foldKey, next);
   }
 
+  const allRows = useMemo(() => new Map(groups.flatMap((g) => g.rows.map((r) => [r.id, r] as const))), [groups]);
+  const boxes = new Map<string, RowBox>();
+  const cutouts: Cutout[] = [];
+  let rowIndex = 0;
+  for (const group of groups) {
+    const open = !(folds[group.id] ?? group.startsFolded);
+    rowIndex++;
+    if (!open) continue;
+    for (const row of group.rows) {
+      const placed = rowBox(row, rowMeta(row, now), rowIndex++, rowHeight, start, now, px, measure);
+      if (placed) {
+        boxes.set(row.id, placed);
+        if (placed.cutout) cutouts.push(placed.cutout);
+      }
+    }
+  }
+  const bodyHeight = rowIndex * rowHeight;
+  const activeHovered = hoveredId !== null && boxes.has(hoveredId) ? hoveredId : null;
+  const hoveredBox = activeHovered ? boxes.get(activeHovered) : undefined;
+  const note = hoveredBox ? noteForRow(hoveredBox.row, hoveredBox.meta, now, links, allRows) : undefined;
+  const tipId = `${uid}-tip`;
+  const maskId = `${uid}-arrow-mask`;
+  const clearHover = (id: string) => setHoveredId((current) => (current === id ? null : current));
+  const tipPlace =
+    hoveredBox && hoveredBox.rowTop - (scroller.current?.scrollTop ?? 0) < TIP_CLEARANCE ? "below" : "above";
+  const tipLeft = (() => {
+    if (!hoveredBox || !note) return 0;
+    const scrollLeft = scroller.current?.scrollLeft ?? 0;
+    const trackWidth = visibleTrack(scroller.current, corner.current);
+    const noteWidth = Math.max(measure(note.title), measure(note.dates), measure(note.source)) + 28;
+    const maxLeft =
+      trackWidth > 0 ? Math.max(scrollLeft + 4, scrollLeft + trackWidth - noteWidth - 8) : hoveredBox.left;
+    return Math.min(Math.max(hoveredBox.left, scrollLeft + 4), maxLeft);
+  })();
+
   return (
-    <section className="timeline" data-day-width={px}>
+    <section className="timeline" ref={rootRef} data-day-width={px}>
       <p className="timeline-sr">
         The chart runs from {from} to {to}. Today is {today}.
       </p>
@@ -522,6 +866,16 @@ function Timeline({ foldKey, today, from, to, groups }: TimelineProps) {
                 ))}
               <i className="timeline-now" style={{ left: x(now) + px / 2 }} />
             </div>
+            <Arrows
+              links={links}
+              boxes={boxes}
+              cutouts={cutouts}
+              hoveredId={activeHovered}
+              width={width}
+              height={bodyHeight}
+              rowHeight={rowHeight}
+              maskId={maskId}
+            />
             {groups.map((group) => {
               const open = !(folds[group.id] ?? group.startsFolded);
               const heading = (
@@ -586,7 +940,13 @@ function Timeline({ foldKey, today, from, to, groups }: TimelineProps) {
                             )}
                           </div>
                           <div className="timeline-track" data-phase={row.phase} style={{ width }}>
-                            <RowMark row={row} meta={meta} start={start} now={now} px={px} measure={measure} />
+                            <RowMark
+                              box={boxes.get(row.id) ?? null}
+                              hovered={activeHovered === row.id}
+                              tipId={tipId}
+                              onEnter={() => setHoveredId(row.id)}
+                              onLeave={() => clearHover(row.id)}
+                            />
                           </div>
                         </div>
                       );
@@ -595,6 +955,27 @@ function Timeline({ foldKey, today, from, to, groups }: TimelineProps) {
               );
             })}
             <div className="timeline-list-fill" />
+            {hoveredBox && note && (
+              <div
+                id={tipId}
+                role="tooltip"
+                className="timeline-tip"
+                data-place={tipPlace}
+                data-for={hoveredBox.row.id}
+                style={{
+                  left: `calc(var(--list) + ${tipLeft}px)`,
+                  top: tipPlace === "above" ? hoveredBox.rowTop - 6 : hoveredBox.rowTop + rowHeight + 6,
+                }}
+              >
+                <strong className="timeline-tip-title">{note.title}</strong>
+                <span className="timeline-tip-line">{note.dates}</span>
+                {note.source && (
+                  <span className="timeline-tip-line" data-tone={optTone(note.tone)}>
+                    {note.source}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </section>

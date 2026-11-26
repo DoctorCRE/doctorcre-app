@@ -1,7 +1,7 @@
 /* The timeline chart: one canvas that scrolls both ways under a sticky date header and list column. */
 .timeline { --list: 296px; --row: 34px; --head: 44px; display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--surface-1); border-radius: var(--radius-3); overflow: hidden; color: var(--fg); font: var(--font-weight-regular) var(--font-size-2) / 1.35 var(--font-text); }
 .timeline, .timeline * { box-sizing: border-box; }
-.timeline button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+:where(.timeline button) { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
 .timeline svg { flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; }
 
 .timeline [data-phase="pending"] { --tone: var(--phase-pending); }
@@ -41,7 +41,7 @@
 .timeline-month-line { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--hairline); }
 .timeline-now { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--accent); z-index: 1; }
 
-.timeline-row { position: relative; height: var(--row); display: flex; box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--hairline) 38%, transparent); }
+.timeline-row { position: relative; height: var(--row); flex: none; display: flex; box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--hairline) 38%, transparent); }
 .timeline .timeline-label { position: sticky; left: 0; z-index: 4; width: var(--list); flex: none; display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-3) 0 32px; background: var(--surface-1); text-align: left; min-width: 0; transition: background var(--duration-hover); }
 .timeline .timeline-group .timeline-label { padding-left: var(--space-2); gap: var(--space-1); font-weight: var(--font-weight-strong); }
 .timeline-label-static { cursor: default; }
@@ -80,7 +80,9 @@
 /* To-do bars and step pills on the chart track. */
 .timeline-bar { position: absolute; top: 6px; height: 22px; border-radius: var(--radius-2); z-index: 2; display: flex; align-items: center; font-size: var(--font-size-1); font-weight: var(--font-weight-regular); white-space: nowrap; background: color-mix(in oklab, var(--tone) 17%, var(--surface-1)); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--tone) 46%, var(--surface-1)); transition: filter var(--duration-hover); }
 .timeline-probe { visibility: hidden; pointer-events: none; width: 0; height: 0; }
-.timeline-bar:hover, .timeline-diamond:hover { filter: brightness(1.12); }
+.timeline-bar:hover, .timeline-bar[data-hovered], .timeline-date-mark:hover .timeline-diamond, .timeline-date-mark[data-hovered] .timeline-diamond { filter: brightness(1.16) saturate(1.12); }
+.timeline-bar:focus-visible, .timeline-date-mark:focus-visible .timeline-diamond { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 1px; }
+.timeline-date-mark:focus-visible { outline: none; }
 .timeline-bar-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: var(--radius-2) 0 0 var(--radius-2); background: color-mix(in oklab, var(--tone) 46%, var(--surface-1)); }
 .timeline-bar-fill[data-full] { border-radius: var(--radius-2); }
 .timeline-bar-name { position: relative; flex: 1; min-width: 0; padding: 0 var(--space-2); overflow: hidden; color: var(--fg); }
@@ -100,11 +102,29 @@
 .timeline-step[data-mark="step-undated"] { background: color-mix(in oklab, var(--tone) 18%, var(--surface-1)); outline: 1px dashed color-mix(in oklab, var(--tone) 62%, var(--surface-1)); outline-offset: -1px; }
 
 /* Milestone diamonds on critical dates. */
-.timeline-diamond { position: absolute; top: 11px; width: 12px; height: 12px; margin-left: -6px; transform: rotate(45deg); border-radius: 2px; background: var(--tone); z-index: 2; transition: filter var(--duration-hover); }
+.timeline-date-mark { position: absolute; top: 0; bottom: 0; z-index: 2; }
+.timeline-diamond { position: absolute; top: 11px; left: 0; width: 12px; height: 12px; margin-left: -6px; transform: rotate(45deg); border-radius: 2px; background: var(--tone); z-index: 2; transition: filter var(--duration-hover); }
 .timeline-diamond[data-state="proposed"] { background: var(--surface-1); box-shadow: inset 0 0 0 1.5px var(--tone); }
 .timeline-diamond[data-state="expected"] { background: var(--surface-1); outline: 1px dashed var(--tone); outline-offset: -1px; }
-.timeline-diamond-label { position: absolute; top: 0; line-height: var(--row); font-size: var(--font-size-1); color: var(--fg); white-space: nowrap; z-index: 2; text-shadow: 0 0 2px var(--surface-1), 0 0 5px var(--surface-1); }
+.timeline-diamond-label { position: absolute; top: 0; left: 13px; line-height: var(--row); font-size: var(--font-size-1); color: var(--fg); white-space: nowrap; z-index: 2; text-shadow: 0 0 2px var(--surface-1), 0 0 5px var(--surface-1); }
 .timeline-diamond-detail { color: var(--fg-quiet); margin-left: var(--space-2); }
+
+/* Dependency arrows: right-angle routes under marks, masked around labels. */
+.timeline-links { position: absolute; left: var(--list); top: 0; z-index: 1; overflow: visible; pointer-events: none; }
+.timeline-links mask rect { stroke: none; }
+.timeline-link { fill: none; stroke: color-mix(in srgb, var(--fg-quiet) 78%, transparent); stroke-width: 1.25; stroke-linecap: round; stroke-linejoin: round; transition: opacity var(--duration-hover), stroke var(--duration-hover); }
+.timeline-link[data-at-risk] { stroke: var(--status-danger-ink); stroke-width: 1.5; }
+.timeline-links[data-dim] .timeline-link { opacity: 0.2; }
+.timeline-links[data-dim] .timeline-link[data-active] { opacity: 1; stroke: var(--fg); stroke-width: 1.5; }
+.timeline-links[data-dim] .timeline-link[data-active][data-at-risk] { stroke: var(--status-danger-ink); stroke-width: 1.75; }
+
+/* Hover note: shows a mark's dates and where they come from. */
+.timeline-tip { position: absolute; z-index: 6; padding: 6px 10px; border-radius: var(--radius-2); background: var(--surface-3); box-shadow: var(--shadow-overlay); font-size: var(--font-size-1); line-height: 1.35; white-space: nowrap; pointer-events: none; }
+.timeline-tip[data-place="above"] { transform: translateY(-100%); }
+.timeline-tip-title { display: block; font-weight: var(--font-weight-strong); color: var(--fg); }
+.timeline-tip-line { display: block; color: var(--fg-muted); }
+.timeline-tip-line[data-tone="late"] { color: var(--status-danger-ink); }
+.timeline-tip-line[data-tone="soon"] { color: var(--status-warn-ink); }
 
 @media (max-width: 1300px) { .timeline { --list: 252px; } }
 @media (max-width: 760px) {
