@@ -75,17 +75,24 @@ function anchorEnd(body: string, start: number, sender: string | null): number |
 }
 
 // A legal notice that opens a company's footer, such as "Notice: This communication is intended only for…".
+// "Confidential:" counts only when it opens a standard disclaimer, never an authored remark such as "Confidential: price is 40/ft".
 const legalNotice =
-  /^(?:(?:confidentiality |legal |important )?notice|disclaimer|confidential(?:ity)?)\s*:|^this (?:e-?mail|message|communication)\b[^\n]*\bintended (?:only |solely )?for\b/i;
+  /^(?:(?:confidentiality |legal |important )?notice|disclaimer)\s*:|^confidential(?:ity)?\s*:\s*(?:this|the (?:information|contents)|information)\b|^this (?:e-?mail|message|communication)\b[^\n]*\bintended (?:only |solely )?for\b/i;
 
-/** Folds the contact details after a message's sign-off or sender's name, and a legal footer right after them; with neither, or with other writing after them, nothing folds. */
+/** Folds the contact details after a message's sign-off or sender's name, and the legal-notice paragraph right after them; writing after that paragraph stays visible, and with no contact details nothing folds. */
 export function splitSignature(body: string, sender: string | null): { text: string; signature: string | null } {
   const footerAt = [...body.matchAll(/\n\s*(?=\S)/g)]
     .map(({ index, 0: gap }) => index + gap.length)
     .find((start) => legalNotice.test(body.slice(start)));
   if (footerAt !== undefined) {
     const { text, signature } = contactFold(body.slice(0, footerAt), sender);
-    if (signature !== null) return { text, signature: body.slice(text.length).trim() };
+    if (signature !== null) {
+      const afterNotice = body.slice(footerAt);
+      const noticeEnd = afterNotice.search(/\n\s*\n/);
+      const notice = noticeEnd === -1 ? afterNotice : afterNotice.slice(0, noticeEnd);
+      const authored = noticeEnd === -1 ? "" : afterNotice.slice(noticeEnd).trim();
+      return { text: authored ? `${text}\n\n${authored}` : text, signature: `${signature}\n${notice.trim()}` };
+    }
   }
   return contactFold(body, sender);
 }

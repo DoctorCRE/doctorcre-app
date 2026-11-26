@@ -56,6 +56,8 @@ export function DealsTile() {
           Deals{" "}
           <span>
             <a href="/deals">{data.open} open</a>
+            {!!data.parked && <> · {data.parked} parked</>}
+            {!!data.national && <> · {data.national} in national accounts</>}
             {!!data.prospects && <> · {counted(data.prospects, "prospect", "prospects")}</>}
           </span>
         </h2>

@@ -163,7 +163,7 @@ const bankSignature = [
   "NMLS# 000000",
 ].join("\n");
 const legalFooter =
-  "Notice: This communication is intended only for the person or entity to whom it is addressed. If you received this in error, please reply and delete it.\n\nExample Bank | Share Portal – click to send documents securely.";
+  "Notice: This communication is intended only for the person or entity to whom it is addressed. If you received this in error, please reply and delete it.";
 
 test("a signature with Unicode-hyphen phones and a legal notice under it folds with the notice", () => {
   const body = `What's the story on this building?\n\nFollow us\n${bankSignature}\n${legalFooter}`;
@@ -176,4 +176,18 @@ test("a signature with Unicode-hyphen phones and a legal notice under it folds w
 test("a legal notice with no signature above it stays visible", () => {
   const body = `Please review the attached lease.\n${legalFooter}`;
   assert.deepEqual(splitSignature(body, "Pat Example"), { text: body, signature: null });
+});
+
+test("writing after the legal notice stays visible, even a remark that starts with Confidential", () => {
+  const authored = "PS: the tenant wants a showing Friday.\n\nConfidential: price is 40/ft.";
+  const body = `What's the story on this building?\n\nFollow us\n${bankSignature}\n${legalFooter}\n\n${authored}`;
+  assert.deepEqual(splitSignature(body, "Pat Example"), {
+    text: `What's the story on this building?\n\nFollow us\nPat Example\n\n${authored}`,
+    signature: `${bankSignature.slice("Pat Example\n".length)}\n${legalFooter}`,
+  });
+});
+
+test("a remark that starts with Confidential right under a signature is not folded as a notice", () => {
+  const body = `Can you send the plan?\n\nFollow us\n${bankSignature}\nConfidential: price is 40/ft.`;
+  assert.equal(splitSignature(body, "Pat Example").text.includes("Confidential: price is 40/ft."), true);
 });

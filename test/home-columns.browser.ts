@@ -128,7 +128,9 @@ const deals = [
   deal(2, "Legal", { attention: true, next_step_required: true, open_actions: [] }),
   deal(3, "Legal"),
   deal(4, "Research", { operating_state: "parked", attention: true }),
+  deal(5, "Research", { workspace_kind: "national_account" }),
 ];
+const reviewItems = [{ reviewed: { by: "joe" } }, ...Array.from({ length: 6 }, () => ({ reviewed: null }))];
 const criticalDate = (n: number, due_on: string) => ({
   id: id(300 + n),
   deal_id: id(101),
@@ -195,7 +197,7 @@ async function openHome(
       }),
     );
   await page.route("**/api/engine/weekly-reviews?week_of=2026-11-23", (route) =>
-    route.fulfill({ json: { items: [{ reviewed: { by: "joe" } }, { reviewed: null }] } }),
+    route.fulfill({ json: { items: reviewItems } }),
   );
   await page.route("**/api/engine/prospects", (route) => route.fulfill({ json: { prospects } }));
   await page.route("**/api/engine/calendar/critical-dates", (route) =>
@@ -360,14 +362,17 @@ for (const [width, height] of [
 test("Deals counts the board's open deals and Coming up lists the next 14 days, each opening what it counts", async (t) => {
   const page = await openHome(t, 1440, 900);
   const tile = page.getByRole("region", { name: "Deals", exact: true });
-  assert.equal(await tile.getByRole("heading", { level: 2 }).textContent(), "Deals 3 open · 2 prospects");
+  assert.equal(
+    await tile.getByRole("heading", { level: 2 }).textContent(),
+    "Deals 3 open · 1 parked · 1 in national accounts · 2 prospects",
+  );
   assert.equal(await tile.getByRole("link", { name: "3 open", exact: true }).getAttribute("href"), "/deals");
   const link = (name: string) => tile.getByRole("link", { name, exact: true }).getAttribute("href");
   assert.equal(await link("Research 1"), "/deals?column=research");
   assert.equal(await link("Example Deal 1 Step 3 days late"), `/deals?deal=${id(101)}`);
   assert.equal(await link("Example Deal 2 Flagged by a partner"), `/deals?deal=${id(102)}`);
   assert.equal(await link("1 has no next step"), "/deals?view=list&filter=no-next-step");
-  assert.equal(await link("Monday review 1 of 2"), "/deals?view=review");
+  assert.equal(await link("Monday review 1 of 7"), "/deals?view=review");
   const comingUp = page.getByRole("region", { name: "Coming up", exact: true });
   assert.deepEqual(await comingUp.getByRole("link").allTextContents(), [
     "2",
@@ -434,6 +439,57 @@ test("An opened Inbox item shows beside Reminders over the middle and right colu
   await details.getByRole("button", { name: /^Close/ }).click();
   await inbox.waitFor();
   assert.equal(await details.count(), 0);
+});
+
+test("Escape closes an opened Inbox item and focus returns to its row", async (t) => {
+  const page = await openHome(t, 1440, 900);
+  const inbox = page.getByRole("region", { name: "Inbox", exact: true });
+  const review = inbox.getByRole("button", { name: "Review" });
+  await review.click();
+  const details = page.getByRole("region", { name: "Details for Send your reply to the sample practice" });
+  await details.waitFor();
+  await page.mouse.click(5, 5);
+  await page.keyboard.press("Escape");
+  await inbox.waitFor();
+  assert.equal(await details.count(), 0);
+  const focused = await page.evaluate(() => {
+    const active = document.activeElement;
+    return { tag: active?.tagName, row: active?.closest("[data-inbox-row]")?.textContent ?? null };
+  });
+  assert.match(focused.row ?? "", /Send your reply to the sample practice/, "focus is back on its row");
+});
+
+test("In light mode at 1440x900 Home and an opened item draw light grounds with readable text", async (t) => {
+  const page = await openHome(t, 1440, 900);
+  await page.addInitScript(() =>
+    localStorage.setItem(
+      "doctorcre.visual-preferences",
+      JSON.stringify({ theme: "light", walkthroughSeen: { joe: true } }),
+    ),
+  );
+  await page.reload();
+  const inbox = page.getByRole("region", { name: "Inbox", exact: true });
+  await inbox.getByRole("button", { name: "Review" }).click();
+  const details = page.getByRole("region", { name: "Details for Send your reply to the sample practice" });
+  await details.waitFor();
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), "light");
+  const drawn = await details.evaluate((node) => {
+    const channels = (color: string) => (color.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
+    const luminance = (color: string) => {
+      const [r = 0, g = 0, b = 0] = channels(color).map((value) => {
+        const unit = value / 255;
+        return unit <= 0.03928 ? unit / 12.92 : ((unit + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const ground = getComputedStyle(document.body).backgroundColor;
+    const heading = getComputedStyle(node.querySelector("h4") ?? node).color;
+    const [light, dark] = [luminance(ground), luminance(heading)].sort((a, b) => b - a);
+    return { ground: luminance(ground), contrast: ((light ?? 0) + 0.05) / ((dark ?? 0) + 0.05) };
+  });
+  assert.ok(drawn.ground > 0.5, `the page ground is light, not ${drawn.ground}`);
+  assert.ok(drawn.contrast >= 4.5, `the item heading reads at ${drawn.contrast}:1`);
+  await page.screenshot({ path: join(process.cwd(), "node_modules/.cache/home-light-1440.png") });
 });
 
 test("On a phone the Inbox previews its first rows with See all, like Reminders", async (t) => {

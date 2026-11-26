@@ -64,19 +64,29 @@ type BoardDeal = { id: string; name: unknown; attention?: unknown };
 /** The Deals board's own rules, which Home loads from the board's modules at run time. */
 export type BoardRules = {
   localDeals: (deals: unknown[]) => BoardDeal[];
-  groupByColumn: (deals: BoardDeal[]) => { columns: { slug: string; label: string; deals: BoardDeal[] }[] };
+  groupByColumn: (deals: BoardDeal[]) => {
+    columns: { slug: string; label: string; deals: BoardDeal[] }[];
+    parked: BoardDeal[];
+  };
   attentionReasons: (deal: BoardDeal, today: string) => string[];
   missingNextStep: (deal: BoardDeal) => boolean;
   dealName: (name: unknown) => string;
+  isClosedDeal: (deal: BoardDeal) => boolean;
 };
 
 /** Local Deals' open deals: per phase, needing attention by name and reason, and missing a next step. */
 export function dealsAtAGlance(board: unknown, today: string, rules: BoardRules) {
   if (!record(board) || !Array.isArray(board.deals)) throw Error("Deals unavailable");
-  const { columns } = rules.groupByColumn(rules.localDeals(board.deals));
+  const { columns, parked } = rules.groupByColumn(rules.localDeals(board.deals));
   const open = columns.flatMap((column) => column.deals);
   return {
     open: open.length,
+    parked: parked.length,
+    // The Monday review also walks National Accounts' deals, which Local Deals leaves out.
+    national: board.deals.filter(
+      (deal: BoardDeal & { workspace_kind?: unknown; account_client_id?: unknown }) =>
+        (deal.workspace_kind === "national_account" || deal.account_client_id) && !rules.isClosedDeal(deal),
+    ).length,
     phases: columns.map(({ slug, label, deals }) => ({ slug, label, count: deals.length })),
     attention: open.flatMap((deal) => {
       const reasons = rules.attentionReasons(deal, today);
