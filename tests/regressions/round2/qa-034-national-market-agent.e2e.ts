@@ -9,7 +9,7 @@ test('QA-034 National Accounts detail preserves an unassigned market agent', { t
   await expect(browser.locator('[data-market-agent="d05"]')).toHaveText('Assign agent…');
   await browser.locator('.row-menu[data-open-deal="d05"]').tap();
   await expect(browser.locator('#recordPanel')).toBeVisible();
-  await expect(browser.locator('#recordPanel')).toContainText('Demo Family Clinic');
+  await expect(browser.locator('#appTopbar')).toContainText('Demo Family Clinic');
   const agent = await browser.evaluate(() => {
     const field = [...document.querySelectorAll('#recordPanel .deal-snapshot-facts > div')].find(node => node.querySelector('dt')?.textContent === 'Market agent');
     return field?.querySelector('dd')?.textContent || null;
