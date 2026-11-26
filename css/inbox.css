@@ -139,3 +139,12 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
 .snooze-days button[aria-current="date"]:not(:disabled) { font-weight: 700; color: var(--accent-ink); }
 .inbox-snooze.snooze-menu .snooze-days button:disabled { color: var(--fg-quiet); cursor: default; opacity: 1; }
 .inbox-snooze.snooze-menu .snooze-month header button:disabled { color: var(--fg-quiet); opacity: 1; }
+.has-app-layout dialog.drop-reason { width: min(420px, calc(100vw - 2 * var(--space-4))); max-width: none; padding: var(--space-5); }
+.drop-reason h2 { margin: 0 0 var(--space-1); font-size: var(--font-size-3); font-weight: 600; }
+.drop-reason .drop-reason-title { margin: 0 0 var(--space-3); color: var(--fg-muted); font-size: var(--font-size-1); line-height: 1.4; }
+.drop-reason label { display: block; font-size: var(--font-size-1); color: var(--fg-muted); }
+.drop-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0 0 var(--space-3); padding: 0; border: 0; }
+.inbox-snooze.drop-reason .drop-chip { display: inline-flex; align-items: center; margin: 0; min-height: var(--touch); padding: var(--space-1) var(--space-3); border: 1px solid var(--hairline); border-radius: var(--radius-2); background: var(--surface-2); color: var(--fg); font-size: var(--font-size-1); font-weight: 500; line-height: 1.3; text-align: left; transition: background-color var(--duration-press), border-color var(--duration-press); }
+.inbox-snooze.drop-reason .drop-chip:hover { background: var(--surface-3); border-color: var(--hairline-strong); }
+.drop-reason-actions { display: flex; gap: var(--space-2); margin-top: var(--space-3); }
+.inbox-snooze.drop-reason .drop-reason-actions button { margin: 0; min-height: var(--touch); padding: 0 var(--space-3); font-size: var(--font-size-1); }
