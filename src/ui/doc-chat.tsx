@@ -151,12 +151,27 @@ const statusText = {
   unavailable: "Conversation unavailable",
   older: "This older conversation wasn't kept",
 };
-const stateText = {
-  queued: "Doc is waiting.",
-  working: "Doc is working.",
-  answered: "Answered",
-  failed: "Doc couldn’t answer.",
-};
+
+// Seconds since the question was asked, as "12s", "3m 05s" or "1h 04m".
+function elapsed(from: string, now: number) {
+  const seconds = Math.max(0, Math.floor((now - Date.parse(from)) / 1000));
+  const pad = (n: number) => String(n).padStart(2, "0");
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${pad(seconds % 60)}s`;
+  return `${Math.floor(seconds / 3600)}h ${pad(Math.floor(seconds / 60) % 60)}m`;
+}
+
+function useNow(ticking: boolean) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (!ticking) return;
+    setNow(Date.now());
+    // eslint-disable-next-line no-restricted-syntax -- One 1 s clock tick while a question works, cleared when it ends or on unmount; no network reads.
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [ticking]);
+  return now;
+}
 
 function chatHref(id: string | null) {
   const query = new URLSearchParams(location.search);
@@ -206,6 +221,17 @@ function Icon({ path }: { path: string }) {
 const icons = {
   chats: "M4 5h16v14H4zM9 5v14",
   newChat: "M12 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6M18.4 2.6a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4z",
+  deal: "M3 4h18v16H3zM9 4v16M15 4v16",
+  person: "M13 8a4 4 0 1 1-8 0 4 4 0 0 1 8 0M2 21a7 7 0 0 1 14 0",
+  mail: "M3 5h18v14H3zM3 7l9 6 9-6",
+  spinner: "M12 3a9 9 0 1 0 9 9",
+};
+const sourceIcon = {
+  deal: icons.deal,
+  lead: icons.person,
+  client: icons.person,
+  email: icons.mail,
+  reply_draft: icons.mail,
 };
 const topbar = document.getElementById("docTopbar");
 const topbarStart = document.getElementById("docTopbarStart");
@@ -281,6 +307,41 @@ const proposalCopy = {
 
 function keptSavedDraft(result: Confirmation) {
   return result.kind === "reply_draft" && result.existing;
+}
+
+function Sources({ sources }: { sources: z.infer<typeof source>[] }) {
+  if (sources.length === 0) return null;
+  return (
+    <ul className="doc-chat__sources" aria-label="Sources">
+      {sources.map(({ ref, label, href }) => {
+        const path = recordHref(href);
+        const chip = (
+          <>
+            <Icon path={sourceIcon[ref.kind]} />
+            {label}
+          </>
+        );
+        return <li key={`${ref.kind}:${ref.id}${href}`}>{path ? <a href={path}>{chip}</a> : <span>{chip}</span>}</li>;
+      })}
+    </ul>
+  );
+}
+
+// Where the answer will land: a spinner while Doc works, a still dot with the reason while it waits or failed.
+function TurnStatus({ turn, now }: { turn: Turn; now: number }) {
+  if (turn.state === "failed")
+    return (
+      <p className="doc-chat__status" data-tone="failed">
+        Doc couldn’t answer.
+      </p>
+    );
+  if (turn.waiting_reason) return <p className="doc-chat__status">{turn.waiting_reason}</p>;
+  return (
+    <p className="doc-chat__status" data-tone="working">
+      <Icon path={icons.spinner} />
+      Doc is working · {elapsed(turn.created_at, now)}
+    </p>
+  );
 }
 
 function SavedProposal({ result }: { result: Confirmation }) {
@@ -563,6 +624,7 @@ function DocChat() {
   const notice = status ? statusText[status] : reviewReason && draftChangeText[reviewReason];
   const waiting = latest?.state === "queued" || latest?.state === "working";
   const waitingTurnId = waiting ? latest.id : undefined;
+  const now = useNow(waiting && !latest.waiting_reason);
   const getWaitingReason = useEffectEvent(() => latest?.waiting_reason);
   const retry =
     pendingAsk ??
@@ -810,7 +872,7 @@ function DocChat() {
   }
 
   const noChats = ready && recent.length === 0;
-  const now = new Date();
+  const today = new Date();
   const newChat = (className: string) => (
     <a
       className={`doc-chat__icon ${className}`}
@@ -867,7 +929,7 @@ function DocChat() {
               <li key={chat.id}>
                 <a href={chatHref(chat.id)} aria-current={chat.id === id ? "page" : undefined}>
                   <span>{chat.title}</span>
-                  <time dateTime={chat.created_at}>{chatTime(chat.created_at, now)}</time>
+                  <time dateTime={chat.created_at}>{chatTime(chat.created_at, today)}</time>
                 </a>
               </li>
             ))}
@@ -901,25 +963,21 @@ function DocChat() {
             {ready && !id && !pendingAsk && <p className="doc-chat__empty">What do you need?</p>}
             <ol className="doc-chat__turns" aria-live="polite">
               {turns.map((turn) => {
-                const sources = turn.answer?.sources ?? [];
                 const suggestion = turn.state === "answered" && turn.answer?.kind === "answer" && turn.answer.proposal;
                 const storage = ready && privateDraft.current?.("doc-proposal", turn.id);
                 return (
                   <li key={turn.id}>
                     <p className="doc-chat__question">{turn.question}</p>
-                    <p className="doc-chat__reply">
-                      {turn.answer?.text ?? turn.waiting_reason ?? stateText[turn.state]}
-                    </p>
-                    {turn.state === "answered" && turn.answered_by === "backup" && <small>Answered by backup</small>}
-                    {sources.length > 0 && (
-                      <ul className="doc-chat__sources" aria-label="Sources">
-                        {sources.map(({ ref, label, href }) => {
-                          const path = recordHref(href);
-                          return (
-                            <li key={`${ref.kind}:${ref.id}${href}`}>{path ? <a href={path}>{label}</a> : label}</li>
-                          );
-                        })}
-                      </ul>
+                    {turn.answer ? (
+                      <>
+                        <p className="doc-chat__reply">{turn.answer.text}</p>
+                        <Sources sources={turn.answer.sources} />
+                        {turn.state === "answered" && turn.answered_by === "backup" && (
+                          <small className="doc-chat__note">Answered by backup</small>
+                        )}
+                      </>
+                    ) : (
+                      turn.state !== "answered" && <TurnStatus turn={turn} now={now} />
                     )}
                     {turn.confirmation ? (
                       <SavedProposal result={turn.confirmation} />

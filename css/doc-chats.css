@@ -56,20 +56,48 @@
   justify-content: space-between;
   gap: var(--space-2);
 }
-.doc-chat-page :is(.btn, .doc-chat__action, .doc-chat__sources a) { min-block-size: var(--touch); }
-.doc-chat__sources a, .doc-chat__action { display: inline-flex; align-items: center; }
-.doc-chat__turns { display: grid; gap: var(--space-3); list-style: none; padding: 0; }
+.doc-chat-page :is(.btn, .doc-chat__action) { min-block-size: var(--touch); }
+.doc-chat__action { display: inline-flex; align-items: center; }
+/* The conversation is one centered column: the partner's question in a box on the right, Doc's answer plain on the page. */
+.doc-chat__turns { display: grid; gap: var(--space-4); inline-size: 100%; max-inline-size: 728px; margin: 0 auto; list-style: none; padding: 0; }
 .doc-chat__turns > li { display: grid; gap: var(--space-2); }
-.doc-chat__question, .doc-chat__reply {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  margin: 0;
-  padding: var(--space-3);
+.doc-chat__question, .doc-chat__reply { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.doc-chat__question {
+  justify-self: end;
+  max-inline-size: 80%;
+  padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-3);
+  background: var(--surface-2);
+}
+.doc-chat__sources { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.doc-chat__sources :is(a, span) {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-block-size: var(--touch);
+  padding-inline: var(--space-2);
+  color: var(--fg-muted);
+  font-size: var(--font-size-1);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+  border-radius: var(--radius-2);
   background: var(--surface-1);
 }
-.doc-chat__sources { margin: 0; padding-inline-start: var(--space-5); overflow-wrap: anywhere; }
-.doc-chat__question { justify-self: end; max-width: 90%; background: var(--surface-2); }
+.doc-chat__sources a:hover { color: var(--fg); background: var(--surface-2); }
+.doc-chat__sources .app-shell-icon, .doc-chat__status .app-shell-icon { width: 14px; height: 14px; }
+.doc-chat__note { color: var(--fg-quiet); font-size: var(--font-size-1); }
+.doc-chat__status { display: flex; align-items: center; gap: var(--space-2); margin: 0; color: var(--fg-quiet); }
+.doc-chat__status:not([data-tone="working"])::before {
+  content: "";
+  flex: none;
+  inline-size: 8px;
+  block-size: 8px;
+  border-radius: var(--radius-round);
+  background: var(--fg-quiet);
+}
+.doc-chat__status[data-tone="failed"]::before { background: var(--status-danger); }
+.doc-chat__status .app-shell-icon { animation: spin 1.2s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .doc-chat__status .app-shell-icon { animation: none; } }
 .doc-chat-page textarea, .doc-chat__proposal input {
   display: block;
   width: 100%;
