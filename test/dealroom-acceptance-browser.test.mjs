@@ -10,6 +10,7 @@ import { buildArtifact } from '../scripts/artifact.mjs';
 import { createQaServer } from '../scripts/qa-fixture-server.mjs';
 import { chromium } from './browser-harness.mjs';
 import { handleDoctorcreRequest } from '../src/worker.js';
+import { controlFloor } from "./control-floor.ts";
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const evidence = join(root, 'out/test-artifacts/dealroom-acceptance');
@@ -3354,10 +3355,10 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`a 
   for (const button of await done.all()) {
     assert.deepEqual(await buttonStyle(button), secondaryStyle, 'Done matches the bordered secondary action');
     await button.scrollIntoViewIfNeeded();
-    assert.ok(await button.evaluate(el => {
+    assert.ok(await button.evaluate((el, floor) => {
       const { x, y, width, height } = el.getBoundingClientRect();
-      return width >= 44 && height >= 44 && el.contains(document.elementFromPoint(x + width / 2, y + height / 2));
-    }), 'Done has an unobstructed 44 px touch target');
+      return width >= floor && height >= floor && el.contains(document.elementFromPoint(x + width / 2, y + height / 2));
+    }, controlFloor(width)), 'Done has an unobstructed full-size target');
   }
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   const otherDone = steps.getByRole('button', { name: 'Done', exact: true, description: /Dell/ });

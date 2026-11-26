@@ -82,6 +82,7 @@ test("Calendar reads once and shows dates and next steps in the visible period",
                     what: stepTitle,
                     why: stepWhy,
                     owner: "joe",
+                    record_kind: "deal",
                     record_label: "Example lease",
                     due_on: "2026-10-17",
                     display_on: "2026-10-20",
@@ -92,6 +93,7 @@ test("Calendar reads once and shows dates and next steps in the visible period",
                     id: "step-parking",
                     what: "Confirm parking",
                     owner: "dell",
+                    record_kind: "deal",
                     record_label: "Example lease",
                     due_on: "2026-10-19",
                     display_on: "2026-10-20",
@@ -103,6 +105,7 @@ test("Calendar reads once and shows dates and next steps in the visible period",
                     what: day === "30" ? upcomingTitle : "Confirm suite availability",
                     ...(day === "22" ? { why: null } : {}),
                     owner: "dell",
+                    record_kind: "vendor",
                     record_label: "Example clinic",
                     due_on: `2026-10-${day}`,
                     display_on: `2026-10-${day}`,
@@ -193,11 +196,10 @@ test("Calendar reads once and shows dates and next steps in the visible period",
             await expect(late).toHaveCount(0);
             await expect(panel.getByRole("heading", { name: stepTitle })).toBeVisible();
             await page.keyboard.press("Escape");
-            const lateChip = page.getByRole("button", { name: "2 late steps", exact: true });
-            await expect(lateChip).toHaveCount(1);
-            await expect(lateChip).toBeVisible();
-            await expect(lateChip).toHaveText("2 late");
-            await lateChip.click();
+            const lateChips = page.locator('#calGrid .cal-day[data-day="2026-10-20"] .cal-chip[data-band="overdue"]');
+            await expect(lateChips.locator(".cal-chip-label")).toHaveText([stepTitle, "Confirm parking"]);
+            await expect(lateChips.first()).toBeVisible();
+            await lateChips.first().click();
           });
           await expect(step.getByRole("link")).toHaveAttribute(
             "href",
@@ -215,7 +217,7 @@ test("Calendar reads once and shows dates and next steps in the visible period",
             await expect(total).toBeVisible();
             await expect(total).toHaveAttribute("aria-live", "polite");
           });
-          await expect(page.locator("#calGrid .cal-chip")).toHaveCount(9);
+          await expect(page.locator("#calGrid .cal-chip")).toHaveCount(10);
           if (width === 1440) {
             const chip = page.getByRole("button", { name: new RegExp(upcomingTitle) }).locator(".cal-chip-label");
             await expect(chip).toBeVisible();
@@ -251,10 +253,14 @@ test("Calendar reads once and shows dates and next steps in the visible period",
             "/relationships?node=party:example-clinic",
           );
           await t.test("a short step appears once when the engine omits its body", async () => {
-            await expect(panel).toHaveText("Next step · Dell Confirm suite availability Example clinic");
+            await expect(panel).toHaveText(
+              "Next step · Dell Confirm suite availability Vendor Example clinic Due Oct 22",
+            );
             await page.keyboard.press("Escape");
             await upcoming("Oct 24").click();
-            await expect(panel).toHaveText("Next step · Dell Confirm suite availability Example clinic");
+            await expect(panel).toHaveText(
+              "Next step · Dell Confirm suite availability Vendor Example clinic Due Oct 24",
+            );
           });
           await page.keyboard.press("Escape");
           const todayButton = page.getByRole("button", { name: "Today", exact: true });
@@ -272,16 +278,19 @@ test("Calendar reads once and shows dates and next steps in the visible period",
           });
           const week = page.getByRole("button", { name: "Week", exact: true });
           await expect(week).toHaveCSS("border-top-width", "0px");
-          const background = await week.evaluate((node) => getComputedStyle(node).backgroundColor);
-          await week.hover();
-          await expect(week).not.toHaveCSS("background-color", background);
+          // A touch screen has no hover.
+          if (width > 760) {
+            const background = await week.evaluate((node) => getComputedStyle(node).backgroundColor);
+            await week.hover();
+            await expect(week).not.toHaveCSS("background-color", background);
+          }
           await week.click();
           await expect(week).toHaveAttribute("aria-pressed", "true");
           await expect(page.locator("#calCount")).toHaveText("4 next steps · 1 critical date");
-          await expect(page.locator("#calGrid .cal-chip")).toHaveCount(5);
-          const lateChip = page.getByRole("button", { name: "2 late steps", exact: true });
-          await expect(lateChip).toBeVisible();
-          await expect(lateChip).toHaveCount(1);
+          await expect(page.locator("#calGrid .cal-chip")).toHaveCount(6);
+          await expect(
+            page.getByRole("button", { name: /^Next step · Confirm parking · Deal Example lease · Dell/ }),
+          ).toHaveCount(2);
           await page.getByRole("button", { name: "Month", exact: true }).click();
           await page.getByRole("button", { name: "Next month" }).click();
           await expect(page.locator("#calCount")).toHaveText("1 critical date");

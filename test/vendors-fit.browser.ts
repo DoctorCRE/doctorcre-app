@@ -196,6 +196,32 @@ for (const [width, height, today] of [
     assert.ok((await firstScreen(page)).listTop <= (today ? 160 : 112), "the toolbar stays compact");
   });
 
+test("Reset stays on the toolbar row at 1200x750 when sorted by least recent deal", async (t) => {
+  const page = await openVendors(t, 1200, 750);
+  await page.locator("#sortSelect").selectOption("last_deal_asc");
+  await page.screenshot({ path: `${shots}/vendors-1200-least-recent.png` });
+  const [search, reset] = await Promise.all([
+    page.locator("#searchInput").boundingBox(),
+    page.locator("#resetFilters").boundingBox(),
+  ]);
+  assert.ok(
+    search && reset && Math.abs(reset.y - search.y) < 4,
+    `Reset shares the search row: ${search?.y} vs ${reset?.y}`,
+  );
+  assert.deepEqual(await cutFilters(page), [], "every filter shows its whole choice");
+  const cutPlaceholders = await page.evaluate(() =>
+    ["#searchInput", "#territoryInput"].filter((selector) => {
+      const input = document.querySelector<HTMLInputElement>(selector);
+      if (!input) return true;
+      input.value = input.placeholder;
+      const cut = input.scrollWidth > input.clientWidth;
+      input.value = "";
+      return cut;
+    }),
+  );
+  assert.deepEqual(cutPlaceholders, [], "search and territory hints read whole");
+});
+
 test("vendor rows take one line each under one header row that names the columns", async (t) => {
   const page = await openVendors(t, 1280, 640);
   await page.screenshot({ path: `${shots}/vendors-1280x640.png` });

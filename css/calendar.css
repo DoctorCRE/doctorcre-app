@@ -3,10 +3,9 @@
  * A framed month grid that fills the page, with quiet hairlines, even week
  * rows and one accent marker (today's number). Chips are light: one line on
  * the surface, a hairline edge and a small kind mark (a dot for a next step,
- * a diamond for a critical date, a bar for a meeting, a ring for a tour, red
- * for late). The shapes need no legend row. In a chip nearness is quiet: red
- * text when overdue. A chosen day
- * opens in a sheet pinned to the viewport (right edge on a wide screen, where
+ * a diamond for a critical date, a bar for a meeting, a ring for a tour).
+ * The shapes need no legend row. In a chip nearness is quiet: red text when
+ * overdue. A chosen day opens in a sheet pinned to the viewport (right edge on a wide screen, where
  * the grid narrows beside it and stays usable; a modal bottom sheet on a
  * phone), so its title and Close are on screen wherever the page
  * is scrolled and only its list scrolls. The sheet keeps the still nearness
@@ -69,7 +68,7 @@
 .cal-grid[data-enter="zoom-in"] { animation: cal-zoom-in var(--duration-panel) var(--ease-out); }
 .cal-grid[data-enter="zoom-out"] { animation: cal-zoom-out var(--duration-panel) var(--ease-out); }
 
-.cal-day { --cal-chip: 24px; display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; padding: var(--space-1) 6px 6px; background: transparent; transition: background-color var(--duration-hover) var(--ease-out); }
+.cal-day { --cal-chip: 24px; display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; padding: var(--space-1) 6px 6px; background: transparent; cursor: pointer; transition: background-color var(--duration-hover) var(--ease-out); }
 .cal-grid[data-view="month"] .cal-day { min-height: 0; overflow: hidden; }
 .cal-day + .cal-day { border-left: var(--hairline-width) solid var(--hairline); }
 @media (hover: hover) { .cal-day:hover { background: var(--surface-2); } }
@@ -93,14 +92,13 @@
 :is(.cal-chip, .cal-mark)[data-kind="date"] { --kind: var(--data-2); }
 :is(.cal-chip, .cal-mark)[data-kind="meeting"] { --kind: var(--data-3); }
 :is(.cal-chip, .cal-mark)[data-kind="tour"] { --kind: var(--data-4); }
-:is(.cal-chip, .cal-mark)[data-kind="late"] { --kind: var(--status-danger); }
 .cal-chip { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; min-height: var(--cal-chip); padding: 0 6px; border: var(--hairline-width) solid var(--hairline); border-radius: var(--radius-1); background: var(--surface-2); color: var(--fg); font: var(--font-weight-regular) var(--font-size-1)/1.25 var(--font-text); text-align: left; cursor: pointer; transition: background-color var(--duration-hover) var(--ease-out); }
 @media (hover: hover) { .cal-chip:hover { background: var(--surface-3); } }
 .cal-chip:active { background: var(--surface-3); }
 .cal-chip:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 1px; }
 .cal-chip-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cal-grid[data-view="week"] .cal-chip-label { white-space: normal; overflow-wrap: break-word; }
-.cal-chip:is([data-kind="late"], [data-band="overdue"]) .cal-chip-label { color: var(--status-danger-ink); }
+.cal-chip[data-band="overdue"] .cal-chip-label { color: var(--status-danger-ink); }
 .cal-chip-deal { flex: 0 1 40%; min-width: 0; overflow: hidden; color: var(--fg-muted); text-overflow: ellipsis; white-space: nowrap; }
 .cal-chip[data-band="settled"] { color: var(--fg-muted); }
 .cal-chip[data-band="settled"] .cal-chip-label { text-decoration: line-through; }
@@ -139,7 +137,8 @@
 .cal-day-entry h3 { margin: var(--space-1) 0; color: var(--fg); font: var(--font-weight-strong) var(--font-size-2)/1.3 var(--font-text); }
 .cal-day-entry p { margin: 0; }
 .cal-day-entry small { display: inline-flex; align-items: center; gap: var(--space-2); font-size: inherit; }
-.cal-late { display: block; margin-top: var(--space-1); color: var(--status-danger-ink); }
+.cal-day-entry .cal-entry-when { margin-top: var(--space-1); color: var(--fg-muted); }
+.cal-day-entry[data-band="overdue"] .cal-entry-when { color: var(--status-danger-ink); }
 .cal-undated { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--space-2); }
 .cal-day-late > h3, .cal-coming h3 { margin: 0 0 var(--space-1); font: var(--font-weight-strong) var(--font-size-2)/1.3 var(--font-text); }
 .cal-agenda-item { display: grid; grid-template-columns: auto minmax(0, 1fr); width: 100%; align-items: start; gap: var(--space-3); min-height: var(--touch); padding: var(--space-1); border: 0; border-radius: var(--radius-2); background: transparent; color: var(--fg); font: var(--font-size-1)/1.3 var(--font-text); text-align: left; cursor: pointer; }
@@ -153,8 +152,8 @@
 /* ------------------------------------------------------------ Color Assist
    Kind marks already differ by shape. A late or overdue chip adds a red edge
    and a strong label so it never rests on text color alone. */
-:root[data-color-assist="on"] .cal-chip:is([data-kind="late"], [data-band="overdue"]) { border-color: var(--status-danger); }
-:root[data-color-assist="on"] .cal-chip:is([data-kind="late"], [data-band="overdue"]) .cal-chip-label { font-weight: var(--font-weight-strong); }
+:root[data-color-assist="on"] .cal-chip[data-band="overdue"] { border-color: var(--status-danger); }
+:root[data-color-assist="on"] .cal-chip[data-band="overdue"] .cal-chip-label { font-weight: var(--font-weight-strong); }
 
 /* ------------------------------------------------------------- keyframes
    One move per change of period or view: transform and opacity only. */

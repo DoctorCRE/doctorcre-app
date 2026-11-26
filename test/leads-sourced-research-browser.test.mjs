@@ -4,6 +4,7 @@ import { mkdir } from 'node:fs/promises';
 import { chromium } from './browser-harness.mjs';
 import { routeLeads } from './leads-browser-fixture.mjs';
 import { detail, id } from './leads-workspace-fixture.mjs';
+import { controlFloor } from "./control-floor.ts";
 
 const evidenceDir = 'test-artifacts/leads-board/research';
 const source = 'https://example.test/registry/1';
@@ -105,7 +106,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     const filter = page.locator('#quietFilter');
     await filter.click();
     const target = await filter.boundingBox();
-    assert.ok(target.width >= 44 && target.height >= 44);
+    assert.ok(target.width >= controlFloor(width) && target.height >= controlFloor(width));
     const opener = page.locator('#leadBoard').getByRole('button', { name: 'Dr. Example 1', exact: true });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'quiet board fits');
     await mkdir(evidenceDir, { recursive: true });

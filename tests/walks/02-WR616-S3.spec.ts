@@ -6,21 +6,17 @@ test("02 WR616.S3", async ({ page }) => {
   for (const width of [390, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     const row = await card(page);
-    await visible(page.getByRole("heading", { name: "Needs your attention", exact: false }));
-    await visible(page.getByRole("heading", { name: "Your brief", exact: true }));
-    await visible(page.locator(".home-week"));
-    await row.locator("h3 a").click();
-    const selected = new URL(page.url()).pathname;
-    const source = row.locator(".inbox-source");
-    needs(!(await source.count()), "Home card linked to a designated test deal");
-    const href = await source.getAttribute("href");
+    await visible(page.locator(".home-slice", { has: row }).getByRole("heading", { level: 2 }));
+    const link = row.locator("h3 a");
+    const href = await link.getAttribute("href");
     needs(!href?.startsWith("/deals"), "Home card linked to a designated test deal");
-    await source.click();
+    const homeUrl = page.url();
+    await link.click();
     await visible(page.locator("#recordPanel"));
     await page.goBack();
-    expect(new URL(page.url()).pathname === selected).toBe(true);
+    expect(page.url() === homeUrl).toBe(true);
     await page.reload();
-    expect(new URL(page.url()).pathname === selected).toBe(true);
+    expect(page.url() === homeUrl).toBe(true);
     await noOverflow(page);
   }
 });

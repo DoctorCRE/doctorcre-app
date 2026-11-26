@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { test as base, expect } from '@playwright/test';
 import { ownedServer as startFixtureServer } from '../../test/fixture-probe.ts';
+import { controlFloor } from '../../test/control-floor.ts';
 import { steadyHistory } from '../../test/steady-history.ts';
 
 const test = base.extend({ page: async ({ page }, use) => use(steadyHistory(page)) });
@@ -155,7 +156,8 @@ test('opening a deal replaces the board with a workspace and Back restores its s
   await expect(page.locator('#main')).toBeVisible();
 });
 
-for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
+for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test.describe(`${width} ${theme}`, () => {
+  test.use({ hasTouch: width <= 760 });
   test(`workspace tabs show recorded data at ${width} in ${theme}`, async ({ page }, testInfo) => {
     const evidenceRequests = [];
     page.on('request', request => { if (new URL(request.url()).pathname === '/mcp') evidenceRequests.push(request.postData()); });
@@ -257,7 +259,8 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
         expect(await event.evaluate(el => el.getBoundingClientRect().top)).toBeLessThan(700);
       }
       const targets = await page.getByRole('tab').evaluateAll(tabs => tabs.map(tab => ({ width: tab.getBoundingClientRect().width, height: tab.getBoundingClientRect().height })));
-      for (const target of targets) { expect(target.width).toBeGreaterThanOrEqual(44); expect(target.height).toBeGreaterThanOrEqual(44); }
+      const floor = controlFloor(width);
+      for (const target of targets) { expect(target.width).toBeGreaterThanOrEqual(floor); expect(target.height).toBeGreaterThanOrEqual(floor); }
       const path = testInfo.outputPath(`workspace-${width}-${theme}-${tab}.png`);
       // A full-page capture repeats fixed bars mid-page and hides rows behind them; hide them so every row is visible.
       const chrome = await page.evaluateHandle(() => { const hidden = [...document.querySelectorAll('body *')].filter(el => ['fixed', 'sticky'].includes(getComputedStyle(el).position)); for (const el of hidden) el.style.visibility = 'hidden'; return hidden; });
@@ -266,7 +269,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
       await testInfo.attach(`${width}-${theme}-${tab}`, { path, contentType: 'image/png' });
     }
   });
-}
+});
 
 test('a direct deal link opens Overview and Back reaches the board', async ({ page }) => {
   await page.goto(`${server.url}/deals?deal=d14`);

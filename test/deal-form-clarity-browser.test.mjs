@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile, mkdir } from 'node:fs/promises';
 import { chromium, animationsSettled } from './browser-harness.mjs';
 import { ownedFixtureServer as fixtureServer } from './fixture-probe.ts';
+import { controlFloor } from "./control-floor.ts";
 
 for (const width of [390, 1280]) for (const theme of ['light', 'dark']) {
   test(`creation choices and locked fields stay readable at ${width}px ${theme}`, async t => {
@@ -54,7 +55,7 @@ for (const width of [390, 1280]) for (const theme of ['light', 'dark']) {
     const geometry = await checkbox.evaluate(el => ({ width: el.getBoundingClientRect().width, height: el.getBoundingClientRect().height, labelHeight: el.parentElement.getBoundingClientRect().height }));
     assert.ok(geometry.width > 0 && geometry.width < 30, `checkbox width ${geometry.width} must be compact`);
     assert.ok(geometry.height < 30, `checkbox height ${geometry.height} must be compact`);
-    assert.ok(geometry.labelHeight >= 44, `label height ${geometry.labelHeight} must be at least 44px`);
+    assert.ok(geometry.labelHeight >= controlFloor(width), `label height ${geometry.labelHeight} must be at least ${controlFloor(width)}px`);
     assert.equal(spacing.outerBorder, '0px'); assert.notEqual(spacing.innerBorder, '0px');
     assert.ok(spacing.hintGap >= 8, `hint gap ${spacing.hintGap}`);
     assert.ok(spacing.gaps.every(gap => gap >= 8), `research field gaps ${spacing.gaps}`);

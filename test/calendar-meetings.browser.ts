@@ -14,9 +14,7 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const app = "https://doctorcre-app-staging.joe-bookout-carr-us.workers.dev";
 const datesRead = "/api/engine/calendar/critical-dates";
 const meetingsRead = "/api/engine/calendar/meetings";
-// The engine sends its own wording too; Calendar words the stale line from observed_at, like Home.
 const engineStaleNote = "This calendar was last read from Outlook more than 18 hours ago.";
-const staleNotice = "Example Partner Two: Last synced Oct 19, 9:00 AM.";
 
 const dates = {
   schema_version: "calendar-critical-dates.v1",
@@ -141,18 +139,21 @@ test("Calendar shows both partners' meetings and tours on their Central day with
           assert.deepEqual(ranges, ["?from=2026-09-27&to=2026-10-31"]);
           await expect(page.locator("main")).not.toContainText("two weeks");
           await expect(page.locator("body")).not.toContainText(/\b(CST|CDT)\b/);
-          await expect(page.locator("#calNotices")).toHaveText(staleNotice);
+          // A partner's Outlook sync state is for whoever runs the system, never a partner screen.
+          await expect(page.locator("#calNotices")).toBeEmpty();
 
           const panel = page.locator("#dayPanelBody");
           await expect(panel.locator(".cal-day-entry h3")).toHaveText(["Lease review", "Site walk", "LOI expiry"]);
           const review = panel.locator(".cal-day-entry").filter({ hasText: "Lease review" });
-          await expect(review).toContainText("Meeting · Joe · 9:00 AM");
+          await expect(review.locator("small")).toHaveText("Meeting · Joe");
+          await expect(review.locator(".cal-entry-when")).toHaveText("9:00 AM");
+          await expect(review.locator(".cal-entry-for")).toHaveText("Example lease");
           await expect(review.getByRole("link", { name: "Example lease" })).toHaveAttribute(
             "href",
             "/deals?deal=qa-deal-1",
           );
           const walk = panel.locator(".cal-day-entry").filter({ hasText: "Site walk" });
-          await expect(walk).toHaveText("Meeting · Dell · 2:30 PM Site walk");
+          await expect(walk).toHaveText("Meeting · Dell Site walk 2:30 PM");
           if (width === 390) {
             const height = await review.getByRole("link").evaluate((node) => node.getBoundingClientRect().height);
             assert.ok(height >= 44, `the deal link is a 44 px target (${height})`);
@@ -176,18 +177,22 @@ test("Calendar shows both partners' meetings and tours on their Central day with
             await page.locator(`[data-select-day="${day}"]`).click();
           };
           await openDay("2026-10-21");
-          await expect(panel).toHaveText("Meeting · Joe · 11:30 PM Late dinner");
+          await expect(panel).toHaveText("Meeting · Joe Late dinner 11:30 PM");
           if (width === 390) {
             await expect(
               page.locator('#calGrid .cal-day[data-day="2026-10-22"]'),
               "the phone agenda skips an empty day",
             ).toBeHidden();
           } else {
-            await openDay("2026-10-22");
-            await expect(panel).toHaveText("Nothing on this day.");
+            const empty = page.locator('#calGrid .cal-day[data-day="2026-10-22"]');
+            const box = await empty.boundingBox();
+            assert.ok(box, "the empty day is on screen");
+            await empty.click({ position: { x: box.width / 2, y: box.height - 8 } });
+            await expect(panel).toHaveText("No events scheduled.");
+            await expect(page.locator("#dayPanelTitle")).toHaveText(/Oct 22/);
           }
           await openDay("2026-10-23");
-          await expect(panel.locator(".cal-day-entry")).toHaveText("Tour · Dell 3 stops Example expansion");
+          await expect(panel.locator(".cal-day-entry")).toHaveText("Tour · Dell 3 stops Deal Example expansion");
           await expect(panel.getByRole("link", { name: "Example expansion" })).toHaveAttribute(
             "href",
             "/deals?deal=qa-deal-2",
@@ -200,7 +205,9 @@ test("Calendar shows both partners' meetings and tours on their Central day with
           const chip = page.getByRole("button", { name: /^Meeting · 9:00 AM Lease review · Example lease/ });
           await expect(chip).toBeVisible();
           await expect(chip.locator(".cal-chip-label")).toHaveText("9:00 AM Lease review");
-          await expect(page.getByRole("button", { name: /^Tour · 3 stops · Example expansion/ })).toBeVisible();
+          await expect(
+            page.getByRole("button", { name: /^Tour · 3 stops · Deal Example expansion · Dell/ }),
+          ).toBeVisible();
           assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
           await page.screenshot({ path: join(evidence, `week-${width}-${theme}.png`), fullPage: true });
 
@@ -213,9 +220,22 @@ test("Calendar shows both partners' meetings and tours on their Central day with
           await expect(panel.locator(".cal-day-entry h3")).toHaveText(["LOI expiry"]);
           await closeOnPhone();
 
-          answer = () => meetings;
+          answer = () => ({
+            ...meetings,
+            meetings: [
+              {
+                ...meetings.meetings[0],
+                state: "unavailable",
+                reason: "No calendar snapshot has been synced from Outlook yet.",
+                items: [],
+              },
+              meetings.meetings[1],
+            ],
+          });
           await page.locator("#calRefresh").click();
-          await expect(page.locator("#calNotices")).toHaveText(staleNotice);
+          await expect(page.locator("#calCount")).toHaveText("1 critical date");
+          await expect(page.locator("#calNotices")).toBeEmpty();
+          await expect(page.locator("main")).not.toContainText("snapshot");
 
           answer = () => new Response("{}", { status: 404 });
           await page.getByRole("button", { name: "Next month" }).click();
@@ -273,7 +293,7 @@ const sharedMeetings = {
   tours: { state: "empty", reason: null, items: [] },
 };
 
-test("A meeting both partners attend shows once, standing notes stay quiet, and Refresh retries a failed read", async (t) => {
+test("A meeting both partners attend shows once, sync notes stay quiet, and Refresh retries a failed read", async (t) => {
   const outDir = await temporaryDirectory("calendar-meetings-shared-");
   t.after(() => rm(outDir, { recursive: true, force: true }));
   await buildArtifact({ root, outDir, commit: "0".repeat(40) });
@@ -309,12 +329,12 @@ test("A meeting both partners attend shows once, standing notes stay quiet, and 
   await page.locator("#calRefresh").click();
   await expect(page.locator("#calCount")).toHaveText("1 critical date · 1 meeting");
   assert.equal(ranges.length, opened + 1, "Refresh reads the meetings again");
-  await expect(page.locator("#calNotices")).toHaveText("Example Partner Two: Calendar may be incomplete.");
+  await expect(page.locator("#calNotices")).toBeEmpty();
 
   const panel = page.locator("#dayPanelBody");
   const joint = panel.locator(".cal-day-entry").filter({ hasText: "Joint call" });
   await expect(joint).toHaveCount(1);
-  await expect(joint).toContainText("Meeting · Dell and Joe · 11:00 AM");
+  await expect(joint).toHaveText("Meeting · Dell and Joe Joint call Deals Example lease, Example expansion 11:00 AM");
   await expect(joint.getByRole("link", { name: "Example lease" })).toHaveAttribute("href", "/deals?deal=qa-deal-1");
   await expect(joint.getByRole("link", { name: "Example expansion" })).toHaveAttribute("href", "/deals?deal=qa-deal-2");
   await expect(page.locator('.cal-chip[data-entry="meeting:0123456789abcdef"]')).toHaveAttribute(
@@ -364,15 +384,15 @@ test("November meetings show Central standard time, all-day meetings say so, and
   await page.goto(`${app}/calendar?view=week&d=2026-11-08&day=2026-11-10`);
   await expect(page.locator("#calCount")).toHaveText("1 critical date · 2 meetings");
   const panel = page.locator("#dayPanelBody");
-  await expect(panel).toHaveText("Meeting · Joe · 9:00 AM Budget call");
+  await expect(panel).toHaveText("Meeting · Joe Budget call 9:00 AM");
   await page.locator('[data-select-day="2026-11-11"]').click();
-  await expect(panel).toHaveText("Meeting · Joe · All day Office closed");
+  await expect(panel).toHaveText("Meeting · Joe Office closed All day");
 
   answer = () => new Response("{}", { status: 503 });
   await page.locator("#calRefresh").click();
   await expect(page.locator("#calNotices")).toHaveText("Calendar could not refresh. Try again.Retry");
   await expect(page.locator("#calCount")).toHaveText("1 critical date · 2 meetings");
-  await expect(panel).toHaveText("Meeting · Joe · All day Office closed");
+  await expect(panel).toHaveText("Meeting · Joe Office closed All day");
   await expect(page.getByRole("button", { name: /^Meeting · 9:00 AM Budget call/ })).toBeVisible();
 
   answer = () => november;

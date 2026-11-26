@@ -380,7 +380,7 @@ const toolsCall = (name: string, args: Record<string, unknown>) => ({
 test("Home, Today, Calendar, Updates and Doc use PartnerApp with the old routing switches off", async (t) => {
   const mark = { item_id: `home_update:${step}`, base_version: "1:0:inbox", idempotency_key: key };
   const cases = [
-    ["Home dashboard", "/api/engine/home/inbox?view=dashboard"],
+    ["Home dashboard", "/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6"],
     ["Inbox", "/api/engine/home/inbox", "read-home-inbox-v5", {}],
     [
       "Saved Home card",

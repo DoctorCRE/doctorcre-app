@@ -65,7 +65,7 @@ async function saveEngineReview({ args, key, action, deal }) {
   return { ok: true, notice };
 }
 
-export function mountHomeMeetingReviews({ document, client, host, engine = false, embedded = false, onAnswer }) {
+export function mountHomeMeetingReviews({ document, client, host, engine = false, onAnswer }) {
   let view = {}, actor = null, handled = new Set(), generation = 0, disposed = false, notice = '', commands, openKey = null;
   const decisions = new Map(), choices = new Map();
   const deals = () => {
@@ -95,7 +95,6 @@ export function mountHomeMeetingReviews({ document, client, host, engine = false
           : '<span>No open deals to log this meeting on.</span>';
       const expanded = openKey === review.key;
       const answerControls = `${select}<button type="button" class="home-outline" data-review-log="${E(review.key)}" data-home-key="review:${E(review.key)}:log"${busy || dismissing || !chosen ? ' disabled' : ''}>${decision?.action === 'log' && uncertain ? 'Check meeting log' : decision?.action === 'log' && busy ? 'Logging…' : 'It happened'}</button><button type="button" class="home-outline" data-review-dismiss="${E(review.key)}" data-home-key="review:${E(review.key)}:dismiss"${busy || uncertain && !dismissing ? ' disabled' : ''}>${dismissing && uncertain ? 'Check dismissal' : dismissing && busy ? 'Saving…' : 'Dismiss'}</button>`;
-      if (embedded) return `<div class="home-meeting-outcome" data-review="${E(review.key)}">${decision?.error ? `<p role="alert">${E(decision.error)}</p>` : ''}${answerControls}</div>`;
       const reviewButton = label => `<button type="button" class="home-outline" data-review-open="${E(review.key)}" data-home-key="review:${E(review.key)}:open" aria-expanded="${expanded}" aria-controls="meeting-review-${E(review.key)}">${E(label)}</button>`;
       return workCard({ className: 'home-call-task home-meeting-review', attributes: `data-review="${E(review.key)}"`,
         title: onAnswer ? reviewButton(`Confirm ${review.title}`) : E(engine ? `${review.title} was scheduled — confirm it happened` : review.title), meta: `${engine ? 'Scheduled for ' : ''}<time datetime="${E(review.start)}">${E(when(review))}</time>`, status: uncertain ? 'Unconfirmed' : '',
@@ -148,7 +147,6 @@ export function mountHomeMeetingReviews({ document, client, host, engine = false
       decisions.delete(review.key); handled.add(review.key);
       if (openKey === review.key) openKey = null;
       notice = engine ? receipt.notice : action === 'dismiss' ? '' : `Meeting logged on ${deal.name}.`;
-      if (embedded) host.closest('.home-meeting')?.querySelector('summary')?.focus({ preventScroll: true });
       onAnswer?.(notice);
     } catch (error) {
       if (disposed || ticket !== generation || actor !== binding) return;

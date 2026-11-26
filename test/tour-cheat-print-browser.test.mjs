@@ -28,7 +28,7 @@ test('the shared stylesheet keeps the Tours library printable', async t => {
 test('broker can print complete saved notes and the current draft without changing the tour', async t => {
   const server = await fixtureServer({ root: join(artifactDir, 'site') }); t.after(() => server.close());
   const browser = await chromium.launch(); t.after(() => browser.close());
-  const page = await browser.newPage({ viewport: { width: 900, height: 900 } });
+  const page = await browser.newPage({ viewport: { width: 900, height: 900 }, hasTouch: true });
   const fixture = structuredClone(detail), posts = [], errors = [];
   page.on('pageerror', error => errors.push(error.message));
   fixture.routes[0].stops.forEach(stop => { stop.locked_appointment = false; });

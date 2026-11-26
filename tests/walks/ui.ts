@@ -27,16 +27,9 @@ export async function visible(locator: Locator): Promise<void> {
 }
 export async function home(page: Page): Promise<void> {
   await page.goto("/");
-  await visible(page.getByRole("heading", { name: "Welcome home.", exact: true }));
-  await expect
-    .poll(async () => !((await page.locator(".inbox-health").textContent()) ?? "").includes("Updating"))
-    .toBe(true);
-  expect(
-    await page
-      .locator(".inbox-health")
-      .textContent()
-      .then((text) => !/unavailable/i.test(text ?? "")),
-  ).toBe(true);
+  await visible(page.getByRole("heading", { name: "Home", level: 1, exact: true }));
+  await expect(page.locator("#homeRoot")).toHaveAttribute("data-home-ready", "true");
+  expect(await page.getByRole("heading", { name: "Reminders and Inbox unavailable", exact: true }).count()).toBe(0);
   const expand = page.getByRole("button", { name: /^See all \d+$/ });
   for (let n = 0; n < 6 && (await expand.count()); n++) await expand.first().click();
 }
@@ -141,8 +134,9 @@ export async function tab(page: Page, name: RegExp): Promise<void> {
     await expect(tours).not.toContainText("Tours unavailable.");
   }
 }
+const undoButton = (page: Page) => page.locator(".toast").getByRole("button", { name: "Undo", exact: true });
 export async function undo(page: Page): Promise<void> {
-  const button = page.locator(".inbox-notice").getByRole("button", { name: /^Undo/ }).last();
+  const button = undoButton(page);
   await visible(button);
   const completion = completions.get(page);
   const pending = completion ? page.waitForResponse(rpc("reopen-one-action")) : null;
@@ -159,14 +153,7 @@ export async function undo(page: Page): Promise<void> {
     ).toBe(true);
     completions.delete(page);
   }
-  await expect
-    .poll(() =>
-      page
-        .locator(".inbox-notice")
-        .textContent()
-        .then((text) => (text ?? "").includes("Undone.")),
-    )
-    .toBe(true);
+  await visible(page.locator(".toast").getByText("Undone.", { exact: true }));
 }
 export async function complete(page: Page, row: Locator): Promise<string> {
   const id = await row.getAttribute("data-inbox-row");
@@ -179,7 +166,7 @@ export async function complete(page: Page, row: Locator): Promise<string> {
   expect(stored.ok === true && stored.status === "done" && stored.action_id === args.action_id).toBe(true);
   assert.ok(typeof stored.completion_event_id === "string" && /^[0-9a-f-]{36}$/i.test(stored.completion_event_id));
   completions.set(page, { action: args.action_id, event: stored.completion_event_id });
-  await visible(page.locator(".inbox-notice").getByRole("button", { name: /^Undo/ }).last());
+  await visible(undoButton(page));
   assert.ok(id);
   return id;
 }
