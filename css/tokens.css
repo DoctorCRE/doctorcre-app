@@ -49,6 +49,16 @@
   --data-3: #a99bd6;
   --data-4: #6cc497;
 
+  /* Deal timeline phases (design-principles rule 5 exception). */
+  --phase-pending: oklch(0.78 0.02 250);
+  --phase-research: oklch(0.78 0.105 240);
+  --phase-site-selection: oklch(0.78 0.105 195);
+  --phase-negotiation: oklch(0.78 0.105 282);
+  --phase-legal: oklch(0.78 0.105 320);
+  --phase-due-diligence: oklch(0.78 0.105 265);
+  --phase-closing: oklch(0.78 0.105 160);
+  --phase-closed: oklch(0.78 0.105 110);
+
   /* Census context maps: water stays clearly apart from land. */
   --map-water: #142a3d;
   --map-land: #353e4e;
@@ -94,6 +104,15 @@
   --data-2: #a95a1c;
   --data-3: #6151a3;
   --data-4: #2f7a4f;
+
+  --phase-pending: oklch(0.6 0.02 250);
+  --phase-research: oklch(0.6 0.13 240);
+  --phase-site-selection: oklch(0.6 0.13 195);
+  --phase-negotiation: oklch(0.6 0.13 282);
+  --phase-legal: oklch(0.6 0.13 320);
+  --phase-due-diligence: oklch(0.6 0.13 265);
+  --phase-closing: oklch(0.6 0.13 160);
+  --phase-closed: oklch(0.6 0.13 110);
 
   --map-water: #b7cfe0;
   --map-land: #f8f6f2;

@@ -4,66 +4,243 @@ import test, { type TestContext } from "node:test";
 import type { Locator, Page } from "playwright";
 import { type Descriptor, startFixture } from "../scripts/fixture-http.mjs";
 import { uiAssets } from "../scripts/ui-bundle.mjs";
-import type { TimelineProps } from "../src/ui/timeline.tsx";
+import type {
+  TimelineDate,
+  TimelineGroup,
+  TimelinePartner,
+  TimelinePhase,
+  TimelinePhaseBar,
+  TimelineProps,
+  TimelineRow,
+  TimelineStep,
+  TimelineTodo,
+} from "../src/ui/timeline.tsx";
 import { chromium } from "./browser-harness.mjs";
 
-// A made-up lease deal's plan: phases folding over their to-dos.
-const todo = (id: string, name: string, when: string) => ({ id, name, when });
+// A made-up lease deal's plan: phases folding over to-dos, steps and critical dates.
+const doneTodo = (
+  id: string,
+  phase: TimelinePhase,
+  name: string,
+  start: string,
+  end: string,
+  when: string,
+): TimelineTodo => ({
+  id,
+  kind: "todo",
+  phase,
+  name,
+  state: "done",
+  start,
+  end,
+  when,
+});
+const expTodo = (
+  id: string,
+  phase: TimelinePhase,
+  name: string,
+  start: string,
+  end: string,
+  when: string,
+  length: string,
+  atRisk?: boolean,
+): TimelineTodo => ({
+  id,
+  kind: "todo",
+  phase,
+  name,
+  state: "expected",
+  start,
+  end,
+  when,
+  length,
+  ...(atRisk && { atRisk }),
+});
+const phaseBar = (phase: TimelinePhase, start: string, end: string): TimelinePhaseBar => ({ phase, start, end });
+const openStep = (
+  id: string,
+  phase: TimelinePhase,
+  owner: TimelinePartner,
+  name: string,
+  start: string,
+  due: string,
+  when: string,
+): TimelineStep => ({
+  id,
+  kind: "step",
+  phase,
+  owner,
+  name,
+  state: "open",
+  start,
+  due,
+  when,
+});
+const doneStep = (
+  id: string,
+  phase: TimelinePhase,
+  owner: TimelinePartner,
+  name: string,
+  start: string,
+  end: string,
+  when: string,
+): TimelineStep => ({
+  id,
+  kind: "step",
+  phase,
+  owner,
+  name,
+  state: "done",
+  start,
+  end,
+  when,
+});
+const dateRow = (
+  id: string,
+  phase: TimelinePhase,
+  name: string,
+  day: string,
+  state: TimelineDate["state"],
+  when: string,
+  atRisk?: boolean,
+): TimelineDate => ({
+  id,
+  kind: "date",
+  phase,
+  name,
+  day,
+  state,
+  when,
+  ...(atRisk && { atRisk }),
+});
+
+const GROUPS: readonly TimelineGroup[] = [
+  {
+    id: "pending",
+    name: "Prospective Client",
+    count: "Nothing listed",
+    bar: phaseBar("pending", "2026-09-30", "2026-10-07"),
+    startsFolded: false,
+    rows: [],
+  },
+  {
+    id: "research",
+    name: "Research",
+    count: "2 of 2",
+    done: true,
+    bar: phaseBar("research", "2026-10-07", "2026-10-26"),
+    startsFolded: true,
+    rows: [
+      doneTodo("rep", "research", "Representation agreement", "2026-10-07", "2026-10-12", "Oct 12"),
+      doneTodo("req", "research", "Intake and requirements", "2026-10-12", "2026-10-24", "Oct 24"),
+    ],
+  },
+  {
+    id: "site",
+    name: "Site Selection",
+    count: "2 of 2",
+    done: true,
+    bar: phaseBar("site_selection", "2026-10-26", "2026-11-12"),
+    startsFolded: false,
+    rows: [
+      doneTodo("survey", "site_selection", "Market survey", "2026-10-26", "2026-11-01", "Nov 1"),
+      doneTodo("tours", "site_selection", "Tours and tour notes", "2026-11-01", "2026-11-10", "Nov 10"),
+      doneStep(
+        "tour-step",
+        "site_selection",
+        "Joe",
+        "Book the four-property tour",
+        "2026-10-29",
+        "2026-11-04",
+        "Done Nov 4",
+      ),
+    ],
+  },
+  {
+    id: "neg",
+    name: "Negotiating",
+    count: "1 of 3",
+    bar: phaseBar("negotiation", "2026-11-12", "2026-12-27"),
+    startsFolded: false,
+    rows: [
+      doneTodo("loi", "negotiation", "LOIs sent", "2026-11-12", "2026-11-16", "Nov 16"),
+      doneStep(
+        "counter-done",
+        "negotiation",
+        "Dell",
+        "Send the Demo Row counter",
+        "2026-11-13",
+        "2026-11-17",
+        "Done Nov 17",
+      ),
+      {
+        id: "terms",
+        kind: "todo",
+        phase: "negotiation",
+        name: "Terms comparison",
+        state: "current",
+        start: "2026-11-16",
+        end: "2026-12-07",
+        progress: "day 9 of 21",
+        when: "exp. Dec 7",
+      },
+      openStep(
+        "late-step",
+        "negotiation",
+        "Dell",
+        "Call Demo Reyes about the counter",
+        "2026-11-18",
+        "2026-11-24",
+        "Tue, Nov 24",
+      ),
+      openStep(
+        "open-step",
+        "negotiation",
+        "Joe",
+        "Send Demo Voss the LOI comparison",
+        "2026-11-23",
+        "2026-11-27",
+        "Fri, Nov 27",
+      ),
+      dateRow("loi-due", "negotiation", "LOI response due", "2026-12-10", "confirmed", "Dec 10"),
+      expTodo("agreed", "negotiation", "Agreed business terms", "2026-12-07", "2026-12-27", "exp. Dec 27", "20d", true),
+      dateRow("space-held", "negotiation", "Space held until", "2026-11-30", "confirmed", "Nov 30", true),
+    ],
+  },
+  {
+    id: "legal",
+    name: "Legal",
+    count: "0 of 4",
+    bar: phaseBar("legal", "2026-12-27", "2027-02-20"),
+    startsFolded: false,
+    rows: [
+      expTodo("legal0", "legal", "Lease draft to attorney", "2026-12-27", "2027-01-06", "exp. Jan 6", "10d"),
+      expTodo("legal1", "legal", "Attorney comments", "2027-01-06", "2027-01-27", "exp. Jan 27", "21d"),
+      expTodo("legal2", "legal", "Healthcare lease review", "2027-01-27", "2027-02-06", "exp. Feb 6", "10d"),
+      expTodo("legal3", "legal", "TI scope and bids", "2027-02-06", "2027-02-20", "exp. Feb 20", "14d"),
+    ],
+  },
+  {
+    id: "closing",
+    name: "Closing",
+    count: "0 of 6",
+    bar: phaseBar("closing", "2027-02-20", "2027-03-29"),
+    startsFolded: false,
+    rows: [
+      expTodo("closing0", "closing", "Executed lease", "2027-02-20", "2027-03-06", "exp. Mar 6", "14d"),
+      dateRow("comm-date", "closing", "Lease commencement", "2027-03-22", "proposed", "Mar 22"),
+      dateRow("sign-exp", "closing", "Lease signed", "2027-03-06", "expected", "exp. Mar 6"),
+      { id: "closing-wait", kind: "todo", phase: "closing", name: "Move-in", state: "waiting" } satisfies TimelineRow,
+    ],
+  },
+];
+
 const CHART: TimelineProps = {
   foldKey: "deal-synthetic",
   today: "2026-11-25",
   from: "2026-09-28",
   to: "2027-04-05",
-  groups: [
-    {
-      id: "research",
-      name: "Research",
-      count: "2 of 2",
-      startsFolded: true,
-      rows: [todo("rep", "Representation agreement", "Oct 2"), todo("req", "Intake and requirements", "Oct 14")],
-    },
-    {
-      id: "site",
-      name: "Site Selection",
-      count: "2 of 2",
-      startsFolded: true,
-      rows: [todo("survey", "Market survey", "Nov 1"), todo("tours", "Tours and tour notes", "Nov 10")],
-    },
-    {
-      id: "neg",
-      name: "Negotiating",
-      count: "1 of 3",
-      startsFolded: false,
-      rows: [
-        todo("loi", "LOIs sent", "Nov 16"),
-        todo("terms", "Terms comparison", "exp. Dec 7"),
-        todo("agreed", "Agreed business terms", "exp. Dec 27"),
-      ],
-    },
-    {
-      id: "legal",
-      name: "Legal",
-      count: "0 of 4",
-      startsFolded: false,
-      rows: ["Lease draft to attorney", "Attorney comments", "Healthcare lease review", "TI scope and bids"].map(
-        (n, i) => todo(`legal${i}`, n, `exp. Jan ${6 + 7 * i}`),
-      ),
-    },
-    {
-      id: "closing",
-      name: "Closing",
-      count: "0 of 6",
-      startsFolded: false,
-      rows: [
-        "Executed lease",
-        "Commencement letter",
-        "Executed comp",
-        "Lease end recorded",
-        "Move-in",
-        "90-day check-in",
-      ].map((n, i) => todo(`closing${i}`, n, `exp. Feb ${2 + 4 * i}`)),
-    },
-  ],
+  groups: GROUPS,
 };
 const MS_PER_DAY = 86_400_000;
 const dayIndex = (iso: string) => (Date.parse(`${iso}T00:00:00Z`) - Date.parse(`${CHART.from}T00:00:00Z`)) / MS_PER_DAY;
@@ -270,4 +447,142 @@ test("the scrollbar shows only while the chart is being scrolled", async (t) => 
   );
   assert.equal(shownWhileScrolling, true);
   assert.equal(await scroller.getAttribute("data-scrolling"), null);
+});
+
+test("to-do bars, step pills, diamonds and phase bars draw at their days with matching left-list marks", async (t) => {
+  const { page } = await open(t);
+  const px = await dayWidth(page);
+  const nowLine = await box(page.locator(".timeline-now"));
+  const nowCenter = nowLine.x + nowLine.width / 2;
+
+  // Finished, in-progress (spent fill ends on Today), expected (dashed) and waiting (no bar) to-dos.
+  assert.equal(await page.locator('[data-row="loi"] [data-mark="todo-done"]').count(), 1);
+  assert.equal(await page.locator('[data-row="loi"] .timeline-glyph-check').count(), 1);
+  const currentBar = await box(page.locator('[data-row="terms"] [data-mark="todo-current"]'));
+  const currentFill = await box(page.locator('[data-row="terms"] .timeline-bar-fill'));
+  assert.equal(Math.round(currentBar.width), 21 * px);
+  assert.ok(Math.abs(currentFill.x + currentFill.width - nowCenter) < 1.5, "in-progress fill stops at Today");
+  assert.equal(await page.locator('[data-row="terms"] .timeline-bar-meta').textContent(), "day 9 of 21");
+  assert.equal(await page.locator('[data-row="terms"] [data-ring="current"]').count(), 1);
+  const expectedStyle = await page
+    .locator('[data-row="agreed"] [data-mark="todo-expected"]')
+    .evaluate((n) => getComputedStyle(n).outlineStyle);
+  assert.equal(expectedStyle, "dashed");
+  assert.equal(await page.locator('[data-row="agreed"] .timeline-alert').textContent(), "!");
+  assert.equal(await page.locator('[data-row="closing-wait"] .timeline-bar').count(), 0);
+  assert.equal(await page.locator('[data-row="closing-wait"] .timeline-when').textContent(), "no date yet");
+
+  // Step pills are thinner than to-do bars, carry partner initials in the list, and mark late steps red.
+  const latePill = await box(page.locator('[data-row="late-step"] [data-mark="step-late"]'));
+  assert.ok(latePill.height < currentBar.height, "step pills are thinner than to-do bars");
+  assert.equal(await page.locator('[data-row="late-step"] .timeline-owner').textContent(), "D");
+  assert.equal(await page.locator('[data-row="late-step"] .timeline-owner').getAttribute("aria-label"), "Dell");
+  assert.equal(await page.locator('[data-row="late-step"] .timeline-alert').textContent(), "!");
+  assert.equal(await page.locator('[data-row="counter-done"]').getAttribute("data-quiet"), "");
+
+  // Milestone diamonds sit centered on their day in confirmed, proposed and expected forms.
+  const spaceDiamond = await box(page.locator('[data-row="space-held"] [data-mark="date-confirmed"]'));
+  const spaceCenter = spaceDiamond.x + spaceDiamond.width / 2;
+  assert.ok(Math.abs(spaceCenter - (nowCenter + 5 * px)) < 1.5, "diamond centers on its day");
+  assert.match((await page.locator('[data-row="space-held"] .timeline-diamond-detail').textContent()) ?? "", /at risk/);
+  assert.equal(await page.locator('[data-row="comm-date"] [data-mark="date-proposed"]').count(), 1);
+  assert.equal(await page.locator('[data-row="sign-exp"] [data-mark="date-expected"]').count(), 1);
+
+  // Phase bars fill past phases completely, stop at Today on the current phase, and leave future phases unspent.
+  assert.equal(await page.locator('[data-group="pending"] button').count(), 0, "empty phase is not a fold button");
+  const siteBar = await box(page.locator('[data-group="site"] .timeline-phase-bar'));
+  const siteSpent = await box(page.locator('[data-group="site"] .timeline-phase-spent'));
+  assert.ok(Math.abs(siteSpent.width - siteBar.width) < 1);
+  const negSpent = await box(page.locator('[data-group="neg"] .timeline-phase-spent'));
+  assert.ok(Math.abs(negSpent.x + negSpent.width - nowCenter) < 1.5, "current phase bar fill stops at Today");
+  assert.equal(await page.locator('[data-group="legal"] .timeline-phase-spent').count(), 0);
+});
+
+test("bar labels sit inside wide bars without colliding with metadata and move beside narrow bars across zooms", async (t) => {
+  const { page } = await open(t);
+  const termsBar = page.locator('[data-row="terms"] .timeline-bar');
+  const termsBox = await box(termsBar);
+  const termsName = await box(termsBar.locator(".timeline-bar-name"));
+  const termsMeta = await box(termsBar.locator(".timeline-bar-meta"));
+  assert.equal(await termsBar.getAttribute("data-label-pos"), "inside");
+  assert.ok(termsName.x >= termsBox.x && termsName.x + termsName.width <= termsMeta.x + 1);
+
+  const loiBar = page.locator('[data-row="loi"] .timeline-bar');
+  const loiBox = await box(loiBar);
+  const loiName = await box(loiBar.locator(".timeline-bar-name"));
+  assert.equal(await loiBar.getAttribute("data-label-pos"), "beside");
+  assert.ok(loiName.x >= loiBox.x + loiBox.width, "beside label starts past the bar's right edge");
+
+  await page.getByRole("group", { name: "Zoom" }).getByRole("button", { name: "Day", exact: true }).click();
+  assert.equal(await loiBar.getAttribute("data-label-pos"), "inside");
+  await page.getByRole("group", { name: "Zoom" }).getByRole("button", { name: "Month", exact: true }).click();
+  assert.equal(await termsBar.getAttribute("data-label-pos"), "beside");
+});
+
+test("stale, unrecorded and undated rows render cleanly without gradients, and both themes keep four or fewer text sizes", async (t) => {
+  const { page, mount } = await open(t, { width: 1280, height: 640 });
+  await mount({
+    ...CHART,
+    foldKey: "edge-states",
+    groups: [
+      {
+        id: "edge",
+        name: "Negotiating",
+        count: "0 of 2",
+        startsFolded: false,
+        rows: [
+          { id: "old", kind: "todo", phase: "negotiation", name: "LOIs sent", state: "unrecorded" },
+          {
+            id: "stale",
+            kind: "todo",
+            phase: "negotiation",
+            name: "Terms comparison",
+            state: "stale",
+            start: "2026-10-10",
+            when: "46 days so far",
+          },
+          {
+            id: "nodate",
+            kind: "step",
+            phase: "negotiation",
+            owner: "Joe",
+            name: "Confirm parking ratio",
+            state: "undated",
+            start: "2026-11-20",
+          },
+        ],
+      },
+    ],
+  });
+  assert.equal(await page.locator('[data-row="old"] .timeline-bar').count(), 0);
+  assert.equal(await page.locator('[data-row="old"] .timeline-when').textContent(), "not recorded");
+  assert.equal(await page.locator('[data-row="stale"] [data-mark="todo-stale"]').count(), 1);
+  assert.equal(await page.locator('[data-row="stale"] .timeline-when').getAttribute("data-tone"), "soon");
+  assert.equal(await page.locator('[data-row="nodate"] [data-mark="step-undated"]').count(), 1);
+  assert.equal(await page.locator('[data-row="nodate"] .timeline-when').textContent(), "No date");
+
+  for (const theme of ["dark", "light"]) {
+    await page.evaluate((value) => {
+      document.documentElement.dataset.theme = value;
+    }, theme);
+    const audit = await page.evaluate(() => {
+      const sizes = new Set<string>();
+      let gradient = false;
+      for (const el of document.querySelectorAll(".timeline, .timeline *")) {
+        const s = getComputedStyle(el);
+        if (el.textContent?.trim()) sizes.add(s.fontSize);
+        if (s.backgroundImage.includes("gradient") || s.maskImage.includes("gradient")) gradient = true;
+      }
+      return {
+        sizes: [...sizes],
+        gradient,
+        bodySize: getComputedStyle(document.querySelector(".timeline") ?? document.body).fontSize,
+        fitsWindow: document.documentElement.scrollHeight <= innerHeight,
+      };
+    });
+    assert.equal(audit.gradient, false, `${theme} uses no gradients`);
+    assert.equal(audit.bodySize, "14px", `${theme} body text is 14px`);
+    assert.ok(audit.sizes.length <= 4, `${theme} uses at most four text sizes: ${audit.sizes.join(", ")}`);
+    assert.equal(audit.fitsWindow, true, `${theme} fits in one window`);
+  }
 });

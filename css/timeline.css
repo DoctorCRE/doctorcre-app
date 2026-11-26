@@ -4,6 +4,15 @@
 .timeline button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
 .timeline svg { flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; }
 
+.timeline [data-phase="pending"] { --tone: var(--phase-pending); }
+.timeline [data-phase="research"] { --tone: var(--phase-research); }
+.timeline [data-phase="site_selection"] { --tone: var(--phase-site-selection); }
+.timeline [data-phase="negotiation"] { --tone: var(--phase-negotiation); }
+.timeline [data-phase="legal"] { --tone: var(--phase-legal); }
+.timeline [data-phase="due_diligence"] { --tone: var(--phase-due-diligence); }
+.timeline [data-phase="closing"] { --tone: var(--phase-closing); }
+.timeline [data-phase="closed"] { --tone: var(--phase-closed); }
+
 .timeline-tools { height: 44px; flex: none; display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); padding: 0 var(--space-2); }
 .timeline-zoom { display: flex; gap: 2px; margin: 0; padding: 0; border: 0; min-width: 0; }
 .timeline-tools button { height: var(--touch); padding: 0 10px; border-radius: var(--radius-2); display: flex; align-items: center; gap: 6px; color: var(--fg-quiet); font-size: var(--font-size-1); white-space: nowrap; transition: background var(--duration-hover), color var(--duration-hover); }
@@ -17,7 +26,7 @@
 .timeline-sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .timeline-canvas { position: relative; width: max-content; min-width: 100%; min-height: 100%; display: flex; flex-direction: column; }
 
-.timeline-head { position: sticky; top: 0; z-index: 4; height: var(--head); flex: none; display: flex; background: var(--surface-1); }
+.timeline-head { position: sticky; top: 0; z-index: 5; height: var(--head); flex: none; display: flex; background: var(--surface-1); }
 .timeline-corner { position: sticky; left: 0; z-index: 1; width: var(--list); flex: none; background: var(--surface-1); }
 .timeline-dates { position: relative; flex: none; }
 /* A month's name stays at the left of the dates for as long as the month is in view. */
@@ -26,22 +35,83 @@
 .timeline-date { position: absolute; top: 23px; transform: translateX(-50%); font-size: var(--font-size-1); color: var(--fg-quiet); white-space: nowrap; }
 .timeline-today { position: absolute; top: 21px; height: 20px; padding: 0 var(--space-2); border-radius: var(--radius-round); transform: translateX(-50%); background: var(--accent); color: var(--on-accent); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); line-height: 20px; white-space: nowrap; }
 
-.timeline-body { position: relative; flex: 1; display: flex; flex-direction: column; }
+.timeline-body { position: relative; z-index: 0; flex: 1; display: flex; flex-direction: column; }
 .timeline-grid { position: absolute; inset: 0 0 0 var(--list); pointer-events: none; }
 .timeline-weekend { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--fg) 4%, transparent); }
 .timeline-month-line { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--hairline); }
-.timeline-now { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--accent); z-index: 2; }
+.timeline-now { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--accent); z-index: 3; }
 
 .timeline-row { position: relative; height: var(--row); display: flex; box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--hairline) 38%, transparent); }
-.timeline .timeline-label { position: sticky; left: 0; z-index: 3; width: var(--list); flex: none; display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-3) 0 36px; background: var(--surface-1); text-align: left; min-width: 0; }
-.timeline .timeline-group .timeline-label { padding-left: var(--space-2); gap: var(--space-1); font-weight: var(--font-weight-strong); transition: background var(--duration-hover); }
-.timeline .timeline-group .timeline-label:hover { background: var(--surface-2); }
-.timeline-list-fill { position: sticky; left: 0; z-index: 3; width: var(--list); flex: 1; background: var(--surface-1); }
+.timeline .timeline-label { position: sticky; left: 0; z-index: 4; width: var(--list); flex: none; display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-3) 0 32px; background: var(--surface-1); text-align: left; min-width: 0; transition: background var(--duration-hover); }
+.timeline .timeline-group .timeline-label { padding-left: var(--space-2); gap: var(--space-1); font-weight: var(--font-weight-strong); }
+.timeline-label-static { cursor: default; }
+.timeline-row:hover .timeline-label { background: color-mix(in srgb, var(--surface-2) 70%, var(--surface-1)); }
+.timeline-row:hover .timeline-track { background: color-mix(in srgb, var(--surface-2) 45%, transparent); }
+.timeline-track { position: relative; flex: none; transition: background var(--duration-hover); }
+.timeline-list-fill { position: sticky; left: 0; z-index: 4; width: var(--list); flex: 1; background: var(--surface-1); }
+
+.timeline-group-title { display: flex; align-items: center; gap: var(--space-1); flex: 1; min-width: 0; }
+.timeline-group-title .timeline-name { flex: 0 1 auto; }
 .timeline-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.timeline-row[data-quiet] .timeline-name { color: var(--fg-quiet); }
 .timeline-when { font-size: var(--font-size-1); font-weight: var(--font-weight-regular); color: var(--fg-quiet); white-space: nowrap; }
+.timeline-when[data-tone="late"], .timeline-diamond-detail[data-tone="late"], .timeline-bar-meta[data-tone="late"] { color: var(--status-danger-ink); }
+.timeline-when[data-tone="soon"], .timeline-diamond-detail[data-tone="soon"], .timeline-bar-meta[data-tone="soon"] { color: var(--status-warn-ink); }
 .timeline-chevron { color: var(--fg-quiet); transition: transform var(--duration-hover) var(--ease-out); }
+.timeline-chevron-gap { width: 16px; flex: none; }
 .timeline-label[aria-expanded="true"] .timeline-chevron { transform: rotate(90deg); }
 
+/* Left-list marks: each row shows one shape for its kind and state. */
+.timeline-glyph { width: 20px; height: 20px; flex: none; display: grid; place-items: center; }
+.timeline-glyph-check { color: var(--status-ok-ink); stroke-width: 2.4; }
+.timeline-glyph-ring { display: block; width: 12px; height: 12px; border-radius: var(--radius-round); border: 1.5px solid var(--fg-quiet); }
+.timeline-glyph-ring[data-ring="dashed"] { border-style: dashed; opacity: 0.75; }
+.timeline-glyph-ring[data-ring="current"] { border-color: var(--fg); box-shadow: inset 0 0 0 2px var(--surface-1), inset 0 0 0 6px var(--fg-muted); }
+.timeline-owner { width: 20px; height: 20px; border-radius: var(--radius-round); background: var(--surface-3); color: var(--fg); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); line-height: 1; display: grid; place-items: center; flex: none; }
+.timeline-glyph-diamond { display: block; width: 9px; height: 9px; transform: rotate(45deg); border-radius: 2px; background: var(--tone); }
+.timeline-glyph-diamond[data-state="proposed"] { background: none; box-shadow: inset 0 0 0 1.5px var(--tone); }
+.timeline-glyph-diamond[data-state="expected"] { background: none; outline: 1px dashed var(--tone); outline-offset: -1px; }
+.timeline-alert { width: 16px; height: 16px; border-radius: var(--radius-round); background: var(--status-danger-ink); color: var(--surface-1); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); line-height: 1; display: grid; place-items: center; flex: none; }
+
+/* Phase bars on group rows: bright up to today, dim for what is expected. */
+.timeline-phase-bar { position: absolute; top: 15px; height: 4px; border-radius: 2px; background: color-mix(in oklab, var(--tone) 30%, var(--surface-1)); z-index: 2; }
+.timeline-phase-spent { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; background: color-mix(in oklab, var(--tone) 85%, var(--surface-1)); }
+
+/* To-do bars and step pills on the chart track. */
+.timeline-bar { position: absolute; top: 6px; height: 22px; border-radius: var(--radius-2); z-index: 2; display: flex; align-items: center; font-size: var(--font-size-1); font-weight: var(--font-weight-regular); white-space: nowrap; background: color-mix(in oklab, var(--tone) 17%, var(--surface-1)); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--tone) 46%, var(--surface-1)); transition: filter var(--duration-hover); }
+.timeline-bar:hover, .timeline-diamond:hover { filter: brightness(1.12); }
+.timeline-bar-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: var(--radius-2) 0 0 var(--radius-2); background: color-mix(in oklab, var(--tone) 46%, var(--surface-1)); }
+.timeline-bar-fill[data-full] { border-radius: var(--radius-2); }
+.timeline-bar-name { position: relative; flex: 1; min-width: 0; padding: 0 var(--space-2); overflow: hidden; text-overflow: ellipsis; color: var(--fg); }
+.timeline-bar-meta { position: relative; flex: none; padding-right: var(--space-2); color: var(--fg-muted); display: inline-flex; align-items: center; }
+.timeline-bar-meta svg { color: var(--fg); stroke-width: 2.4; }
+.timeline-bar[data-label-pos="beside"] .timeline-bar-name { position: absolute; left: 100%; padding-left: var(--space-4); padding-right: 0; overflow: visible; color: var(--fg-muted); text-shadow: 0 0 2px var(--surface-1), 0 0 5px var(--surface-1); }
+
+.timeline-bar[data-mark="todo-done"], .timeline-bar[data-mark="todo-stale"] { background: color-mix(in oklab, var(--tone) 46%, var(--surface-1)); box-shadow: none; }
+.timeline-bar[data-mark="todo-expected"] { background: color-mix(in oklab, var(--tone) 8%, var(--surface-1)); box-shadow: none; outline: 1px dashed color-mix(in oklab, var(--tone) 62%, var(--surface-1)); outline-offset: -1px; }
+.timeline-bar[data-mark="todo-expected"] .timeline-bar-name { color: var(--fg-muted); }
+
+.timeline-step { top: 8px; height: 18px; border-radius: var(--radius-round); background: color-mix(in oklab, var(--tone) 30%, var(--surface-1)); box-shadow: none; }
+.timeline-step[data-mark="step-done"] { background: color-mix(in oklab, var(--tone) 14%, var(--surface-1)); }
+.timeline-step[data-mark="step-done"] .timeline-bar-name { color: var(--fg-quiet); }
+.timeline-step[data-mark="step-late"] { box-shadow: inset 0 0 0 1.5px var(--status-danger-ink); }
+.timeline-step[data-mark="step-undated"] { background: color-mix(in oklab, var(--tone) 18%, var(--surface-1)); outline: 1px dashed color-mix(in oklab, var(--tone) 62%, var(--surface-1)); outline-offset: -1px; }
+
+/* Milestone diamonds on critical dates. */
+.timeline-diamond { position: absolute; top: 11px; width: 12px; height: 12px; margin-left: -6px; transform: rotate(45deg); border-radius: 2px; background: var(--tone); z-index: 2; transition: filter var(--duration-hover); }
+.timeline-diamond[data-state="proposed"] { background: var(--surface-1); box-shadow: inset 0 0 0 1.5px var(--tone); }
+.timeline-diamond[data-state="expected"] { background: var(--surface-1); outline: 1px dashed var(--tone); outline-offset: -1px; }
+.timeline-diamond-label { position: absolute; top: 0; line-height: var(--row); font-size: var(--font-size-1); color: var(--fg); white-space: nowrap; z-index: 2; text-shadow: 0 0 2px var(--surface-1), 0 0 5px var(--surface-1); }
+.timeline-diamond-detail { color: var(--fg-quiet); margin-left: var(--space-2); }
+
 @media (max-width: 1300px) { .timeline { --list: 252px; } }
-@media (max-width: 760px) { .timeline { --list: 164px; --row: 40px; } .timeline .timeline-label { padding-left: var(--space-2); } .timeline [data-row] .timeline-when { display: none; } }
+@media (max-width: 760px) {
+  .timeline { --list: 164px; --row: 40px; }
+  .timeline .timeline-label { padding-left: var(--space-2); gap: var(--space-1); }
+  .timeline [data-row] .timeline-when, .timeline-owner { display: none; }
+  .timeline-bar { top: 8px; height: 24px; }
+  .timeline-step { top: 10px; height: 20px; }
+  .timeline-diamond { top: 14px; }
+  .timeline-phase-bar { top: 18px; }
+}
 @media (prefers-reduced-motion: reduce) { .timeline * { transition: none; } }
