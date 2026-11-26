@@ -14,7 +14,7 @@ const href = (value: unknown) =>
     ? value
     : undefined;
 
-type Tour = { key: string; record_name: string; label: string; links: { url: string | null }[] };
+type Tour = { key: string; label: string; records: { name: string; url: string | null }[] };
 type CalendarRead = { status: string; entries: ({ type: string } & Tour)[] };
 
 /** Today's planned tours from the same read Calendar uses, so both show the same tours. */
@@ -113,12 +113,12 @@ export function TodayMeetings({ data, today }: { data: MeetingRead; today: strin
       {tours.isError && <p className="home-tile-status">Tours unavailable.</p>}
       <div className="home-today-list">
         {tourRows.map((tour) => {
-          const deal = href(tour.links[0]?.url);
+          const deal = href(tour.records[0]?.url);
           const body = (
             <>
               <span className="home-today-time">Tour</span>
               <span className="home-today-title">
-                {tour.record_name} <span>· {tour.label}</span>
+                {tour.records[0]?.name} <span>· {tour.label}</span>
               </span>
             </>
           );
