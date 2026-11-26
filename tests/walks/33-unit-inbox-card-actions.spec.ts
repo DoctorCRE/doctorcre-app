@@ -15,7 +15,7 @@ test("33 unit:inbox-card-actions", async ({ page }) => {
     await row.getByRole("button", { name: "Snooze", exact: true }).click();
     await page
       .getByRole("dialog", { name: "Snooze cards", exact: true })
-      .getByRole("button", { name: /^1 hour/ })
+      .getByRole("button", { name: /^Tomorrow/ })
       .click();
     await visible(row.getByRole("button", { name: "Wake", exact: true }));
     expect((await unrelated.textContent()) === before).toBe(true);

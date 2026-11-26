@@ -84,7 +84,7 @@ test('settle and snooze have reversible Undo, and focus returns to a reachable r
   await page.locator('[data-inbox-row="a"]').getByRole('button', { name: 'Hide from inbox', exact: true }).click();
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await page.locator('[data-inbox-row="a"]').getByRole('button', { name: 'Snooze', exact: true }).click();
-  await page.getByRole('button', { name: /^1 hour/ }).click();
+  await page.getByRole('button', { name: /^Tomorrow/ }).click();
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await page.locator('[data-inbox-row="a"]').getByRole('button', { name: 'Hide from inbox', exact: true }).waitFor();
   assert.equal(await page.locator('details[open]').count(), 0);
@@ -93,8 +93,8 @@ test('settle and snooze have reversible Undo, and focus returns to a reachable r
 test('a save is confirmed at the bottom with Undo, and the message leaves after about five seconds', async t => {
   const { page } = await open(t, { clock: true });
   await page.locator('[data-inbox-row="a"]').getByRole('button', { name: 'Snooze', exact: true }).click();
-  await page.getByRole('button', { name: /^1 hour/ }).click();
-  const toast = page.getByRole('status').filter({ hasText: 'Snoozed: Synthetic a.' });
+  await page.getByRole('button', { name: /^Tomorrow/ }).click();
+  const toast = page.getByRole('status').filter({ hasText: /Snoozed until \w{3}, \w{3} \d+: Synthetic a\./ });
   await toast.waitFor();
   const undo = toast.getByRole('button', { name: 'Undo', exact: true });
   await page.clock.runFor(4_000);
@@ -106,7 +106,7 @@ test('a save is confirmed at the bottom with Undo, and the message leaves after 
 test('a refusal that arrives during the Undo window stays after it', async t => {
   const { page } = await open(t, { taskConflict: true, clock: true });
   await page.locator('[data-inbox-row="b"]').getByRole('button', { name: 'Snooze', exact: true }).click();
-  await page.getByRole('button', { name: /^1 hour/ }).click();
+  await page.getByRole('button', { name: /^Tomorrow/ }).click();
   await page.getByRole('button', { name: 'Undo', exact: true }).waitFor();
   await page.locator('[data-inbox-row="a"]').getByRole('button', { name: 'Mark done', exact: true }).click();
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
@@ -440,7 +440,7 @@ test('snoozing or settling a lease watch card keeps the watch and its saved link
  await card.getByText('This alert is separate from its watch. Snoozing or settling the card keeps the watch.',{exact:true}).waitFor();
  await card.getByText('Lease watch settings',{exact:true}).waitFor();
  await card.getByRole('button',{name:'Snooze',exact:true}).click();
- await page.getByRole('button',{name:/^1 hour/}).click();
+ await page.getByRole('button',{name:/^Tomorrow/}).click();
  await page.getByRole('button',{name:'Undo',exact:true}).click();
  await card.getByRole('button',{name:'Hide from inbox',exact:true}).click();
  await page.getByRole('button',{name:'Undo',exact:true}).click();

@@ -57,19 +57,19 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
 .home-edge { flex: none; color: var(--fg-muted); font-size: var(--font-size-1); }
 .home-group { margin: var(--space-3) 0 var(--space-1); color: var(--fg-muted); font-size: var(--font-size-1); font-weight: 600; }
 .inbox-shell .home-fold { min-height: var(--touch); padding: 0; border: 0; background: transparent; color: var(--fg-muted); font-size: var(--font-size-1); }
-/* With a pointer, Snooze and Drop cover the due label while the row is hovered or focused. */
+/* With a pointer, Snooze and Drop on Reminders and Inbox rows cover the due label while the row is hovered or focused. */
 @media (hover: hover) {
-  .home-slice[aria-label="Reminders"] .inbox-row { position: relative; }
-  .home-slice[aria-label="Reminders"] .inbox-row > .inbox-actions { position: absolute; inset-inline-end: var(--space-2); top: 50%; translate: 0 -50%; }
-  .home-slice[aria-label="Reminders"] .inbox-row:not(:hover, :focus-within) > .inbox-actions { opacity: 0; }
-  .home-slice[aria-label="Reminders"] .inbox-row:is(:hover, :focus-within) > .home-edge { visibility: hidden; }
+  .home-slice:is([aria-label="Reminders"], [aria-label="Inbox"]) .inbox-row { position: relative; }
+  .home-slice:is([aria-label="Reminders"], [aria-label="Inbox"]) .inbox-row > .inbox-actions { position: absolute; inset-inline-end: var(--space-2); top: 50%; translate: 0 -50%; }
+  .home-slice:is([aria-label="Reminders"], [aria-label="Inbox"]) .inbox-row:not(:hover, :focus-within) > .inbox-actions { opacity: 0; }
+  .home-slice:is([aria-label="Reminders"], [aria-label="Inbox"]) .inbox-row:is(:hover, :focus-within) > .home-edge { visibility: hidden; }
 }
-/* By touch, Snooze and Drop sit under the reminder's text. */
+/* By touch, Snooze and Drop sit under the row's text. */
 @media (max-width: 999px), (hover: none) {
   .home-slice .inbox-row > .inbox-copy h3 a { display: inline-flex; min-height: var(--touch); }
 }
 @media (hover: none) {
-  .home-slice[aria-label="Reminders"] .inbox-row > .inbox-actions { flex-basis: 100%; padding-left: calc(var(--touch) - var(--space-4) + var(--space-3)); }
+  .home-slice:is([aria-label="Reminders"], [aria-label="Inbox"]) .inbox-row > .inbox-actions { flex-basis: 100%; padding-left: calc(var(--touch) - var(--space-4) + var(--space-3)); }
 }
 .home-late { color: var(--status-danger-ink); }
 .home-tile-status { color: var(--fg-muted); font-size: 12px; }
@@ -124,3 +124,17 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
 .skip:focus { min-width: var(--touch); min-height: var(--touch); align-content: center; }
 
 .inbox-snooze textarea{display:block;box-sizing:border-box;width:100%;min-height:76px;margin-block:6px 0;padding:8px;color:var(--fg);background:var(--surface-2);border:1px solid var(--hairline);border-radius:6px;font:inherit}
+.has-app-layout dialog.snooze-menu { width: min(360px, calc(100vw - 2 * var(--space-4))); max-width: none; padding: var(--space-5); }
+.snooze-menu .snooze-quick { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); margin-block: var(--space-3); }
+.inbox-snooze.snooze-menu .snooze-quick button { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-1); margin: 0; padding: var(--space-2) var(--space-3); min-height: var(--touch); }
+.snooze-quick time { color: var(--fg-muted); font-size: var(--font-size-1); }
+.snooze-month header { display: flex; align-items: center; justify-content: space-between; }
+.snooze-month h3 { margin: 0; font-size: var(--font-size-2); font-weight: 600; }
+.inbox-snooze.snooze-menu .snooze-month header button { margin: 0; width: var(--touch); height: var(--touch); min-height: 0; padding: 0; border: 0; border-radius: var(--radius-round); background: transparent; font-size: var(--font-size-3); line-height: 1; }
+.snooze-days > span { display: grid; place-items: center; height: var(--touch); color: var(--fg-muted); font-size: var(--font-size-1); }
+.snooze-days { display: grid; grid-template-columns: repeat(7, var(--touch)); justify-content: space-between; row-gap: var(--space-1); margin-block: var(--space-2) var(--space-3); }
+.inbox-snooze.snooze-menu .snooze-days button { margin: 0; width: var(--touch); height: var(--touch); min-height: 0; padding: 0; border: 1px solid transparent; border-radius: var(--radius-round); background: transparent; color: var(--fg); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; }
+.inbox-snooze.snooze-menu .snooze-days button:not(:disabled):is(:hover, :focus-visible) { border-color: var(--fg); background: transparent; }
+.snooze-days button[aria-current="date"] { font-weight: 700; color: var(--accent-ink); }
+.inbox-snooze.snooze-menu .snooze-days button:disabled { color: var(--fg-quiet); cursor: default; opacity: 1; }
+.inbox-snooze.snooze-menu .snooze-month header button:disabled { color: var(--fg-quiet); opacity: 1; }

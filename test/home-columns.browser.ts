@@ -259,7 +259,7 @@ for (const [width, height] of [
     assert.equal(await reminders.getByRole("heading", { level: 2 }).textContent(), "Reminders 5 · 2 late");
     const groups = await reminders.getByRole("region").evaluateAll((nodes) => nodes.map((node) => node.ariaLabel));
     assert.deepEqual(groups, ["Late", "Today", "No date"]);
-    assert.deepEqual(await inbox.getByRole("button").allTextContents(), ["Review"]);
+    assert.deepEqual(await inbox.getByRole("button").allTextContents(), ["Snooze", "Drop"]);
     assert.deepEqual(await waiting.getByRole("button").allTextContents(), ["Wake"]);
     assert.equal(await page.getByRole("checkbox").count(), 0);
     assert.equal(await page.getByRole("button", { name: "Snooze selected" }).count(), 0);
@@ -493,7 +493,7 @@ test("An opened Inbox item shows beside Reminders over the middle and right colu
   const page = await openHome(t, 1440, 900);
   const reminders = page.getByRole("region", { name: "Reminders", exact: true });
   const inbox = page.getByRole("region", { name: "Inbox", exact: true });
-  await inbox.getByRole("button", { name: "Review" }).click();
+  await inbox.getByRole("link", { name: "Send your reply to the sample practice" }).click();
   const details = page.getByRole("region", { name: "Details for Send your reply to the sample practice" });
   await details.waitFor();
   const left = (await reminders.boundingBox()) ?? assert.fail("Reminders left the screen");
@@ -590,8 +590,7 @@ test("On a phone an opened item covers the screen, and Back returns to the list 
 test("Escape closes an opened Inbox item and focus returns to its row", async (t) => {
   const page = await openHome(t, 1440, 900);
   const inbox = page.getByRole("region", { name: "Inbox", exact: true });
-  const review = inbox.getByRole("button", { name: "Review" });
-  await review.click();
+  await inbox.getByRole("link", { name: "Send your reply to the sample practice" }).click();
   const details = page.getByRole("region", { name: "Details for Send your reply to the sample practice" });
   await details.waitFor();
   await page.mouse.click(5, 5);
@@ -615,7 +614,7 @@ test("In light mode at 1440x900 Home and an opened item draw light grounds with 
   );
   await page.reload();
   const inbox = page.getByRole("region", { name: "Inbox", exact: true });
-  await inbox.getByRole("button", { name: "Review" }).click();
+  await inbox.getByRole("link", { name: "Send your reply to the sample practice" }).click();
   const details = page.getByRole("region", { name: "Details for Send your reply to the sample practice" });
   await details.waitFor();
   assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), "light");

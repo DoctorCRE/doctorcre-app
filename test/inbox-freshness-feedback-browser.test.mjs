@@ -93,7 +93,7 @@ test('transient refresh failure retains readable cards, chosen focus and an open
   await opener.click();
   await focus(page);
   await page.getByRole('dialog').waitFor();
-  assert.equal(await page.getByRole('button', { name: /^1 hour/ }).evaluate(node => node === document.activeElement), true);
+  assert.equal(await page.getByRole('button', { name: /^Tomorrow/ }).evaluate(node => node === document.activeElement), true);
   await page.route('**/mcp', route => route.abort());
   await page.clock.runFor(60_000);
   await page.getByText('Update unavailable', { exact: false }).waitFor();
