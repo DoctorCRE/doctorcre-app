@@ -29,26 +29,3 @@ export async function loadEvidence(detail = {}) {
   const items = newestFirst(detail.email_threads.map(row => ({ title: emailSubject(row.subject), when: row.latest_message_at })), item => item.when);
   return { threads: { state: 'ready', count: items.length, items }, meetings };
 }
-
-export function renderCorrespondence(entries, waitingEmails = 0, { planTours = false } = {}) {
-  const heading = '<h3>Emails and meetings</h3>';
-  if (!Array.isArray(entries)) return `${heading}<p>Emails and meetings unavailable.</p><button class="btn" type="button" data-refresh-detail>Retry emails and meetings</button>`;
-  if (!entries.length) return waitingEmails
-    ? `${heading}<p>No emails or meetings filed yet. ${waitingEmails} email${waitingEmails === 1 ? ' is' : 's are'} waiting to be filed on Overview.</p>`
-    : `${heading}<p>No emails or meetings filed to this deal yet.</p>`;
-  return `<section class="correspondence-evidence" aria-label="Emails and meetings">${heading}
-    <ol class="evidence-timeline" role="list">${entries.map(entry => {
-      const meeting = entry.kind === 'meeting';
-      const title = meeting ? entry.title?.trim() || 'Untitled meeting' : emailSubject(entry.subject);
-      const context = meeting ? 'Meeting' : `Email · ${entry.sender_name || entry.sender || 'Unknown sender'}`;
-      const when = `<time datetime="${esc(entry.happened_at)}">${esc(sourceTime(entry.happened_at))}</time>`;
-      if (planTours && meeting && Array.isArray(entry.properties) && entry.properties.length) {
-        return `<li class="evidence-item"><details data-meeting-id="${esc(entry.activity_id)}"><summary data-detail-focus="meeting-${esc(entry.activity_id)}"><span>${esc(title)}</span>${when}</summary>
-          <ul aria-label="Visited properties">${entry.properties.map(({ name, address }) =>
-            `<li>${esc(name ? `${name}, ${address}` : address)}</li>`).join('')}</ul></details></li>`;
-      }
-      return `<li class="evidence-item"><b${meeting ? ' class="meeting-caption"' : ''}>${esc(title)}</b>
-        <div class="evidence-source">${esc(context)}</div>
-        ${when}</li>`;
-    }).join('')}</ol></section>`;
-}

@@ -360,14 +360,6 @@ test('countdown DOM follows upcoming to soon to today to overdue on Central days
  }
 });
 
-test('the timeline names a job author plainly', () => {
- const note = (actor, created_at) => ({ id: actor, kind: 'note', created_at, actor, text: 'Example note' });
- const entries = view.engineTimelineEntries({ thread: [
-  note('agent', '2026-01-05T18:00:00Z'), note('old_system', '2026-01-04T18:00:00Z'), note('intake', '2026-01-03T18:00:00Z'),
- ] });
- assert.deepEqual(entries.map(entry => entry.actor), ['Written by the assistant', 'Copied from the old system', 'Automatically']);
-});
-
 test('old deal history labels authors and facts in the words used on the deal page', () => {
  const cases = [
   ['update-deal', 'outcome', { outcome: 'lost' }, 'Outcome: Lost'],
@@ -418,8 +410,6 @@ test('a partner machine sign-in names the partner as an owner and reads as the a
    new_value: { lead: slug }, recorded_at: '2025-01-06T00:00:00Z' }])).window.document.querySelector('li');
   assert.equal(row.querySelector('b').textContent, 'Automatically', slug);
   assert.match(row.textContent, new RegExp(`Deal owner: ${name}`), slug);
-  const [live] = view.engineTimelineEntries({ thread: [{ id: slug, kind: 'note', created_at: '2026-01-05T18:00:00Z', actor: slug, text: 'Example note' }] });
-  assert.equal(live.actor, 'Automatically', slug);
   assert.equal(activityRows([{ actor: slug, verb: 'set-next-step', subject_type: 'lead', subject_id: 'l1', recorded_at: '2026-01-14T14:22:00Z' }])[0].actor,
    'Recorded actor', slug);
   const answer = { state: 'completed', match: { target: 'V-1' }, catch_up: { timeline: [{ actor: slug, occurred_at: '2026-09-18T15:30:00.000Z', verb: 'log-call' }] } };
@@ -484,9 +474,10 @@ test('one activity list keeps each thing once and leaves next steps on Overview'
   const folded = items.find(item => item.id === 'raw-mail');
   assert.equal(folded.title, 'The lease is signed. Pat Example');
   assert.equal(folded.title.includes('555-010-0100'), false);
-  assert.equal(folded.who, 'Written by the assistant');
+  assert.equal(folded.who, 'Pat Example');
   assert.equal(items.find(item => item.id === 'file').who, 'Mail filing');
   assert.equal(items.find(item => item.id === 'move').title, 'Moved to Legal');
+  assert.equal(items.find(item => item.id === 'move').who, 'Written by the assistant');
   assert.equal(items[0].id, 'move');
   assert.deepEqual(items.map(item => activityGroupLabel(item.day, activityNow, activityPorts)).filter((label, index, all) => all.indexOf(label) === index), [
     'This week', 'Earlier in November', 'October', 'January 2025', 'Date not recorded',
@@ -507,4 +498,59 @@ test('an empty engine read says nothing is recorded and a failed correspondence 
   assert.match(empty.html, /id="activityNote" name="text" rows="1" maxlength="10000" placeholder="Add a note"/);
   assert.ok(empty.html.indexOf('id="activityNoteForm"') < empty.html.indexOf('aria-label="Activity filter"'));
   assert.doesNotMatch(empty.html, /class="activity-row"[^>]*>[\s\S]*<button/);
+});
+
+test('activity-only emails show sender_name or sender before the filing actor', () => {
+  const items = activityItems({
+    correspondence: [],
+    activities: [
+      {
+        id: 'named-mail', kind: 'email', summary: 'Sent the revised LOI',
+        sender_name: 'Pat Example', sender: 'pat@example.com', actor: 'joe', occurred_at: '2026-11-17T18:00:00Z',
+      },
+      {
+        id: 'address-mail', kind: 'email', summary: 'Follow-up on tenant allowance',
+        sender: 'sam@example.com', actor: 'joe', occurred_at: '2026-11-17T17:00:00Z',
+      },
+      {
+        id: 'actor-only-mail', kind: 'email', summary: 'Filed without sender metadata',
+        actor: 'joe', occurred_at: '2026-11-17T16:00:00Z',
+      },
+    ],
+  }, { now: activityNow, fold: foldEmailBody, ports: activityPorts });
+  assert.equal(items.find(item => item.id === 'named-mail').who, 'Pat Example');
+  assert.equal(items.find(item => item.id === 'address-mail').who, 'sam@example.com');
+  assert.equal(items.find(item => item.id === 'actor-only-mail').who, 'Joe');
+});
+
+test('refreshing Activity keeps an empty chosen filter and shows its empty line', () => {
+  const detail = {
+    correspondence: [
+      { kind: 'email', activity_id: 'mail-1', subject: 'Example suite floor plan', sender_name: 'Example Broker', happened_at: '2026-11-17T21:00:00Z' },
+    ],
+    imported_deal_history: [
+      { id: 'old-1', imported: true, actor: 'joe', verb: 'new-deal', field: null, new_value: { deal_type: 'lease', reason: 'Renewal' }, recorded_at: '2025-01-06T00:00:00Z' },
+    ],
+    email_follow_ups: [],
+  };
+  const rendered = renderDealActivity(detail, { now: activityNow, filter: 'documents', ports: activityPorts });
+  assert.equal(rendered.filter, 'documents');
+  const doc = new JSDOM(rendered.html).window.document;
+  assert.equal(doc.querySelector('[data-activity-filter="documents"]').getAttribute('aria-pressed'), 'true');
+  assert.equal(doc.querySelector('[data-activity-filter="all"]').getAttribute('aria-pressed'), 'false');
+  assert.ok([...doc.querySelectorAll('[data-activity-group]')].every(group => group.hidden));
+  const empty = doc.querySelector('.activity-empty');
+  assert.equal(empty.hidden, false);
+  assert.equal(empty.textContent, 'No documents.');
+
+  const emailsOnly = renderDealActivity(detail, { now: activityNow, filter: 'emails', ports: activityPorts });
+  const emailsDoc = new JSDOM(emailsOnly.html).window.document;
+  assert.deepEqual(
+    [...emailsDoc.querySelectorAll('[data-activity-group]:not([hidden]) h3')].map(heading => heading.textContent),
+    ['This week'],
+  );
+  assert.equal(emailsDoc.querySelector('.activity-empty').hidden, true);
+
+  const fallback = renderDealActivity(detail, { now: activityNow, filter: 'unknown', ports: activityPorts });
+  assert.equal(fallback.filter, 'all');
 });

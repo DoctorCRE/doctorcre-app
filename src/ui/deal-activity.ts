@@ -76,6 +76,18 @@ function text(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
+function values(list: readonly Record<string, unknown>[], key: string): Set<string> {
+  return new Set(
+    list.flatMap((item) => {
+      const value = text(item[key]);
+      return value ? [value] : [];
+    }),
+  );
+}
+
+const knownFilter = (filter: string | undefined): string =>
+  filter && FILTERS.some(([id]) => id === filter) ? filter : "all";
+
 function weekStart(day: string): string {
   const date = new Date(`${day}T12:00:00Z`);
   date.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7));
@@ -151,26 +163,11 @@ export function activityItems(
   const { ports } = options;
   const planTours = options.planTours ?? false;
   const notes = rows(source.thread);
-  const noteIds = new Set(
-    notes.flatMap((note) => {
-      const id = text(note.id);
-      return id ? [id] : [];
-    }),
-  );
+  const noteIds = values(notes, "id");
   const correspondence = rows(source.correspondence);
-  const correspondenceIds = new Set(
-    correspondence.flatMap((entry) => {
-      const id = text(entry.activity_id);
-      return id ? [id] : [];
-    }),
-  );
+  const correspondenceIds = values(correspondence, "activity_id");
   const activities = rows(source.activities);
-  const activityIds = new Set(
-    activities.flatMap((activity) => {
-      const id = text(activity.id);
-      return id ? [id] : [];
-    }),
-  );
+  const activityIds = values(activities, "id");
   const activityActors = new Map(
     activities.flatMap((activity) => {
       const id = text(activity.id);
@@ -178,18 +175,8 @@ export function activityItems(
     }),
   );
   const documents = rows(source.documents);
-  const documentIds = new Set(
-    documents.flatMap((file) => {
-      const id = text(file.id);
-      return id ? [id] : [];
-    }),
-  );
-  const documentNames = new Set(
-    documents.flatMap((file) => {
-      const name = text(file.name);
-      return name ? [name] : [];
-    }),
-  );
+  const documentIds = values(documents, "id");
+  const documentNames = values(documents, "name");
   const items: ActivityItem[] = [];
   for (const note of notes) {
     push(
@@ -234,7 +221,7 @@ export function activityItems(
     if (id && (correspondenceIds.has(id) || noteIds.has(id))) continue;
     const raw = ports.noteText(activity.summary).trim() || ports.noteText(activity.detail);
     const email = text(activity.kind) === "email";
-    const sender = text(activity.sender) ?? text(activity.sender_name);
+    const sender = text(activity.sender_name)?.trim() || text(activity.sender)?.trim() || null;
     const cleaned = email && raw ? fold(raw, sender).text : raw;
     const kind = text(activity.kind);
     push(
@@ -243,7 +230,7 @@ export function activityItems(
         id,
         filter: email ? "emails" : kind && CALLS.has(kind) ? "calls" : "changes",
         when: activity.occurred_at,
-        who: ports.timelineActor(activity.actor),
+        who: email ? sender || ports.timelineActor(activity.actor) : ports.timelineActor(activity.actor),
         title: cleaned,
       },
       now,
@@ -344,7 +331,7 @@ function groups(items: ActivityItem[], now: Date, ports: ActivityPorts): { label
 }
 
 export function showActivityFilter(root: ParentNode, filter: string): string {
-  const chosen = FILTERS.some(([id]) => id === filter) ? filter : "all";
+  const chosen = knownFilter(filter);
   for (const chip of root.querySelectorAll<HTMLElement>("[data-activity-filter]")) {
     chip.setAttribute("aria-pressed", String(chip.dataset.activityFilter === chosen));
   }
@@ -380,8 +367,8 @@ export function renderDealActivity(
   const { ports } = options;
   const esc = ports.escapeText;
   const items = activityItems(detail, options);
-  const requested = options.filter ?? "all";
-  const selected = requested !== "all" && items.some((item) => item.filter === requested) ? requested : "all";
+  const selected = knownFilter(options.filter);
+  const anyVisible = selected === "all" ? items.length > 0 : items.some((item) => item.filter === selected);
   const source = record(detail);
   const known = Array.isArray(source?.correspondence);
   const waiting = known ? rows(source?.email_follow_ups).filter((row) => row.kind === "file_to_deal").length : 0;
@@ -393,22 +380,22 @@ export function renderDealActivity(
   const note = options.note ?? "";
   const canNote = options.canNote ?? true;
   const body = groups(items, now, ports)
-    .map(
-      (group) =>
-        `<section data-activity-group><h3>${esc(group.label)}</h3><ol>${group.items
-          .map((item) => {
-            const who = item.who ? `<span>${esc(item.who)}</span>` : "";
-            const when = item.caption ? `<span>${esc(item.caption)}</span>` : "";
-            const meta = who && when ? `${who} · ${when}` : who || when;
-            const hidden = selected !== "all" && item.filter !== selected;
-            return `<li class="activity-row" data-activity-kind="${item.filter}"${hidden ? " hidden" : ""}><span class="activity-title">${link(item.title)}</span><span class="activity-meta">${meta}</span></li>`;
-          })
-          .join("")}</ol></section>`,
-    )
+    .map((group) => {
+      const groupHidden = !group.items.some((item) => selected === "all" || item.filter === selected);
+      return `<section data-activity-group${groupHidden ? " hidden" : ""}><h3>${esc(group.label)}</h3><ol>${group.items
+        .map((item) => {
+          const who = item.who ? `<span>${esc(item.who)}</span>` : "";
+          const when = item.caption ? `<span>${esc(item.caption)}</span>` : "";
+          const meta = who && when ? `${who} · ${when}` : who || when;
+          const hidden = selected !== "all" && item.filter !== selected;
+          return `<li class="activity-row" data-activity-kind="${item.filter}"${hidden ? " hidden" : ""}><span class="activity-title">${link(item.title)}</span><span class="activity-meta">${meta}</span></li>`;
+        })
+        .join("")}</ol></section>`;
+    })
     .join("");
   const emptyLine =
     known || items.length
-      ? `<p class="activity-empty"${items.length ? " hidden" : ""}${waitingLine ? ' data-waiting="true"' : ""}>${esc(waitingLine || EMPTY_LINE.get(selected) || "")}</p>`
+      ? `<p class="activity-empty"${anyVisible ? " hidden" : ""}${waitingLine ? ' data-waiting="true"' : ""}>${esc(waitingLine || EMPTY_LINE.get(selected) || "")}</p>`
       : "";
   const html = `<div class="deal-activity" data-detail-read="activity"><h2>Activity</h2>
     <form id="activityNoteForm" class="activity-note"><label class="sr-only" for="activityNote">Note</label><textarea id="activityNote" name="text" rows="1" maxlength="10000" placeholder="Add a note"${canNote ? "" : " disabled"}>${esc(note)}</textarea><button class="btn" type="submit"${canNote ? "" : " disabled"}>Add note</button><p id="activityNoteStatus" role="status"></p></form>
