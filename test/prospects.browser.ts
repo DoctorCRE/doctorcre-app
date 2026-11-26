@@ -781,7 +781,7 @@ test("partners see and manage prospects from Deals", async (t) => {
       assert.equal(await birchDetail.count(), 0);
       await page.getByRole("tab", { name: "Activity" }).click();
       const dealNote = page
-        .getByRole("region", { name: "Deal notes" })
+        .getByRole("tabpanel", { name: "Activity" })
         .getByText("Edited before saving", { exact: true });
       await dealNote.waitFor();
       assert.equal(await dealNote.count(), 1);

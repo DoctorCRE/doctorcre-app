@@ -439,6 +439,7 @@ function activitySample() {
     thread: [
       { id: 'copied-note', kind: 'note', text: 'Tour plans confirmed', actor: 'dell', created_at: '2026-11-17T20:00:00Z' },
       { id: 'older-note', kind: 'note', text: 'Recorded next step', actor: 'joe', created_at: '2025-01-03T10:00:00.000002Z' },
+      { id: 'undated-note', kind: 'note', text: 'Note without a time', actor: 'joe' },
     ],
     correspondence: [
       { kind: 'email', activity_id: 'mail-1', subject: 'Example suite floor plan', sender_name: 'Example Broker', happened_at: '2026-11-17T21:00:00Z' },
@@ -451,7 +452,10 @@ function activitySample() {
       { id: 'call-1', kind: 'call', summary: 'Called the landlord', occurred_at: '2026-11-15T16:00:00Z', actor: 'joe' },
     ],
     documents: [{ id: 'file', name: 'Example plan.pdf', actor: 'mail_capture', prepared_at: '2026-11-16T14:00:00Z' }],
-    next_actions: [{ id: 'step', description: 'Check the floor plan', status: 'open', actor: 'joe', updated_at: '2026-11-17T18:00:00Z' }],
+    next_actions: [
+      { id: 'step', description: 'Check the floor plan', status: 'open', actor: 'joe', updated_at: '2026-11-17T18:00:00Z' },
+      { id: 'done-step', description: 'Send the sample plan', status: 'done', actor: 'joe', updated_at: '2026-11-17T18:30:00Z', due_on: '2026-11-24' },
+    ],
     critical_dates: [{ id: 'due', kind: 'due_diligence', status: 'open', due_on: '2026-11-19', actor: 'dell', updated_at: '2026-11-17T19:00:00Z' }],
     history: [
       { id: 'copied-event', activity_id: 'copied-note', field: 'note', new_value: 'Tour plans confirmed', actor: 'dell', recorded_at: '2026-11-17T20:00:01Z' },
@@ -472,6 +476,9 @@ test('one activity list keeps each thing once and leaves next steps on Overview'
   assert.equal(titles.filter(title => title === 'Example plan.pdf').length, 1);
   assert.equal(titles.filter(title => title === 'Tour plans confirmed').length, 1);
   assert.equal(titles.includes('Check the floor plan'), false);
+  assert.equal(titles.includes('Send the sample plan · Done · Due Nov 24, 2026'), true);
+  assert.equal(items.at(-1).title, 'Note without a time');
+  assert.equal(items.at(-1).caption, 'Date not recorded');
   assert.equal(titles.some(title => title.startsWith('Due diligence')), false);
   assert.equal(titles.includes('Called the landlord'), true);
   const folded = items.find(item => item.id === 'raw-mail');
@@ -482,7 +489,7 @@ test('one activity list keeps each thing once and leaves next steps on Overview'
   assert.equal(items.find(item => item.id === 'move').title, 'Moved to Legal');
   assert.equal(items[0].id, 'move');
   assert.deepEqual(items.map(item => activityGroupLabel(item.day, activityNow, activityPorts)).filter((label, index, all) => all.indexOf(label) === index), [
-    'This week', 'Earlier in November', 'October', 'January 2025',
+    'This week', 'Earlier in November', 'October', 'January 2025', 'Date not recorded',
   ]);
 });
 

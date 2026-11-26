@@ -3138,7 +3138,7 @@ for (const width of [1440, 390]) {
       await page.getByRole('link', { name: row.name }).click();
       await page.getByText('Add step', { exact: true }).click();
       await page.getByText('Add a note', { exact: true }).click();
-      await page.getByLabel('Note', { exact: true }).fill('Example deal page update');
+      await page.getByRole('tabpanel', { name: 'Overview', exact: true }).getByLabel('Note', { exact: true }).fill('Example deal page update');
       const localStep = page.getByLabel('Your next step', { exact: true });
       assert.equal(await localStep.inputValue(), 'Send the revised plan');
       await localStep.fill('Send the final plan');
@@ -3227,14 +3227,14 @@ for (const width of [1440, 390]) test(`the deal shows its emails and meetings to
   readsOn = true;
   await page.reload();
   await tab.click();
-  const filed = panel.locator('[data-detail-read="correspondence"]');
-  await filed.getByText('Example Architect', { exact: false }).waitFor({ timeout: 5_000 });
-  const rows = filed.getByRole('listitem');
-  assert.equal(await rows.count(), 3);
+  const rows = panel.locator('.activity-row');
+  await rows.nth(0).getByText('Example Architect', { exact: false }).waitFor({ timeout: 5_000 });
+  assert.equal(await rows.count(), 5);
   assert.match(await rows.nth(0).innerText(), /Floor plan <draft>[\s\S]*Example Architect[\s\S]*Nov 19, 11:30 AM/);
   assert.match(await rows.nth(1).innerText(), /^Review the floor plan[\s\S]*Nov 19, 10:00 AM/);
   assert.match(await rows.nth(2).innerText(), /Floor plan <draft>[\s\S]*plans@example\.test[\s\S]*Nov 18, 9:00 AM/);
-  assert.equal(await panel.getByRole('region', { name: 'Deal notes' }).getByText('Bring the sample plan').count(), 1);
+  assert.equal(await panel.getByText('Bring the sample plan', { exact: true }).count(), 1);
+  assert.equal(await panel.getByText(callSummary, { exact: true }).count(), 1);
   assert.equal(await page.getByText('File email to this deal', { exact: true }).count(), 0);
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   await panel.screenshot({ path: join(evidence, `deal-correspondence-${width}.png`) });
@@ -3246,9 +3246,11 @@ for (const width of [1440, 390]) test(`the deal shows its emails and meetings to
     assert.equal(await overview.getByText(text, { exact: true }).count(), 0, `Overview shows ${text}`);
   }
   await tab.click();
+  thread.length = 0;
+  activities.length = 0;
   entries = [];
   await page.getByRole('button', { name: 'Refresh deal', exact: true }).click();
-  await panel.getByText('No emails or meetings filed to this deal yet.', { exact: true }).waitFor();
+  await panel.getByText('Nothing recorded yet.', { exact: true }).waitFor();
   assert.equal(await rows.count(), 0);
   waiting = [{ proposal_id: crypto.randomUUID(), kind: 'file_to_deal', email: { subject: '' } }];
   await page.getByRole('button', { name: 'Refresh deal', exact: true }).click();

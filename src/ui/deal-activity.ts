@@ -81,7 +81,14 @@ function monthName(day: string): string {
   return new Date(`${day}T12:00:00Z`).toLocaleDateString("en-US", { month: "long", timeZone: "UTC" });
 }
 
+const ENDED_STEPS = new Map([
+  ["done", "Done"],
+  ["cancelled", "Cancelled"],
+  ["expired", "Expired"],
+]);
+
 export function activityGroupLabel(day: string, now: Date, ports: ActivityPorts): string {
+  if (!day) return "Date not recorded";
   const today = ports.businessDay(now);
   if (weekStart(day) === weekStart(today)) return "This week";
   const [year, month] = day.split("-");
@@ -123,10 +130,15 @@ function push(
   row: { id: string; filter: string; when: unknown; who: string; title: string },
   now: Date,
   ports: ActivityPorts,
+  undated = false,
 ): void {
-  const stamp = stamped(row.when, now, ports);
   const title = oneLine(row.title);
-  if (!stamp || !title) return;
+  if (!title) return;
+  const stamp = stamped(row.when, now, ports);
+  if (!stamp) {
+    if (undated) items.push({ ...row, title, when: "", day: "", caption: "Date not recorded" });
+    return;
+  }
   items.push({ ...row, ...stamp, title });
 }
 
@@ -179,6 +191,7 @@ export function activityItems(
       },
       now,
       ports,
+      true,
     );
   }
   for (const entry of correspondence) {
@@ -232,6 +245,26 @@ export function activityItems(
         when: file.prepared_at,
         who: ports.timelineActor(file.actor),
         title: name,
+      },
+      now,
+      ports,
+    );
+  }
+  for (const step of rows(source.next_actions)) {
+    const status = ENDED_STEPS.get(text(step.status) ?? "");
+    const name = text(step.title) || text(step.description);
+    if (!status || !name) continue;
+    const due = text(step.due_on);
+    const updated = text(step.updated_at);
+    const dueLabel = updated && due && ports.calendarDay(due) ? `Due ${ports.dateCaption(due)}` : "";
+    push(
+      items,
+      {
+        id: text(step.id) ?? "",
+        filter: "changes",
+        when: step.updated_at ?? step.due_on,
+        who: ports.timelineActor(step.actor),
+        title: [name, status, dueLabel].filter(Boolean).join(" · "),
       },
       now,
       ports,
@@ -349,9 +382,11 @@ export function renderDealActivity(
       (group) =>
         `<section data-activity-group><h3>${esc(group.label)}</h3><ol>${group.items
           .map((item) => {
-            const meta = [item.who, item.caption].filter(Boolean).join(" · ");
+            const who = item.who ? `<span>${esc(item.who)}</span>` : "";
+            const when = item.caption ? `<span>${esc(item.caption)}</span>` : "";
+            const meta = who && when ? `${who} · ${when}` : who || when;
             const hidden = selected !== "all" && item.filter !== selected;
-            return `<li class="activity-row" data-activity-kind="${item.filter}"${hidden ? " hidden" : ""}><span class="activity-title">${link(item.title)}</span><span class="activity-meta">${esc(meta)}</span></li>`;
+            return `<li class="activity-row" data-activity-kind="${item.filter}"${hidden ? " hidden" : ""}><span class="activity-title">${link(item.title)}</span><span class="activity-meta">${meta}</span></li>`;
           })
           .join("")}</ol></section>`,
     )
