@@ -107,7 +107,35 @@ const lead = (n: number, fields: Record<string, unknown> = {}) => ({
 });
 const leads = [lead(1, { new_from_email: true }), lead(2), lead(3, { new_from_email: true }), lead(4)];
 
-async function openHome(t: TestContext, width: number, height: number, tours: unknown[] = []) {
+const deal = (n: number, phase: string, fields: Record<string, unknown> = {}) => ({
+  id: id(100 + n),
+  name: `Example Deal ${n}`,
+  phase,
+  owner: "joe",
+  attention: false,
+  operating_state: "active",
+  workspace_kind: "team",
+  next_step_required: false,
+  open_actions: [{ id: id(200 + n), owner: "joe", due_on: "2026-12-04", description: "Call the landlord" }],
+  ...fields,
+});
+const deals = [
+  deal(1, "Research", { open_actions: [{ id: id(201), owner: "joe", due_on: "2026-11-22", description: "Call" }] }),
+  deal(2, "Legal", { attention: true, next_step_required: true, open_actions: [] }),
+  deal(3, "Legal"),
+  deal(4, "Research", { operating_state: "parked", attention: true }),
+];
+const criticalDate = (n: number, due_on: string) => ({
+  id: id(300 + n),
+  deal_id: id(101),
+  deal_name: "Example Deal 1",
+  kind: "Due diligence ends",
+  due_on,
+  done: false,
+});
+const comingUpDates = [criticalDate(1, "2026-11-27"), criticalDate(2, today), criticalDate(3, "2026-12-10")];
+
+async function openHome(t: TestContext, width: number, height: number, tours: unknown[] = [], dates = comingUpDates) {
   const browser = await chromium.launch();
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width, height }, timezoneId: "America/Chicago" });
@@ -153,8 +181,15 @@ async function openHome(t: TestContext, width: number, height: number, tours: un
         },
       }),
     );
+  await page.route("**/api/engine/weekly-reviews?week_of=2026-11-23", (route) =>
+    route.fulfill({ json: { items: [{ reviewed: { by: "joe" } }, { reviewed: null }] } }),
+  );
+  await page.route("**/api/engine/calendar/critical-dates", (route) =>
+    route.fulfill({ json: { schema_version: "calendar-critical-dates.v1", critical_dates: dates } }),
+  );
   await page.route("**/mcp", async (route) => {
     const call = route.request().postDataJSON();
+    const board = call.params.name === "deal-room-board" && { board_from_engine: true, deals };
     const payload =
       call.params.name === "lead-board"
         ? { schema_version: "lead-workspace.v1", generated_at: "2026-11-25T15:00:00Z", leads }
@@ -168,11 +203,16 @@ async function openHome(t: TestContext, width: number, height: number, tours: un
             tasks_created: false,
           };
     await route.fulfill({
-      json: { jsonrpc: "2.0", id: call.id, result: { content: [{ type: "text", text: JSON.stringify(payload) }] } },
+      json: {
+        jsonrpc: "2.0",
+        id: call.id,
+        result: { content: [{ type: "text", text: JSON.stringify(board || payload) }] },
+      },
     });
   });
   await page.goto(`${server.origin}/?mode=live`);
   await page.getByRole("region", { name: "Reminders", exact: true }).waitFor();
+  await page.waitForFunction(() => !document.querySelector(".home-placeholder"));
   return page;
 }
 
@@ -195,18 +235,19 @@ for (const [width, height] of [
     assert.equal(await page.getByRole("checkbox").count(), 0);
     assert.equal(await page.getByRole("button", { name: "Snooze selected" }).count(), 0);
     const box = async (tile: typeof inbox) => (await tile.boundingBox()) ?? assert.fail("tile is not drawn");
-    const [left, middle, below, right, leadsLine] = [
-      await box(reminders),
-      await box(inbox),
-      await box(waiting),
-      await box(meetings),
-      await box(page.getByRole("region", { name: "Leads", exact: true })),
-    ];
+    const region = (name: string) => box(page.getByRole("region", { name, exact: true }));
+    const [left, middle, below] = [await box(reminders), await box(inbox), await box(waiting)];
+    const right = await box(meetings);
+    const leadsLine = await region("Leads");
+    const column = [right, await region("Deals"), await region("Coming up"), leadsLine];
     assert.ok(left.x + left.width <= middle.x && middle.x + middle.width <= right.x, "three columns, left to right");
     assert.ok(Math.abs(below.x - middle.x) < 1 && below.y >= middle.y + middle.height, "waiting sits under Inbox");
     assert.ok(
-      Math.abs(leadsLine.x - right.x) < 1 && leadsLine.y >= right.y + right.height,
-      "Leads sits under the meetings",
+      column.every((next, i) => {
+        const above = column[i - 1];
+        return Math.abs(next.x - right.x) < 1 && (!above || next.y >= above.y + above.height);
+      }),
+      "meetings, Deals, Coming up and Leads stack in the right column",
     );
     assert.ok(leadsLine.y + leadsLine.height <= height, "Leads is on the first screen");
     assert.equal(
@@ -242,7 +283,15 @@ test("On a phone Today's meetings comes first, Leads after Inbox, and In motion 
       .sort((a, b) => a.top - b.top)
       .map(({ name }) => name),
   );
-  assert.deepEqual(tiles, ["Today's meetings", "Reminders", "Inbox", "Leads", "In motion and waiting"]);
+  assert.deepEqual(tiles, [
+    "Today's meetings",
+    "Reminders",
+    "Inbox",
+    "Deals",
+    "Coming up",
+    "Leads",
+    "In motion and waiting",
+  ]);
 });
 
 test("The Leads line counts new and late leads and opens Leads", async (t) => {
@@ -293,3 +342,52 @@ for (const [width, height] of [
     assert.equal(drawn.titleText, "Example Dental · 3 stops");
     assert.equal(drawn.titleCut, false, "the title is not cut off");
   });
+
+test("Deals counts the board's open deals and Coming up lists the next 14 days, each opening what it counts", async (t) => {
+  const page = await openHome(t, 1440, 900);
+  const tile = page.getByRole("region", { name: "Deals", exact: true });
+  assert.equal(await tile.getByRole("heading", { level: 2 }).textContent(), "Deals 3 open");
+  assert.equal(await tile.getByRole("link", { name: "3 open", exact: true }).getAttribute("href"), "/deals");
+  const link = (name: string) => tile.getByRole("link", { name, exact: true }).getAttribute("href");
+  assert.equal(await link("Research 1"), "/deals?column=research");
+  assert.equal(await link("Example Deal 1 Step 3 days late"), `/deals?deal=${id(101)}`);
+  assert.equal(await link("Example Deal 2 Flagged by a partner"), `/deals?deal=${id(102)}`);
+  assert.equal(await link("1 has no next step"), "/deals?view=list&filter=no-next-step");
+  assert.equal(await link("Monday review 1 of 2"), "/deals?view=review");
+  const comingUp = page.getByRole("region", { name: "Coming up", exact: true });
+  assert.deepEqual(await comingUp.getByRole("link").allTextContents(), [
+    "2",
+    "Wed, Nov 25Due diligence ends · Example Deal 1",
+    "Fri, Nov 27Due diligence ends · Example Deal 1",
+  ]);
+  assert.equal(await comingUp.getByRole("link", { name: "2", exact: true }).getAttribute("href"), "/calendar");
+  assert.equal(await comingUp.getByRole("link").nth(1).getAttribute("href"), `/calendar?day=${today}`);
+});
+
+test("At 1280x640 the attention list and Coming up fold to one line each that opens in place", async (t) => {
+  const page = await openHome(t, 1280, 640);
+  const tile = page.getByRole("region", { name: "Deals", exact: true });
+  assert.equal(
+    await tile
+      .getByRole("link", { name: /^Example Deal/ })
+      .first()
+      .isVisible(),
+    false,
+  );
+  await tile.getByRole("button", { name: "2 need attention" }).click();
+  await tile.getByRole("link", { name: "Example Deal 2 Flagged by a partner" }).waitFor();
+  await page.getByRole("button", { name: "Coming up 2 dates in the next 14 days" }).click();
+  await page.getByRole("link", { name: /Fri, Nov 27/ }).waitFor();
+});
+
+test("Coming up is not drawn when no open deal has a date in the next 14 days", async (t) => {
+  const page = await openHome(
+    t,
+    1440,
+    900,
+    [],
+    [criticalDate(4, "2026-12-10"), { ...criticalDate(5, today), done: true }],
+  );
+  assert.equal(await page.getByRole("region", { name: "Coming up", exact: true }).count(), 0);
+  assert.equal(await page.getByText("Coming up").count(), 0);
+});

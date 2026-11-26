@@ -62,6 +62,7 @@ const dom = {
   scopeSwitch: document.querySelector("#scopeSwitch"),
   scopeNote: document.querySelector("#scopeNote"),
   reset: document.querySelector("#resetFilters"),
+  quiet: document.querySelector("#quietVendors"),
   chips: document.querySelector("#chipBar"),
   notices: document.querySelector("#noticeRegion"),
   summary: document.querySelector("#resultSummary"),
@@ -113,43 +114,31 @@ view.sessionGeneration = 0;
 view.panelState = null;
 let vendorMeetings = null;
 let vendorMeetingsHost = null;
-let quietVendors = null;
-let quietVendorsHost = null;
-let quietVendorsGeneration = 0;
+let vendorMeetingsGeneration = 0;
 
-function clearQuietVendors() {
+function clearVendorMeetings() {
+  vendorMeetingsGeneration++;
   vendorMeetings?.dispose();
   vendorMeetings = null;
   vendorMeetingsHost?.remove();
   vendorMeetingsHost = null;
-  quietVendorsGeneration++;
-  quietVendors?.dispose();
-  quietVendors = null;
-  quietVendorsHost?.remove();
-  quietVendorsHost = null;
 }
 
-async function syncQuietVendors() {
-  if (view.dataset !== 'vendors' || view.signedOut) { clearQuietVendors(); return; }
-  if (quietVendorsHost) { quietVendors?.update(); return; }
-  const generation = ++quietVendorsGeneration;
+async function syncVendorMeetings() {
+  if (view.dataset !== 'vendors' || view.signedOut) { clearVendorMeetings(); return; }
+  if (vendorMeetingsHost) return;
+  const generation = ++vendorMeetingsGeneration;
   const host = document.createElement('div');
-  quietVendorsHost = host;
+  vendorMeetingsHost = host;
+  host.className = 'vendor-meetings-host';
   host.setAttribute('data-panel-background', '');
-  host.className = 'quiet-vendors-host';
-  document.querySelector('.search-dock').after(host);
+  dom.listRegion.closest(".business-body").after(host);
   try {
-    const { mountQuietVendors } = await import('./ui-quiet-vendors.generated.js');
-    if (generation !== quietVendorsGeneration) return;
     const { mountVendorMeetings } = await import('./ui-vendor-meetings.generated.js');
     const { createMcpRequests } = await import('./mcp-requests.mjs');
-    if (generation !== quietVendorsGeneration) return;
-    vendorMeetingsHost = document.createElement('div');
-    vendorMeetingsHost.className = 'vendor-meetings-host';
-    vendorMeetingsHost.setAttribute('data-panel-background', '');
-    dom.listRegion.closest(".business-body").after(vendorMeetingsHost);
+    if (generation !== vendorMeetingsGeneration) return;
     const requestMeetings = createMcpRequests();
-    vendorMeetings = mountVendorMeetings(vendorMeetingsHost, {
+    vendorMeetings = mountVendorMeetings(host, {
       nameLabel: withoutRecordCodes,
       phoneLabel,
       timeLabel: formatMoment,
@@ -165,20 +154,8 @@ async function syncQuietVendors() {
         navigate(`${url.pathname}${url.search}`);
       },
     });
-    quietVendors = mountQuietVendors(host, {
-      load: async () => {
-        const { createLeadBoardClient } = await import('./leads-client.js');
-        return createLeadBoardClient().getQuietFollowUps();
-      },
-      href: id => viewHref(view.query, id),
-      open: (href, returnFocusId) => {
-        view.returnFocusId = returnFocusId;
-        const url = new URL(href, window.location.href);
-        navigate(`${url.pathname}${url.search}`);
-      },
-    });
   } catch {
-    if (generation === quietVendorsGeneration) host.textContent = 'Quiet vendor follow-ups unavailable.';
+    if (generation === vendorMeetingsGeneration) host.textContent = 'People worth meeting is unavailable.';
   }
 }
 
@@ -321,6 +298,8 @@ function renderControls({ syncSearch = false } = {}) {
     }
   }
   document.querySelector('#territoryField').hidden = dataset !== 'vendors';
+  dom.quiet.hidden = dataset !== 'vendors';
+  dom.quiet.setAttribute('aria-pressed', String(query.quiet === 'true'));
   const territory = document.querySelector('#territoryInput');
   if (document.activeElement !== territory) territory.value = query.territory || '';
   document.querySelector('[data-vendor-sort]').hidden = dataset !== 'vendors';
@@ -869,7 +848,7 @@ async function loadActivity(id, record) {
  * generations — and repaints as signed out.
  */
 function expireNow() {
-  clearQuietVendors();
+  clearVendorMeetings();
   pageDocContext?.clear();
   view.sessionGeneration++;
   view.panelState = null;
@@ -1045,8 +1024,7 @@ function applyLocation({ reason = "initial", restoreScroll = null } = {}) {
   view.dataset = parsed.dataset;
   view.query = parsed.query;
   view.recordId = parsed.recordId;
-  if (datasetChanged) { clearQuietVendors(); showDirectoryView("list"); }
-  quietVendors?.update();
+  if (datasetChanged) { clearVendorMeetings(); showDirectoryView("list"); }
   document.title = `${DATASET_LABEL[parsed.dataset]} · DoctorCRE`;
   if (dom.footer) dom.footer.textContent = `DoctorCRE · ${DATASET_LABEL[parsed.dataset]}`;
   if (dom.resultsTitle) dom.resultsTitle.textContent = DATASET_LABEL[parsed.dataset];
@@ -1064,8 +1042,8 @@ function applyLocation({ reason = "initial", restoreScroll = null } = {}) {
 
   // Opening or closing a record never re-reads the list, so the reader's place,
   // scroll and rows survive the panel.
-  if (queryChanged) void loadList(reason === "navigate" ? "navigate" : "history").then(syncQuietVendors);
-  else { renderList(); void syncQuietVendors(); }
+  if (queryChanged) void loadList(reason === "navigate" ? "navigate" : "history").then(syncVendorMeetings);
+  else { renderList(); void syncVendorMeetings(); }
 
   if (recordChanged) {
     if (parsed.recordId) {
@@ -1139,6 +1117,7 @@ function wireControls() {
     });
   }
   dom.reset?.addEventListener("click", () => navigate(viewHref(defaultQuery(view.dataset), view.recordId)));
+  dom.quiet?.addEventListener("click", () => updateQuery({ quiet: view.query.quiet ? "" : "true" }));
   directoryViews.forEach(button => button.addEventListener("click", () => showDirectoryView(button.dataset.directoryView)));
 
   scopeButtons.forEach((button) => {

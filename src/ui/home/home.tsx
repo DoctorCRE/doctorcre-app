@@ -5,7 +5,9 @@ import { BrowserRouter, Link, Route, Routes, useLocation, useParams } from "reac
 import { showToast } from "../../../js/toast.js";
 import type { DocLinkRequest } from "../doc-link";
 import { HomeWatchDetail } from "../watches/home-detail.tsx";
+import { ComingUpTile } from "./coming-up-tile";
 import { readDashboard } from "./dashboard-read";
+import { DealsTile } from "./deals-tile";
 import { createDraftEdits, type DraftEdits, type PrivateReplyDraft } from "./draft-edits.ts";
 import { DropReason } from "./drop-reason.tsx";
 import { type MarkUndo, markTarget, restoreMark } from "./engine-marks.ts";
@@ -1363,6 +1365,8 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
           <div className="home-column home-side">
             {engineHome && meetings.isPending && <PlaceholderTile />}
             {meetings.data && <TodayMeetings data={meetings.data} today={meetingDay} />}
+            {engineHome && <DealsTile />}
+            {engineHome && <ComingUpTile />}
             {engineHome && <LeadsLine />}
           </div>
         </HomeGrid>

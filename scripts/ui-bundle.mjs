@@ -53,7 +53,6 @@ export const UI_ENTRIES = {
   'ui-lead-research': 'lead-research',
   'ui-lead': 'lead-guidance',
   'ui-ideal-client-profile': 'ideal-client-profile',
-  'ui-quiet-vendors': 'quiet-vendors',
   'ui-vendor-meetings': 'vendor-meetings',
   'ui-deal-prospects': 'deal-prospects',
   'ui-deal-documents': 'deal-documents',
