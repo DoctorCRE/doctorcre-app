@@ -24,6 +24,7 @@
 //     one, and they are never allowed to collapse into each other.
 import { PREFERENCES_KEY } from "./shell.js";
 import { isCalendarDay } from './calendar-model.js';
+import { partnerName } from "./visual-system.js";
 
 /* -------------------------------------------------- the producer's own numbers */
 
@@ -270,7 +271,7 @@ function dealRow(row) {
     name: row.name,
     facts: Object.freeze([
       row.phase === null ? null : { label: "Phase", value: row.phase },
-      { label: "Owner", value: row.owner === null ? "no owner recorded" : row.owner },
+      { label: "Owner", value: row.owner === null ? "no owner recorded" : partnerName(row.owner) },
       row.client_ref === null ? null : { label: "Client", value: row.client_ref },
     ].filter(Boolean)),
     refs: refChips([row.client_ref]),

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {createDocContext,normalizeDocRead,docAnswer} from '../js/doc-context-model.js';
 const old='2026-10-01T10:00:00Z', newer='2026-10-01T11:00:00Z';
-const party={id:'sample',name:'Sample',record_version:1,owner_label:'Sample owner',recorded_status:'active',recorded_status_label:'Active client',recorded_stage:'approved',recorded_stage_label:'Approved vendor'};
+const party={id:'sample',name:'Sample',record_version:1,owner_label:'Quinn Sample',recorded_status:'active',recorded_status_label:'Active client',recorded_stage:'approved',recorded_stage_label:'Approved vendor'};
 test('R7 timestamp and numeric-string revisions outrank old activity; equal revision enriches only',()=>{
  for(const [a,b] of [[old,newer],['9','10']]) {
   const c=createDocContext({page:'clients'});
@@ -34,7 +34,7 @@ test('R12 directory list/detail/activity preserve recorded labels',()=>{
  for(const dataset of ['clients','vendors']) for(const method of ['businessList','businessRecord','businessActivity']) {
   const payload=method==='businessList'?{rows:[party]}:{record:party,activities:[{what:'New',when:newer},{what:'Old',when:old}]};
   const [row]=normalizeDocRead(method,payload,[{dataset,id:'sample'}]);
-  assert.equal(row.fields.find(f=>f.label==='Owner').value,'Sample owner');
+  assert.equal(row.fields.find(f=>f.label==='Owner').value,'Quinn');
   assert.equal(row.fields.find(f=>f.label==='Status').value,dataset==='clients'?'Active client':'Approved vendor');
   if(method==='businessActivity')assert.equal(row.activity[0].text,'New');
  }
@@ -126,4 +126,11 @@ test('R1/R5/R14 cached projection cannot recover failure or renew its observed t
  now=2000;c.filter({query:'none'});assert.equal(c.project('getBoard',{deals:[]}),true);assert.equal(c.snapshot().observedAt,at);
  const ticket=c.begin('getBoard');c.fail(ticket);c.filter({query:''});
  assert.equal(c.project('getBoard',{deals:[{id:'sample',name:'Sample'}]}),false);assert.equal(c.snapshot().ready,false);
+});
+
+test('a deal and a lead owned by a partner slug show the first name',()=>{
+ const [deal]=normalizeDocRead('getBoard',{deals:[{id:'d1',name:'Sample deal',owner:'dell',version:1}]});
+ const [lead]=normalizeDocRead('getLeadBoard',{leads:[{id:'l1',name:'Sample lead',owner:'joe',version:1}]});
+ assert.equal(deal.fields.find(f=>f.label==='Owner').value,'Dell');
+ assert.equal(lead.fields.find(f=>f.label==='Owner').value,'Joe');
 });

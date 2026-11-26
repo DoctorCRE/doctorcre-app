@@ -38,7 +38,7 @@ function rowHtml(row, group) {
   const phase = row.phase ?? row.facts?.find(fact => fact.label === "Phase")?.value;
   const owner = row.owner ?? row.facts?.find(fact => fact.label === "Owner")?.value;
   const meta = isDeal
-    ? ["Deal", phase === "dead" ? "Lost" : (columnBySlug(phase) || columnByValue(phase))?.label, ["joe", "dell"].includes(owner) && partnerName(owner)]
+    ? ["Deal", phase === "dead" ? "Lost" : (columnBySlug(phase) || columnByValue(phase))?.label, ["joe", "dell"].includes(String(owner).toLowerCase()) && partnerName(owner)]
     : row.meta || [({ clients: "Client", leads: "Lead", vendors: "Vendor", organizations: "Company", people: "Person" })[group.id],
       ...((row.facts || []).map(fact => fact.value))];
   return `<li class="search-row">

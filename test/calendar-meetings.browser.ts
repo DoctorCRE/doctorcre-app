@@ -39,7 +39,7 @@ const meetings = {
   meetings: [
     {
       partner: "dell",
-      name: "Example Partner Two",
+      name: "Dell Example",
       state: "partial",
       reason: null,
       observed_at: "2026-10-19T14:00:00Z",
@@ -48,7 +48,7 @@ const meetings = {
     },
     {
       partner: "joe",
-      name: "Example Partner One",
+      name: "Joe Example",
       state: "ready",
       reason: null,
       notes: [],
@@ -263,7 +263,7 @@ const sharedMeetings = {
   meetings: [
     {
       partner: "dell",
-      name: "Example Partner Two",
+      name: "Dell Example",
       state: "partial",
       reason: null,
       notes: standingNotes,
@@ -282,7 +282,7 @@ const sharedMeetings = {
     },
     {
       partner: "joe",
-      name: "Example Partner One",
+      name: "Joe Example",
       state: "partial",
       reason: null,
       notes: standingNotes,
@@ -361,7 +361,7 @@ test("November meetings show Central standard time, all-day meetings say so, and
     meetings: [
       {
         partner: "joe",
-        name: "Example Partner One",
+        name: "Joe Example",
         state: "ready",
         reason: null,
         observed_at: "2026-11-09T14:00:00Z",

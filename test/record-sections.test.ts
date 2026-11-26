@@ -14,3 +14,12 @@ test("Contact status reads as the plain label for vendors and clients", () => {
     assert.equal(contactStatus(dataset, "do_not_contact"), "Do not contact");
   }
 });
+
+test("A client or vendor's owner reads as the partner's first name", () => {
+  for (const dataset of ["vendors", "clients"] as const) {
+    const owner = recordSections(dataset, { owner_label: "Avery Example" })
+      .flatMap((section) => section.fields)
+      .find((field) => field.key === "owner_label");
+    assert.equal(owner?.text, "Avery");
+  }
+});

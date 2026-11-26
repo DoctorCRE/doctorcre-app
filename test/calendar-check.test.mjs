@@ -519,3 +519,8 @@ test('Calendar bounds its batch read and reports the remaining deals as unread',
   assert.equal(result.failed.length, 20);
   assert.equal(calendarPhase(result), 'partial');
 });
+
+test("a calendar entry's owner byline names a partner by first name", () => {
+  assert.equal(ownerNames({ owners: ["joe", "dell"] }), "Joe and Dell");
+  assert.equal(ownerNames({ owner: "Quinn Sample" }), "Quinn");
+});

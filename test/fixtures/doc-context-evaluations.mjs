@@ -1,10 +1,10 @@
 // Synthetic partner questions with explicit record answers, never live data.
-const deal = { id: 'demo-deal-a', name: 'Demo Practice A', owner: 'demo-partner', phase: 'Research', next_step: 'Compare sample options', next_date: '2026-10-07', version: 4 };
-const party = { id: 'demo-party-a', name: 'Demo Practice A', owner_label:'Demo partner', recorded_status:'active', recorded_status_label:'Active', recorded_stage:'active', recorded_stage_label:'Active', city:'Demo City', record_version:4 };
+const deal = { id: 'demo-deal-a', name: 'Demo Practice A', owner: 'dell', phase: 'Research', next_step: 'Compare sample options', next_date: '2026-10-07', version: 4 };
+const party = { id: 'demo-party-a', name: 'Demo Practice A', owner_label:'Avery Demo', recorded_status:'active', recorded_status_label:'Active', recorded_stage:'active', recorded_stage_label:'Active', city:'Demo City', record_version:4 };
 const conversation = { id: 'demo-chat-a', title: 'Demo Discussion', visibility: 'private', version: 4 };
 const rows = [
   ['home', 'getHomeAgenda', { deals: [deal] }, [], 'deal', deal.id, 'Next step', 'Compare sample options', 'What is the next step for Demo Practice A?'],
-  ['deals', 'getDeal', { deal, activities: [{ summary: 'Sample options compared', occurred_at: '2026-10-01T12:00:00Z' }] }, [deal.id], 'deal', deal.id, 'Owner', 'demo-partner', 'Who owns Demo Practice A?'],
+  ['deals', 'getDeal', { deal, activities: [{ summary: 'Sample options compared', occurred_at: '2026-10-01T12:00:00Z' }] }, [deal.id], 'deal', deal.id, 'Owner', 'Dell', 'Who owns Demo Practice A?'],
   ['leads', 'getWorkspace', { leads: [{ ...deal, stage: 'new', score: 72 }] }, [], 'lead', deal.id, 'Score', 72, 'What is the score of Demo Practice A?'],
   ['tours', 'tourDetail', { id: 'demo-tour-a', name: 'Demo Tour', status: 'draft', scheduled_at: '2026-10-07T12:00:00Z', version: 4, stops: [] }, ['demo-tour-a'], 'tour', 'demo-tour-a', 'Date', '2026-10-07T12:00:00Z', 'When is Demo Tour scheduled?'],
   ['clients', 'businessRecord', { record: party }, [{ dataset: 'clients', id: party.id }], 'clients', party.id, 'Market', 'Demo City', 'Where is Demo Practice A?'],
@@ -25,5 +25,5 @@ docEvaluationSet.push(
  {page:'chats',method:'readDocConversation',payload:{identity:conversation,latest_sequence:6,more:true,turns:[{sequence:1,body:'Earlier discussion',at:'2026-10-01T10:00:00Z'},{sequence:2,body:'Later first-page discussion',at:'2026-10-01T11:00:00Z'}]},args:[{conversation_id:conversation.id}],kind:'conversation',recordId:conversation.id,recordName:conversation.title,question:'Recent activity',answer:null,prompt:'What is the latest activity when only the first conversation page was read?'},
  {page:'leads',method:'getWorkspace',payload:{schema_version:'lead-workspace.v1',leads:[{id:'demo-lead',doctor_name:'Demo lead',base_version:4,city:'Demo City'}]},args:[],kind:'lead',recordId:'demo-lead',recordName:'Demo lead',question:'Market',answer:'Demo City',prompt:'Where is the open Demo lead?'},
  {page:'search',method:'find',payload:{schema_version:'search.v1',parties:[{id:party.id,name:party.name,city:party.city,kind:'company',roles:['client'],lead_id:null,deals:[]}],deals:[]},args:[{query:'Demo'}],kind:'party',recordId:party.id,recordName:party.name,question:'Recent activity',answer:null,prompt:'What is the latest Demo Practice A activity?'},
- {page:'clients',method:'businessRecord',payload:{record:party},args:[{dataset:'clients',id:party.id}],kind:'clients',recordId:party.id,recordName:party.name,question:'Owner',answer:'Demo partner',prompt:'Who owns the recorded client?'}
+ {page:'clients',method:'businessRecord',payload:{record:party},args:[{dataset:'clients',id:party.id}],kind:'clients',recordId:party.id,recordName:party.name,question:'Owner',answer:'Avery',prompt:'Who owns the recorded client?'}
 );

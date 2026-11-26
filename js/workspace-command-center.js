@@ -1,6 +1,7 @@
 import { sourceTime } from './email-source-line.js';
 import { uuidv4 } from './uuid.js';
 import { ACTOR_LABEL } from './client.js';
+import { partnerName } from './visual-system.js';
 import { mountLocalTicker } from './visibility-poll.mjs';
 import { workCard } from './work-card.js';
 import { renderDealAlert } from './deal-items.js';
@@ -289,7 +290,7 @@ export function mountHomeDashboard({ document, window, client, now = () => Date.
   const paintLeadDetail = lead => {
     const expanded = $('homeDetail').querySelector('details')?.open;
     const focused = $('homeDetail').contains(document.activeElement) ? document.activeElement.dataset.homeKey : null;
-    const html = `<header class="home-panel-head"><h2 id="homeDetailTitle">${E(lead.name)}</h2><button type="button" class="home-refresh" data-home-key="detail:close" data-close-detail aria-label="Close details">×</button></header><div class="home-detail-summary"><span class="home-detail-score">${E(lead.score)}<small>Score</small></span><div><h3>${E(lead.specialty || 'New lead')}</h3><p>${E([lead.city, lead.state].filter(Boolean).join(' · '))}</p></div></div><details><summary data-home-key="detail:summary">Details</summary><dl><dt>Added</dt><dd>${E(new Date(lead.created_at).toLocaleDateString())}</dd><dt>Stage</dt><dd>${E(lead.stage_label || lead.stage || '—')}</dd><dt>Owner</dt><dd>${E(lead.owner_label || lead.owner || '—')}</dd></dl></details><a class="home-outline" data-home-key="detail:leads" href="/leads">Leads <span aria-hidden="true">↗</span></a>`;
+    const html = `<header class="home-panel-head"><h2 id="homeDetailTitle">${E(lead.name)}</h2><button type="button" class="home-refresh" data-home-key="detail:close" data-close-detail aria-label="Close details">×</button></header><div class="home-detail-summary"><span class="home-detail-score">${E(lead.score)}<small>Score</small></span><div><h3>${E(lead.specialty || 'New lead')}</h3><p>${E([lead.city, lead.state].filter(Boolean).join(' · '))}</p></div></div><details><summary data-home-key="detail:summary">Details</summary><dl><dt>Added</dt><dd>${E(new Date(lead.created_at).toLocaleDateString())}</dd><dt>Stage</dt><dd>${E(lead.stage_label || lead.stage || '—')}</dd><dt>Owner</dt><dd>${E(partnerName(lead.owner_label || lead.owner) || '—')}</dd></dl></details><a class="home-outline" data-home-key="detail:leads" href="/leads">Leads <span aria-hidden="true">↗</span></a>`;
     if ($('homeDetailBody').innerHTML === html) return;
     $('homeDetailBody').innerHTML = html;
     if (expanded) $('homeDetail').querySelector('details').open = true;
