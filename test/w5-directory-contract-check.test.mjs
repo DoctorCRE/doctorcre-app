@@ -144,13 +144,13 @@ for (const dataset of ['clients', 'vendors']) {
 test('Vendors show recorded facts and keep names, phones and notes readable', () => {
   const { document, app, row, payload } = setup('vendors');
   row.name = payload.record.name = '(TBD: intake contact) (V-SUP-901)';
-  row.owner_label = 'Example Owner';
+  row.owner_label = 'Avery Example';
   Object.assign(row.relationship, { computed_tier: 'Trial', win_rate: null });
   Object.assign(payload.record, { phone: '+15550102000', intro_notes: 'Recovered from CARR calendar history' });
   document.querySelector('#recordList').innerHTML = app.rowHtml('vendors', row, row.id);
   const link = document.querySelector('.record-row');
   assert.equal(link.querySelector('.row-name').textContent, '(TBD: intake contact)');
-  assert.equal(link.querySelector('.row-owner').textContent, 'Owner: Example Owner');
+  assert.equal(link.querySelector('.row-owner').textContent, 'Owner: Avery');
   assert.doesNotMatch(link.textContent, /Trial|CARR|Not recorded|Win rate/);
   assert.equal(link.querySelector('.contact-note').textContent, 'Last contacted Sep 30, 2026');
   app.view.recordId = payload.record.id;

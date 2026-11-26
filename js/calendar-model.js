@@ -1,5 +1,6 @@
 import { createPageBudget } from './read-budget.mjs';
 import { BUSINESS_TIME_ZONE, businessDay, meetingTime } from './business-date.js';
+import { partnerName } from './visual-system.js';
 // Calendar days use UTC arithmetic. Today uses America/Chicago.
 
 /** Widest to narrowest; a change toward the end zooms in. */
@@ -293,7 +294,7 @@ const dealRecord = (id, name) => ({ kind: "deal", name, url: id ? `/deals?deal=$
 
 /** "Joe", or "Joe and Dell" for a meeting both partners attend. */
 export const ownerNames = entry => (entry.owners ?? [entry.owner]).filter(owner => typeof owner === "string" && owner)
-  .map(owner => owner[0].toUpperCase() + owner.slice(1)).join(" and ");
+  .map(partnerName).join(" and ");
 
 /** What an entry is for: its named records and the word for their kind, which stays blank when the kinds differ or are unknown. */
 export function recordsFor(entry) {

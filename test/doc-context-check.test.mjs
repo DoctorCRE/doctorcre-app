@@ -71,7 +71,7 @@ test('existing synthetic adapter responses normalize at the real client seam',as
 test('a newer row revision outranks older detailed activity; stale auth refusals still clear context',()=>{
  const c=context();c.finish(c.begin('getDeal',['demo-a']),{deal:deal('demo-a',1),activities:[{summary:'Old detail',occurred_at:'2026-10-01T12:00:00Z'}]});
  c.finish(c.begin('getBoard'),{deals:[{...deal('demo-a',2),owner:'demo-new-partner'}]});
- assert.equal(docAnswer(c.snapshot(),{recordId:'demo-a',question:'Owner'}).value,'demo-new-partner');
+ assert.equal(docAnswer(c.snapshot(),{recordId:'demo-a',question:'Owner'}).value,'Demo-new-partner');
  const old=c.begin('getBoard');c.filter({owner:'demo-new-partner'});c.finish(c.begin('getBoard'),{deals:[deal()]});c.fail(old,{status:401});assert.equal(c.snapshot().ready,false);
 });
 

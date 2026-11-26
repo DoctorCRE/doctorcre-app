@@ -10,6 +10,8 @@
 // It also never fills a blank. A missing value reads "Not recorded", never 0,
 // never an empty string that reads as "none", and never a guessed label.
 
+import { partnerName } from "./visual-system.js";
+
 const DATASETS = ["clients", "vendors"];
 export const DATASET_ROUTE = { clients: "/clients", vendors: "/vendors" };
 export const DATASET_LABEL = { clients: "Clients", vendors: "Vendors" };
@@ -521,12 +523,12 @@ export function vendorRelationship(row) {
 }
 
 /**
- * The owner shown is the name written on the record. It is never what decides
+ * The owner shown is the partner written on the record, by first name. It is never what decides
  * whose work this is: that is `owned_by_viewer`, which the server works out
  * from the signed-in account rather than from this text.
  */
 export function ownerPresentation(row) {
-  const label = recordedValue(row?.owner_label);
+  const label = recordedValue(partnerName(row?.owner_label));
   return {
     text: label.text,
     known: label.known,
@@ -718,6 +720,7 @@ export function recordSections(dataset, record) {
     title: group.title,
     fields: group.fields.map(([key, label, labelKey]) => {
       const value = key === "contact_state" ? CONTACT_STATES.get(record?.[key]) ?? record?.[key]
+        : key === "owner_label" ? partnerName(record?.[key])
         : dataset === "clients" ? clientField(key, record?.[key]) : record?.[key];
       const presented = labelKey ? recordedCode(value, record?.[labelKey]) : recordedValue(value);
       return {
