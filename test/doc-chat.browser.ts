@@ -355,7 +355,7 @@ test("Ask Doc opens saved turns, retries the first ask with its original payload
   await expect(page.getByText("One example deal is open.")).toBeVisible();
   await composer.fill("Any follow-ups?");
   await page.getByRole("button", { name: "Send", exact: true }).click();
-  await expect(page.getByText("Doc is working.")).toBeVisible();
+  await expect(page.getByText(/^Doc is working · /)).toBeVisible();
   assert.deepEqual(payloads[2], {
     question: "Any follow-ups?",
     idempotency_key: Reflect.get(Object(payloads[2]), "idempotency_key"),
@@ -574,7 +574,7 @@ test("A reopened Doc question keeps its place and lets the partner draft a follo
   state = "working";
   waitingReason = null;
   await page.clock.runFor(5_000);
-  await expect(page.getByText("Doc is working.")).toBeVisible();
+  await expect(page.getByText(/^Doc is working · /)).toBeVisible();
 
   state = "answered";
   await page.clock.runFor(5_000);
@@ -612,7 +612,7 @@ test("Back reloads Ask Doc once and a failed session check cannot read the saved
   await pausedClock(page, new Date(created_at));
   const url = `${origin}/doc-chats?mode=live&chat=${id}`;
   await page.goto(url);
-  await expect(page.getByText("Doc is waiting.", { exact: true })).toBeVisible();
+  await expect(page.getByText(/^Doc is working · /)).toBeVisible();
   const composer = page.getByLabel("Question for Doc");
   await composer.fill("An unsent Back follow-up");
 
@@ -636,7 +636,7 @@ test("Back reloads Ask Doc once and a failed session check cannot read the saved
   await page.clock.runFor(5_000);
   assert.equal(reloads, 1);
   assert.equal(detailReads, 0);
-  await expect(page.getByText("Doc is waiting.", { exact: true })).toHaveCount(0);
+  await expect(page.getByText(/^Doc is working · /)).toHaveCount(0);
 
   await page.unroute(sessionUrl);
   await page.getByRole("button", { name: "Retry loading" }).click();
@@ -650,7 +650,7 @@ test("A visible Ask Doc chat can receive its answer after three idle hours", asy
   const { page, origin } = await waitingChat(t);
   await pausedClock(page, new Date(created_at));
   await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
-  await expect(page.getByText("Doc is waiting.", { exact: true })).toBeVisible();
+  await expect(page.getByText(/^Doc is working · /)).toBeVisible();
 
   const reads = await page.evaluateHandle(
     ({ detailPath, conversation, queuedTurn, answered }) => {
@@ -708,7 +708,7 @@ test("An unavailable chat keeps the unsent question and other recent chats for t
   });
   await pausedClock(page, new Date(created_at));
   await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
-  await expect(page.getByText("Doc is waiting.", { exact: true })).toBeVisible();
+  await expect(page.getByText(/^Doc is working · /)).toBeVisible();
   const composer = page.getByLabel("Question for Doc");
   const otherChat = page.getByRole("link", { name: other.title });
   await page.getByRole("button", { name: "Recent chats", exact: true }).click();
@@ -728,7 +728,7 @@ test("Ask Doc retries an exhausted read after a quick tab return with input", as
   const { page, origin } = await waitingChat(t);
   await pausedClock(page, new Date(created_at));
   await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
-  await expect(page.getByText("Doc is waiting.", { exact: true })).toBeVisible();
+  await expect(page.getByText(/^Doc is working · /)).toBeVisible();
 
   await page.clock.runFor(500);
   await page.evaluate(() => {
@@ -1282,6 +1282,100 @@ test("On a computer the chats list stays open, newest first, with each chat's Ce
   }
   await expect(page.getByText("What do you need?")).toBeVisible();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Ask Doc");
+});
+
+test("The conversation is one column: the question boxed on the right, Doc's answer plain with record chips, and the line where the answer lands", async (t) => {
+  const asked = "2026-11-25T17:59:48Z";
+  const turn = (n: number, fields: object) => ({
+    ...answeredTurn,
+    id: `00000000-0000-4000-8000-${String(500 + n).padStart(12, "0")}`,
+    position: n,
+    idempotency_key: `00000000-0000-4000-8000-${String(600 + n).padStart(12, "0")}`,
+    created_at: asked,
+    ...fields,
+  });
+  const sources = [
+    { ref: { kind: "deal", id }, label: "Example Dental", href: `/deals?deal=${id}` },
+    { ref: { kind: "client", id }, label: "Example Client", href: `/relationships?party=${id}` },
+    { ref: { kind: "email", id }, label: "Lease draft timing", href: "/inbox" },
+  ];
+  const turns = [
+    turn(1, {
+      question: `${question} And which of them still need a signed lease, an updated rent roll or a tenant estoppel before they can close?`,
+      answer: { ...answeredTurn.answer, sources },
+      answered_by: "backup",
+    }),
+    turn(2, { state: "failed", answer: null }),
+    turn(3, { state: "queued", answer: null, waiting_reason: "Doc answers when your Mac is on." }),
+    turn(4, { state: "working", answer: null }),
+  ];
+  const { page, origin } = await docChatFixture(
+    t,
+    (request) =>
+      new URL(request.url).pathname === "/api/engine/doc/conversations"
+        ? Response.json({ conversations: [conversation], next_before: null })
+        : Response.json({ conversation, turns }),
+    undefined,
+    { viewport: { width: 1440, height: 900 }, hasTouch: false },
+  );
+  await pausedClock(page, new Date("2026-11-25T18:00:00Z"));
+  await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
+  const working = page.getByText(/^Doc is working · /);
+  await expect(working).toHaveText("Doc is working · 12s");
+  await expect(working).toHaveAttribute("aria-live", "off");
+  await page.clock.runFor(3000);
+  await expect(working).toHaveText("Doc is working · 15s");
+  await expect(page.getByText("Doc couldn’t answer.")).toBeVisible();
+  await expect(page.getByText("Doc answers when your Mac is on.")).toBeVisible();
+  await expect(page.getByText("Answered by backup")).toBeVisible();
+
+  const chips = page.getByRole("list", { name: "Sources" }).getByRole("link");
+  await expect(chips).toHaveText(sources.map(({ label }) => label));
+  for (const chip of await chips.all()) await expect(chip.locator("svg")).toHaveCount(1);
+
+  const box = async (locator: Locator) => {
+    const rect = await locator.boundingBox();
+    assert.ok(rect);
+    return rect;
+  };
+  const turnList = page.getByRole("region", { name: "Conversation" }).getByRole("list").first();
+  const column = await box(turnList);
+  const asking = await box(page.locator(".doc-chat__question").first());
+  const answer = page.getByText(answeredTurn.answer.text, { exact: true });
+  assert.equal(column.width, 728, "the conversation is a 728px column");
+  assert.ok(Math.abs(asking.x + asking.width - (column.x + column.width)) <= 1, "the question sits on the right");
+  assert.ok(asking.width > column.width * 0.7, "the question is long enough to need the cap");
+  assert.ok(asking.width <= column.width * 0.8, "the question box is at most 80% of the column");
+  assert.ok(Math.abs((await box(answer)).x - column.x) <= 1, "the answer starts at the column's left edge");
+  await expect(answer).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(answer).toHaveCSS("padding-left", "0px");
+});
+
+test("A failed answer has its Retry on the same line, and a short chat starts at the top", async (t) => {
+  const { page, origin } = await docChatFixture(
+    t,
+    (request) =>
+      new URL(request.url).pathname === "/api/engine/doc/conversations"
+        ? Response.json({ conversations: [conversation], next_before: null })
+        : Response.json({
+            conversation,
+            turns: [{ ...answeredTurn, idempotency_key: id, state: "failed", answer: null }],
+          }),
+    undefined,
+    { viewport: { width: 1440, height: 900 }, hasTouch: false },
+  );
+  await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
+  const failed = page.getByText("Doc couldn’t answer.");
+  const retry = page.getByRole("button", { name: "Retry", exact: true });
+  await expect(retry).toBeVisible();
+  const line = await failed.boundingBox();
+  const button = await retry.boundingBox();
+  const pane = await page.locator(".doc-chat__scroll").boundingBox();
+  assert.ok(line && button && pane);
+  assert.ok(button.y < line.y + line.height && button.y + button.height > line.y, "Retry shares the failed line");
+  assert.ok(button.x - (line.x + line.width) < 80, "Retry sits next to the failed line, not at the far edge");
+  const asking = await page.locator(".doc-chat__question").boundingBox();
+  assert.ok(asking && asking.y - pane.y < 24, "a short chat starts at the top of the conversation");
 });
 
 test("On a phone the chats slide in over the conversation and close from the dimmed side", async (t) => {
