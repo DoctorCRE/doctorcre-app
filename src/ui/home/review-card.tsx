@@ -5,6 +5,7 @@ import { type DocLinkRequest, type DocLinkStatus, readDocLinkStatus } from "../d
 import { submitOnEnter } from "../keyboard-input";
 import type { DraftEdit, DraftEdits } from "./draft-edits.ts";
 import { DropReason } from "./drop-reason.tsx";
+import { type DropCategory, dropCategoryForKey } from "./drop-reasons.ts";
 import {
   draftReference,
   type FilingReasonRefusal,
@@ -172,6 +173,7 @@ export function ReviewCard<Item extends ReviewItem>({
   const [drop, setDrop] = useState<{
     title: string;
     heading?: string;
+    category: DropCategory | null;
     opener: HTMLButtonElement;
     confirm(reason: string): void;
   } | null>(null);
@@ -551,6 +553,7 @@ export function ReviewCard<Item extends ReviewItem>({
                   setDrop({
                     title: proposal.label.toLowerCase(),
                     heading: "Drop this filing suggestion?",
+                    category: dropCategoryForKey(proposal.kind),
                     opener,
                     confirm: (reason) => decideSuggestion(proposal, "dismiss", reason),
                   })
@@ -567,6 +570,7 @@ export function ReviewCard<Item extends ReviewItem>({
                     if (item.engine_marks && decision === "dismiss" && !proposal.completion) {
                       setDrop({
                         title: proposal.label.toLowerCase(),
+                        category: dropCategoryForKey(proposal.kind),
                         opener: event.currentTarget,
                         confirm: (reason) => decideSuggestion(proposal, decision, reason),
                       });
@@ -828,7 +832,12 @@ export function ReviewCard<Item extends ReviewItem>({
                   onClick={(event) => {
                     if (startDraftEdit && draft) beginDraftEdit(draft);
                     else if (item.engine_marks && op.verb === "dismiss-email-proposal")
-                      setDrop({ title: "draft", opener: event.currentTarget, confirm: (reason) => choose(op, reason) });
+                      setDrop({
+                        title: "draft",
+                        category: dropCategoryForKey("reply_draft"),
+                        opener: event.currentTarget,
+                        confirm: (reason) => choose(op, reason),
+                      });
                     else choose(op);
                   }}
                 >
@@ -865,6 +874,7 @@ export function ReviewCard<Item extends ReviewItem>({
       {drop && (
         <DropReason
           title={drop.title}
+          category={drop.category}
           {...(drop.heading && { heading: drop.heading })}
           cancel={() => {
             drop.opener.focus();

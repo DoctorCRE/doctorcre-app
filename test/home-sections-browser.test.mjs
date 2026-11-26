@@ -746,7 +746,7 @@ for (const [width, theme, planner] of [[390, 'light'], [390, 'dark'], [1440, 'li
         ...(width === 1440 && { title: 'Signed lease' }) }],
       items: [{ id: checklist, title: 'Review lease clauses', status: 'open', bullets: [] }],
       checklist: { schema_version: 'deal-checklist.v1', template_state: 'current', due_items: [], phases: [
-        { label: 'Legal', items: [{ id: 'attorney_comments', label: 'Read attorney comments', status: 'due',
+        { id: 'legal', label: 'Legal', items: [{ id: 'attorney_comments', label: 'Read attorney comments', status: 'due',
           evidence_ref: 'Example attorney memo', source: { record_verb: 'add-deal-note' } }] },
       ] } };
     if (name === 'read-engine-home-proposal') result = { proposal_id: args.id,

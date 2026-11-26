@@ -142,7 +142,7 @@ for (const width of [1440, 390]) {
     await openDetail(automatic);
     await caption(detail, 'Parked automatically').waitFor({ timeout: 5000 });
     assert.equal(await parkedPhase.isVisible(), true);
-    await capture(detail.locator('[data-detail-read="parking"]'), 'automatic-detail');
+    await capture(detail.locator('[data-detail-read="parked"]'), 'automatic-detail');
     await back();
     await openDetail(partner);
     await caption(detail, 'Parked by Dell').waitFor({ timeout: 5000 });
@@ -412,7 +412,7 @@ for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, tr
     const overdue = { id: `critical-date:${first}`, label: 'lease end', status: 'overdue', due_on: '2026-11-14',
       evidence_ref: 'Example option notice', source: { record_verb: 'add-critical-date' } };
     const checklist = { schema_version: 'deal-checklist.v1', template_state: 'current',
-      phases: [{ label: 'Legal / lease', items: [completed, overdue] }], due_items: [overdue] };
+      phases: [{ id: 'legal', label: 'Legal / lease', items: [completed, overdue] }], due_items: [overdue] };
     const carr = [], opened = [], decisions = [];
     const bytes = Buffer.from('%PDF-1.7 synthetic revised plan');
     const hash = Buffer.from(await crypto.subtle.digest('SHA-256', bytes)).toString('hex');
@@ -533,25 +533,13 @@ for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, tr
       assert.match(await followups.innerText(), /Send the plan \(No subject\).*Dell.*16 days late/);
       assert.doesNotMatch(await planCard.innerText(), /\(no subject\)/);
       assert.doesNotMatch(await followups.innerText(), /2026-11-01T|file_to_deal/);
-      const progress = page.locator('.deal-checklist');
-      await progress.locator(':scope > summary').getByText('lease end', { exact: true }).waitFor();
-      await progress.locator(':scope > summary').click();
-      await progress.getByText('1 of 2 complete.', { exact: true }).waitFor();
-      await progress.getByText('Complete', { exact: true }).waitFor();
-      const deadline = progress.locator('[data-checklist-item]').filter({ hasText: 'lease end' });
-      await deadline.getByText('Nov 14, 2026', { exact: true }).waitFor();
-      await deadline.getByText('Overdue', { exact: true }).waitFor();
-      await progress.locator(':scope > summary').getByText('lease end', { exact: true }).waitFor({ state: 'detached' });
-      assert.equal(await progress.getByText('lease end', { exact: true }).count(), 1);
-      const filter = progress.getByRole('combobox', { name: 'Show', exact: true });
-      await filter.selectOption({ label: 'To do' });
-      assert.equal(await progress.getByText('Executed lease', { exact: true }).count(), 0);
-      await filter.selectOption({ label: 'All' });
-      await deadline.getByText('Details', { exact: true }).click();
-      await deadline.getByText('Example option notice').waitFor();
-      assert.doesNotMatch(await progress.innerText(), /2026-11-14|add-critical-date|\brecorded\b/i);
-      await progress.evaluate(element => element.scrollIntoView({ block: 'end' }));
-      await progress.screenshot({ path: join(evidence, `engine-checklist-${actor}.png`) });
+      const path = page.getByRole('region', { name: 'Deal path' });
+      const lease = path.locator('[data-todo="executed_lease"]');
+      assert.equal(await lease.getAttribute('data-state'), 'done');
+      await lease.getByText('Executed lease', { exact: true }).click();
+      await lease.getByText('Example Plan.pdf', { exact: true }).waitFor();
+      assert.equal(await path.getByText('lease end', { exact: true }).count(), 0, 'a critical date shows in its own row');
+      await path.screenshot({ path: join(evidence, `engine-checklist-${actor}.png`) });
       if (savesOn) {
         await followups.evaluate(element => element.scrollIntoView({ block: 'end' }));
         await followups.screenshot({ path: join(evidence, `engine-followups-${actor}.png`) });
@@ -1011,7 +999,7 @@ for (const width of [1440, 390]) {
     const stepRows = snapshot.getByRole('list', { name: 'Open steps' }).getByRole('listitem');
     assert.match(await stepRows.first().innerText(), /Send the floor plan\s+Dell · Due Wed, Nov 18, 2026 · 1 day late/);
     assert.match(await stepRows.nth(1).innerText(), /Call the architect\s+Joe · Due Sun, Nov 15, 2026 · 4 days late/);
-    assert.equal(await snapshot.getByRole('button', { name: 'Undo', exact: true }).isVisible(), true);
+    assert.equal(await page.getByRole('region', { name: 'Deal path' }).getByRole('button', { name: 'Undo', exact: true }).isVisible(), true);
     assert.equal(await snapshot.getByText('Also open:', { exact: true }).count(), 0);
     const task = snapshot.getByRole('listitem').filter({ hasText: item.title });
     assert.match(await task.innerText(), /Check the plans.*Joe.*Wed, Nov 18, 2026/s);
@@ -1085,13 +1073,12 @@ for (const width of [1440, 390]) {
     assert.equal(current.description, 'Confirm the meeting time');
 
     await page.goto(`${origin}/deals?deal=${deal.id}&mode=live`);
-    await page.locator('#detailPhase').selectOption('legal', { timeout: 10000 });
-    await page.locator('#completionNextStep').fill('Discuss the updated plan with the lender');
-    await page.getByRole('button', { name: 'Move to Legal' }).click();
-    await page.getByRole('region', { name: 'Deal snapshot' }).getByText('Discuss the updated plan with the lender', { exact: false }).waitFor();
+    const path = page.getByRole('region', { name: 'Deal path' });
+    await path.getByRole('button', { name: 'Legal', exact: true }).click({ timeout: 10000 });
+    await path.getByRole('button', { name: 'Move to Legal' }).click();
+    await page.waitForFunction(() => !document.querySelector('.deal-path-ask'));
     assert.deepEqual(moves, [{ from: 'research', to: 'legal' }]);
-    assert.deepEqual(writes[4].seen_current_step, { next_step_id: otherStep.id, change_id: 78 });
-    assert.deepEqual(steps.get(deal.id)[1], ownerStep);
+    assert.equal(writes.length, 4, 'a phase move saves no next step');
   });
 }
 
@@ -1178,8 +1165,8 @@ test('Undoing an invoice close restores late steps to the deal page', async t =>
   await page.getByRole('button', { name: 'Reload deal', exact: true }).click();
   await steps.getByText('Call the architect again').waitFor();
   await undo.click();
-  await page.locator('#detailPhase').waitFor();
-  assert.equal(await page.locator('#detailPhase').inputValue(), 'legal');
+  await page.locator('.deal-path [aria-current="step"][data-phase="legal"]').waitFor();
+  assert.equal(await page.locator('#detailPhase').count(), 0);
   await steps.getByRole('listitem').filter({ hasText: 'Call the architect again' }).getByText(/2 days late/).waitFor();
   assert.equal(await page.getByRole('region', { name: 'Open before this deal ended' }).count(), 0);
   assert.equal(await undo.count(), 0);
@@ -1238,7 +1225,7 @@ for (const width of [1440, 390]) test(`a fresh automatic call move shows its evi
     assert.match(await mark.innerText(), /Oct 18, 9:30 PM/);
   };
   const card = page.locator(`.kanban-card[data-id="${deal.id}"]`);
-  const snapshot = page.getByRole('region', { name: 'Deal snapshot' });
+  const snapshot = page.getByRole('region', { name: 'Deal path' });
   await page.goto(`${origin}/deals?mode=live`);
   await card.waitFor();
   assert.equal(await caption(card).count(), 0);
@@ -1262,7 +1249,7 @@ for (const width of [1440, 390]) test(`a fresh automatic call move shows its evi
   await snapshot.screenshot({ path: join(evidence, `call-move-detail-${width}.png`) });
   await undo(snapshot).press('Enter');
   await caption(snapshot).waitFor({ state: 'detached', timeout: 5000 });
-  assert.equal(await page.locator('#detailPhase').inputValue(), 'research');
+  assert.equal(await page.locator('.deal-path [aria-current]').getAttribute('data-phase'), 'research');
   assert.equal(writes.length, 1);
   assert.match(writes[0].idempotency_key, /^[a-f\d-]{36}$/i);
   assert.deepEqual(writes[0], { idempotency_key: writes[0].idempotency_key, event_id: receipt.event_id, base_version: 24 });
@@ -1340,7 +1327,7 @@ test('keyboard Undo on the deal page returns the deal to the previous phase', as
     return route.fulfill({ status: response.status, contentType: 'application/json', body: await response.text() });
   });
   const card = deal => page.locator('.kanban-card').filter({ has: page.getByRole('button', { name: deal.name, exact: true }) });
-  const snapshot = page.getByRole('region', { name: 'Deal snapshot' });
+  const snapshot = page.getByRole('region', { name: 'Deal path' });
   const undo = snapshot.getByRole('button', { name: 'Undo', exact: true });
   const open = deal => card(deal).getByRole('button', { name: deal.name, exact: true }).click();
   const back = () => page.getByRole('button', { name: 'Back to deals' }).click();
@@ -1361,7 +1348,7 @@ test('keyboard Undo on the deal page returns the deal to the previous phase', as
   await snapshot.getByText('Moved automatically', { exact: true }).waitFor();
   assert.equal(await snapshot.locator('time[datetime="2026-10-19"]').textContent(), 'Mon, Oct 19, 2026');
   await undo.press('Enter');
-  await page.waitForFunction(() => document.querySelector('#detailPhase')?.value === 'research');
+  await page.waitForFunction(() => document.querySelector('.deal-path [aria-current]')?.dataset.phase === 'research');
   const restored = page.locator('[data-column="research"]').getByRole('button', { name: success.name, exact: true });
   await back();
   await restored.waitFor();
@@ -1374,7 +1361,7 @@ test('keyboard Undo on the deal page returns the deal to the previous phase', as
     if (deal === refused) await undo.click();
     await refusal.waitFor();
     assert.equal(await undo.count(), 0, deal.name);
-    assert.equal(await page.locator('#detailPhase').inputValue(), 'legal');
+    assert.equal(await page.locator('.deal-path [aria-current]').getAttribute('data-phase'), 'legal');
     await back();
   }
   await open(stale);
@@ -1393,7 +1380,7 @@ test('keyboard Undo on the deal page returns the deal to the previous phase', as
   }
   await refreshed.waitFor();
   assert.equal(await undo.count(), 0);
-  assert.equal(await page.locator('#detailPhase').inputValue(), 'negotiation');
+  assert.equal(await page.locator('.deal-path [aria-current]').getAttribute('data-phase'), 'negotiation');
   await page.screenshot({ path: join(evidence, 'automatic-phase-undo.png') });
   await back();
   await page.locator('[data-column="negotiation"]').getByRole('button', { name: stale.name, exact: true }).waitFor();
@@ -1457,7 +1444,7 @@ async function openDealForUndoConflict(t, { archived = false } = {}) {
     }), env);
     await route.fulfill({ status: response.status, contentType: 'application/json', body: await response.text() });
   });
-  const snapshot = page.getByRole('region', { name: 'Deal snapshot' });
+  const snapshot = page.getByRole('region', { name: 'Deal path' });
   const undo = snapshot.getByRole('button', { name: 'Undo', exact: true });
   const open = () => page.getByRole('button', { name, exact: true }).click();
   await page.goto(`${origin}/deals?mode=live`);
@@ -1469,7 +1456,7 @@ async function openDealForUndoConflict(t, { archived = false } = {}) {
     refresh: page.getByRole('button', { name: 'Refresh deal', exact: true }),
     refreshed: snapshot.getByText('This deal changed. The deal page was refreshed.', { exact: true }),
     warning: snapshot.getByText('This deal changed. Refresh Deals to see the current phase.', { exact: true }),
-    phase: page.locator('#detailPhase'),
+    phase: page.locator('.deal-path [aria-current]'),
     setDetailUnavailable(value) { unavailable = value; },
     holdNextDetail() {
       const started = Promise.withResolvers();
@@ -1491,7 +1478,7 @@ test('Undo on the deal page waits for a read newer than the conflict', async t =
   older.release();
   await refreshed.waitFor();
   assert.equal(await undo.count(), 0, 'the refresh notice must not accompany a stale Undo');
-  assert.equal(await phase.inputValue(), 'negotiation');
+  assert.equal(await phase.getAttribute('data-phase'), 'negotiation');
 });
 
 test('Undo on the deal page discards feedback after leaving the deal', async t => {
@@ -1504,7 +1491,7 @@ test('Undo on the deal page discards feedback after leaving the deal', async t =
   pending.release();
   await open();
   await phase.waitFor();
-  assert.equal(await phase.inputValue(), 'negotiation');
+  assert.equal(await phase.getAttribute('data-phase'), 'negotiation');
   assert.deepEqual({
     announcement: await page.locator('#dragLive').textContent(),
     warnings: await warning.count(),
@@ -1521,7 +1508,7 @@ test('Undo on the deal page clears the warning after a successful refresh retry'
   await refresh.click();
   await pending.started;
   pending.release();
-  await page.waitForFunction(() => document.querySelector('#detailPhase')?.value === 'negotiation');
+  await page.waitForFunction(() => document.querySelector('.deal-path [aria-current]')?.dataset.phase === 'negotiation');
   assert.equal(await undo.count(), 0);
   assert.equal(await warning.count(), 0, 'a successful retry must clear the refresh warning');
 });
@@ -2196,23 +2183,25 @@ for (const width of [1440, 390]) test(`Add deal and Won or Lost save through the
       await page.getByRole('tabpanel', { name: 'Activity' }).getByRole('region', { name: 'Deal notes' }).getByText('Example opening note', { exact: true }).waitFor();
       await page.getByRole('tab', { name: 'Overview' }).click();
     }
-    await page.locator('#detailPhase').selectOption('closed');
-    assert.equal(await page.getByLabel('Paused', { exact: true }).isVisible(), false);
-    await page.getByLabel(outcome, { exact: true }).check();
+    const path = page.getByRole('region', { name: 'Deal path' });
+    await path.getByRole('button', { name: 'Closed', exact: true }).click();
+    const closeAsk = path.getByRole('form', { name: 'Close this deal' });
+    assert.equal(await closeAsk.getByLabel('Paused', { exact: true }).count(), 0);
+    await closeAsk.getByText(outcome, { exact: true }).click();
     if (outcome === 'Lost') {
-      await page.getByRole('button', { name: 'Save outcome' }).click();
-      await page.getByText('Enter the reason the deal was lost.', { exact: true }).waitFor();
-      await page.getByLabel('Reason the deal was lost').fill('The client chose another site');
-    } else await page.getByLabel('Won value').fill('1000');
-    const date = page.getByLabel('Closed on', { exact: true });
+      await closeAsk.getByRole('button', { name: 'Close deal' }).click();
+      await closeAsk.getByText('Enter the reason the deal was lost.', { exact: true }).waitFor();
+      await closeAsk.getByLabel('Reason the deal was lost').fill('The client chose another site');
+    } else await closeAsk.getByLabel('Closed value (optional)').fill('1000');
+    const date = closeAsk.getByLabel('Closed on', { exact: true });
     const today = await date.inputValue();
     assert.equal(await date.getAttribute('max'), today);
     await date.fill(earlyDate);
-    await page.getByRole('button', { name: 'Save outcome' }).click();
-    await page.locator('#completionErrors').getByText('Choose a closing date between the day the deal reached its current phase and today.', { exact: true }).waitFor();
+    await closeAsk.getByRole('button', { name: 'Close deal' }).click();
+    await closeAsk.getByRole('status').getByText('Choose a closing date between the day the deal reached its current phase and today.', { exact: true }).waitFor();
     await date.fill(today);
     await page.screenshot({ path: join(evidence, `engine-${outcome.toLowerCase()}-dialog-${width}.png`) });
-    await page.getByRole('button', { name: 'Save outcome' }).click();
+    await closeAsk.getByRole('button', { name: 'Close deal' }).click();
     await page.getByText(`Deal marked ${outcome.toLowerCase()}`, { exact: true }).first().waitFor();
     await page.getByRole('button', { name: 'Back to deals' }).click();
     await page.getByRole('button', { name: outcome === 'Won' ? 'Closed deals' : 'Lost deals', exact: true }).click();
@@ -2421,16 +2410,10 @@ test('switched-on Deals selects an existing market agent and decides critical da
     await page.keyboard.press('Escape');
   }
 
-  await page.locator('#detailPhase').selectOption('site_selection');
-  await page.getByLabel('Record this as a critical date').check();
-  await page.getByLabel('Phase effective date', { exact: true }).filter({ visible: true }).fill('2027-01-03');
-  await dateSource.fill('Example agreement');
-  await page.getByRole('button', { name: 'Move to Site selection' }).click();
-  const effectiveDate = page.locator('.critical-date').filter({ hasText: 'Jan 3, 2027' });
-  await effectiveDate.locator('[data-countdown]').waitFor();
-  assert.equal(await effectiveDate.getByText('Phase effective date', { exact: true }).filter({ visible: true }).count(), 1);
-  assert.equal(await effectiveDate.getByText('Jan 3, 2027', { exact: true }).filter({ visible: true }).count(), 1);
-  await effectiveDate.screenshot({ path: join(evidence, 'engine-phase-effective-date.png') });
+  const path = page.getByRole('region', { name: 'Deal path' });
+  await path.getByRole('button', { name: 'Site Selection', exact: true }).click();
+  await path.getByRole('button', { name: 'Move to Site Selection' }).click();
+  await path.locator('[aria-current="step"][data-phase="site_selection"]').waitFor();
   assert.deepEqual(writes, [
     [`/api/engine/deals/${deal}/parties`, { party_id: person, role: 'market_agent' }],
     [`/api/engine/deals/${deal}/parties/remove`, { party_id: prior, role: 'market_agent' }],
@@ -2442,7 +2425,6 @@ test('switched-on Deals selects an existing market agent and decides critical da
     [`/api/engine/deals/${deal}/critical-dates`, { kind: 'option_notice', due_on: '2027-01-05', source: 'Example contract', note: 'Example clause' }],
     [`/api/engine/deals/${deal}/critical-dates`, { kind: 'other', due_on: '2027-01-06', source: 'Example contract', note: 'Example clause' }],
     [`/api/engine/deals/${deal}/changes`, { seen_change_id: 1, phase: { from: 'research', to: 'site_selection' } }],
-    [`/api/engine/deals/${deal}/critical-dates`, { kind: 'phase_effective_date', due_on: '2027-01-03', source: 'Example agreement' }],
   ]);
 });
 

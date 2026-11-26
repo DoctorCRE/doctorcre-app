@@ -10,6 +10,7 @@ import { readDashboard } from "./dashboard-read";
 import { DealsTile } from "./deals-tile";
 import { createDraftEdits, type DraftEdits, type PrivateReplyDraft } from "./draft-edits.ts";
 import { DropReason } from "./drop-reason.tsx";
+import { dropCategoryForItem } from "./drop-reasons.ts";
 import { type MarkUndo, markTarget, restoreMark } from "./engine-marks.ts";
 import { draftCardStatus, draftReference, hasEngineReview, openStepRefusal } from "./engine-review.ts";
 import {
@@ -1496,6 +1497,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
       {dropping && (
         <DropReason
           title={dropping.item.title}
+          category={dropCategoryForItem(dropping.item)}
           cancel={() => {
             dropping.opener.focus();
             setDropping(null);
