@@ -1587,11 +1587,9 @@ for (const [width, theme, conflict, unavailable] of [
     const talk = page.getByRole("link", { name: "Talk to Doc about this draft", exact: true });
     if (unavailable) {
       await expect(talk).toHaveCount(0);
-      await expect(page.getByText(unavailable[1], { exact: true })).toBeVisible({ timeout: 3000 });
-      await expect(page.getByRole("button", { name: "Talk to Doc about this draft" })).toHaveAccessibleDescription(
-        unavailable[1],
-      );
-      assert.equal(linkReads, unavailable[0] === "legacy" ? 0 : 1);
+      await expect.poll(() => linkReads).toBe(unavailable[0] === "legacy" ? 0 : 1);
+      await expect(page.getByText(unavailable[1], { exact: true })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Talk to Doc about this draft" })).toHaveCount(0);
       await fits();
       await page.getByRole("button", { name: "Edit", exact: true }).click();
       await expect(page.getByRole("textbox", { name: "Subject", exact: true })).toBeEditable();

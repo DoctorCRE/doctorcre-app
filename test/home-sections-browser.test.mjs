@@ -1619,20 +1619,15 @@ test('Home shows every next step and settles only the one the partner decides', 
   ]);
 });
 
-test('Home keeps the Doc status beside Talk to Doc, apart from Send reply', async t => {
+test('Home shows no Doc setup note under a reply it cannot talk to Doc about', async t => {
   const { page, open, state } = await dashboard(t, 1440, 'dark');
   const draft = draftCard();
   state.items = [draft];
   await open('/?mode=live');
   await page.getByRole('link', { name: draft.title }).click();
   const review = page.getByRole('region', { name: `Details for ${draft.title}` });
-  const talk = review.getByRole('button', { name: 'Talk to Doc about this draft', exact: true });
-  await talk.waitFor();
-  assert.equal(await talk.isDisabled(), true);
-  const reason = 'Sign in with DoctorCRE to talk to Doc.';
-  assert.equal(await talk.evaluate(node => document.getElementById(node.getAttribute('aria-describedby')).textContent), reason);
-  const sendRow = review.getByRole('button', { name: 'Send reply', exact: true }).locator('..');
-  assert.equal((await sendRow.textContent()).includes(reason), false);
+  await review.getByRole('button', { name: 'Send reply', exact: true }).waitFor();
+  assert.equal(await review.getByText(/Talk to Doc|Claude Code|Sign in with DoctorCRE/).count(), 0);
 });
 
 for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Home draft Edit saves once at ${width}px in ${theme}`, async t => {
