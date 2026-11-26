@@ -2731,7 +2731,7 @@ for (const width of [1440, 390]) test(`Timeline shows read-only history from the
   const rows = timeline.locator('.activity-row:not([hidden])');
   const line = async row => (await row.innerText()).replace(/\s+/g, ' ');
   const titles = () => timeline.locator('.activity-title').allTextContents();
-  assert.equal(await rows.count(), 19);
+  assert.equal(await rows.count(), 22);
   assert.equal(await timeline.locator('.activity-row :is(a, button, input, select, textarea, [contenteditable])').count(), 0);
   assert.match(await line(rows.nth(0)), /^Moved to Legal Written by the assistant · Nov 17, 7:00 PM$/);
   assert.match(await line(rows.nth(1)), /^Tour plans confirmed Dell · Nov 17, 2:00 PM$/);
@@ -2746,7 +2746,9 @@ for (const width of [1440, 390]) test(`Timeline shows read-only history from the
   for (const description of ['Needs attention', ...dealChanges.map(([, , label]) => label)]) {
     assert.equal(titleText.filter(text => text === description).length, 1, description);
   }
-  for (const [description] of stepChanges) assert.equal(titleText.some(text => text.includes(description)), false, description);
+  for (const [description, , state] of stepChanges) {
+    assert.equal(titleText.includes(`${description} · ${state} · Due Nov 19, 2026`), true, `Finished next step should say ${state}`);
+  }
   for (const [, , , caption] of dates) assert.equal(titleText.some(text => text.includes(caption)), false, caption);
   assert.equal(titleText.some(text => text.includes('Check the floor plan') || text.includes('Review the checklist')), false);
   const blob = await rows.evaluateAll(nodes => nodes.map(node => node.innerText).join('\n'));
@@ -3349,7 +3351,9 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`a 
   await ownRow.getByRole('button', { name: 'Done', exact: true, description: /Joe/ }).waitFor();
   await page.getByRole('tab', { name: 'Activity' }).click();
   const timeline = page.getByRole('tabpanel', { name: 'Activity' });
-  assert.equal(await timeline.getByText(other.description, { exact: false }).count(), 0);
+  const otherDoneRow = timeline.locator('.activity-row', { hasText: other.description });
+  await otherDoneRow.waitFor();
+  assert.match((await otherDoneRow.innerText()).replace(/\s+/g, ' '), /Done.*Joe/);
 
   Object.assign(row, { phase: 'closed', outcome: 'won' });
   await page.getByRole('tab', { name: 'Overview' }).click();
@@ -3363,7 +3367,11 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`a 
   await ended.waitFor({ state: 'hidden' });
   await snapshot.getByText('No next step set.', { exact: true }).waitFor();
   await page.getByRole('tab', { name: 'Activity' }).click();
-  assert.equal(await timeline.getByText(own.description, { exact: false }).count(), 0);
+  const doneRows = timeline.locator('.activity-row', { hasText: own.description });
+  await doneRows.nth(1).waitFor();
+  assert.equal(await doneRows.count(), 2);
+  assert.match((await doneRows.nth(0).innerText()).replace(/\s+/g, ' '), /Done.*Joe/);
+  assert.match((await doneRows.nth(1).innerText()).replace(/\s+/g, ' '), /Done.*Joe/);
   await capture(timeline, 'timeline');
   assert.deepEqual(writes.map(({ id, base_version }) => [id, base_version]), [[other.id, 11], [other.id, 15], [own.id, 10], [own.id, 10]]);
   assert.notEqual(writes[0].idempotency_key, writes[1].idempotency_key);

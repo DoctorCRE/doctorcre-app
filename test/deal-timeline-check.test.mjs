@@ -475,7 +475,8 @@ test('one activity list keeps each thing once and leaves next steps on Overview'
   assert.equal(titles.filter(title => title === 'Example suite floor plan').length, 1);
   assert.equal(titles.filter(title => title === 'Example plan.pdf').length, 1);
   assert.equal(titles.filter(title => title === 'Tour plans confirmed').length, 1);
-  assert.equal(titles.some(title => title.includes('Check the floor plan') || title.includes('Send the sample plan')), false);
+  assert.equal(titles.includes('Check the floor plan'), false);
+  assert.equal(titles.includes('Send the sample plan · Done · Due Nov 24, 2026'), true);
   assert.equal(items.at(-1).title, 'Note without a time');
   assert.equal(items.at(-1).caption, 'Date not recorded');
   assert.equal(titles.some(title => title.startsWith('Due diligence')), false);
@@ -503,6 +504,7 @@ test('an empty engine read says nothing is recorded and a failed correspondence 
     email_follow_ups: [{ kind: 'file_to_deal' }, { kind: 'file_to_deal' }], correspondence: [], thread: [],
   }, { now: activityNow, ports: activityPorts });
   assert.match(waiting.html, /2 emails are waiting to be filed on Overview\./);
-  assert.match(empty.html, /id="activityNote" name="text" rows="1" maxlength="10000"/);
+  assert.match(empty.html, /id="activityNote" name="text" rows="1" maxlength="10000" placeholder="Add a note"/);
+  assert.ok(empty.html.indexOf('id="activityNoteForm"') < empty.html.indexOf('aria-label="Activity filter"'));
   assert.doesNotMatch(empty.html, /class="activity-row"[^>]*>[\s\S]*<button/);
 });

@@ -96,6 +96,14 @@ function many() {
         actor: "joe",
         updated_at: "2026-11-17T18:00:00Z",
       },
+      {
+        id: "done-step",
+        description: "Send the sample plan",
+        status: "done",
+        actor: "joe",
+        due_on: "2026-11-24",
+        updated_at: "2026-11-17T18:30:00Z",
+      },
     ],
     critical_dates: [
       {
@@ -231,17 +239,28 @@ test("a deal's Activity is one filtered history, and an empty one says nothing i
       const activity = panel.locator(".deal-activity");
       await activity.getByRole("heading", { name: "Activity", exact: true }).waitFor();
       assert.equal(await page.locator("html").getAttribute("data-theme"), theme);
+      assert.deepEqual(await page.getByRole("tab").allTextContents(), [
+        "Overview",
+        "Activity",
+        "Tours",
+        "Documents",
+        "Client portal",
+      ]);
       assert.equal(await panel.getByText("Dated events", { exact: true }).count(), 0);
       assert.equal(await panel.getByText("Phase timeline", { exact: true }).count(), 0);
       assert.equal(await panel.getByRole("region", { name: "History from the old system" }).count(), 0);
       assert.equal(await panel.getByText("Check the floor plan", { exact: true }).count(), 0);
       assert.equal(await panel.getByText("Due diligence", { exact: false }).count(), 0);
+      const noteTop = await activity.locator("#activityNoteForm").evaluate((node) => node.getBoundingClientRect().top);
+      const filterTop = await activity.locator(".chip-bar").evaluate((node) => node.getBoundingClientRect().top);
+      assert.ok(noteTop < filterTop, `note box sits above filter chips at ${width}`);
       const titles = () => activity.locator(".activity-row:not([hidden]) .activity-title").allTextContents();
       const shown = await titles();
       for (const title of [
         "Moved to Legal",
         "Example suite floor plan",
         "Tour plans confirmed",
+        "Send the sample plan · Done · Due Nov 24, 2026",
         "Property tour",
         "Example plan.pdf",
         "Called the landlord",
@@ -265,6 +284,17 @@ test("a deal's Activity is one filtered history, and an empty one says nothing i
         true,
         `${width} stays within the page`,
       );
+      if (width >= 1280) {
+        const fit = await page.evaluate(() => ({
+          pageFits: document.documentElement.scrollHeight <= window.innerHeight + 1,
+          visibleRows: [...document.querySelectorAll(".activity-row:not([hidden])")].filter((row) => {
+            const box = row.getBoundingClientRect();
+            return box.top >= 0 && box.bottom <= window.innerHeight;
+          }).length,
+        }));
+        assert.equal(fit.pageFits, true, `desktop page does not scroll at ${width}x${height}`);
+        assert.ok(fit.visibleRows >= 7, `at least 7 rows fit at ${width}x${height} (got ${fit.visibleRows})`);
+      }
       await revealActivity(activity);
       for (const name of ["All", "Emails", "Notes", "Calls and meetings", "Documents", "Changes"]) {
         assert.equal(await chipVisible(activity, name), true, `${name} at ${width}`);

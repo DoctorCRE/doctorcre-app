@@ -31,6 +31,11 @@ type ActivityItem = {
 };
 
 const CALLS = new Set(["call", "meeting", "tour"]);
+const ENDED_STEPS = new Map([
+  ["done", "Done"],
+  ["cancelled", "Cancelled"],
+  ["expired", "Expired"],
+]);
 const FILTERS = [
   ["all", "All"],
   ["emails", "Emails"],
@@ -159,6 +164,19 @@ export function activityItems(
       return id ? [id] : [];
     }),
   );
+  const activities = rows(source.activities);
+  const activityIds = new Set(
+    activities.flatMap((activity) => {
+      const id = text(activity.id);
+      return id ? [id] : [];
+    }),
+  );
+  const activityActors = new Map(
+    activities.flatMap((activity) => {
+      const id = text(activity.id);
+      return id && activity.actor !== undefined ? [[id, activity.actor] as const] : [];
+    }),
+  );
   const documents = rows(source.documents);
   const documentIds = new Set(
     documents.flatMap((file) => {
@@ -200,16 +218,20 @@ export function activityItems(
         id,
         filter: meeting ? "calls" : "emails",
         when: entry.happened_at,
-        who: meeting ? "" : text(entry.sender_name) || text(entry.sender) || "Unknown sender",
+        who: meeting
+          ? id && activityActors.has(id)
+            ? ports.timelineActor(activityActors.get(id))
+            : ""
+          : text(entry.sender_name) || text(entry.sender) || "Unknown sender",
         title,
       },
       now,
       ports,
     );
   }
-  for (const activity of rows(source.activities)) {
+  for (const activity of activities) {
     const id = text(activity.id) ?? "";
-    if (id && correspondenceIds.has(id)) continue;
+    if (id && (correspondenceIds.has(id) || noteIds.has(id))) continue;
     const raw = ports.noteText(activity.summary).trim() || ports.noteText(activity.detail);
     const email = text(activity.kind) === "email";
     const sender = text(activity.sender) ?? text(activity.sender_name);
@@ -244,11 +266,30 @@ export function activityItems(
       ports,
     );
   }
+  for (const step of rows(source.next_actions)) {
+    const status = ENDED_STEPS.get(text(step.status) ?? "");
+    const name = text(step.title) || text(step.description);
+    if (!status || !name) continue;
+    const due = text(step.due_on);
+    const updated = text(step.updated_at);
+    const dueLabel = updated && due && ports.calendarDay(due) ? `Due ${ports.dateCaption(due)}` : "";
+    push(
+      items,
+      {
+        id: text(step.id) ?? "",
+        filter: "changes",
+        when: step.updated_at ?? step.due_on,
+        who: ports.timelineActor(step.actor),
+        title: [name, status, dueLabel].filter(Boolean).join(" · "),
+      },
+      now,
+      ports,
+    );
+  }
   for (const event of rows(source.history)) {
     const activityId = text(event.activity_id);
     if (
-      (activityId && noteIds.has(activityId)) ||
-      (activityId && correspondenceIds.has(activityId)) ||
+      (activityId && (noteIds.has(activityId) || correspondenceIds.has(activityId) || activityIds.has(activityId))) ||
       sameDocument(event, documentIds, documentNames)
     )
       continue;
@@ -369,11 +410,12 @@ export function renderDealActivity(
     known || items.length
       ? `<p class="activity-empty"${items.length ? " hidden" : ""}${waitingLine ? ' data-waiting="true"' : ""}>${esc(waitingLine || EMPTY_LINE.get(selected) || "")}</p>`
       : "";
-  const html = `<div class="deal-activity" data-detail-read="activity"><h2>Activity</h2><div class="chip-bar" role="group" aria-label="Activity filter">${FILTERS.map(
-    ([id, label]) =>
-      `<button type="button" class="chip" data-activity-filter="${id}" aria-pressed="${selected === id}">${label}</button>`,
-  ).join("")}</div>
-    <form id="activityNoteForm" class="activity-note"><label for="activityNote">Note</label><textarea id="activityNote" name="text" rows="1" maxlength="10000"${canNote ? "" : " disabled"}>${esc(note)}</textarea><button class="btn" type="submit"${canNote ? "" : " disabled"}>Add note</button><p id="activityNoteStatus" role="status"></p></form>
+  const html = `<div class="deal-activity" data-detail-read="activity"><h2>Activity</h2>
+    <form id="activityNoteForm" class="activity-note"><label class="sr-only" for="activityNote">Note</label><textarea id="activityNote" name="text" rows="1" maxlength="10000" placeholder="Add a note"${canNote ? "" : " disabled"}>${esc(note)}</textarea><button class="btn" type="submit"${canNote ? "" : " disabled"}>Add note</button><p id="activityNoteStatus" role="status"></p></form>
+    <div class="chip-bar" role="group" aria-label="Activity filter">${FILTERS.map(
+      ([id, label]) =>
+        `<button type="button" class="chip" data-activity-filter="${id}" aria-pressed="${selected === id}">${label}</button>`,
+    ).join("")}</div>
     ${known ? "" : '<p>Emails and meetings unavailable.</p><button class="btn" type="button" data-refresh-detail>Retry emails and meetings</button>'}
     <div class="activity-list">${body}${emptyLine}</div></div>`;
   return { html, filter: selected };
