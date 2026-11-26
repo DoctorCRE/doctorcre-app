@@ -192,26 +192,30 @@ async function openHome(t: TestContext, width: number, height: number, tours: un
   );
   await page.route("**/mcp", async (route) => {
     const call = route.request().postDataJSON();
+    const board = call.params.name === "deal-room-board" && { board_from_engine: true, deals };
     const payload =
-      call.params.name === "deal-room-board"
-        ? { board_from_engine: true, deals }
-        : call.params.name === "lead-board"
-          ? { schema_version: "lead-workspace.v1", generated_at: "2026-11-25T15:00:00Z", leads }
-          : {
-              schema_version: "quiet-follow-ups.v1",
-              cadence: { lead_days: 45, vendor_days: 90 },
-              proposals: [
-                { subject_type: "lead", subject_id: "lead-2", ref: null, name: "Sample Lead Two", basis: "created_at" },
-              ].map((row) => ({ ...row, anchor_on: "2026-10-01", due_on: "2026-11-15", days_overdue: 10 })),
-              sent: false,
-              tasks_created: false,
-            };
+      call.params.name === "lead-board"
+        ? { schema_version: "lead-workspace.v1", generated_at: "2026-11-25T15:00:00Z", leads }
+        : {
+            schema_version: "quiet-follow-ups.v1",
+            cadence: { lead_days: 45, vendor_days: 90 },
+            proposals: [
+              { subject_type: "lead", subject_id: "lead-2", ref: null, name: "Sample Lead Two", basis: "created_at" },
+            ].map((row) => ({ ...row, anchor_on: "2026-10-01", due_on: "2026-11-15", days_overdue: 10 })),
+            sent: false,
+            tasks_created: false,
+          };
     await route.fulfill({
-      json: { jsonrpc: "2.0", id: call.id, result: { content: [{ type: "text", text: JSON.stringify(payload) }] } },
+      json: {
+        jsonrpc: "2.0",
+        id: call.id,
+        result: { content: [{ type: "text", text: JSON.stringify(board || payload) }] },
+      },
     });
   });
   await page.goto(`${server.origin}/?mode=live`);
   await page.getByRole("region", { name: "Reminders", exact: true }).waitFor();
+  await page.waitForFunction(() => !document.querySelector(".home-placeholder"));
   return page;
 }
 
@@ -235,7 +239,6 @@ for (const [width, height] of [
     assert.equal(await page.getByRole("button", { name: "Snooze selected" }).count(), 0);
     const box = async (tile: typeof inbox) => (await tile.boundingBox()) ?? assert.fail("tile is not drawn");
     const region = (name: string) => box(page.getByRole("region", { name, exact: true }));
-    await page.getByRole("region", { name: "Coming up", exact: true }).waitFor();
     const [left, middle, below] = [await box(reminders), await box(inbox), await box(waiting)];
     const right = await box(meetings);
     const leadsLine = await region("Leads");
@@ -274,10 +277,9 @@ test("Reminders 15 or more days late fold into one line that opens in place", as
   assert.equal(await reminders.getByRole("heading", { level: 2 }).textContent(), "Reminders 5 · 2 late");
 });
 
-test("On a phone Today's meetings comes first, then Reminders, Inbox, Deals, Coming up, Leads, and In motion and waiting last", async (t) => {
+test("On a phone Today's meetings comes first, Leads after Inbox, and In motion and waiting last", async (t) => {
   const page = await openHome(t, 390, 844);
   await page.getByRole("region", { name: "Today's meetings", exact: true }).waitFor();
-  await page.getByRole("region", { name: "Coming up", exact: true }).waitFor();
   const tiles = await page.locator(".home-slice").evaluateAll((nodes) =>
     nodes
       .map((node) => ({ name: node.getAttribute("aria-label"), top: node.getBoundingClientRect().top }))
@@ -347,7 +349,6 @@ for (const [width, height] of [
 test("Deals counts the board's open deals and Coming up lists the next 14 days, each opening what it counts", async (t) => {
   const page = await openHome(t, 1440, 900);
   const tile = page.getByRole("region", { name: "Deals", exact: true });
-  await tile.waitFor();
   assert.equal(await tile.getByRole("heading", { level: 2 }).textContent(), "Deals 3 open · 1 prospect");
   const link = (name: string) => tile.getByRole("link", { name, exact: true }).getAttribute("href");
   assert.equal(await link("Research 1"), "/deals?column=research");
@@ -366,7 +367,6 @@ test("Deals counts the board's open deals and Coming up lists the next 14 days, 
 test("At 1280x640 the attention list and Coming up fold to one line each that opens in place", async (t) => {
   const page = await openHome(t, 1280, 640);
   const tile = page.getByRole("region", { name: "Deals", exact: true });
-  await page.getByRole("region", { name: "Coming up", exact: true }).waitFor();
   assert.equal(
     await tile
       .getByRole("link", { name: /^Example Deal/ })
@@ -388,8 +388,6 @@ test("Coming up is not drawn when no open deal has a date in the next 14 days", 
     [],
     [criticalDate(4, "2026-12-10"), { ...criticalDate(5, today), done: true }],
   );
-  await page.getByRole("region", { name: "Deals", exact: true }).waitFor();
-  await page.waitForFunction(() => !document.querySelector(".home-side .home-placeholder"));
   assert.equal(await page.getByRole("region", { name: "Coming up", exact: true }).count(), 0);
   assert.equal(await page.getByText("Coming up").count(), 0);
 });

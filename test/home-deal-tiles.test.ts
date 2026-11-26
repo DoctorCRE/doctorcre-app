@@ -3,7 +3,6 @@ import test from "node:test";
 import {
   type BoardRules,
   comingUp,
-  dealsAtAGlance,
   parseCriticalDates,
   prospectCount,
   reviewProgress,
@@ -74,10 +73,7 @@ const deal = (id: string, fields: Record<string, unknown> = {}) => ({
   id,
   name: `Example ${id}`,
   owner: "joe",
-  phase: "Research",
-  operating_state: "active",
   attention: false,
-  next_step_required: false,
   open_actions: [step("joe", "2026-12-01")],
   ...fields,
 });
@@ -88,39 +84,4 @@ test("the board and Home share one Needs attention rule", () => {
   ]);
   assert.deepEqual(rules.attentionReasons(deal("b", { attention: true }), TODAY), ["Flagged by a partner"]);
   assert.deepEqual(rules.attentionReasons(deal("c", { open_actions: [step("dell", "2026-11-22")] }), TODAY), []);
-});
-
-test("Home counts Local Deals' open deals per phase, those needing attention, and those missing a next step", () => {
-  const glance = dealsAtAGlance(
-    {
-      deals: [
-        deal("late", { open_actions: [step("joe", "2026-11-22")] }),
-        deal("flagged", { phase: "Legal", attention: true, next_step_required: true, open_actions: [] }),
-        deal("quiet", { phase: "Legal" }),
-        deal("parked", { operating_state: "parked", attention: true }),
-        deal("national", { workspace_kind: "national_account", attention: true }),
-        deal("closed", { phase: "Closed", next_step_required: true }),
-      ],
-    },
-    TODAY,
-    rules,
-  );
-  assert.equal(glance.open, 3);
-  assert.deepEqual(
-    glance.phases.filter(({ count }) => count).map(({ label, count }) => [label, count]),
-    [
-      ["Research", 1],
-      ["Legal", 2],
-    ],
-  );
-  assert.equal(glance.phases.length, 7);
-  assert.deepEqual(
-    glance.attention.map(({ id, reason, flagged, late }) => [id, reason, flagged, late]),
-    [
-      ["late", "Step 3 days late", false, true],
-      ["flagged", "Flagged by a partner", true, false],
-    ],
-  );
-  assert.equal(glance.missingNextStep, 1);
-  assert.throws(() => dealsAtAGlance({ deals: "none" }, TODAY, rules));
 });
