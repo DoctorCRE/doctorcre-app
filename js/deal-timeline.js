@@ -4,7 +4,7 @@ import { sessionFetch } from './private-session.js';
 
 import { businessDay } from './business-date.js';
 import { COLUMNS, columnBySlug, columnByValue, noteText, PHASE_DATE_KIND } from './pipeline-model.js';
-import { compareInstants, escapeText, fieldLabel, readableValue } from './change-receipts.mjs';
+import { escapeText, fieldLabel, readableValue } from './change-receipts.mjs';
 import { sourceTime } from './email-source-line.js';
 import { concise, isEngineDealDetail, PARKING_REASONS } from './local-deals-model.js';
 import { ACTOR_LABEL, authorLabel, dealTypeLabel, knownAuthor } from './client.js';
@@ -181,12 +181,11 @@ export function renderCriticalDates(detail, now = Date.now(), dateDecisions = fa
   return `<section class="critical-dates" data-detail-read="dates" aria-label="Critical dates">${body}</section>`;
 }
 
-const timelineActor = actor => knownAuthor(actor) ?? (actor ? 'Automatically' : '');
+export const timelineActor = actor => knownAuthor(actor) ?? (actor ? 'Automatically' : '');
 const activityLabels = { call: 'Call', email: 'Email', meeting: 'Meeting' };
-const STEP_STATES = new Map([['done', 'Done'], ['cancelled', 'Cancelled'], ['expired', 'Expired']]);
 const closedMoney = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', trailingZeroDisplay: 'stripIfInteger' });
 
-function changeText({ verb, field, new_value }, planTours) {
+export function changeText({ verb, field, new_value }, planTours) {
   if (planTours && verb === 'cancel-tour') return 'Tour cancelled';
   if (field === 'phase') {
     const phase = new_value === 'dead' ? 'Lost' : columnBySlug(new_value)?.label || readableValue(field, new_value);
@@ -209,54 +208,6 @@ function changeText({ verb, field, new_value }, planTours) {
   if (field === 'won_value' && Number.isFinite(new_value)) value = closedMoney.format(new_value);
   if (typeof new_value === 'string' && new_value.length === 10 && calendarDay(new_value)) value = dateCaption(new_value);
   return label ? `${label} · ${value}` : 'Deal changed';
-}
-
-export function engineTimelineEntries(detail, { planTours = false } = {}) {
-  const notes = detail.thread || [];
-  const noteIds = new Set(notes.map(note => note.id));
-  /** @type {{ type: string, when: string, actor: string, text: string }[]} */
-  const entries = [
-    ...notes.map(note => ({ type: 'Note', when: note.created_at, actor: note.actor, text: noteText(note.text) })),
-    ...(detail.activities || []).map(activity => ({
-      type: activityLabels[activity.kind] || 'Activity', when: activity.occurred_at,
-      actor: activity.actor, text: noteText(activity.summary).trim() || noteText(activity.detail),
-    })),
-    ...(detail.documents || []).map(file => ({
-      type: 'Document', when: file.prepared_at, actor: file.actor, text: file.name,
-    })),
-    ...(detail.next_actions || []).map(step => ({
-      type: step.title ? 'Checklist item' : 'Next step', when: step.updated_at || step.due_on, actor: step.actor,
-      text: [
-        step.title || step.description,
-        STEP_STATES.get(step.status),
-        step.updated_at && calendarDay(step.due_on) && `Due ${dateCaption(step.due_on)}`,
-      ].filter(Boolean).join(' · '),
-    })),
-    ...(detail.critical_dates || []).map(date => {
-      const label = criticalDateLabel(date.kind) || 'Date';
-      const due = calendarDay(date.due_on) && `Due ${dateCaption(date.due_on)}`;
-      return {
-        type: 'Critical date', when: date.updated_at, actor: date.actor,
-        text: [...new Set([label, DATE_STATES.get(date.status), due, date.note].filter(Boolean))].join(' · '),
-      };
-    }),
-    ...(detail.history || []).filter(event => !noteIds.has(event.activity_id)).map(event => ({
-      type: event.field === 'note' ? 'Note' : event.field === 'phase' ? 'Phase move' : 'Change',
-      when: event.recorded_at, actor: event.actor,
-      text: event.field === 'note' ? noteText(event.new_value) : changeText(event, planTours),
-    })),
-  ];
-  return entries.flatMap(({ type, when, actor, text }) => {
-    if (!text?.trim() || !calendarDay(when)) return [];
-    const dateOnly = when.length === 10;
-    const instant = new Date(when);
-    if (!Number.isFinite(instant.getTime())) return [];
-    return [{
-      type, when, actor: timelineActor(actor), text,
-      day: dateOnly ? when : businessDay(instant),
-      caption: dateOnly ? dateCaption(when) : sourceTime(when),
-    }];
-  }).sort((a, b) => b.day.localeCompare(a.day) || compareInstants(a.when, b.when));
 }
 
 const OLD_HISTORY_ACTION = new Map(Object.entries({
@@ -378,16 +329,27 @@ function importedFacts({ verb, old_value, new_value }) {
   }).join('\n');
 }
 
-export function renderImportedDealHistory(history) {
-  if (!Array.isArray(history)) return '';
-  const rows = history.filter(entry => entry?.imported === true).reverse().map(event => {
+export function importedHistoryEntries(history) {
+  if (!Array.isArray(history)) return [];
+  return history.filter(entry => entry?.imported === true).reverse().map(event => {
     const key = event.field == null ? event.verb : `${event.verb}:${event.field}`;
-    const action = OLD_HISTORY_ACTION.get(key);
-    const facts = action ? importedFacts(event) : '';
-    return `<li><b>${esc(historicalActor(event.actor))}</b> <time datetime="${esc(event.recorded_at)}">${esc(sourceTime(event.recorded_at))}</time>
-      <div>${action || 'Earlier deal activity'}</div>${facts ? `<p class="note-original">${esc(facts)}</p>` : ''}</li>`;
+    const known = OLD_HISTORY_ACTION.get(key);
+    return {
+      id: typeof event.id === 'string' ? event.id : key,
+      when: event.recorded_at,
+      actor: historicalActor(event.actor),
+      action: known || 'Earlier deal activity',
+      facts: known ? importedFacts(event) : '',
+    };
   });
-  return rows.length ? `<section aria-labelledby="old-deal-history"><h2 id="old-deal-history">History from the old system</h2><ol class="workspace-events">${rows.join('')}</ol></section>` : '';
+}
+
+export function renderImportedDealHistory(history) {
+  const rows = importedHistoryEntries(history);
+  if (!rows.length) return '';
+  return `<section aria-labelledby="old-deal-history"><h2 id="old-deal-history">History from the old system</h2><ol class="workspace-events">${rows.map(event =>
+    `<li><b>${esc(event.actor)}</b> <time datetime="${esc(event.when)}">${esc(sourceTime(event.when))}</time>
+      <div>${esc(event.action)}</div>${event.facts ? `<p class="note-original">${esc(event.facts)}</p>` : ''}</li>`).join('')}</ol></section>`;
 }
 
 export function renderDealTimeline(detail, now = Date.now()) {

@@ -2195,12 +2195,10 @@ test("finishing a tour records one meeting through a lost response and a second 
   assert.equal(fixture.writes.length, 0, "completion leaves the saved plan untouched");
   for (const page of [joe, dell]) {
     await page.getByRole("tab", { name: "Activity" }).click();
-    const meeting = page.getByText("Property tour", { exact: true });
-    await meeting.click();
+    const meeting = page.getByRole("tabpanel", { name: "Activity" }).getByText("Property tour", { exact: true });
+    await meeting.waitFor();
     assert.equal(await meeting.count(), 1);
-    await page.getByText(clinic.address, { exact: false }).waitFor();
-    await page.getByText("30 Example Way", { exact: true }).waitFor();
-    assert.equal(await page.getByText(annex.address, { exact: true }).count(), 0);
+    assert.equal(await page.getByRole("list", { name: "Visited properties" }).count(), 0);
   }
 });
 
@@ -2215,8 +2213,8 @@ test("cancelling a tour requires confirmation and records a change without a mee
   await cancel.tap();
   await page.getByText("No planned tours.").waitFor();
   await page.getByRole("tab", { name: "Activity" }).click();
-  await page.getByText("Tour cancelled", { exact: true }).waitFor();
-  await page.getByText("No emails or meetings filed to this deal yet.").waitFor();
+  await page.getByRole("tabpanel", { name: "Activity" }).getByText("Tour cancelled", { exact: true }).waitFor();
+  assert.equal(await page.getByText("No emails or meetings filed to this deal yet.").count(), 0);
 });
 
 test("overlapping tour cancellations both leave Planned tours and reach Activity", async (t) => {
@@ -2284,9 +2282,9 @@ test("the deal tour switch hides visited properties and the cancellation label w
   await page.goto(server.origin + dealPage);
   assert.equal(await page.locator("html[data-deal-tours-from-engine]").count(), 0);
   await page.getByRole("tab", { name: "Activity" }).click();
+  await page.getByRole("heading", { name: "Activity", exact: true }).waitFor();
   await page.getByText("Property tour", { exact: true }).waitFor();
   const visitedProperties = await page.getByRole("list", { name: "Visited properties", includeHidden: true }).count();
-  await page.getByRole("heading", { name: "Dated events" }).waitFor();
   const cancellationLabels = await page.getByText("Tour cancelled", { exact: true }).count();
   assert.deepEqual({ visitedProperties, cancellationLabels }, { visitedProperties: 0, cancellationLabels: 0 });
 });

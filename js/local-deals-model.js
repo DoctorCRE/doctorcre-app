@@ -97,7 +97,8 @@ export function prepareDealDetail(detail) {
   });
   return { ...detail, entries, items,
     thread: newestFirst(detail.thread || [], threadInstant),
-    activities: newestFirst(activities, a => a.occurred_at || a.recorded_at) };
+    // Overview updates use the filtered copy. Activity still needs email bodies, which correspondence does not carry.
+    activities: newestFirst(allActivities, a => a.occurred_at || a.recorded_at) };
 }
 
 export function ordinaryOpenSteps(actions = []) {

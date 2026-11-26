@@ -369,7 +369,7 @@ for (const [width, height] of laptops)
     const body = await page.locator("body").evaluate((body) => getComputedStyle(body).fontSize);
     const refresh = page.getByRole("button", { name: "Refresh deal" });
     for (const [tab, heading] of [
-      ["Activity", "Dated events"],
+      ["Activity", "Activity"],
       ["Documents", "Documents"],
     ] as const) {
       await page.getByRole("tab", { name: tab }).click();
@@ -389,10 +389,11 @@ for (const [width, height] of laptops)
     assert.ok(open.y < file.y + file.height && open.x > file.x + file.width, "Open text sits on the file's row");
 
     await page.getByRole("tab", { name: "Activity" }).click();
-    const email = page.locator(".evidence-item").filter({ hasText: "Example suite floor plan" });
-    const [sender, when] = [await box(email.locator(".evidence-source")), await box(email.locator("time"))];
-    assert.equal(Math.round(sender.y), Math.round(when.y), "the sender and time share the row's second line");
+    const email = page.locator(".activity-row").filter({ hasText: "Example suite floor plan" });
+    const [title, meta] = [await box(email.locator(".activity-title")), await box(email.locator(".activity-meta"))];
+    assert.ok(meta.y >= title.y + title.height - 1, "the sender and time sit on the row's second line");
+    assert.match((await email.locator(".activity-meta").textContent()) ?? "", /Example Broker · Nov 24, 9:00 AM/);
 
-    const event = await box(page.locator(".workspace-events li").first());
-    assert.ok(event.height <= 64, `a two-line timeline row is at most 64px, not ${event.height}`);
+    const event = await box(email);
+    assert.ok(event.height <= 64 && event.height >= 34, `a two-line activity row is 34 to 64px, not ${event.height}`);
   });
