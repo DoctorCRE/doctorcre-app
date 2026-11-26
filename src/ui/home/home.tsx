@@ -5,8 +5,9 @@ import { BrowserRouter, Link, Route, Routes, useLocation, useParams } from "reac
 import { showToast } from "../../../js/toast.js";
 import type { DocLinkRequest } from "../doc-link";
 import { HomeWatchDetail } from "../watches/home-detail.tsx";
-import { BulkControls } from "./bulk-controls";
+import { ComingUpTile } from "./coming-up-tile";
 import { readDashboard } from "./dashboard-read";
+import { DealsTile } from "./deals-tile";
 import { createDraftEdits, type DraftEdits, type PrivateReplyDraft } from "./draft-edits.ts";
 import { DropReason } from "./drop-reason.tsx";
 import { type MarkUndo, markTarget, restoreMark } from "./engine-marks.ts";
@@ -28,7 +29,8 @@ import {
   type TaskReceipt,
   taskCommand,
 } from "./inbox";
-import { earlierMeetingReviews, MeetingReview, MeetingTile, readMeetings } from "./meetings";
+import { LeadsLine } from "./leads-line.tsx";
+import { MeetingReview, readMeetings, useMeetingOutcomes } from "./meetings";
 import { ReviewCard, reviewDispositionLabel } from "./review-card";
 import { recordPages, recordRoutes } from "./routes";
 import {
@@ -40,17 +42,18 @@ import {
   HomeGrid,
   lateDays,
   PlaceholderTile,
-  reminderPreviewCount,
+  repeatsTitle,
+  tileOf,
+  useStacked,
 } from "./sections";
+import { SnoozeMenu } from "./snooze-menu.tsx";
+import { snoozeUntil } from "./snooze-times.ts";
 import { sourceExcerptText } from "./source-excerpt.ts";
+import { TodayMeetings } from "./today-meetings.tsx";
 
-type SnoozePreview = Readonly<{
-  items: readonly InboxItem[];
-  choices: ReadonlyArray<Readonly<{ hours: number; until: string; label: string }>>;
-  error: string;
-}>;
+type SnoozePreview = Readonly<{ items: readonly InboxItem[]; error: string }>;
 type Pending = { request: Command; before: readonly InboxItem[]; undoing?: true };
-type Save = "card" | "batch" | "review";
+type Save = "card" | "review";
 type Undo = { items: readonly InboxItem[] } & (
   | { mark: MarkUndo }
   | { action: Action | "reopen"; until?: string; receipt?: TaskReceipt }
@@ -79,12 +82,11 @@ function snoozeLabel(item: InboxItem) {
     : null;
 }
 
-const SAVED: Record<Exclude<Command["action"], "cover">, string> = {
+const SAVED: Record<Exclude<Command["action"], "cover" | "snooze">, string> = {
   complete: "Marked done",
   done: "Marked done",
   reopen: "Reopened",
   undo_done: "Reopened",
-  snooze: "Snoozed",
   settle: "Hidden from inbox",
   unsettle: "Back in your inbox",
   unsnooze: "Back in your inbox",
@@ -99,6 +101,15 @@ function coveredNames(covers: readonly Cover[]) {
   const shown = names.slice(0, 2);
   return `${shown.join(", ")} and ${names.length + unnamed - shown.length} more`;
 }
+function coveredSummary(covers: readonly Cover[]) {
+  const names = [...new Set(covers.flatMap((entry) => (entry.record_name ? [entry.record_name] : [])))];
+  const unnamed = covers.filter((entry) => !entry.record_name).length;
+  const list =
+    names.length > 1 || (names.length === 1 && unnamed > 0)
+      ? `${names.join(", ")}${unnamed ? ` and ${unnamed} more` : ""}`
+      : null;
+  return list ? `Covers ${covers.length} reminders · ${list}` : `Covers ${covers.length} reminders`;
+}
 // Names the people whose reminders did not save when the card lists people, else counts them.
 function coverFailure(covers: readonly Cover[], results: readonly ItemResult[]) {
   const failed = covers.filter((_, index) => !results[index]?.ok);
@@ -110,8 +121,14 @@ function coverFailure(covers: readonly Cover[], results: readonly ItemResult[]) 
       : `${failed.length} ${failed.length === 1 ? "wasn't" : "weren't"} saved.`;
   return saved ? `Saved ${saved} of ${covers.length}. ${rest}` : `None of the ${covers.length} reminders were saved.`;
 }
-const savedMessage = (action: keyof typeof SAVED, items: readonly InboxItem[]) =>
-  `${SAVED[action]}: ${items.length === 1 ? items[0]?.title : `${items.length} cards`}.`;
+const snoozedLabel = (until: string) => `Snoozed until ${callDate.format(new Date(until))}`;
+function savedLabel(request: Command) {
+  if (request.action === "cover")
+    return request.change === "snooze" ? snoozedLabel(request.until) : SAVED[request.change];
+  return request.action === "snooze" ? snoozedLabel(request.args.until) : SAVED[request.action];
+}
+const savedMessage = (label: string, items: readonly InboxItem[]) =>
+  `${label}: ${items.length === 1 ? items[0]?.title : `${items.length} cards`}.`;
 // An Undo stays offered only while the card is still the version this save produced.
 function undoable(entry: Undo, items: readonly InboxItem[]) {
   if (!("mark" in entry)) return true;
@@ -124,6 +141,7 @@ function undoable(entry: Undo, items: readonly InboxItem[]) {
 }
 
 const cardTitle = ":is(h3 a, h3[tabindex])";
+const rowButtons = ":scope > button.home-done, :scope > .inbox-actions > button";
 const visibleRow = (node: HTMLElement) => !node.closest("details:not([open])") && node.getClientRects().length > 0;
 const isEngineStep = (item: InboxItem) => item.engine_marks && item.source_type === "next_action";
 const isDoneStep = (item: InboxItem) =>
@@ -134,6 +152,23 @@ function homeCardCue(item: InboxItem) {
   if (item.source_state === "needs_attention" && item.kind_label === "Reply draft") return "Draft ready";
   return null;
 }
+
+/** A hyphenated word is one word, so a one-line cut never ends inside it. */
+function keepWordsWhole(title: string): ReactNode {
+  let at = 0;
+  return title.split(/(\S+-\S+)/).map((part, index) => {
+    const key = at;
+    at += part.length;
+    return index % 2 ? (
+      <span key={key} className="home-whole-word">
+        {part}
+      </span>
+    ) : (
+      part
+    );
+  });
+}
+
 export function inboxRefusal(code: unknown): string {
   switch (code) {
     case "version_conflict":
@@ -182,16 +217,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
   const mounted = useRef(true);
   const query = useQuery({
     queryKey,
-    queryFn: async ({ signal }) => {
-      if (home && engineHome) {
-        const dashboard = await readDashboard(signal);
-        if (dashboard) return dashboard;
-        const current = cache.getQueryData<Snapshot | { grouped: true }>(queryKey);
-        if (inFlight.current.size && current && "grouped" in current)
-          throw Error("Reminders and waiting items unavailable.");
-      }
-      return client.read(signal);
-    },
+    queryFn: async ({ signal }) => (home && engineHome ? readDashboard(signal) : client.read(signal)),
     // eslint-disable-next-line no-restricted-syntax -- One read per 60000ms while visible and online; paused during writes and cleared on unmount by Query.
     refetchInterval: () =>
       navigator.onLine && document.visibilityState === "visible" && !saving.size ? 60_000 : false,
@@ -210,6 +236,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     setNoticeAlert(false);
     setNotice(message);
   }, []);
+  const meetingOutcomes = useMeetingOutcomes(meetings.data, meetingDay, handledMeetings);
   useEffect(() => {
     const host = document.getElementById("homeRoot");
     if (home && !query.isPending && host) markHomeReady(host);
@@ -233,7 +260,15 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     );
   }
   const [reviewing, setReviewing] = useState<InboxItem | null>(null);
-  const reviewFocus = useRef<{ opener: HTMLElement; tile: Element | null; preceding: Set<HTMLElement> }>(null);
+  const reviewFocus = useRef<{
+    opener: HTMLElement;
+    tile: Element | null;
+    preceding: Set<HTMLElement>;
+    scrollY: number;
+  }>(null);
+  // Below three columns an opened item covers the screen, and Back returns to the list where it was.
+  const stacked = useStacked();
+  const covering = home && stacked;
   const [switchingBlocked, blockSwitching] = useState(false);
   const openedLink = useRef<string | null>(null);
   useLayoutEffect(() => {
@@ -246,13 +281,19 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     );
     const target = visibleRow(opener)
       ? opener
-      : (links.find((link) => !preceding.has(link)) ?? links.at(-1) ?? tile?.querySelector<HTMLElement>("h2"));
+      : (links.find((link) => !preceding.has(link)) ??
+        links.at(-1) ??
+        tile?.querySelector<HTMLElement>("h2") ??
+        Array.from(root.current?.querySelectorAll<HTMLElement>(`[data-inbox-row] ${cardTitle}`) ?? []).find(
+          visibleRow,
+        ));
     (target || root.current)?.focus({ preventScroll: true });
+    if (covering) scrollTo({ top: focus.scrollY });
     reviewFocus.current = null;
-  }, [reviewing]);
+  }, [reviewing, covering]);
   const [selected, select] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState<Pending | null>(null);
-  const busy = saving.has("card") || saving.has("batch");
+  const busy = saving.has("card");
   function beginSave(save: Save) {
     const alone = !inFlight.current.size;
     inFlight.current.add(save);
@@ -305,7 +346,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
           name: (row) => row.querySelector("h3")?.textContent ?? "",
           actions: (row) => {
             // Only the row's own buttons: an open review card has actions of its own.
-            const buttons = Array.from(row.querySelectorAll<HTMLButtonElement>(":scope > .inbox-actions > button"))
+            const buttons = Array.from(row.querySelectorAll<HTMLButtonElement>(rowButtons))
               .filter((button) => !button.disabled)
               .map((button) => ({ label: button.textContent?.trim() ?? "", control: button }));
             const title = row.querySelector<HTMLElement>("h3 a");
@@ -313,7 +354,8 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
           },
           focusTarget: (row) =>
             row.querySelector<HTMLElement>("h3 a") ??
-            row.querySelector<HTMLElement>(":scope > .inbox-actions > button:not(:disabled)"),
+            Array.from(row.querySelectorAll<HTMLButtonElement>(rowButtons)).find((button) => !button.disabled) ??
+            null,
         });
       })
       // Without the menu every card still has its own buttons.
@@ -390,24 +432,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
   const snoozeOpener = useRef<HTMLElement | null>(null);
   const [snoozeCancelled, setSnoozeCancelled] = useState(0);
   function openSnooze(items: readonly InboxItem[]) {
-    const openedAt = Date.now();
-    const formatter = new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/Chicago",
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-      second: "2-digit",
-    });
-    setSnooze({
-      items,
-      error: "",
-      choices: [1, 24].map((hours) => {
-        const until = new Date(openedAt + hours * 3_600_000).toISOString();
-        return { hours, until, label: formatter.format(new Date(until)) };
-      }),
-    });
+    setSnooze({ items, error: "" });
   }
   function cancelSnooze() {
     setSnooze(null);
@@ -435,12 +460,6 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     target?.focus();
     target?.scrollIntoView({ block: "center" });
   }, [focusTargets]);
-  function finishBatch() {
-    const next = root.current?.querySelector<HTMLElement>('.home-slice[aria-label="Reminders"] h3 a');
-    const target = next || root.current?.querySelector<HTMLElement>(".home-slice h2") || root.current;
-    target?.focus();
-    target?.scrollIntoView({ block: "center" });
-  }
   async function run(operation: Pending) {
     if (inFlight.current.has("card")) return;
     setPending(operation);
@@ -465,7 +484,6 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
       const results = await client.run(operation.request);
       if (!mounted.current) return;
       if (operation.request.action === "cover") {
-        const { change } = operation.request;
         const saved = results.filter((result) => result.ok).length;
         const snapshot = results.find((result) => result.snapshot)?.snapshot;
         if (snapshot) await updateAfterSave(snapshot);
@@ -475,7 +493,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
         setUndo([]);
         if (saved === results.length) {
           // No Undo: it could restore only some of the covered steps.
-          confirmSave(savedMessage(change, operation.before));
+          confirmSave(savedMessage(savedLabel(operation.request), operation.before));
           setPending(null);
         } else showNotice(coverFailure(operation.request.covers, results), true);
         focusRow(neighbours);
@@ -490,6 +508,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
       const failed = results.filter((result) => !result.ok && !result.current_item);
       await updateAfterSave(results.find((result) => result.snapshot)?.snapshot, updates);
       if (!mounted.current) return;
+      if (reviewing && successes.some((result) => result.item_id === reviewing.item_id)) setReviewing(null);
       setFailures(failed);
       select(new Set(failed.map((result) => result.item_id)));
       const fresh = operation.undoing
@@ -524,7 +543,10 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
       const otherUndo = operation.undoing && undo.some((entry) => entry.items !== operation.before);
       // One card's save is confirmed at the bottom; a multi-card save keeps an Undo per card here.
       if (settled && fresh.length <= 1 && !otherUndo) {
-        confirmSave(operation.undoing ? "Undone." : savedMessage(operation.request.action, operation.before), fresh[0]);
+        confirmSave(
+          operation.undoing ? "Undone." : savedMessage(savedLabel(operation.request), operation.before),
+          fresh[0],
+        );
         if (!operation.undoing) setUndo([]);
         setPending(null);
         focusRow(operation.undoing ? operation.before.map((item) => item.item_id) : neighbours);
@@ -639,13 +661,12 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
   }
   const items = query.data?.items ?? EMPTY_ITEMS;
   const today = day(new Date(query.dataUpdatedAt || Date.now()));
-  const pinnedTile =
-    reviewing?.dashboard_tile ??
-    (reviewing && ["working", "held", "snoozed"].includes(reviewing.section) ? "waiting" : "reminders");
+  const pinnedTile = reviewing && tileOf(reviewing);
   const tiles = useMemo(() => {
     const placed = dashboardCards(items, today);
-    const otherTile = pinnedTile === "reminders" ? "waiting" : "reminders";
-    if (reviewing) placed[otherTile] = placed[otherTile].filter((item) => cardKey(item) !== cardKey(reviewing));
+    for (const tile of ["reminders", "inbox", "waiting"] as const)
+      if (reviewing && tile !== pinnedTile)
+        placed[tile] = placed[tile].filter((item) => cardKey(item) !== cardKey(reviewing));
     return placed;
   }, [items, today, reviewing, pinnedTile]);
   const finishedElsewhere =
@@ -677,7 +698,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     const tile = opener.closest(".home-slice");
     const links = Array.from(tile?.querySelectorAll<HTMLElement>(`[data-inbox-row] ${cardTitle}`) ?? []);
     const index = links.findIndex((link) => link.closest("[data-inbox-row]") === opener.closest("[data-inbox-row]"));
-    reviewFocus.current = { opener, tile, preceding: new Set(links.slice(0, Math.max(0, index))) };
+    reviewFocus.current = { opener, tile, preceding: new Set(links.slice(0, Math.max(0, index))), scrollY };
     setReviewing(item);
   }, []);
   const openingLocked = busy || !!pending || switchingBlocked || !!dropping || !!snooze;
@@ -687,12 +708,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     const opener = root.current?.querySelector<HTMLElement>(`[data-current="true"] ${cardTitle}`);
     if (!opener) return;
     openedLink.current = route.key;
-    if (isEngineStep(item) && !isDoneStep(item)) {
-      opener.focus();
-      opener.scrollIntoView({ block: "center" });
-    } else {
-      openCard(item, opener);
-    }
+    openCard(item, opener);
   }, [home, openCard, openingLocked, placed.current, route.key]);
   function row(item: InboxItem) {
     if (home && reviewing && cardKey(reviewing) === cardKey(item)) item = reviewing;
@@ -747,7 +763,8 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     const deal = item.deal_id ? `/deals?deal=${encodeURIComponent(item.deal_id)}` : null;
     const recordedSource = recordRoutes.source(item);
     const checklistUrl = namedAction === "Open checklist item" ? recordRoutes.checklist(item) : null;
-    const directUrl = checklistUrl ?? (isEngineStep(item) && !isDoneStep(item) ? recordedSource : null);
+    // On Home every item opens beside the list, with its record linked inside the pane.
+    const directUrl = home ? null : (checklistUrl ?? (isEngineStep(item) && !isDoneStep(item) ? recordedSource : null));
     const canOpen = home || Boolean(presentation) || isDoneStep(item) || !isEngineStep(item) || directUrl !== null;
     function openDetails(opener: HTMLElement) {
       if (directUrl) location.assign(directUrl);
@@ -755,7 +772,8 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     }
     const recordedUrl = recordedSource ? new URL(recordedSource, "https://doctorcre.invalid") : null;
     const opensEditor = recordedUrl?.searchParams.get("focus") === "next-step" && !recordedUrl.searchParams.get("step");
-    const source = (isDoneStep(item) && isEngineStep(item) && opensEditor ? null : recordedSource) ?? deal;
+    const source =
+      checklistUrl ?? (isDoneStep(item) && isEngineStep(item) && opensEditor ? null : recordedSource) ?? deal;
     const sourcePage = source ? recordPages.get(new URL(source, "https://doctorcre.invalid").pathname) : null;
     const namedRecord = sourcePage === "deal" || sourcePage === "client" || sourcePage === "contact";
     const due = item.due_on && <time dateTime={item.due_on}>{cardDate.format(new Date(item.due_on))}</time>;
@@ -816,6 +834,79 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             : (namedRecord && item.context_label) || `Open ${sourcePage}`}
       </a>
     );
+    const titleLink = canOpen ? (
+      <Link
+        data-shortcut-open={home ? "" : undefined}
+        aria-current={item_id === item.item_id ? "true" : undefined}
+        aria-expanded={directUrl ? undefined : open}
+        aria-disabled={openingLocked}
+        to={directUrl ?? recordRoutes.card(item.item_id)}
+        reloadDocument={Boolean(directUrl)}
+        onClick={(event) => {
+          if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+          if (openingLocked || !directUrl) event.preventDefault();
+          if (!openingLocked && !directUrl) openCard(item, event.currentTarget);
+        }}
+      >
+        {keepWordsWhole(item.title)}
+      </Link>
+    ) : (
+      keepWordsWhole(item.title)
+    );
+    const snoozeButton = snoozable && (
+      <button
+        type="button"
+        disabled={busy}
+        onClick={(event) => {
+          snoozeOpener.current = event.currentTarget;
+          openSnooze([item]);
+        }}
+      >
+        Snooze
+      </button>
+    );
+    const dropButton = droppable && (
+      <button
+        type="button"
+        disabled={busy || !!pending || !online}
+        onClick={(event) => setDropping({ item, opener: event.currentTarget })}
+      >
+        Drop
+      </button>
+    );
+    const tile = home ? tileOf(item) : null;
+    // The pane's Mark done is the same save as the row's circle; a loaded review offers its own.
+    const paneDone = tile === "reminders" && completable && !tourDone && !reviewClient && (
+      <button type="button" className="inbox-primary" disabled={busy} onClick={() => finish(item, "complete")}>
+        Mark done
+      </button>
+    );
+    const edge =
+      tile === "reminders" &&
+      (daysLate
+        ? `${daysLate} day${daysLate === 1 ? "" : "s"} late`
+        : item.due_on === today
+          ? "Today"
+          : item.due_on && cardDate.format(new Date(item.due_on)));
+    const repeats = tile === "reminders" && repeatsTitle(item.title, presentation?.why);
+    const line =
+      tile === "waiting"
+        ? [snoozeLabel(item) || hold || waitingOn || detail, returns]
+        : [
+            covered ? null : item.context_label,
+            cue,
+            item.covers && `Covers ${item.covers.length} reminders`,
+            covered,
+            repeats ? detail : presentation?.why || detail,
+            emailAt && `Received ${snoozeDate.format(new Date(emailAt))}`,
+          ];
+    const deepLinked = item_id === item.item_id && !open && (
+      <>
+        {!directUrl && linkedRecord}
+        {item.source_type === "notification" && <HomeWatchDetail open_url={item.open_url} />}
+        {item.open_url && !source && <p role="status">This link can't be opened here.</p>}
+      </>
+    );
     return (
       <article
         key={cardKey(item)}
@@ -847,186 +938,179 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
           }
         }}
       >
-        <label className="inbox-select">
-          <input
-            type="checkbox"
-            aria-label={`Select ${item.title}`}
-            checked={selected.has(item.item_id)}
-            disabled={busy || !!reviewing || !snoozable || item.source_state === "working" || !!item.covers}
-            onChange={(event) =>
-              select((previous) => {
-                const next = new Set(previous);
-                if (event.target.checked) next.add(item.item_id);
-                else next.delete(item.item_id);
-                return next;
-              })
-            }
-          />
-        </label>
-        <div className="inbox-copy">
-          {!home && (
-            <p className="inbox-meta">
-              <span>{item.kind_label}</span>
-              {!item.engine_marks && (
-                <span className={`inbox-badge inbox-${item.source_state}`}>
-                  {item.source_state.replaceAll("_", " ")}
-                </span>
-              )}
-            </p>
-          )}
-          <h3
-            className={presentation || open || item_id === item.item_id ? "inbox-title-expanded" : undefined}
-            tabIndex={canOpen ? undefined : -1}
-          >
-            {canOpen ? (
-              <Link
-                data-shortcut-open={home ? "" : undefined}
-                aria-current={item_id === item.item_id ? "true" : undefined}
-                aria-expanded={directUrl ? undefined : open}
-                aria-disabled={openingLocked}
-                to={directUrl ?? recordRoutes.card(item.item_id)}
-                reloadDocument={Boolean(directUrl)}
-                onClick={(event) => {
-                  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-                  if (openingLocked || !directUrl) event.preventDefault();
-                  if (!openingLocked && !directUrl) openCard(item, event.currentTarget);
-                }}
-              >
-                {item.title}
-              </Link>
-            ) : (
-              item.title
+        {home ? (
+          <>
+            {tile === "reminders" &&
+              (completable || tourDone ? (
+                <button
+                  type="button"
+                  className="home-done"
+                  disabled={busy || open}
+                  onClick={() => finish(item, tourDone ? "done" : "complete")}
+                >
+                  <span className="sr-only">Mark done</span>
+                </button>
+              ) : (
+                <span className="home-done" />
+              ))}
+            <div className="inbox-copy">
+              <h3 tabIndex={canOpen ? undefined : -1}>{titleLink}</h3>
+              <p className="inbox-why">{line.filter(Boolean).join(" · ")}</p>
+              {deepLinked}
+            </div>
+            {edge && <span className={daysLate ? "home-edge home-late" : "home-edge"}>{edge}</span>}
+            {!open && (
+              <div className="inbox-actions">
+                {tile !== "waiting" && snoozeButton}
+                {tile !== "waiting" && dropButton}
+                {tile === "waiting" && wakeable && (
+                  <button type="button" disabled={busy} onClick={() => act(markAction, [item])}>
+                    {primary}
+                  </button>
+                )}
+              </div>
             )}
-          </h3>
-          {cue && (
-            <p className="inbox-detail">
-              <strong>{cue}</strong>
-            </p>
-          )}
-          {covered && <p className="inbox-detail">{covered}</p>}
-          {presentation && <p className="inbox-why">{presentation.why}</p>}
-          {(item.context_label || due || item.covers) && (
-            <p className="inbox-context">
-              {item.context_label}
-              {due && (
-                <>
-                  {" "}
-                  {item.context_label && "· "}
-                  {dueCaption}
-                </>
-              )}
-              {item.covers && ` · Covers ${item.covers.length} reminders`}
-            </p>
-          )}
-          {callAt && !presentation && (
-            <p className="inbox-detail">
-              From your call{callContact && ` with ${callContact}`} on{" "}
-              <time dateTime={callAt}>{callDate.format(new Date(callAt))}</time>
-            </p>
-          )}
-          {emailAt && (
-            <p className="inbox-detail">
-              Received <time dateTime={emailAt}>{snoozeDate.format(new Date(emailAt))}</time>
-            </p>
-          )}
-          {(detail || hold || waitingOn || returns || item.section === "held") && (
-            <p className="inbox-detail">
-              {[waitingOn, detail, returns, hold || (item.section === "held" && "On hold")].filter(Boolean).join(" · ")}
-            </p>
-          )}
-          {item_id === item.item_id && !open && !directUrl && linkedRecord}
-          {item_id === item.item_id && !open && item.source_type === "notification" && (
-            <HomeWatchDetail open_url={item.open_url} />
-          )}
-          {item_id === item.item_id && item.open_url && !source && <p role="status">This link can't be opened here.</p>}
-        </div>
-        {(!open || !finishedElsewhere) && (!waitingCard || wakeable) && (
-          <div className="inbox-actions">
-            {!waitingCard && presentation && !(open && namedAction === "Mark done") && (
-              <button
-                type="button"
-                className={open ? undefined : "inbox-primary"}
-                aria-expanded={directUrl || namedAction === "Mark done" ? undefined : open}
-                disabled={namedAction === "Mark done" ? busy || !completable : openingLocked}
-                onClick={(event) => {
-                  if (namedAction === "Mark done") finish(item, "complete");
-                  else openDetails(event.currentTarget);
-                }}
-              >
-                {namedAction}
-              </button>
-            )}
-            {!presentation && !waitingCard && canOpen && (
-              <button
-                type="button"
-                className={completable || tourDone || reviewLabel ? undefined : "inbox-primary"}
-                aria-expanded={directUrl ? undefined : open}
-                disabled={openingLocked}
-                onClick={(event) => openDetails(event.currentTarget)}
-              >
-                Open
-              </button>
-            )}
-            {!presentation && reviewLabel && (
-              <button
-                type="button"
-                className={open ? undefined : "inbox-primary"}
-                aria-expanded={open}
-                disabled={openingLocked}
-                onClick={(event) => openCard(item, event.currentTarget)}
-              >
-                {reviewLabel}
-              </button>
-            )}
-            {reopenable && !open && (
-              <button type="button" disabled={busy || !!pending} onClick={() => act("reopen", [item], undefined, true)}>
-                Undo
-              </button>
-            )}
-            {!presentation && (completable || tourDone) && !open && (
-              <button
-                type="button"
-                className="inbox-primary"
-                disabled={busy || open}
-                onClick={() => finish(item, tourDone ? "done" : "complete")}
-              >
-                {tourDone ? "Done" : "Mark done"}
-              </button>
-            )}
-            {legacyFailedReply && (
-              <p className="inbox-detail inbox-guidance">
-                {home
-                  ? "This reply didn't send. Send it from your email."
-                  : "This reply didn't send. Send it from your email, then press Hide from inbox."}
+          </>
+        ) : (
+          <>
+            <label className="inbox-select">
+              <input
+                type="checkbox"
+                aria-label={`Select ${item.title}`}
+                checked={selected.has(item.item_id)}
+                disabled={busy || !!reviewing || !snoozable || item.source_state === "working" || !!item.covers}
+                onChange={(event) =>
+                  select((previous) => {
+                    const next = new Set(previous);
+                    if (event.target.checked) next.add(item.item_id);
+                    else next.delete(item.item_id);
+                    return next;
+                  })
+                }
+              />
+            </label>
+            <div className="inbox-copy">
+              <p className="inbox-meta">
+                <span>{item.kind_label}</span>
+                {!item.engine_marks && (
+                  <span className={`inbox-badge inbox-${item.source_state}`}>
+                    {item.source_state.replaceAll("_", " ")}
+                  </span>
+                )}
               </p>
-            )}
-            {wakeable && !open && (
-              <button type="button" disabled={busy} onClick={() => act(markAction, [item])}>
-                {primary}
-              </button>
-            )}
-            {snoozable && !open && (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={(event) => {
-                  snoozeOpener.current = event.currentTarget;
-                  openSnooze([item]);
-                }}
+              <h3
+                className={presentation || open || item_id === item.item_id ? "inbox-title-expanded" : undefined}
+                tabIndex={canOpen ? undefined : -1}
               >
-                Snooze
-              </button>
+                {titleLink}
+              </h3>
+              {covered && <p className="inbox-detail">{covered}</p>}
+              {presentation && <p className="inbox-why">{presentation.why}</p>}
+              {(item.context_label || due || item.covers) && (
+                <p className="inbox-context">
+                  {item.context_label}
+                  {due && (
+                    <>
+                      {" "}
+                      {item.context_label && "· "}
+                      {dueCaption}
+                    </>
+                  )}
+                  {item.covers && ` · Covers ${item.covers.length} reminders`}
+                </p>
+              )}
+              {callAt && !presentation && (
+                <p className="inbox-detail">
+                  From your call{callContact && ` with ${callContact}`} on{" "}
+                  <time dateTime={callAt}>{callDate.format(new Date(callAt))}</time>
+                </p>
+              )}
+              {emailAt && (
+                <p className="inbox-detail">
+                  Received <time dateTime={emailAt}>{snoozeDate.format(new Date(emailAt))}</time>
+                </p>
+              )}
+              {(detail || hold || waitingOn || returns || item.section === "held") && (
+                <p className="inbox-detail">
+                  {[waitingOn, detail, returns, hold || (item.section === "held" && "On hold")]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
+              )}
+              {deepLinked}
+            </div>
+            {(!waitingCard || wakeable) && (
+              <div className="inbox-actions">
+                {!waitingCard && presentation && !(open && namedAction === "Mark done") && (
+                  <button
+                    type="button"
+                    className={open ? undefined : "inbox-primary"}
+                    aria-expanded={directUrl || namedAction === "Mark done" ? undefined : open}
+                    disabled={namedAction === "Mark done" ? busy || !completable : openingLocked}
+                    onClick={(event) => {
+                      if (namedAction === "Mark done") finish(item, "complete");
+                      else openDetails(event.currentTarget);
+                    }}
+                  >
+                    {namedAction}
+                  </button>
+                )}
+                {!presentation && !waitingCard && canOpen && (
+                  <button
+                    type="button"
+                    className={completable || tourDone || reviewLabel ? undefined : "inbox-primary"}
+                    aria-expanded={directUrl ? undefined : open}
+                    disabled={openingLocked}
+                    onClick={(event) => openDetails(event.currentTarget)}
+                  >
+                    Open
+                  </button>
+                )}
+                {!presentation && reviewLabel && (
+                  <button
+                    type="button"
+                    className={open ? undefined : "inbox-primary"}
+                    aria-expanded={open}
+                    disabled={openingLocked}
+                    onClick={(event) => openCard(item, event.currentTarget)}
+                  >
+                    {reviewLabel}
+                  </button>
+                )}
+                {reopenable && !open && (
+                  <button
+                    type="button"
+                    disabled={busy || !!pending}
+                    onClick={() => act("reopen", [item], undefined, true)}
+                  >
+                    Undo
+                  </button>
+                )}
+                {!presentation && (completable || tourDone) && !open && (
+                  <button
+                    type="button"
+                    className="inbox-primary"
+                    disabled={busy || open}
+                    onClick={() => finish(item, tourDone ? "done" : "complete")}
+                  >
+                    {tourDone ? "Done" : "Mark done"}
+                  </button>
+                )}
+                {legacyFailedReply && (
+                  <p className="inbox-detail inbox-guidance">
+                    This reply didn't send. Send it from your email, then press Hide from inbox.
+                  </p>
+                )}
+                {wakeable && !open && (
+                  <button type="button" disabled={busy} onClick={() => act(markAction, [item])}>
+                    {primary}
+                  </button>
+                )}
+                {!open && snoozeButton}
+                {!open && dropButton}
+              </div>
             )}
-            {droppable && !open && (
-              <button
-                type="button"
-                disabled={busy || !!pending || !online}
-                onClick={(event) => setDropping({ item, opener: event.currentTarget })}
-              >
-                Drop
-              </button>
-            )}
-          </div>
+          </>
         )}
         {open && (
           <ReviewCard
@@ -1036,6 +1120,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             client={reviewClient}
             drafts={drafts}
             blockSwitching={blockSwitching}
+            closeLabel={covering ? "Back" : undefined}
             close={() => setReviewing(null)}
             busy={(value) => (value ? void beginSave("review") : endSave("review"))}
             confirmed={async (current, receipt, snapshot) => {
@@ -1046,15 +1131,24 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
                 return;
               }
               if (receipt)
-                confirmSave(savedMessage("complete", [current]), { action: "reopen", items: [current], receipt });
+                confirmSave(savedMessage(SAVED.complete, [current]), { action: "reopen", items: [current], receipt });
             }}
           >
             {finishedElsewhere && <p role="status">This card was finished elsewhere.</p>}
+            {home && !waitingCard && !finishedElsewhere && (paneDone || snoozeButton || dropButton) && (
+              <div className="inbox-actions">
+                {paneDone}
+                {snoozeButton}
+                {/* A loaded review offers its own Drop for each decision. */}
+                {!reviewClient && dropButton}
+              </div>
+            )}
             {!finishedElsewhere && !item.engine_marks && due && <p>Due {due}</p>}
-            {presentation && (feedbackReview || isDoneStep(item)) && <p>{presentation.why}</p>}
+            {presentation && (tile === "reminders" || feedbackReview || isDoneStep(item)) && <p>{presentation.why}</p>}
+            {home && item.covers && <p>{coveredSummary(item.covers)}</p>}
             {isDoneStep(item) && <p>{completionLabel(item)}</p>}
             {linkedRecord}
-            {!finishedElsewhere && feedbackReview && tourDone && (
+            {!finishedElsewhere && tourDone && (
               <div className="inbox-actions">
                 <button
                   type="button"
@@ -1201,7 +1295,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
         </p>
       ) : query.isError && !query.data ? (
         <div className="inbox-empty" role="alert">
-          <h2>{home ? "Reminders and waiting items unavailable" : "Inbox unavailable"}</h2>
+          <h2>{home ? "Reminders and Inbox unavailable" : "Inbox unavailable"}</h2>
           <p>{message(query.error)}</p>
           {home ? (
             <button type="button" disabled={!online || query.isFetching} onClick={() => void query.refetch()}>
@@ -1264,41 +1358,44 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
       )}
       {home && (
         <HomeGrid snapshot={query.data} calendar={meetings.data}>
-          {query.isPending && (
-            <>
-              <PlaceholderTile />
-              <PlaceholderTile />
-            </>
-          )}
-          <CardTile
-            title="Reminders"
-            preview={reminderPreviewCount}
-            showLate
-            items={tiles.reminders}
-            pinned={pinnedTile === "reminders" ? reviewing : null}
-            current={reviewing?.item_id || item_id}
-            after={earlierMeetingReviews(meetings.data, meetingDay, handledMeetings).map((review) => (
-              <MeetingReview key={review.key} data={meetings.data} review={review} finish={finishMeeting} />
-            ))}
-            row={row}
-          />
-          <CardTile
-            title="In motion and waiting"
-            items={tiles.waiting}
-            pinned={pinnedTile === "waiting" ? reviewing : null}
-            current={reviewing?.item_id || item_id}
-            row={row}
-          />
-          {engineHome && meetings.isPending && <PlaceholderTile />}
-          {meetings.data && (
-            <MeetingTile
-              data={meetings.data}
-              stale={meetings.isError}
-              today={meetingDay}
-              handled={handledMeetings}
-              finish={finishMeeting}
+          <div className="home-column">
+            {query.isPending && <PlaceholderTile />}
+            <CardTile
+              title="Reminders"
+              grouped
+              items={tiles.reminders}
+              pinned={pinnedTile === "reminders" ? reviewing : null}
+              current={reviewing?.item_id || item_id}
+              row={row}
             />
-          )}
+          </div>
+          <div className="home-column">
+            {query.isPending && <PlaceholderTile />}
+            <CardTile
+              title="Inbox"
+              items={tiles.inbox}
+              pinned={pinnedTile === "inbox" ? reviewing : null}
+              current={reviewing?.item_id || item_id}
+              after={meetingOutcomes.map((review) => (
+                <MeetingReview key={review.key} data={meetings.data} review={review} finish={finishMeeting} />
+              ))}
+              row={row}
+            />
+            <CardTile
+              title="In motion and waiting"
+              items={tiles.waiting}
+              pinned={pinnedTile === "waiting" ? reviewing : null}
+              current={reviewing?.item_id || item_id}
+              row={row}
+            />
+          </div>
+          <div className="home-column home-side">
+            {engineHome && meetings.isPending && <PlaceholderTile />}
+            {meetings.data && <TodayMeetings data={meetings.data} today={meetingDay} />}
+            {engineHome && <DealsTile />}
+            {engineHome && <ComingUpTile />}
+            {engineHome && <LeadsLine />}
+          </div>
         </HomeGrid>
       )}
       {home && meetings.isError && (
@@ -1308,9 +1405,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
       )}
       {home && ((query.isError && query.data) || !online) && (
         <p className="home-read-status" role="status">
-          <span>
-            {!online ? "Offline. Showing the last available update." : "Reminders and waiting items unavailable."}
-          </span>
+          <span>{!online ? "Offline. Showing the last available update." : "Reminders and Inbox unavailable."}</span>
           {online && (
             <>
               {" "}
@@ -1321,53 +1416,37 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
           )}
         </p>
       )}
-      {home ? (
-        <BulkControls
-          finish={finishBatch}
-          client={client}
-          engine={query.data?.engine_marks === true}
-          picked={picked}
-          selected={selected}
-          locked={saving.has("card") || !!pending || !!reviewing || !online}
-          select={select}
-          snapshot={updateAfterSave}
-          prepare={() => cache.cancelQueries({ queryKey })}
-          lock={(value) => (value ? void beginSave("batch") : endSave("batch"))}
-        />
-      ) : (
-        !query.data?.engine_marks &&
-        picked.length > 0 && (
-          <div role="toolbar" className="inbox-bulk" aria-label="Selected cards">
-            <strong>{picked.length} selected</strong>
-            <button
-              type="button"
-              disabled={busy || !!reviewing || picked.length > 100}
-              onClick={() => act("settle", picked)}
-            >
-              Hide selected
-            </button>
-            <button
-              type="button"
-              disabled={busy || !!reviewing || picked.length > 100}
-              onClick={() => act("unsettle", picked)}
-            >
-              Show selected
-            </button>
-            <button
-              type="button"
-              disabled={busy || !!reviewing || picked.length > 100}
-              onClick={(event) => {
-                snoozeOpener.current = event.currentTarget;
-                openSnooze(picked);
-              }}
-            >
-              Snooze selected
-            </button>
-            <button type="button" onClick={() => select(new Set())}>
-              Clear
-            </button>
-          </div>
-        )
+      {!home && !query.data?.engine_marks && picked.length > 0 && (
+        <div role="toolbar" className="inbox-bulk" aria-label="Selected cards">
+          <strong>{picked.length} selected</strong>
+          <button
+            type="button"
+            disabled={busy || !!reviewing || picked.length > 100}
+            onClick={() => act("settle", picked)}
+          >
+            Hide selected
+          </button>
+          <button
+            type="button"
+            disabled={busy || !!reviewing || picked.length > 100}
+            onClick={() => act("unsettle", picked)}
+          >
+            Show selected
+          </button>
+          <button
+            type="button"
+            disabled={busy || !!reviewing || picked.length > 100}
+            onClick={(event) => {
+              snoozeOpener.current = event.currentTarget;
+              openSnooze(picked);
+            }}
+          >
+            Snooze selected
+          </button>
+          <button type="button" onClick={() => select(new Set())}>
+            Clear
+          </button>
+        </div>
       )}
       {dropping && (
         <DropReason
@@ -1385,53 +1464,23 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
         />
       )}
       {snooze && (
-        <dialog
-          className="inbox-snooze"
-          ref={(node) => {
-            if (node && !node.open) node.showModal();
+        <SnoozeMenu
+          count={snooze.items.length}
+          error={snooze.error}
+          cancel={cancelSnooze}
+          choose={(day) => {
+            const until = snoozeUntil(day);
+            if (Date.parse(until) <= Date.now()) {
+              setSnooze({ ...snooze, error: "That day's 8:00 AM has passed. Choose a later day." });
+              return;
+            }
+            const rows = snooze.items;
+            setSnooze(null);
+            const [only] = rows;
+            if (rows.length === 1 && only?.covers) saveCovers(only, { change: "snooze", until });
+            else act("snooze", rows, until);
           }}
-          onCancel={() => {
-            cancelSnooze();
-          }}
-          aria-label="Snooze cards"
-        >
-          <h2>Snooze {snooze.items.length === 1 ? "card" : `${snooze.items.length} cards`}</h2>
-          <p>Choose when this returns to your inbox.</p>
-          {snooze.error && <p role="alert">{snooze.error}</p>}
-          {snooze.choices.map((choice) => (
-            <button
-              type="button"
-              ref={(button) => {
-                if (choice.hours === 1) button?.focus();
-              }}
-              key={choice.hours}
-              onClick={() => {
-                if (Date.parse(choice.until) <= Date.now()) {
-                  setSnooze({
-                    ...snooze,
-                    error: "This return time has passed. Cancel and reopen Snooze to choose a new time.",
-                  });
-                  return;
-                }
-                const rows = snooze.items;
-                setSnooze(null);
-                const [only] = rows;
-                if (rows.length === 1 && only?.covers) saveCovers(only, { change: "snooze", until: choice.until });
-                else act("snooze", rows, choice.until);
-              }}
-            >
-              {choice.hours === 1 ? "1 hour" : "24 hours"} · <time dateTime={choice.until}>{choice.label}</time>
-            </button>
-          ))}
-          <button
-            type="button"
-            onClick={() => {
-              cancelSnooze();
-            }}
-          >
-            Cancel
-          </button>
-        </dialog>
+        />
       )}
       {!home && (
         <footer className="inbox-footer">

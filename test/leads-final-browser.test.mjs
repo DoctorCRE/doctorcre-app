@@ -5,6 +5,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { chromium, settles } from './browser-harness.mjs';
 import { routeLeads } from './leads-browser-fixture.mjs';
 import { lead, workspace, detail, emptyQuietFollowUps, id } from './leads-workspace-fixture.mjs';
+import { controlFloor } from "./control-floor.ts";
 
 async function capture(page, name, measurements) {
   if (!process.env.LEADS_FINAL_DIR) return;
@@ -345,7 +346,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
 
     const name = 'Dr. Example 1';
     const unclaimed = lead(1, { possible_clients: [{ client_id: id(901), name }], created_at: added, opportunity_timing: timing });
-    const claimed = lead(2, { owner: 'dell', owner_label: 'Example Partner', created_at: added });
+    const claimed = lead(2, { owner: 'dell', owner_label: 'Dell Example', created_at: added });
     const archived = lead(3, { stage: 'archived', owner: 'dell' });
     const filler = Array.from({ length: 221 }, (_, i) => lead(i + 1000));
     const reads = [];
@@ -397,7 +398,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     const link = drawer.locator('[data-link]');
     const details = drawer.getByText('More about these plans', { exact: true });
     await details.click();
-    assert.ok(await details.evaluate(el => el.getBoundingClientRect().height >= 44));
+    assert.ok((await details.boundingBox()).height >= controlFloor(width));
     const detailsText = await drawer.innerText();
     const phone = drawer.getByRole('link', { name: /555/ });
     assert.deepEqual({
@@ -424,7 +425,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     await page.locator('#closeDetail').click();
     await page.getByRole('button', { name: 'Dr. Example 2', exact: true }).click();
     await drawer.getByRole('heading', { name: 'Sourced research' }).waitFor();
-    assert.match(await drawer.innerText(), /Owner\s+Example Partner/);
+    assert.match(await drawer.innerText(), /Owner\s+Dell\n/);
     assert.match(await drawer.innerText(), /Last contact Jul 31, 2020\. Follow-up due Sep 15, 2020\./);
     assert.match(await drawer.locator('.correspondence time').innerText(), /2020/);
     assert.equal(await drawer.getByRole('button', { name: 'Claim', exact: true }).count(), 0);

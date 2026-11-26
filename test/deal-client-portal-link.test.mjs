@@ -4,6 +4,7 @@ import {readFile, mkdir} from 'node:fs/promises';
 import {chromium, waitForAsync} from './browser-harness.mjs';
 import worker from "../src/worker.js";
 import {openEngineClientWebsite, renderClientPortalLink} from '../js/client-portal-link.js';
+import { controlFloor } from "./control-floor.ts";
 const root=new URL('../',import.meta.url);
 const PORTAL='https://share.doctorcre.com/demo-practice';
 
@@ -108,7 +109,7 @@ for(const width of [390,1280]) test(`a set link shows on the deal page and opens
  assert.match(await link.getAttribute('rel'),/noopener/);
  await link.focus();
  assert.equal(await page.evaluate(()=>document.activeElement.className),'client-portal-link');
- assert.ok((await link.boundingBox()).height>=44,'touch target');
+ assert.ok((await link.boundingBox()).height>=controlFloor(width),'touch target');
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth),true);
  assert.deepEqual(errors,[]);
 });

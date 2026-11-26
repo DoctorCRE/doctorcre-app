@@ -380,7 +380,7 @@ const toolsCall = (name: string, args: Record<string, unknown>) => ({
 test("Home, Today, Calendar, Updates and Doc use PartnerApp with the old routing switches off", async (t) => {
   const mark = { item_id: `home_update:${step}`, base_version: "1:0:inbox", idempotency_key: key };
   const cases = [
-    ["Home dashboard", "/api/engine/home/inbox?view=dashboard"],
+    ["Home dashboard", "/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6"],
     ["Inbox", "/api/engine/home/inbox", "read-home-inbox-v5", {}],
     [
       "Saved Home card",
@@ -1143,7 +1143,7 @@ test("old client portal bookmarks move in engine mode regardless of routing KV",
       assert.equal(calls.assets.at(-1), "/client-website-moved.html");
       const linked = await send("/client-portal?deal=example", { method, headers: { cookie } });
       assert.equal(linked.status, 302);
-      assert.equal(linked.headers.get("location"), "/deals?deal=example&tab=client-view");
+      assert.equal(linked.headers.get("location"), "/deals?deal=example&tab=client-portal");
       assert.ok(!calls.assets.includes("/client-portal.html"));
     }
   }

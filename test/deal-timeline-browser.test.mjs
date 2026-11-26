@@ -103,7 +103,7 @@ test('W9 board/list use the same addressable popup and Home href opens it direct
 for (const theme of ['light','dark']) test(`phone phase labels are legible along a dated rail in ${theme}`,async t=>{
  const {page,errors}=await open(t,{width:390,reducedMotion:'reduce'});
  await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme);
- await page.getByRole('tab',{name:'Timeline',exact:true}).click();
+ await page.getByRole('tab',{name:'Activity',exact:true}).click();
  const labels=await page.locator('.phase-rail li').evaluateAll(items=>items.map(item=>{
   const labels=[...item.querySelectorAll('span,abbr')].filter(n=>{const r=n.getBoundingClientRect(),s=getComputedStyle(n);return s.display!=='none' && s.clipPath==='none' && r.width>=16 && r.height>=12 && parseFloat(s.fontSize)>=12;});
   return {top:item.getBoundingClientRect().top,labels:labels.map(n=>n.textContent)};

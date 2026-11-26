@@ -779,7 +779,7 @@ test("partners see and manage prospects from Deals", async (t) => {
       assert.equal(new URL(page.url()).searchParams.get("deal"), dealId);
       await page.locator("#workspaceFacts").getByText(matchedClient.display_name).waitFor();
       assert.equal(await birchDetail.count(), 0);
-      await page.getByRole("tab", { name: "Correspondence & notes" }).click();
+      await page.getByRole("tab", { name: "Activity" }).click();
       const dealNote = page
         .getByRole("region", { name: "Deal notes" })
         .getByText("Edited before saving", { exact: true });

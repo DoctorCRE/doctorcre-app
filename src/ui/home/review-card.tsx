@@ -130,6 +130,8 @@ type Props<Item extends ReviewItem> = {
   client: ReviewClient<Item> | undefined;
   drafts: DraftEdits;
   children?: ReactNode;
+  /** The close button's name when the pane covers the list, as on a phone. */
+  closeLabel?: string | undefined;
   close(): void;
   blockSwitching?(value: boolean): void;
   busy?(value: boolean): void;
@@ -152,6 +154,7 @@ export function ReviewCard<Item extends ReviewItem>({
   docLinkRequest,
   client,
   drafts,
+  closeLabel,
   close,
   blockSwitching,
   busy,
@@ -226,6 +229,17 @@ export function ReviewCard<Item extends ReviewItem>({
   const waiting = state.phase === "submitting" || lock.current;
   // Opening another review would replace this one while its save is unresolved.
   const holding = waiting || state.phase === "uncertain";
+  useEffect(() => {
+    if (drop || holding) return;
+    // Anywhere on the page, so Escape still closes the item when focus has left the pane.
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || document.querySelector("dialog[open]")) return;
+      event.preventDefault();
+      close();
+    };
+    document.addEventListener("keydown", onEscape);
+    return () => document.removeEventListener("keydown", onEscape);
+  }, [drop, holding, close]);
   useLayoutEffect(() => {
     if (!holding) return;
     blockSwitching?.(true);
@@ -578,19 +592,13 @@ export function ReviewCard<Item extends ReviewItem>({
       ref={host}
       tabIndex={-1}
       aria-label={`Details for ${item.title}`}
-      onKeyDown={(event) => {
-        if (event.key === "Escape" && !drop && !holding) {
-          event.preventDefault();
-          close();
-        }
-      }}
       onTouchStart={(event) => event.stopPropagation()}
       onTouchEnd={(event) => event.stopPropagation()}
     >
       <header>
         <h4>{client ? "Review this card" : item.title}</h4>
         <button type="button" disabled={holding} onClick={close}>
-          {client && item.review_reference?.kind !== "action" ? "Close review" : "Close"}
+          {closeLabel ?? (client && item.review_reference?.kind !== "action" ? "Close review" : "Close")}
         </button>
       </header>
       {children}

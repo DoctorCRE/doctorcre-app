@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { buildArtifact } from '../scripts/artifact.mjs';
 import { createQaServer } from '../scripts/qa-fixture-server.mjs';
 import { chromium, settles } from './browser-harness.mjs';
+import { controlFloor } from "./control-floor.ts";
 
 let outDir, server, browser, origin;
 before(async () => {
@@ -71,7 +72,7 @@ for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
     assert.equal(await card.locator('article').count(), width === 390 ? 1 : 2);
     if (width === 390) await card.getByRole('button', { name: 'Show 1 more', exact: true }).click();
     const defer = card.locator('article').first().getByRole('button', { name: 'Not now', exact: true });
-    assert.ok((await defer.boundingBox()).height >= 44, 'actions are full touch targets');
+    assert.ok((await defer.boundingBox()).height >= controlFloor(width), 'actions are full-size targets');
     assert.equal(await card.getByRole('button', { name: 'Wrong deal', exact: true }).count(), 0);
     assert.match(await card.locator('.email-source').first().innerText(), /Dana Demo · Oct 26, \d+:\d\d [AP]M · \d+ days waiting/);
     const first = card.locator('article').first();

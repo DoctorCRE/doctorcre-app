@@ -16,8 +16,8 @@
   display: inline-grid;
   place-items: center;
   flex: none;
-  inline-size: 32px;
-  block-size: 32px;
+  inline-size: var(--touch);
+  block-size: var(--touch);
   padding: 0;
   color: var(--fg-muted);
   background: transparent;
@@ -35,7 +35,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  min-block-size: 36px;
+  min-block-size: max(36px, var(--touch));
   padding-inline: var(--space-2);
   color: var(--fg-muted);
   text-decoration: none;
@@ -56,7 +56,7 @@
   justify-content: space-between;
   gap: var(--space-2);
 }
-.doc-chat-page :is(.btn, .doc-chat__action, .doc-chat__sources a) { min-block-size: 44px; }
+.doc-chat-page :is(.btn, .doc-chat__action, .doc-chat__sources a) { min-block-size: var(--touch); }
 .doc-chat__sources a, .doc-chat__action { display: inline-flex; align-items: center; }
 .doc-chat__turns { display: grid; gap: var(--space-3); list-style: none; padding: 0; }
 .doc-chat__turns > li { display: grid; gap: var(--space-2); }
@@ -87,7 +87,6 @@
   .doc-chat-page { grid-template-columns: minmax(0, 1fr); }
   .doc-chat__layout > section, .doc-chat__composer { grid-column: 1; }
   .doc-chat__composer { grid-row: 2; }
-  .doc-chat__icon { inline-size: var(--touch); block-size: var(--touch); }
   .doc-chat__chats-toggle, .doc-chat__topbar-new { display: inline-grid; }
   /* The phone top bar is only the list icon, the chat's title and the New chat pencil at the right edge. */
   .app-layout-topbar:has(#docTopbar) > :not(#docTopbar) { display: none; }
@@ -110,7 +109,6 @@
     transition: transform var(--duration-panel) var(--ease-out), visibility 0s var(--duration-panel);
   }
   .doc-chat__chats[data-open] { visibility: visible; transform: none; transition: transform var(--duration-panel) var(--ease-out); }
-  .doc-chat__chats a:not(.doc-chat__icon), .doc-chat__older { min-block-size: var(--touch); }
   .doc-chat__scrim { display: block; position: fixed; inset: 0 0 var(--layout-bottom); z-index: 1140; border: 0; background: var(--scrim); }
 }
 @media (prefers-reduced-motion: reduce) { .doc-chat__chats { transition: none; } }

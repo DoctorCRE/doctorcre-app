@@ -1,4 +1,4 @@
-import { phoneLabel, withoutRecordCodes } from './visual-system.js';
+import { partnerName, phoneLabel, withoutRecordCodes } from './visual-system.js';
 import { scrollAtEdge } from './touch-layout.js';
 import { dealsSaveToEngine } from "./boot-mode.js";
 import { parseOpportunityTiming, timingMarkup } from './ui-lead-opportunity-timing.generated.js';
@@ -18,7 +18,7 @@ import { observeDocRead, pageDocContext, publishDocRead, selectDocRecord, setDoc
 import { createLeadBoardClient, hasLeadVersion, validateLeadWorkspace as validateWorkspace, validateLeadDetail as validateDetail } from "./leads-client.js";
 import { mountAutoRefresh, updatedLabel } from "./auto-refresh.mjs";
 import { BOARD_STAGES, FILTER_STAGES, stageLabel, normalizedStage, eligibleLead, leadTitle, leadMarket, marketKey, specialtyKey,
-  visibleLeads, marketCounts, stageReview, automaticMove, undoReview, leadTimestamp, leadReachability } from "./leads-model.js";
+  visibleLeads, marketCounts, quietLeadIndex, quietFollowUp, stageReview, automaticMove, undoReview, leadTimestamp, leadReachability } from "./leads-model.js";
 import { mountTerritoryMap } from "./leads-territory-map.js";
 
 const historyKeys = { correspondence: "id", stage_history: "event_id" };
@@ -36,12 +36,9 @@ const shortDate = (value, calendarDate = false) => {
 };
 const stamp = value => Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString("en-US", { timeZone: BUSINESS_TIME_ZONE, month: "short", day: "numeric", year: yearIfNeeded(new Date(value)), hour: "numeric", minute: "2-digit", hour12: true }) : "—";
 const summary = value => String(value || "").split(/\n\s*\n/)[0].slice(0, 230);
-const ownerName = owner => owner ? owner.charAt(0).toUpperCase() + owner.slice(1) : "Unclaimed";
+const ownerName = owner => owner ? partnerName(owner) : "Unclaimed";
 const claimButton = lead => !lead.owner && normalizedStage(lead) !== "archived" ? `<button data-claim="${esc(lead.id)}">Claim</button>` : "";
 const readOnlyMessage = "Can't edit right now. Refresh to try again.";
-const quietLeadIndex = proposals => new Map(proposals.filter(row => row.subject_type === "lead").flatMap(row =>
-  row.ref ? [[row.subject_id, row], [row.ref, row]] : [[row.subject_id, row]]
-));
 const skeletonCard = '<div class="lead-skeleton" aria-hidden="true"><span class="skeleton-line"></span><span class="skeleton-line"></span><span class="skeleton-line"></span></div>';
 const options = (rows, selected, all) => `<option value="">${all}</option>${rows.map(([key, text]) => `<option value="${esc(key)}"${key === selected ? " selected" : ""}>${esc(text)}</option>`).join("")}`;
 
@@ -80,7 +77,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     if (draft && input) draft.answer = input.value;
     return draft;
   }
-  const followUp = lead => state.quiet?.rows?.get(lead.id) || state.quiet?.rows?.get(lead.registry_ref);
+  const followUp = lead => state.quiet?.rows && quietFollowUp(state.quiet.rows, lead);
   function paintDetailFollowUp() {
     const lead = leadById(state.detailId);
     const row = lead && followUp(lead);
@@ -469,7 +466,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     const scroll = intent?.scroll ?? $("leadDetail").scrollTop;
     $("detailTitle").textContent = leadTitle(detail);
     const fields = [
-      ["Owner", esc(detail.owner_label || ownerName(detail.owner))],
+      ["Owner", esc(ownerName(detail.owner_label || detail.owner))],
       ["Phone", detail.phone && `<a href="tel:${esc(detail.phone)}">${esc(phoneLabel(detail.phone))}</a>`],
       ["Email", detail.email && `<a href="mailto:${esc(detail.email)}">${esc(detail.email)}</a>`],
       ["Market", esc(leadMarket(detail))],
@@ -945,7 +942,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     button.disabled = true; button.textContent = "Loading territory…";
     button.setAttribute("aria-expanded", "true"); root.hidden = false;
     try {
-      const map = await mapFactory(root, selectMarket, readDetail, { describeLead: id => leadTitle(leadById(id) || {}) });
+      const map = await mapFactory(root, readDetail, { describeLead: id => leadTitle(leadById(id) || {}) });
       if (disposed) { map.dispose(); return; }
       state.map = map; button.hidden = true;
       if (!state.drag && !touch) render();

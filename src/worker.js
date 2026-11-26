@@ -1199,7 +1199,7 @@ self.addEventListener('activate', event => event.waitUntil((async () => {
     if (routeAsset === 'client-portal.html' && (engineSignIn(env) || switches.dealSavesFromEngine)) {
       const deal = url.searchParams.get('deal');
       if (deal) {
-        const query = new URLSearchParams({ deal, tab: 'client-view' });
+        const query = new URLSearchParams({ deal, tab: 'client-portal' });
         return gatedResponse(gate, new Response(null, { status: 302, headers: {
           location: `/deals?${query}`, 'cache-control': 'no-store',
         } }), env);

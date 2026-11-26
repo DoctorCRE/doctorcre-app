@@ -1,26 +1,28 @@
-import { expect } from '@playwright/test';
-import { test } from './privacy';
-import { card, complete, needs, reloadCard, undo, visible } from './ui';
+import { expect } from "@playwright/test";
+import { test } from "./privacy.ts";
+import { card, complete, marker, needs, undo, visible } from "./ui.ts";
 
 test("03 WR617.S1", async ({ page }) => {
   const row = await card(page, 3);
-  const id = await row.getAttribute('data-inbox-row');
-  await row.getByRole('button', { name: 'Hide from inbox', exact: true }).click();
-  await visible(page.locator('.inbox-notice').getByRole('button', { name: /^Undo/ }));
-  const check = await page.context().newPage();
-  try {
-    const stored = await reloadCard(check, id!);
-    expect(await stored.getByRole('button', { name: 'Show in inbox', exact: true }).count()).toBe(1);
-  } finally { await check.close(); }
+  await row.getByRole("button", { name: "Snooze", exact: true }).click();
+  await page
+    .getByRole("dialog", { name: "Snooze cards", exact: true })
+    .getByRole("button", { name: /^Tomorrow/ })
+    .click();
+  const waiting = page.getByRole("region", { name: "In motion and waiting", exact: true });
+  await visible(
+    waiting.locator("[data-inbox-row]").filter({ has: page.locator("h3 a").filter({ hasText: marker(3) }) }),
+  );
+  await visible(row.getByRole("button", { name: "Wake", exact: true }));
   await undo(page);
-  await row.getByRole('button', { name: 'Snooze', exact: true }).click();
-  await page.getByRole('dialog', { name: 'Snooze cards', exact: true }).getByRole('button', { name: /^1 hour/ }).click();
-  await visible(row.getByRole('button', { name: 'Wake', exact: true }));
-  await undo(page);
+  await visible(row.getByRole("button", { name: "Snooze", exact: true }));
   await complete(page, row);
+  expect(
+    await page
+      .locator("[data-inbox-row]")
+      .filter({ has: page.locator("h3 a").filter({ hasText: marker(3) }) })
+      .count(),
+  ).toBe(0);
   await undo(page);
-  for (const name of ['In motion and waiting', 'Done today', 'Hidden from inbox']) {
-    expect(await page.getByRole('region', { name, exact: true }).count()).toBe(1);
-  }
-  needs(true, 'already auto-settled TEST WALK 3 card plus stored Working disposition evidence');
+  needs(true, "already auto-settled TEST WALK 3 card plus stored Working disposition evidence");
 });

@@ -28,7 +28,8 @@ const signOffs = [
 ];
 // Punctuation or a line end after the phrase, so "Thanks for the tour." stays a sentence.
 const signOff = new RegExp(String.raw`^(?:${signOffs.join("|")})(?:[,.!]|(?=[^\S\n]*(?:\n|$)))\s*`, "iu");
-const reachableSource = String.raw`\(?\b\d{3}\)?[\s.-]*\d{3}[\s.-]\d{4}\b|[\w.+-]+@[\w-]+(?:\.[\w-]+)+|(?:https?:\/\/|www\.)\S+|\b[\w-]+(?:\.[\w-]+)*\.(?:com|net|org|co|io|us)\b(?:\/\S*)?`;
+// Phone separators include Unicode hyphens, which Outlook signatures often use.
+const reachableSource = String.raw`\(?\b\d{3}\)?[\s.\-‐‑–]*\d{3}[\s.\-‐‑–]\d{4}\b|[\w.+-]+@[\w-]+(?:\.[\w-]+)+|(?:https?:\/\/|www\.)\S+|\b[\w-]+(?:\.[\w-]+)*\.(?:com|net|org|co|io|us)\b(?:\/\S*)?`;
 const reachable = new RegExp(reachableSource, "i");
 const everyReachable = new RegExp(reachableSource, "gi");
 const contactLabelSource = String.raw`\b(?:(?:phone|tel|cell|mobile|fax|office|direct|email|e-mail|web|ext|x)\b\s*[:.]?|[pfmcote]\s*[:.)])`;
@@ -73,8 +74,30 @@ function anchorEnd(body: string, start: number, sender: string | null): number |
   return start + (line.length < rest.length && !reachable.test(line) ? line.length : name.length);
 }
 
-/** Folds the contact details after a message's sign-off or sender's name; with neither, or with writing after them, nothing folds. */
+// A legal notice that opens a company's footer, such as "Notice: This communication is intended only for…".
+// "Confidential:" counts only when it opens a standard disclaimer, never an authored remark such as "Confidential: price is 40/ft".
+const legalNotice =
+  /^(?:(?:confidentiality |legal |important )?notice|disclaimer)\s*:|^confidential(?:ity)?\s*:\s*(?:this|the (?:information|contents)|information)\b|^this (?:e-?mail|message|communication)\b[^\n]*\bintended (?:only |solely )?for\b/i;
+
+/** Folds the contact details after a message's sign-off or sender's name, and the legal-notice paragraph right after them; writing after that paragraph stays visible, and with no contact details nothing folds. */
 export function splitSignature(body: string, sender: string | null): { text: string; signature: string | null } {
+  const footerAt = [...body.matchAll(/\n\s*(?=\S)/g)]
+    .map(({ index, 0: gap }) => index + gap.length)
+    .find((start) => legalNotice.test(body.slice(start)));
+  if (footerAt !== undefined) {
+    const { text, signature } = contactFold(body.slice(0, footerAt), sender);
+    if (signature !== null) {
+      const afterNotice = body.slice(footerAt);
+      const noticeEnd = afterNotice.search(/\n\s*\n/);
+      const notice = noticeEnd === -1 ? afterNotice : afterNotice.slice(0, noticeEnd);
+      const authored = noticeEnd === -1 ? "" : afterNotice.slice(noticeEnd).trim();
+      return { text: authored ? `${text}\n\n${authored}` : text, signature: `${signature}\n${notice.trim()}` };
+    }
+  }
+  return contactFold(body, sender);
+}
+
+function contactFold(body: string, sender: string | null): { text: string; signature: string | null } {
   const breaks = [...body.matchAll(sentenceOrLineBreak)];
   const parts = [0, ...breaks.map(({ index, 0: gap }) => index + gap.length)].map((start, at) => ({
     start,
@@ -86,4 +109,49 @@ export function splitSignature(body: string, sender: string | null): { text: str
   const signature = body.slice(foldAt).trim();
   if ((signature.match(everyReachable)?.length ?? 0) < 2) return { text: body, signature: null };
   return { text: body.slice(0, foldAt).trimEnd(), signature };
+}
+
+// A reply header line such as "From: Pat" or "> *Sent:* Monday"; \s covers the non-breaking spaces Outlook writes.
+const headerKey = /^[\s>]*\**(from|sent|date|to|cc|bcc|subject|importance|reply-to)\**\s*:/i;
+const wroteLine = /^[\s>]*On\s[^\n]*,[^\n]*\bwrote:\s*$/i;
+const originalMessage = /^[\s>]*-{2,}\s*Original Message\s*-{2,}/i;
+const underscores = /^[\s>]*_{8,}\s*$/;
+
+/** Whether a quoted reply header starts at `rows[at]`: a run of header lines, allowing a few wrapped lines between them, naming From and Sent or Date. */
+function replyHeader(rows: readonly string[], at: number) {
+  if (!headerKey.test(rows[at] ?? "")) return false;
+  const keys = new Set<string>();
+  let wrapped = 0;
+  for (const row of rows.slice(at)) {
+    if (!row.trim()) break;
+    const key = row.match(headerKey)?.[1];
+    if (key) {
+      keys.add(key.toLowerCase());
+      wrapped = 0;
+    } else if (++wrapped > 3) break;
+  }
+  return keys.has("from") && (keys.has("sent") || keys.has("date"));
+}
+
+/** The row where quoted history starts: a reply header (from its underscore divider), an "On …, … wrote:" line, wrapped once or not, or an Original Message divider. */
+function historyRow(rows: readonly string[]) {
+  return rows.findIndex(
+    (row, at) =>
+      originalMessage.test(row) ||
+      wroteLine.test(row) ||
+      (/^[\s>]*On\s/i.test(row) && wroteLine.test(`${row} ${rows[at + 1] ?? ""}`)) ||
+      replyHeader(rows, at) ||
+      (underscores.test(row) && replyHeader(rows, at + 1)),
+  );
+}
+
+/** The app's one email cleanup: quoted history and then the signature fold under Show earlier text; a message that is all history stays visible. */
+export function foldEmailBody(body: string, sender: string | null): { text: string; folded: string | null } {
+  const rows = body.split("\n");
+  const row = historyRow(rows);
+  const own = row > 0 ? rows.slice(0, row).join("\n").trimEnd() : body;
+  if (!own.trim()) return { text: body, folded: null };
+  const history = row > 0 ? rows.slice(row).join("\n").trim() : null;
+  const { text, signature } = splitSignature(own, sender);
+  return { text, folded: [signature, history].filter(Boolean).join("\n\n") || null };
 }

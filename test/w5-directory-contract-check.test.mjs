@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { relationshipValid, validListPayload, validRecordPayload, parseViewState, viewHref } from '../js/workspace-business-model.js';
+import { echoesQuery, filterChips, listRequestUrl, relationshipValid, sameQuery, validListPayload, validRecordPayload, parseViewState, viewHref } from '../js/workspace-business-model.js';
 import { directoryFixture } from './fixtures/vendor-directory.synthetic.mjs';
 
 test('W5 validates the complete partnership payload and rejects malformed evidence before rendering', () => {
@@ -23,6 +23,22 @@ test('W5 owner and territory survive canonical navigation; client territory is d
   assert.equal(new URL(viewHref(vendor),'http://demo.example').searchParams.get('territory'),'Demo North');
   assert.equal(parseViewState('/clients','?territory=Demo&owner=other').query.territory,'');
   assert.equal(parseViewState('/clients','?owner=other').query.owner,'all');
+});
+
+test('Quiet vendors is a filter on the same vendor list that a second press removes', () => {
+  const quiet=parseViewState('/vendors','?quiet=true&owner=dell').query;
+  assert.equal(quiet.quiet,'true');
+  assert.equal(new URL(listRequestUrl(quiet),'http://demo.example').searchParams.get('quiet'),'true');
+  assert.deepEqual(filterChips(quiet).find(chip=>chip.key==='quiet'),{key:'quiet',label:'Showing',value:'Quiet vendors',reset:''});
+  const all={...quiet,quiet:''};
+  assert.equal(new URL(viewHref(all),'http://demo.example').searchParams.has('quiet'),false);
+  assert.equal(sameQuery(quiet,all),false);
+  assert.equal(parseViewState('/vendors','?quiet=yes').query.quiet,'');
+  assert.equal(parseViewState('/clients','?quiet=true').query.quiet,undefined);
+  const answer={query:{...quiet,q:null,territory:null,category:null,stage:null,disposition:null,page_size:25,quiet:true}};
+  assert.equal(echoesQuery(answer,quiet),true);
+  assert.equal(echoesQuery(answer,all),false);
+  assert.equal(echoesQuery({query:{...answer.query,quiet:undefined}},quiet),false);
 });
 
 import { readFileSync } from 'node:fs';
@@ -128,13 +144,13 @@ for (const dataset of ['clients', 'vendors']) {
 test('Vendors show recorded facts and keep names, phones and notes readable', () => {
   const { document, app, row, payload } = setup('vendors');
   row.name = payload.record.name = '(TBD: intake contact) (V-SUP-901)';
-  row.owner_label = 'Example Owner';
+  row.owner_label = 'Avery Example';
   Object.assign(row.relationship, { computed_tier: 'Trial', win_rate: null });
   Object.assign(payload.record, { phone: '+15550102000', intro_notes: 'Recovered from CARR calendar history' });
   document.querySelector('#recordList').innerHTML = app.rowHtml('vendors', row, row.id);
   const link = document.querySelector('.record-row');
   assert.equal(link.querySelector('.row-name').textContent, '(TBD: intake contact)');
-  assert.equal(link.querySelector('.row-owner').textContent, 'Owner: Example Owner');
+  assert.equal(link.querySelector('.row-owner').textContent, 'Owner: Avery');
   assert.doesNotMatch(link.textContent, /Trial|CARR|Not recorded|Win rate/);
   assert.equal(link.querySelector('.contact-note').textContent, 'Last contacted Sep 30, 2026');
   app.view.recordId = payload.record.id;
@@ -157,15 +173,49 @@ test('Vendor contact dates keep their calendar day while timestamps use Central'
   assert.match(app.formatMoment('2026-03-08T00:00:00Z'), /^Mar 7, 2026.*6:00 PM$/);
 });
 
-test('Vendor badges distinguish unknown workability from recorded false', () => {
-  const { document, app, row } = setup('vendors');
+test('A vendor shows one relationship by shape, word and name color, the same on its row and its card', () => {
+  const { document, app, row, payload } = setup('vendors');
   const list = document.querySelector('#recordList');
-  row.recorded_disposition_workable = null;
-  list.innerHTML = app.rowHtml('vendors', row, row.id);
-  assert.equal(list.querySelector('.tone'), null);
-  row.recorded_disposition_workable = false;
-  list.innerHTML = app.rowHtml('vendors', row, row.id);
-  assert.equal(list.querySelector('.tone').textContent, 'Not workable');
+  const cases = [
+    [{ recorded_disposition: 'avoid', relationship_level: 3, is_target: true }, 'avoid', 'Avoid', false],
+    [{ recorded_disposition: 'parked', relationship_level: 2, is_target: true }, 'parked', 'Parked', true],
+    [{ recorded_disposition: 'active', relationship_level: 3, is_target: false }, 'core', 'Core', false],
+    [{ recorded_disposition: 'active', relationship_level: 2, is_target: false }, 'established', 'Established', false],
+    [{ recorded_disposition: 'active', relationship_level: 1, is_target: true }, 'building', 'Building', true],
+    [{ recorded_disposition: 'active', relationship_level: 0, is_target: false }, 'prospective', 'Prospective', false],
+    [{ recorded_disposition: 'active', relationship_level: null, is_target: false }, 'not_rated', 'Not rated', false],
+  ];
+  for (const [facts, key, word, wantToMeet] of cases) {
+    Object.assign(row, facts);
+    list.innerHTML = app.rowHtml('vendors', row, row.id);
+    const name = list.querySelector('.row-name');
+    assert.equal(name.dataset.relationship, key, word);
+    assert.ok(name.querySelector('svg.rel-shape'), `${word} has a shape before the name`);
+    assert.equal(list.querySelector('.rel-word').textContent, word);
+    assert.equal(Boolean(list.querySelector('.want-tag')), wantToMeet, `${word} want to meet`);
+    Object.assign(payload.record, facts);
+    app.view.recordId = payload.record.id;
+    app.view.record = { status: 'ready', payload };
+    app.renderRecordPanel();
+    assert.equal(document.querySelector('#recordTitle').dataset.relationship, key);
+    assert.equal(document.querySelector('#recordMeta .rel-word').textContent, word);
+    assert.equal(Boolean(document.querySelector('#recordMeta .want-tag')), wantToMeet);
+    assert.doesNotMatch(document.querySelector('#recordPanel').textContent, /workable/i);
+  }
+  app.view.record = { status: 'loading' };
+  app.renderRecordPanel();
+  assert.equal(document.querySelector('#recordTitle').dataset.relationship, undefined, 'the next record starts uncolored');
+});
+
+test('A vendor read with or without the old workable field is the same vendor', () => {
+  const list = directoryFixture('http://demo.example/api/v1/business/vendors');
+  const record = directoryFixture(`http://demo.example/api/v1/business/vendors/${list.rows[0].id}`);
+  const withOld = row => ({ ...row, recorded_disposition_workable: false });
+  assert.equal(validListPayload({ ...list, rows: list.rows.map(withOld) }, 'vendors'), true);
+  assert.equal(validRecordPayload({ ...record, record: withOld(record.record) }, 'vendors'), true);
+  const { recorded_disposition_workable, ...rest } = record.record;
+  assert.equal(recorded_disposition_workable, undefined);
+  assert.equal(validRecordPayload({ ...record, record: rest }, 'vendors'), true);
 });
 
 test('An undated vendor conversation shows the note without a time', () => {

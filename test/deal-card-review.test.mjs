@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile, mkdir, access} from 'node:fs/promises';
 import {chromium, waitForAsync, animationsSettled} from './browser-harness.mjs';
+import { controlFloor } from "./control-floor.ts";
 const root=new URL('../',import.meta.url);
 const longestNextStep='Confirm the Demo Clinic appointment and send notes';
 async function open(t,width=1280,{theme='dark',sparse=false,showDetail=true,height=960,nextStep='Prior status that must not prefill',closedOn=null,manyUpdates=false,denseBoard=false}={}) {
@@ -51,7 +52,7 @@ test('every deal snapshot opens with an empty Update above a concise overview an
   assert.equal(await page.locator('.deal-note').first().locator('time').getAttribute('datetime'),'2026-10-02T17:45:00Z');
   assert.equal(await page.locator('.timeline-chart').count(),0);
   assert.equal(await page.locator('[aria-label="Deal phases and timeline"]').count(),1);
-  await page.getByRole('tab', {name:'Correspondence & notes'}).click();
+  await page.getByRole('tab', {name:'Activity'}).click();
   await page.locator('#panelEvidence [data-refresh-detail]').first().waitFor();
   assert.match(await page.locator('#recordPanel').textContent(),/Email threads unavailable/);
   assert.match(await page.locator('#recordPanel').textContent(),/No meetings/);
@@ -71,7 +72,7 @@ test('notes and updates name the assistant as author and Correspondence Refresh 
  await page.getByRole('button',{name:'Refresh deal'}).click();
  await page.locator('.updates-history > summary').click();
  assert.equal(await page.locator('.deal-note[data-id="demo-agent"] b').textContent(),'Doc (assistant)');
- await page.getByRole('tab',{name:'Correspondence & notes'}).click();
+ await page.getByRole('tab',{name:'Activity'}).click();
  const note=page.locator('[aria-label="Deal notes"] .workspace-note',{hasText:'Demo assistant note'});
  assert.equal((await note.locator('b').textContent()),'Doc (assistant)');
  await page.locator('#panelEvidence [data-refresh-detail]').first().waitFor();
@@ -147,7 +148,7 @@ test('deal review prioritizes cards, page tabs and Add deal in both themes and w
   await page.keyboard.press('Escape');
   await page.locator('[data-id="d14"] .card-open').click();await page.locator('#detailUpdateForm').waitFor();
 
-  await page.getByRole('tab',{name:'Timeline',exact:true}).click();
+  await page.getByRole('tab',{name:'Activity',exact:true}).click();
   const rails=await page.locator('.phase-rail li').evaluateAll(nodes=>nodes.map(n=>Math.round(n.getBoundingClientRect().top)));
   assert.equal(new Set(rails).size,width===390?2:1,'phase dates fit without horizontal scrolling');
   assert.ok((await page.locator('.deal-timeline').boundingBox()).height<(width===390?330:200),'phase timeline stays compact');
@@ -188,7 +189,7 @@ test('phone timeline has one rail and unlinked context opens an explicit empty s
  const {page}=await open(t,390);
 
  await t.test('compact rail',async()=>{
-  await page.getByRole('tab',{name:'Timeline',exact:true}).click();
+  await page.getByRole('tab',{name:'Activity',exact:true}).click();
   const tops=await page.locator('.phase-rail li').evaluateAll(nodes=>nodes.map(n=>Math.round(n.getBoundingClientRect().top)));
   assert.equal(new Set(tops).size,2);
  });
@@ -230,8 +231,10 @@ test('phone deal title stays clear of Doc through the full timeline scroll',asyn
    return hits.slice(0,5);
   });
   assert.deepEqual(obscured,[],`title remains hit-testable at scroll ${top}`);
+  const pinned=await page.evaluate(()=>{const title=document.getElementById('panelTitle').getBoundingClientRect(),tabs=document.getElementById('workspaceTabs').getBoundingClientRect();return title.top>=0&&title.bottom<=tabs.top;});
+  assert.ok(pinned,`title stays on screen above the tab row at scroll ${top}`);
  }
- await page.getByRole('tab',{name:'Timeline',exact:true}).click();
+ await page.getByRole('tab',{name:'Activity',exact:true}).click();
  await page.locator('.deal-timeline').scrollIntoViewIfNeeded();
  await mkdir(new URL('out/test-artifacts/dealroom-final/',root),{recursive:true});
  await page.screenshot({path:new URL('out/test-artifacts/dealroom-final/390-d14-scrolled.png',root).pathname,animations:'disabled'});
@@ -290,7 +293,7 @@ test('deal card cleanup shows dates and one summary at 390/1280 in dark/light',a
   assert.equal(await page.locator('.deal-note:visible').count(),0);
   assert.match(await page.locator('.updates-history > summary').textContent(),/Newest demo update/);
   assert.doesNotMatch(await page.locator('.updates-history > summary').textContent(),/Older demo update/);
-  await page.getByRole('tab',{name:'Timeline',exact:true}).click();
+  await page.getByRole('tab',{name:'Activity',exact:true}).click();
   assert.equal(await page.locator('.phase-rail time:visible').count(),4);
   await page.getByRole('tab',{name:'Overview',exact:true}).click();
   assert.equal(await page.locator('.phase-rail time[datetime="2026-08-31"]').textContent(),'Aug 31, 2026');
@@ -364,7 +367,7 @@ test('deal card controls meet the 44px target floor at phone and desktop widths'
     return {control:n.id||n.getAttribute('aria-label')||n.getAttribute('name')||n.textContent.trim().slice(0,60),width,height};
    }));
    assert.ok(controls.length>0,'card exercises its controls');
-   undersized.push(...controls.filter(n=>n.width<44||n.height<44));
+   undersized.push(...controls.filter(n=>n.width<controlFloor(width)||n.height<controlFloor(width)));
   }
   assert.deepEqual(undersized,[]);
  });
@@ -459,7 +462,7 @@ for (const width of [390, 1440]) for (const theme of ['light','dark']) test(`dea
  const {page}=await open(t,width,{theme,showDetail:false,height:900});
  const controls=page.locator('.kanban-card .card-open:visible');
  assert.ok(await controls.count());
- for(const control of await controls.all()) { const box=await control.boundingBox(); assert.ok(box.width>=44 && box.height>=44); }
+ for(const control of await controls.all()) { const box=await control.boundingBox(); assert.ok(box.width>=controlFloor(width) && box.height>=controlFloor(width)); }
  await mkdir('out/test-artifacts/WR572.S6.J1',{recursive:true});
  await page.screenshot({path:`out/test-artifacts/WR572.S6.J1/deals-${width}-${theme}.png`});
  if(width===390) { const note=page.locator('.stages-hidden'); await note.scrollIntoViewIfNeeded(); await page.screenshot({path:`out/test-artifacts/WR572.S6.J1/stages-hidden-deals-390-${theme}.png`}); }

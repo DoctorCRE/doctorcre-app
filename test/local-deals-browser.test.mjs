@@ -1345,8 +1345,8 @@ test('Park and Revive keep the reason, note, date and original phase on the new 
       parkedInHeader: await parkedStatus.count(),
     }, { cardNote: 0, pageNote: 1, parkedInHeader: 1 });
     assert.equal(await parkedStatus.textContent(), 'Due Diligence · Parked');
-    const criticalDate = header.getByText('Next critical date', { exact: true }).locator('..');
-    assert.equal(await criticalDate.getByText('Wed, Oct 21, 2026', { exact: true }).isVisible(), true);
+    // The next critical date left the header for the dates row under the tabs (design CHANGE 14).
+    assert.equal(await header.getByText('Next critical date', { exact: true }).count(), 0);
     await header.screenshot({ path: new URL(`${width}-import-header.png`, artifacts).pathname });
     await parking.screenshot({ path: new URL(`${width}-import-parking.png`, artifacts).pathname });
     assert.deepEqual(errors, []);
@@ -1390,7 +1390,7 @@ test('deal email threads show latest message dates and escape subjects', async t
       ]});
     });
     await page.locator('.kanban-column [data-id="d14"] .card-open').click();
-    await page.getByRole('tab', {name:'Correspondence & notes'}).click();
+    await page.getByRole('tab', {name:'Activity'}).click();
     await page.locator('#panelEvidence [data-kind=thread]').first().waitFor();
     await mkdir(new URL('out/test-artifacts/thread-dates/',root),{recursive:true});
     await page.locator('#panelEvidence').screenshot({path:new URL(`out/test-artifacts/thread-dates/${width}-${theme}.png`,root).pathname});

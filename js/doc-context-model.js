@@ -1,5 +1,6 @@
 import { compareInstants } from './change-receipts.mjs';
 import { leadName } from './leads-model.js';
+import { partnerName } from './visual-system.js';
 // App-owned, ephemeral context. Values come from the same authorized responses
 // as the page; names and screen text never resolve an identity or authorize work.
 const text = value => typeof value === 'string' && value.trim() ? value : null;
@@ -44,10 +45,10 @@ function record(kind, row, id, title, fields, activity = []) {
   return { kind, id: String(id), title, version, fields,
     activity: activity.filter(item => text(item.text)).map(item => ({ text: item.text, at: item.at ?? null })) };
 }
-const deal = (row = {}) => record('deal', row, row.id, row.name, [field('Owner', row.owner), field('Stage', row.phase),
+const deal = (row = {}) => record('deal', row, row.id, row.name, [field('Owner', partnerName(row.owner) || null), field('Stage', row.phase),
   field('Next step', row.next_step), field('Due', row.next_date), field('Needs attention', row.attention)]);
 const lead = (row = {}) => record('lead', row, row.id, leadName(row),
-  [field('Owner', row.owner), field('Stage', row.stage), field('Score', row.score), field('Next step', row.next_action), field('Market', row.city || row.market)]);
+  [field('Owner', partnerName(row.owner) || null), field('Stage', row.stage), field('Score', row.score), field('Next step', row.next_action), field('Market', row.city || row.market)]);
 const conversation = (row = {}) => record('conversation', row, row.id, row.title,
   [field('Visibility', row.visibility), field('Last activity', row.latest_turn_at), field('Status', row.archived_at ? 'Archived' : 'Open')]);
 
@@ -69,7 +70,7 @@ export function normalizeDocRead(method, payload, args = []) {
       return [row];
     }
     case 'getLeadBoard': rows = payload.leads; map = row => record('lead', row, row.id, row.name,
-      [field('Owner', row.owner), field('Stage', row.stage), field('Score', row.score), field('Next step', row.next_action), field('Market', row.city || row.market)]); break;
+      [field('Owner', partnerName(row.owner) || null), field('Stage', row.stage), field('Score', row.score), field('Next step', row.next_action), field('Market', row.city || row.market)]); break;
     case 'getWorkspace': rows = payload.leads; map = lead; break;
     case 'getLeadDetail': {
       const row = lead(payload.detail);
@@ -91,9 +92,9 @@ export function normalizeDocRead(method, payload, args = []) {
       return [row];
     }
     case 'businessList': rows = payload.rows; map = row => record(args[0]?.dataset || 'party', row, row.id, row.name,
-      [field('Owner', row.owner_label), field('Status', args[0]?.dataset === 'vendors' ? row.recorded_stage_label || row.recorded_stage : row.recorded_status_label || row.recorded_status), field('Market', row.city)]); break;
+      [field('Owner', partnerName(row.owner_label) || null), field('Status', args[0]?.dataset === 'vendors' ? row.recorded_stage_label || row.recorded_stage : row.recorded_status_label || row.recorded_status), field('Market', row.city)]); break;
     case 'businessRecord': if (payload.record?.id !== args[0]?.id) return null; rows = payload.record ? [payload.record] : null; map = row => record(args[0]?.dataset || 'party', row, row.id, row.name,
-      [field('Owner', row.owner_label), field('Status', args[0]?.dataset === 'vendors' ? row.recorded_stage_label || row.recorded_stage : row.recorded_status_label || row.recorded_status), field('Market', row.city), field('Last activity', row.last_touch)]); break;
+      [field('Owner', partnerName(row.owner_label) || null), field('Status', args[0]?.dataset === 'vendors' ? row.recorded_stage_label || row.recorded_stage : row.recorded_status_label || row.recorded_status), field('Market', row.city), field('Last activity', row.last_touch)]); break;
     case 'businessActivity': {
       const base = normalizeDocRead('businessRecord', payload, args);
       if (!base || !Array.isArray(payload.activities)) return null;

@@ -162,8 +162,7 @@ call recorder context regardless of the legacy routing switches. The app blocks
 the CARR forwarder in engine mode. PartnerApp receives only the engine session
 cookie, with the engine's short-lived OAuth state cookie allowed on the Google
 callback. The board stops polling after its first engine-backed load. Updates
-reads deal attribution from PartnerApp. Compare terms shows an empty state
-while there are no recorded comparable terms. Deal watch settings and Tours
+reads deal attribution from PartnerApp. Deal watch settings and Tours
 show “Not available yet” until their engine endpoints are available.
 
 PartnerApp also serves Leads reads, claim, stage changes, email acknowledgement

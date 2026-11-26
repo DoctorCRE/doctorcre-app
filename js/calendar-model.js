@@ -1,5 +1,6 @@
 import { createPageBudget } from './read-budget.mjs';
 import { BUSINESS_TIME_ZONE, businessDay, meetingTime } from './business-date.js';
+import { partnerName } from './visual-system.js';
 // Calendar days use UTC arithmetic. Today uses America/Chicago.
 
 /** Widest to narrowest; a change toward the end zooms in. */
@@ -285,6 +286,32 @@ export function timelineBlocks(entries) {
   return blocks;
 }
 
+/* ---------------------------------------------------------------- template */
+
+const RECORD_KINDS = ["deal", "vendor", "building"];
+const RECORD_WORDS = { deal: "Deal", vendor: "Vendor", building: "Building" };
+const dealRecord = (id, name) => ({ kind: "deal", name, url: id ? `/deals?deal=${encodeURIComponent(id)}` : null });
+
+/** "Joe", or "Joe and Dell" for a meeting both partners attend. */
+export const ownerNames = entry => (entry.owners ?? [entry.owner]).filter(owner => typeof owner === "string" && owner)
+  .map(partnerName).join(" and ");
+
+/** What an entry is for: its named records and the word for their kind, which stays blank when the kinds differ or are unknown. */
+export function recordsFor(entry) {
+  const records = entry.records.filter(record => record.name);
+  const kind = records.every(record => record.kind === records[0].kind) ? records[0]?.kind : null;
+  return { word: kind ? `${RECORD_WORDS[kind]}${records.length > 1 ? "s" : ""}` : "", records };
+}
+
+/** When an entry happens: a step's or date's due day and how late it is, a meeting's time, nothing for a tour. */
+export function entryWhen(entry, today) {
+  if (entry.type === "meeting") return entry.all_day ? "All day" : meetingTime(entry.at, BUSINESS_TIME_ZONE);
+  if (entry.type === "tour") return "";
+  const late = daysBetween(entry.day, today);
+  const due = `Due ${shortDay(entry.day, today)}`;
+  return late > 0 ? `${late} ${late === 1 ? "day" : "days"} late · ${due}` : due;
+}
+
 /* ------------------------------------------------------------------- the read */
 
 const endedSession = (error) => error?.status === 401 || error?.status === 403;
@@ -300,7 +327,7 @@ export async function readCalendar(client, { concurrency = READ_CONCURRENCY, onP
             typeof row.kind !== "string" || typeof row.done !== "boolean")
           throw new Error("Calendar date unreadable");
         return {
-          key: row.id, deal_id: row.deal_id, deal_name: row.deal_name, day,
+          key: row.id, deal_id: row.deal_id, records: [dealRecord(row.deal_id, row.deal_name)], day,
           label: row.kind, owner: row.owner, type: "date", settled: row.done,
         };
       });
@@ -315,8 +342,8 @@ export async function readCalendar(client, { concurrency = READ_CONCURRENCY, onP
         return {
           key: `step:${row.id}`, type: "step", day: row.due_on, label,
           why,
-          owner: row.owner, record_name: row.record_label, open_url: row.open_url,
-          days_late: row.days_late, settled: false,
+          owner: row.owner, days_late: row.days_late, settled: false,
+          records: [{ kind: RECORD_KINDS.includes(row.record_kind) ? row.record_kind : null, name: row.record_label, url: row.open_url }],
         };
       }));
       return { ...empty, status: "ready", entries };
@@ -357,7 +384,7 @@ export async function readCalendar(client, { concurrency = READ_CONCURRENCY, onP
         const read = criticalDateEntries(deal, {
           critical_dates: detail.critical_dates.filter(row => row?.status === "open"),
         });
-        const asDate = row => ({ ...row, owner: deal.owner, type: "date" });
+        const asDate = row => ({ ...row, owner: deal.owner, type: "date", records: [dealRecord(deal.id, row.deal_name)] });
         entries.push(...read.entries.map(asDate));
         undated.push(...read.undated.map(asDate));
         readCount += 1;
@@ -399,39 +426,27 @@ const isInstant = value => typeof value === "string" && Number.isFinite(Date.par
 const isText = value => typeof value === "string" && value.trim() !== "";
 const recordUrl = value => typeof value === "string" && /^\/(?:deals|relationships)\?/.test(value) ? value : null;
 const SECTION_STATES = ["ready", "empty", "partial", "unavailable"];
-// The engine's freshness rule for an Outlook snapshot.
-const STALE_MS = 18 * 3_600_000;
-const named = (who, text) => text.startsWith(who) ? text : `${who}: ${text}`;
 const UNLOADED = { status: "unavailable", entries: [], notes: ["Meetings could not be loaded. Refresh to try again."] };
 
 /** The visible period as the meetings read's inclusive range. */
 export const visibleRange = days => ({ from: days[0].day, to: days.at(-1).day });
 
-/** The Outlook job attaches standing caveats to every snapshot; like Home, only a stale sync is worth a line. */
-function sectionNotes(section, who, now) {
-  if (section.state === "unavailable") return [section.reason || `${who}'s meetings could not be loaded.`];
-  const synced = isInstant(section.observed_at) ? Date.parse(section.observed_at) : null;
-  return [
-    ...(synced !== null && now - synced > STALE_MS
-      ? [`Last synced ${meetingTime(section.observed_at, BUSINESS_TIME_ZONE, { date: true })}.`] : []),
-    ...(section.meetings_may_be_missing === true ? ["Calendar may be incomplete."] : []),
-  ];
-}
-
-function dealLinks(item) {
+/** The deals a meeting matched, or else the person or company it matched. */
+function meetingRecords(item) {
   const matches = Array.isArray(item.possible_deals) ? item.possible_deals : [];
-  const links = matches.flatMap(deal => isText(deal?.name) && recordUrl(deal.open_url) ? [{ name: deal.name, url: deal.open_url }] : []);
-  if (links.length) return links;
-  return isText(item.context_label) ? [{ name: item.context_label, url: recordUrl(item.open_url) }] : [];
+  const deals = matches.flatMap(deal => isText(deal?.name) && recordUrl(deal.open_url) ? [{ kind: "deal", name: deal.name, url: deal.open_url }] : []);
+  if (deals.length) return deals;
+  return isText(item.context_label) ? [{ kind: null, name: item.context_label, url: recordUrl(item.open_url) }] : [];
 }
 
 /**
  * Both partners' meetings and planned tours for one period, as calendar
- * entries plus the plain notes that say what may be missing. `off` means the
- * engine does not serve the read, so the page says nothing about meetings.
- * A meeting both partners attend is one entry owned by both.
+ * entries plus a note when a read failed. A partner's Outlook sync state is
+ * for whoever runs the system, so it never becomes a note (owner, 2026-11-25).
+ * `off` means the engine does not serve the read, so the page says nothing
+ * about meetings. A meeting both partners attend is one entry owned by both.
  */
-export async function readMeetings(client, range, now = Date.now()) {
+export async function readMeetings(client, range) {
   if (!client.getCalendarMeetings) return { status: "off", entries: [], notes: [] };
   let answer;
   try {
@@ -445,8 +460,6 @@ export async function readMeetings(client, range, now = Date.now()) {
     for (const section of answer.meetings) {
       if (!isText(section.partner) || !isText(section.name) || !SECTION_STATES.includes(section.state) || !Array.isArray(section.items))
         throw new Error("Meetings unreadable");
-      const who = section.name;
-      notes.push(...sectionNotes(section, who, now).map(note => named(who, note)));
       if (section.state === "unavailable") continue;
       for (const item of section.items) {
         if (!isText(item?.title) || !isInstant(item.start)) throw new Error("Meeting unreadable");
@@ -456,24 +469,23 @@ export async function readMeetings(client, range, now = Date.now()) {
         const key = `meeting:${isText(item.key) ? item.key : `${start.toISOString()}:${label.toLowerCase()}`}`;
         const known = meetings.get(key);
         if (known) { if (!known.owners.includes(section.partner)) known.owners.push(section.partner); continue; }
-        const links = dealLinks(item);
         meetings.set(key, {
           key, type: "meeting", day: businessDay(start), at: start.toISOString(), all_day: item.all_day === true,
           end: isInstant(item.end) ? new Date(item.end).toISOString() : null,
-          label, owners: [section.partner], links, record_name: links.map(link => link.name).join(", ") || null, settled: false,
+          label, owners: [section.partner], records: meetingRecords(item), settled: false,
         });
       }
     }
     const tours = answer.tours;
     if (!SECTION_STATES.includes(tours?.state) || !Array.isArray(tours.items)) throw new Error("Tours unreadable");
-    if (tours.state === "unavailable") notes.push(tours.reason || "Planned tours could not be loaded.");
+    if (tours.state === "unavailable") notes.push("Planned tours could not be loaded. Refresh to try again.");
     const planned = tours.state === "unavailable" ? [] : tours.items.map(tour => {
       if (!tour?.id || !isCalendarDay(tour.planned_on) || !isText(tour.deal_name) || !Number.isInteger(tour.stop_count))
         throw new Error("Tour unreadable");
       return {
         key: `tour:${tour.id}`, type: "tour", day: tour.planned_on,
         label: `${tour.stop_count} ${tour.stop_count === 1 ? "stop" : "stops"}`, owners: [tour.owner],
-        links: [{ name: tour.deal_name, url: recordUrl(tour.open_url) }], record_name: tour.deal_name, settled: false,
+        records: [{ kind: "deal", name: tour.deal_name, url: recordUrl(tour.open_url) }], settled: false,
       };
     });
     return { status: notes.length ? "partial" : "ready", entries: [...meetings.values(), ...planned], notes: [...new Set(notes)] };

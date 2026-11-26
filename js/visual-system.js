@@ -313,9 +313,8 @@ export function readTokens(css, selector) {
   return tokens;
 }
 
-export function partnerName(slug) {
-  const value = String(slug || "").toLowerCase();
-  if (value === "joe") return "Joe";
-  if (value === "dell") return "Dell";
-  return value ? value.charAt(0).toUpperCase() + value.slice(1) : "";
+/** A partner as the app names them: first name only. Takes a sign-in slug or a full name. */
+export function partnerName(value) {
+  const first = String(value ?? "").trim().split(/\s+/)[0];
+  return first ? first.charAt(0).toUpperCase() + first.slice(1) : "";
 }

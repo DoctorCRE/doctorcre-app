@@ -25,14 +25,16 @@ for (const width of [390, 1280]) for (const theme of ['light', 'dark']) test(`fi
   await observe(page);
   assert.equal(calls.filter(call => call.name === 'snooze-home-inbox').length, 0);
 });
-for (const time of [opening, '2026-03-08T07:30:00.000Z']) test(`delayed click sends stored endpoint across DST ${time}`, async t => {
+// Sunday 1:30 AM before fall-back and Sunday 1:30 AM before spring-forward: Tomorrow is Monday and Next week is the Monday after.
+const expected = { [opening]: ['2026-11-02T14:00:00.000Z', '2026-11-09T14:00:00.000Z'], '2026-03-08T07:30:00.000Z': ['2026-03-09T13:00:00.000Z', '2026-03-16T13:00:00.000Z'] };
+for (const time of Object.keys(expected)) test(`delayed click sends the 8:00 AM Central endpoint across DST ${time}`, async t => {
   const { page, calls } = await open(t, { time });
   await page.getByRole('button', { name: 'Snooze', exact: true }).click();
   const endpoints = await page.getByRole('dialog', { name: 'Snooze cards' }).locator('time').evaluateAll(nodes => nodes.map(node => node.dateTime));
-  assert.deepEqual(endpoints, [1, 24].map(hours => new Date(Date.parse(time) + hours * 3600000).toISOString()));
+  assert.deepEqual(endpoints, expected[time]);
   assert.doesNotMatch(await page.getByRole('dialog', { name: 'Snooze cards' }).innerText(), /\b(CST|CDT|Central)\b/);
   await page.clock.setFixedTime(new Date(Date.parse(time) + 30000));
-  await page.getByRole('button', { name: /^24 hours/ }).click();
+  await page.getByRole('button', { name: /^Next week/ }).click();
   await page.getByRole('button', { name: 'Undo', exact: true }).waitFor();
   assert.equal(calls.find(call => call.name === 'snooze-home-inbox').args.until, endpoints[1]);
 });
@@ -40,20 +42,20 @@ test('expired choice refuses, Escape restores focus and reopening renews choices
   const { page, calls } = await open(t);
   const opener = page.getByRole('button', { name: 'Snooze', exact: true });
   await opener.click();
-  await page.clock.setFixedTime(new Date(Date.parse(opening) + 3600000));
-  await page.getByRole('button', { name: /^1 hour/ }).click();
+  await page.clock.setFixedTime(new Date('2026-11-02T15:00:00.000Z'));
+  await page.getByRole('button', { name: /^Tomorrow/ }).click();
   await page.getByRole('dialog').getByRole('alert').waitFor();
   assert.equal(calls.filter(call => call.name === 'snooze-home-inbox').length, 0);
   await page.keyboard.press('Escape');
   assert.equal(await opener.evaluate(node => node === document.activeElement), true);
   await opener.click();
-  assert.equal(await page.getByRole('dialog', { name: 'Snooze cards' }).locator('time').first().getAttribute('datetime'), '2026-11-01T08:30:00.000Z');
+  assert.equal(await page.getByRole('dialog', { name: 'Snooze cards' }).locator('time').first().getAttribute('datetime'), '2026-11-03T14:00:00.000Z');
 });
 test('uncertain retry retains the exact command and offline never replays', async t => {
   const { page, calls } = await open(t, { uncertain: true });
   await page.getByRole('button', { name: 'Snooze', exact: true }).click();
   const until = await page.getByRole('dialog', { name: 'Snooze cards' }).locator('time').first().getAttribute('datetime');
-  await page.getByRole('button', { name: /^1 hour/ }).click();
+  await page.getByRole('button', { name: /^Tomorrow/ }).click();
   await page.getByRole('button', { name: 'Retry same request' }).click();
   await page.getByText('Result uncertain.', { exact: false }).first().waitFor();
   const writes = calls.filter(call => call.name === 'snooze-home-inbox');
@@ -97,7 +99,7 @@ test('offline selection sends nothing and session invalidation clears pending re
   const { page, calls } = await open(t);
   await page.getByRole('button', { name: 'Snooze', exact: true }).click();
   await page.context().setOffline(true);
-  await page.getByRole('button', { name: /^1 hour/ }).click();
+  await page.getByRole('button', { name: /^Tomorrow/ }).click();
   await page.getByText('Offline. No change was sent.', { exact: false }).waitFor();
   assert.equal(calls.filter(call => call.name === 'snooze-home-inbox').length, 0);
   await page.evaluate(() => dispatchEvent(new Event('doctorcre-session-invalidated')));

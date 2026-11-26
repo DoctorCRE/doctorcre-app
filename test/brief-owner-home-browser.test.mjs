@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { buildArtifact } from '../scripts/artifact.mjs';
 import { chromium, animationsSettled } from './browser-harness.mjs';
 import { ownedFixtureServer as fixtureServer } from './fixture-probe.ts';
+import { controlFloor } from "./control-floor.ts";
 
 let outDir, server;
 before(async () => {
@@ -41,8 +42,7 @@ for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
       return { label: node.textContent, width, height, fits: node.scrollWidth <= node.clientWidth };
     }));
     assert.deepEqual(targets.map(target => target.label), ['Both', 'Joe', 'Dell']);
-    const tall = width === 390 ? 44 : 32;
-    for (const target of targets) assert.ok(target.fits && target.width >= 44 && target.height >= tall,
+    for (const target of targets) assert.ok(target.fits && target.width >= 44 && target.height >= controlFloor(width),
       `${target.label}: ${target.width}x${target.height}`);
   });
 }

@@ -7,6 +7,9 @@ import { buildArtifact } from '../scripts/artifact.mjs';
 import { temporaryDirectory } from '../scripts/temp-directory.mjs';
 import { chromium } from './browser-harness.mjs';
 import { ownedFixtureServer as fixtureServer } from './fixture-probe.ts';
+// Below three columns an opened item covers the list and its close button reads Back.
+const closeReview = /^(Close review|Back)$/;
+const closeItem = /^(Close|Back)$/;
 const test = (name, run) => nodeTest(name, async t => { try { await run(t); } catch (error) { console.error(error); throw error; } });
 let outDir;
 before(async () => { outDir = temporaryDirectory('inline-review-'); await buildArtifact({ root: process.cwd(), outDir }); await mkdir('test-artifacts/inline-review', { recursive: true }); });
@@ -81,9 +84,7 @@ for (const [name, options, expectedLink, expectedName] of [
   ['unlinked completed task', { kind: 'action', reference: false, sourceState: 'done', surface: '/inbox' }],
 ]) test(`Home Open shows the exact ${name}`, async t => {
   const { page, panel, calls } = await setup(t, { width: 390, ...options });
-  const opener = name === 'unlinked completed task'
-    ? page.getByRole('button', { name: 'Open', exact: true })
-    : page.getByRole('button', { name: 'Open', exact: true });
+  const opener = page.locator('[data-inbox-row] h3 a');
   await opener.click();
   await panel.waitFor();
   if (expectedLink) {
@@ -91,7 +92,7 @@ for (const [name, options, expectedLink, expectedName] of [
     if (name === 'call follow-up') assert.equal(await panel.getByRole('link', { name: 'Demo practice', exact: true }).getAttribute('href'), `/deals?deal=${id}`);
     if (options.dueOn) assert.equal(await panel.getByText('Oct 1, 2026', { exact: true }).count(), 1);
   } else {
-    assert.equal(await panel.getByRole('button', { name: 'Close', exact: true }).count(), 1);
+    assert.equal(await panel.getByRole('button', { name: closeItem }).count(), 1);
     assert.equal(await panel.getByText('No linked record.', { exact: true }).count(), 1);
     assert.equal(await panel.getByRole('link').count(), 0);
     assert.equal(await panel.getByText('Synthetic review', { exact: true }).count(), 1);
@@ -99,11 +100,11 @@ for (const [name, options, expectedLink, expectedName] of [
   assert.equal(calls.some(call => /^(complete|settle|snooze|edit|submit)-/.test(call.name)), false);
   await page.keyboard.press('Escape');
   assert.equal(await panel.count(), 0);
-  assert.equal(await opener.evaluate(button => button === document.activeElement), true);
+  assert.equal(await opener.evaluate(link => link === document.activeElement), true);
 });
 test('legacy Home reload opens the newest saved reply without applying an earlier edit', async t => {
   const { page, panel, calls, reviseDraft } = await setup(t);
-  const openReview = page.getByRole('button', { name: 'Open', exact: true });
+  const openReview = page.locator('[data-inbox-row] h3 a');
   const message = panel.getByRole('textbox', { name: 'Message', exact: true });
   await openReview.click();
   await message.fill('Unsent legacy edit.');
@@ -119,7 +120,7 @@ test('legacy Home reload opens the newest saved reply without applying an earlie
 
 for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`inline reply edits, saves and explicitly submits ${width} ${theme}`, async t => {
   const { page, panel, calls } = await setup(t, { width, theme });
-  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.locator('[data-inbox-row] h3 a').click();
   await panel.getByLabel('Subject', { exact: true }).waitFor();
   assert.match(await panel.textContent(), /Review this card.*Their email.*Demo sender.*Nov 2.*Synthetic incoming email.*Can you confirm the tour time\?.*Exact reply for review/s);
   assert.equal(await panel.getByLabel('Message', { exact: true }).inputValue(), 'Synthetic body');
@@ -141,12 +142,12 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`in
   assert.deepEqual(writes[0].args.to, ['demo@example.test']); assert.deepEqual(writes[0].args.cc, ['copy@example.test']);
   assert.equal(writes[0].args.subject, 'Reviewed exact subject'); assert.equal(writes[0].args.body, 'Reviewed exact body');
   assert.equal(page.url().includes('/inbox'), false);
-  await panel.getByRole('button', { name: 'Close review', exact: true }).click();
+  await panel.getByRole('button', { name: closeReview }).click();
   await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Inbox cards');
 });
 test('conflict keeps text and reload binds a fresh version before another deliberate save', async t => {
   const { page, panel, calls } = await setup(t, { refusal: 'version_conflict' });
-  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.locator('[data-inbox-row] h3 a').click();
   await panel.getByLabel('Message', { exact: true }).fill('Keep my local edits');
   await panel.getByRole('button', { name: 'Save draft', exact: true }).click();
   await panel.getByRole('button', { name: 'Review updated card', exact: true }).click();
@@ -160,7 +161,7 @@ test('conflict keeps text and reload binds a fresh version before another delibe
 });
 test('uncertain write retries only the identical frozen request', async t => {
   const { page, panel, calls } = await setup(t, { refusal: 'uncertain' });
-  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.locator('[data-inbox-row] h3 a').click();
   await panel.getByRole('button', { name: 'Save draft', exact: true }).click();
   await panel.getByRole('button', { name: 'Retry same review request', exact: true }).click();
   await panel.getByText('Saved as a draft. Nothing was sent.', { exact: true }).waitFor();
@@ -168,7 +169,7 @@ test('uncertain write retries only the identical frozen request', async t => {
 });
 for (const refusal of ['home_review_stale', 'home_review_resolved', 'home_review_unsupported', 'human_only_verb_requires_verified_partner']) test(`review safely refuses ${refusal}`, async t => {
   const { page, panel, calls } = await setup(t, { refusal });
-  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.locator('[data-inbox-row] h3 a').click();
   await panel.getByText(refusal === 'home_review_stale' ? 'This card changed. Your edits are kept. Review the updated card before submitting again.' : refusal === 'home_review_resolved' ? 'This card is already resolved. Refresh the inbox to see its current state.' : refusal === 'human_only_verb_requires_verified_partner' ? 'Sign in as the owning verified partner to review this card.' : 'This card cannot be reviewed here. Open its source record.', { exact: true }).waitFor();
   assert.equal(await panel.getByRole('button', { name: 'Save draft', exact: true }).count(), 0);
   await page.keyboard.press('Escape');
@@ -176,10 +177,10 @@ for (const refusal of ['home_review_stale', 'home_review_resolved', 'home_review
 });
 test('task review completes one canonical action and retains Undo receipt', async t => {
   const { page, panel, calls } = await setup(t, { kind: 'action' });
-  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.locator('[data-inbox-row] h3 a').click();
   await panel.getByRole('button', { name: 'Mark done', exact: true }).click();
   await panel.getByText('This card is confirmed. Its current state is shown in your inbox.', { exact: true }).waitFor();
-  await panel.getByRole('button', { name: 'Close', exact: true }).click();
+  await panel.getByRole('button', { name: closeItem }).click();
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await page.getByText('Undone.', { exact: false }).waitFor();
   assert.equal(calls.filter(c => c.name === 'complete-one-action').length, 1);
@@ -187,8 +188,8 @@ test('task review completes one canonical action and retains Undo receipt', asyn
 });
 for (const dealId of [null, id]) test(`a fact review card ${dealId ? 'with' : 'without'} a deal offers no inline review, whose old save is gone`, async t => {
   const { page, panel, calls } = await setup(t, { kind: 'fact_review', dealId });
-  await page.getByRole('button', { name: 'Open', exact: true }).click();
-  await panel.getByRole('button', { name: 'Close', exact: true }).waitFor();
+  await page.locator('[data-inbox-row] h3 a').click();
+  await panel.getByRole('button', { name: closeItem }).waitFor();
   if (dealId) assert.equal(await panel.locator(`a[href="/deals?deal=${id}"]`).count(), 1);
   assert.equal(await panel.getByText('No linked record.', { exact: true }).count(), dealId ? 0 : 1);
   assert.equal(await panel.getByText('Review this card', { exact: true }).count(), 0);
@@ -197,21 +198,21 @@ for (const dealId of [null, id]) test(`a fact review card ${dealId ? 'with' : 'w
 });
 test('older producer without references keeps a navigable card', async t => {
   const { page, calls } = await setup(t, { reference: false });
-  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.locator('[data-inbox-row] h3 a').click();
   await page.getByText('The email and draft are unavailable for this card.', { exact: true }).waitFor();
   assert.ok(await page.getByRole('link', { name: 'Synthetic review', exact: true }).getAttribute('href'));
   assert.equal(calls.filter(c => c.name === 'read-home-review').length, 0);
 });
 test('keyboard review and rapid repeated activation make one deliberate write', async t => {
   const { page, panel, calls } = await setup(t);
-  const opener = page.getByRole('button', { name: 'Open', exact: true });
+  const opener = page.locator('[data-inbox-row] h3 a');
   await opener.focus(); await page.keyboard.press('Enter');
   const save = panel.getByRole('button', { name: 'Save draft', exact: true });
   await save.evaluate(button => { button.click(); button.click(); });
   await panel.getByText('Saved as a draft. Nothing was sent.', { exact: true }).waitFor();
   assert.equal(calls.filter(c => c.name === 'edit-email-draft').length, 1);
   await page.keyboard.press('Escape');
-  await page.waitForFunction(() => document.activeElement?.textContent === 'Open');
+  await page.waitForFunction(() => document.activeElement?.matches('[data-inbox-row] h3 a'));
 });
 test('closing a loading review rejects late detail and sends no domain command', async t => {
   const { page, panel, calls } = await setup(t);
@@ -220,7 +221,7 @@ test('closing a loading review rejects late detail and sends no domain command',
     if (route.request().postDataJSON().params.name === 'read-home-review') { held = route; return; }
     return route.fallback();
   });
-  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.locator('[data-inbox-row] h3 a').click();
   await panel.getByText('Loading current evidence…', { exact: true }).waitFor();
   await page.keyboard.press('Escape');
   await held?.fulfill({ json: { error: 'home_review_stale' } }).catch(() => {});
@@ -230,7 +231,7 @@ test('closing a loading review rejects late detail and sends no domain command',
 
 test('a newer draft after the save receipt requires explicit review and preserves local text', async t => {
   const { page, panel, calls } = await setup(t, { refusal: 'after_save_change' });
-  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.locator('[data-inbox-row] h3 a').click();
   await panel.getByLabel('Message', { exact: true }).fill('Keep the reviewed local body');
   await panel.getByRole('button', { name: 'Save draft', exact: true }).click();
   await panel.getByRole('button', { name: 'Review updated card', exact: true }).click();
@@ -243,7 +244,7 @@ test('a newer draft after the save receipt requires explicit review and preserve
 
 for (const initialBody of ['Synthetic body', '']) test(`decline ignores invalid content with initial body ${initialBody ? 'present' : 'empty'}`, async t => {
   const { page, panel, calls } = await setup(t, { width: 390, initialBody });
-  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.locator('[data-inbox-row] h3 a').click();
   await panel.getByLabel('Message', { exact: true }).fill('');
   await panel.getByLabel('Subject', { exact: true }).fill('');
   await panel.getByLabel('Reason for declining', { exact: true }).fill('Decline this synthetic draft');
@@ -256,7 +257,7 @@ for (const initialBody of ['Synthetic body', '']) test(`decline ignores invalid 
 });
 for (const action of ['Save draft', 'Decline draft']) test(`unavailable send recipients preserve ${action}`, async t => {
   const { page, panel, calls } = await setup(t, { width: 390, missingRecipients: true });
-  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.locator('[data-inbox-row] h3 a').click();
   await panel.getByText('Sending unavailable: email_draft_copy_address_missing', { exact: true }).waitFor();
   assert.equal(await panel.getByRole('button', { name: 'Submit reply for sending', exact: true }).count(), 0);
   assert.equal(await panel.getByRole('button', { name: 'Save draft', exact: true }).count(), 1);
@@ -272,7 +273,7 @@ for (const action of ['Save draft', 'Decline draft']) test(`unavailable send rec
 });
 for (const writeRefusal of ['human_only_verb_requires_verified_partner', 'home_review_resolved']) test(`submitted review refuses ${writeRefusal}`, async t => {
   const { page, panel, calls } = await setup(t, { writeRefusal });
-  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.locator('[data-inbox-row] h3 a').click();
   await panel.getByRole('button', { name: 'Save draft', exact: true }).click();
   await panel.getByText(writeRefusal === 'home_review_resolved' ? 'This card is already resolved. Refresh the inbox to see its current state.' : 'Sign in as the owning verified partner to review this card.', { exact: true }).waitFor();
   assert.equal(calls.filter(c => c.name === 'edit-email-draft').length, 1);
@@ -280,16 +281,16 @@ for (const writeRefusal of ['human_only_verb_requires_verified_partner', 'home_r
 });
 test('Escape closes unsaved edits without a write and returns focus', async t => {
   const { page, panel, calls } = await setup(t);
-  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.locator('[data-inbox-row] h3 a').click();
   await panel.getByLabel('Message', { exact: true }).fill('Unsaved local changes');
   await page.keyboard.press('Escape');
   assert.equal(await panel.count(), 0);
-  await page.waitForFunction(() => document.activeElement?.textContent === 'Open');
+  await page.waitForFunction(() => document.activeElement?.matches('[data-inbox-row] h3 a'));
   assert.equal(calls.filter(c => ['edit-email-draft', 'dismiss-email-proposal', 'submit-email-draft'].includes(c.name)).length, 0);
 });
 test('save and send still require valid reply content', async t => {
   const { page, panel, calls } = await setup(t);
-  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.locator('[data-inbox-row] h3 a').click();
   for (const field of ['Message', 'Subject']) {
     await panel.getByLabel(field, { exact: true }).fill('');
     for (const name of ['Save draft', 'Submit reply for sending']) await panel.getByRole('button', { name, exact: true }).click();
@@ -300,7 +301,7 @@ test('save and send still require valid reply content', async t => {
 
 test('decline requires a nonblank reason even when content is empty', async t => {
   const { page, panel, calls } = await setup(t, { initialBody: '' });
-  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.locator('[data-inbox-row] h3 a').click();
   await panel.getByLabel('Reason for declining', { exact: true }).fill('   ');
   await panel.getByRole('button', { name: 'Decline draft', exact: true }).click();
   await panel.getByText('Give a reason before declining this draft.', { exact: true }).waitFor();
@@ -322,13 +323,15 @@ for (const width of [390, 1440]) for (const surface of ['/', '/inbox', '/inbox/c
 ]) test(`card finish control ${width} ${surface} ${sourceType || kind} ${sourceState} ${sourceUrl || 'unlinked'}`, async t => {
   const { page, panel, row } = await setup(t, { width, surface, kind, sourceType, sourceState, sourceUrl, waitingPerson: true });
   const card = page.locator('[data-inbox-row="one"]');
-  const opener = card.getByRole('button', { name: 'Open', exact: true });
-  const finish = row.action_id && sourceState === 'needs_attention' ? 'Mark done' : 'Open';
-  assert.equal(await card.getByRole('button', { name: finish, exact: true }).getAttribute('class'), 'inbox-primary');
+  const home = surface === '/';
+  const opener = home ? card.locator('h3 a') : card.getByRole('button', { name: 'Open', exact: true });
+  const finish = row.action_id && sourceState === 'needs_attention' ? 'Mark done' : home ? null : 'Open';
+  if (home) assert.equal(await card.getByRole('button', { name: finish ?? 'Review', exact: true }).count(), finish ? 1 : 0);
+  else assert.equal(await card.getByRole('button', { name: finish, exact: true }).getAttribute('class'), 'inbox-primary');
   assert.equal(await opener.count(), 1);
   assert.equal(await card.getByRole('button', { name: 'Hide from inbox', exact: true }).count(), sourceState === 'working' || surface === '/' ? 0 : 1);
   if (sourceState === 'failed') {
-    assert.equal(await card.getByText(surface === '/' ? "This reply didn't send. Send it from your email." : "This reply didn't send. Send it from your email, then press Hide from inbox.", { exact: true }).count(), 1);
+    assert.equal(await card.getByText(home ? /Didn't go through/ : "This reply didn't send. Send it from your email, then press Hide from inbox.", { exact: !home }).count(), 1);
   }
   assert.equal(await card.getByText(/Work is in progress|Review card|Waiting on|Set waiting person|Correct waiting person/).count(), 0);
   await page.screenshot({ path: `test-artifacts/inline-review/finish-${width}-${surface === '/' ? 'home' : surface === '/inbox' ? 'inbox' : 'opened'}-${sourceType || kind}-${sourceState}${sourceUrl ? `-linked-${sourceUrl.split(/[/?]/)[1]}` : ''}.png`, fullPage: true });

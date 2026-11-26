@@ -197,8 +197,6 @@ async function app(
     tourFeedback = false,
     tourPlans = false,
     callReview,
-    dealMarket,
-    dealMarketId,
   }: {
     width?: number;
     port?: number;
@@ -217,8 +215,6 @@ async function app(
     readAttribution?: (request: Request) => Response | Promise<Response>;
     documentText?: string[] | "missing";
     documents?: (typeof filedDocument)[];
-    dealMarket?: string;
-    dealMarketId?: string;
   } = {},
 ) {
   let unavailable = false;
@@ -346,12 +342,6 @@ async function app(
           if (switchDay && navigation && !input.headers.get("cookie")?.includes("__Host-dealroom_session="))
             return Response.redirect(new URL("/auth/login", input.url));
           if (path.startsWith("/api/v1/business/vendors")) return Response.json(directoryFixture(input.url));
-          if (path === "/api/v1/market-terms/read") {
-            const recordings = JSON.parse(
-              await readFile(new URL("./fixtures/market-terms/recordings.json", import.meta.url), "utf8"),
-            );
-            return Response.json(recordings.records.full.response);
-          }
           if (call) {
             const { id, params } = call;
             const documentRead = documentText ? carrDocumentReads.get(params.name) : undefined;
@@ -536,12 +526,13 @@ async function app(
             filing_choices: [],
           };
           const items = tourFeedback ? (feedbackOpen ? [feedback] : []) : [filingCard];
+          const dashboard = url.searchParams.get("view") === "dashboard";
           return Response.json({
             ok: true,
-            schema_version: "home-inbox.v5",
+            schema_version: dashboard ? "home-inbox.v6" : "home-inbox.v5",
             ...(tourFeedback && { home_mark_drop: true }),
-            ...(url.searchParams.get("view") === "dashboard"
-              ? { reminders: { count: items.length, items }, waiting: empty }
+            ...(dashboard
+              ? { reminders: empty, inbox: { count: items.length, items }, waiting: empty }
               : { items, truncated: false, limit: 1000, working_collapsed: true }),
           });
         }
@@ -610,16 +601,8 @@ async function app(
           return Response.json({
             ...dealDetail,
             email_follow_ups: [],
-            ...(dealMarket !== undefined && { market: dealMarket }),
-            ...(dealMarketId !== undefined && { market_id: dealMarketId }),
             ...tourDeal?.(),
           });
-        if (path === "/api/engine/markets")
-          return Response.json([
-            { market_id: "00000000-0000-4000-8000-0000000000d1", name: "Example North" },
-            { market_id: "00000000-0000-4000-8000-0000000000d2", name: "Example South" },
-          ]);
-        if (path === "/api/engine/market-terms") return Response.json({ schema_version: "compare-terms.v1", rows: [] });
         if (/^\/api\/engine\/(clients|vendors)(?:\/|$)/.test(path)) {
           assert.equal(input.headers.get("cookie"), `${cookieName}=${token}`);
           url.pathname = path.replace("/api/engine", "/api/v1/business");
@@ -785,8 +768,9 @@ for (const lookup of ["stalled", "unknown", "on"]) {
                 ? Response.json({ error: "engine_unavailable" }, { status: 503 })
                 : Response.json({
                     ok: true,
-                    schema_version: "home-inbox.v5",
-                    reminders: { count: 1, items: [filingCard] },
+                    schema_version: "home-inbox.v6",
+                    reminders: { count: 0, items: [] },
+                    inbox: { count: 1, items: [filingCard] },
                     waiting: { count: 0, items: [] },
                   });
             return new Response(null, { status: 404 });
@@ -807,7 +791,7 @@ for (const lookup of ["stalled", "unknown", "on"]) {
     if (lookup === "on") await page.clock.install();
     assert.ok((await page.goto(server.origin + "/?mode=live", { timeout: 5000 }))?.ok());
     if (unavailable) {
-      const failure = page.getByRole("alert").filter({ hasText: "Reminders and waiting items unavailable" });
+      const failure = page.getByRole("alert").filter({ hasText: "Reminders and Inbox unavailable" });
       await failure.waitFor({ timeout: 5000 });
       unavailable = false;
       await failure.getByRole("button", { name: "Retry", exact: true }).click({ timeout: 5000 });
@@ -818,7 +802,7 @@ for (const lookup of ["stalled", "unknown", "on"]) {
     if (lookup === "on") {
       unavailable = true;
       await page.clock.fastForward(60_001);
-      const failure = page.getByRole("status").filter({ hasText: "Reminders and waiting items unavailable" });
+      const failure = page.getByRole("status").filter({ hasText: "Reminders and Inbox unavailable" });
       await failure.waitFor({ timeout: 5000 });
       assert.ok(await page.getByText(filingTitle, { exact: true }).isVisible());
       unavailable = false;
@@ -883,10 +867,7 @@ test("Closing anniversaries shows all 21 engine matches and opens records with b
 
   await page.goto(server.origin + "/leases?mode=live");
   await panel.getByRole("link", { name: "Unnamed deal", exact: true }).click();
-  await page
-    .getByRole("main", { name: "Deal Workspace" })
-    .getByRole("heading", { name: dealName })
-    .waitFor({ timeout: 5000 });
+  await page.locator("#appTopbar").getByRole("heading", { name: dealName }).waitFor({ timeout: 5000 });
   assert.equal(new URL(page.url()).searchParams.get("deal"), dealId);
   assert.equal(carrChecks(), 0);
   assert.deepEqual(oldRequests, []);
@@ -994,7 +975,7 @@ test("Home and the old Updates link load on the engine session and handle expiry
       legacyReads.push(name);
   });
   for (const [path, reads] of [
-    ["/?mode=live", ["/api/engine/home/inbox?view=dashboard", "/api/engine/home/today"]],
+    ["/?mode=live", ["/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6", "/api/engine/home/today"]],
     ["/notifications?mode=live", ["/api/engine/updates", "/api/engine/updates/changes", "/api/engine/preferences"]],
   ] as const) {
     const pending = reads.map((read) =>
@@ -1185,7 +1166,7 @@ test("an engine action link opens the successor reply with Home review controls"
   assert.equal(await page.getByRole("textbox", { name: "Subject", exact: true }).inputValue(), "Re: Demo relocation");
   assert.equal(partnerReads.get(actionResolver + carrReply.ref), `${cookieName}=first`);
   assert.equal(partnerReads.get(linkedCardRead), `${cookieName}=first`);
-  assert.equal(partnerReads.has("/api/engine/home/inbox?view=dashboard"), false);
+  assert.equal(partnerReads.has("/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6"), false);
   assert.equal(carrChecks(), 0);
 });
 
@@ -1252,7 +1233,7 @@ test("Home filing searches vendors on the engine session", async (t) => {
   ]);
   const page = await context.newPage();
   await page.goto(server.origin + "/?mode=live");
-  await page.getByRole("button", { name: "Review filing", exact: true }).click();
+  await page.locator("[data-inbox-row] h3 a").first().click();
   const filing = page.getByRole("region", { name: "File this email", exact: true });
   await filing.getByRole("button", { name: "Choose vendor", exact: true }).click();
   const name = "Demo Partner 62";
@@ -1337,39 +1318,48 @@ test("Doc settings show each Mac status and keep link codes private", async (t) 
   await settings.getByText("Doc isn't set up on your Mac yet.").waitFor();
 });
 
-test("Copy puts the shown Doc link code on the clipboard", async (t) => {
-  const { server, context } = await app(t);
-  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+async function showDocLinkCode(t: TestContext, width: number) {
+  const { server, context } = await app(t, { width, touch: width === 390 });
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: server.origin });
   const page = await context.newPage();
   await page.goto(server.origin + "/settings?mode=live");
   const settings = page.getByRole("region", { name: "Doc link" });
   await settings.getByRole("button", { name: "Make link code" }).click();
-  const shown = await settings.locator("code").textContent();
-  assert.match(shown ?? "", /^[A-Za-z0-9_-]{43}$/);
-  await settings.getByRole("button", { name: "Copy", exact: true }).click();
-  await settings.getByRole("button", { name: "Copied", exact: true }).waitFor();
-  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), shown);
-  await settings.getByRole("button", { name: "Copy", exact: true }).waitFor();
-  await settings.getByRole("button", { name: "Done", exact: true }).click();
-  assert.equal(await settings.locator("code").count(), 0);
-});
+  const code = "1".padStart(43, "a");
+  await settings.getByText(code, { exact: true }).waitFor();
+  return { page, settings, code };
+}
 
-test("a blocked clipboard selects the Doc link code to copy by hand", async (t) => {
-  const { server, context } = await app(t);
-  const page = await context.newPage();
-  await page.goto(server.origin + "/settings?mode=live");
-  await page.evaluate(() =>
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: { writeText: async () => Promise.reject(new Error("synthetic clipboard denial")) },
-    }),
-  );
-  const settings = page.getByRole("region", { name: "Doc link" });
-  await settings.getByRole("button", { name: "Make link code" }).click();
-  const shown = await settings.locator("code").textContent();
+for (const width of [1280, 390]) {
+  test(`Copy puts the shown Doc link code on the clipboard at ${width}px`, async (t) => {
+    const { page, settings, code } = await showDocLinkCode(t, width);
+    const copy = settings.getByRole("button", { name: "Copy", exact: true });
+    const done = settings.getByRole("button", { name: "Done", exact: true });
+    const [copyBox, doneBox] = await Promise.all([copy.boundingBox(), done.boundingBox()]);
+    assert.equal(copyBox?.height, doneBox?.height, "Copy is the same size as Done");
+    await page.screenshot({ path: `${artifacts}/doc-link-copy-${width}.png` });
+
+    await copy.click();
+    await settings.getByRole("button", { name: "Copied", exact: true }).waitFor();
+    assert.equal((await done.boundingBox())?.x, doneBox?.x, "Done stays put when Copy reads Copied");
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), code);
+    await settings.getByRole("button", { name: "Copy", exact: true }).waitFor({ timeout: 4000 });
+    await done.click();
+    assert.equal(await settings.getByText(code, { exact: true }).count(), 0);
+  });
+}
+
+test("A refused clipboard selects the Doc link code for Cmd+C", async (t) => {
+  const { page, settings, code } = await showDocLinkCode(t, 1280);
+  await page.evaluate(() => {
+    navigator.clipboard.writeText = () => Promise.reject(new DOMException("blocked", "NotAllowedError"));
+  });
   await settings.getByRole("button", { name: "Copy", exact: true }).click();
   await settings.getByText("Press Cmd+C to copy.", { exact: true }).waitFor();
-  assert.equal(await page.evaluate(() => getSelection()?.toString()), shown);
+  assert.equal(await page.evaluate(() => getSelection()?.toString()), code);
+  assert.equal(await settings.getByRole("button", { name: "Copied", exact: true }).count(), 0);
+  await settings.getByRole("button", { name: "Done", exact: true }).click();
+  assert.equal(await settings.getByText("Press Cmd+C to copy.", { exact: true }).count(), 0);
 });
 
 test("phone notifications are available only with CARR sign-in", async (t) => {
@@ -1433,99 +1423,32 @@ test("Doc link settings are available only with engine sign-in", async (t) => {
   }
 });
 
-const inMarket = "No offer rounds or signed leases are recorded on deals in this market yet.";
-const anyMarket = "No offer rounds or signed leases are recorded yet.";
-for (const [dealMarket, dealMarketId, prefill, read, empty] of [
-  ["Example North", undefined, "Example North", "/api/engine/market-terms?market=Example+North", inMarket],
-  ["example north", undefined, "Example North", "/api/engine/market-terms?market=Example+North", inMarket],
-  ["Example City", undefined, "", "/api/engine/market-terms", anyMarket],
-  [
-    "Example City",
-    "00000000-0000-4000-8000-0000000000d1",
-    "Example North",
-    "/api/engine/market-terms?market=Example+North",
-    inMarket,
-  ],
-  [
-    "Example Town",
-    "00000000-0000-4000-8000-0000000000d2",
-    "Example South",
-    "/api/engine/market-terms?market=Example+South",
-    inMarket,
-  ],
-  ["Market unspecified", undefined, "", "/api/engine/market-terms", anyMarket],
-] as const)
-  test(`Compare terms reads the engine for a deal in ${dealMarket}${dealMarketId ? " on a market record" : ""} and legacy deal features make no requests`, async (t) => {
-    const { server, context, partnerReads } = await app(t, { dealMarket, ...(dealMarketId && { dealMarketId }) });
-    const page = await context.newPage();
-    const legacyRequests: string[] = [];
-    page.on("request", (request) => {
-      const { pathname } = new URL(request.url());
-      if (
-        /\/api\/(?:tours\/|engine\/(?:deals\/[^/]+\/tours|properties\/search))/.test(pathname) ||
-        pathname === "/api/v1/market-terms/read" ||
-        (pathname === "/mcp" && /read-subject-watch-v2|read-activity-deal-attribution/.test(request.postData() ?? ""))
-      )
-        legacyRequests.push(pathname);
-    });
-    await page.goto(server.origin + dealPage);
-    const room = page.getByRole("main", { name: "Deal Workspace" });
-    await room.getByRole("heading", { name: dealName }).waitFor({ timeout: 4000 });
-    await room.locator("summary").filter({ hasText: "Deal watch settings" }).waitFor({ timeout: 4000 });
-    await room.getByRole("tab", { name: "Compare terms" }).click();
-    const terms = room.getByRole("tabpanel", { name: "Compare terms" });
-    await terms.getByText(empty, { exact: true }).waitFor({ timeout: 4000 });
-    assert.equal(await terms.getByLabel("Market").inputValue(), prefill);
-    await terms
-      .getByText(`Compared with ${prefill || "all markets"} · All recorded history`, { exact: true })
-      .waitFor();
-    assert.deepEqual(
-      [...partnerReads.keys()].filter((path) => path.startsWith("/api/engine/market-terms")),
-      [`${read}${read.includes("?") ? "&" : "?"}exclude_deal_id=${dealId}`],
-    );
-    await room.getByRole("tab", { name: "Tours", exact: true }).click();
-    await room
-      .getByRole("tabpanel", { name: "Tours" })
-      .getByText("Not available yet", { exact: true })
-      .waitFor({ timeout: 4000 });
-    assert.equal(
-      server.requests.some(({ path }) => path === attributionPath || path === noteAttributionPath),
-      false,
-    );
-    assert.deepEqual(legacyRequests, []);
-  });
-
-test("Compare terms opens without the markets list and closing the deal cancels that read", async (t) => {
-  const { server, context, partnerReads } = await app(t, { dealMarket: "Example North" });
+test("the engine deal page makes no legacy requests", async (t) => {
+  const { server, context } = await app(t);
   const page = await context.newPage();
-  await page.addInitScript(() => {
-    const read = { started: false, aborted: false };
-    Reflect.set(window, "marketsRead", read);
-    const fetch = window.fetch.bind(window);
-    window.fetch = (input, init) => {
-      if (
-        new URL(String(input instanceof Request ? input.url : input), location.href).pathname !== "/api/engine/markets"
-      )
-        return fetch(input, init);
-      read.started = true;
-      init?.signal?.addEventListener("abort", () => (read.aborted = true));
-      return new Promise<Response>(() => {});
-    };
+  const legacyRequests: string[] = [];
+  page.on("request", (request) => {
+    const { pathname } = new URL(request.url());
+    if (
+      /\/api\/(?:tours\/|engine\/(?:deals\/[^/]+\/tours|properties\/search))/.test(pathname) ||
+      (pathname === "/mcp" && /read-subject-watch-v2|read-activity-deal-attribution/.test(request.postData() ?? ""))
+    )
+      legacyRequests.push(pathname);
   });
   await page.goto(server.origin + dealPage);
   const room = page.getByRole("main", { name: "Deal Workspace" });
-  await room.getByRole("heading", { name: dealName }).waitFor({ timeout: 4000 });
-  await room.getByRole("tab", { name: "Compare terms" }).click();
-  const terms = room.getByRole("tabpanel", { name: "Compare terms" });
-  await terms.getByText(anyMarket, { exact: true }).waitFor({ timeout: 4000 });
-  assert.equal(await terms.getByLabel("Market").inputValue(), "");
-  assert.deepEqual(
-    [...partnerReads.keys()].filter((path) => path.startsWith("/api/engine/market-terms")),
-    [`/api/engine/market-terms?exclude_deal_id=${dealId}`],
+  await page.getByRole("heading", { name: dealName }).waitFor({ timeout: 4000 });
+  await room.locator("summary").filter({ hasText: "Deal watch settings" }).waitFor({ timeout: 4000 });
+  await room.getByRole("tab", { name: "Tours", exact: true }).click();
+  await room
+    .getByRole("tabpanel", { name: "Tours" })
+    .getByText("Not available yet", { exact: true })
+    .waitFor({ timeout: 4000 });
+  assert.equal(
+    server.requests.some(({ path }) => path === attributionPath || path === noteAttributionPath),
+    false,
   );
-  assert.deepEqual(await page.evaluate(() => Reflect.get(window, "marketsRead")), { started: true, aborted: false });
-  await page.locator("#panelClose").click();
-  await page.waitForFunction(() => Reflect.get(window, "marketsRead").aborted, null, { timeout: 1000 });
+  assert.deepEqual(legacyRequests, []);
 });
 
 for (const [scenario, documentText, message] of [
@@ -1650,8 +1573,7 @@ test("Back closes engine document text before leaving the deal", async (t) => {
   await page.goBack();
   await viewer.waitFor({ state: "hidden" });
   assert.equal(new URL(page.url()).searchParams.get("deal"), dealId);
-  const workspace = page.getByRole("main", { name: "Deal Workspace" });
-  assert.ok(await workspace.getByRole("heading", { name: dealName, exact: true }).isVisible());
+  assert.ok(await page.locator("#appTopbar").getByRole("heading", { name: dealName, exact: true }).isVisible());
   assert.equal(await documentsTab.getAttribute("aria-selected"), "true");
   assert.equal(await page.evaluate(() => window.scrollY), scroll);
 
@@ -1733,7 +1655,7 @@ async function followTourFeedbackLink(page: Page, origin: string, engineTours = 
     });
   }
   await page.goto(`${origin}/?mode=live`);
-  await page.getByRole("button", { name: "Review feedback", exact: true }).click();
+  await page.getByRole("link", { name: feedbackTitle, exact: true }).click();
   const card = page.getByRole("region", { name: `Details for ${feedbackTitle}` });
   await card.getByText(feedbackText, { exact: true }).waitFor();
   await card.getByRole("link", { name: "Open property", exact: true }).click();
@@ -1756,11 +1678,10 @@ test("engine sign-in opens the linked property from Home and finishes the feedba
   assert.equal(await property.getByText(annex.address, { exact: true }).count(), 0);
 
   await page.goto(`${server.origin}/?mode=live`);
-  const review = page.getByRole("button", { name: "Review feedback", exact: true });
-  await review.click();
+  await page.getByRole("link", { name: feedbackTitle, exact: true }).click();
   const card = page.getByRole("region", { name: `Details for ${feedbackTitle}` });
   await card.getByRole("button", { name: "Done", exact: true }).click();
-  await review.waitFor({ state: "detached" });
+  await page.getByRole("link", { name: feedbackTitle, exact: true }).waitFor({ state: "detached" });
   assert.equal(partnerReads.has("/api/engine/home/marks"), true);
 });
 
@@ -1773,7 +1694,7 @@ for (const engineTours of [true, false]) {
     const page = await context.newPage();
     const evidenceRequests = await followTourFeedbackLink(page, server.origin, engineTours);
     const room = page.getByRole("main", { name: "Deal Workspace" });
-    await room.getByRole("heading", { name: dealName, exact: true }).waitFor();
+    await page.locator("#appTopbar").getByRole("heading", { name: dealName, exact: true }).waitFor();
     const panel = room.getByRole("tabpanel", { name: "Tours" });
     const message = "This property is no longer on this deal.";
     assert.equal(await page.locator("html[data-deal-tours-from-engine]").count(), Number(engineTours));
@@ -2273,7 +2194,7 @@ test("finishing a tour records one meeting through a lost response and a second 
   ]);
   assert.equal(fixture.writes.length, 0, "completion leaves the saved plan untouched");
   for (const page of [joe, dell]) {
-    await page.getByRole("tab", { name: "Correspondence & notes" }).click();
+    await page.getByRole("tab", { name: "Activity" }).click();
     const meeting = page.getByText("Property tour", { exact: true });
     await meeting.click();
     assert.equal(await meeting.count(), 1);
@@ -2293,13 +2214,12 @@ test("cancelling a tour requires confirmation and records a change without a mee
   page.once("dialog", (dialog) => dialog.accept());
   await cancel.tap();
   await page.getByText("No planned tours.").waitFor();
-  await page.getByRole("tab", { name: "Timeline" }).click();
+  await page.getByRole("tab", { name: "Activity" }).click();
   await page.getByText("Tour cancelled", { exact: true }).waitFor();
-  await page.getByRole("tab", { name: "Correspondence & notes" }).click();
   await page.getByText("No emails or meetings filed to this deal yet.").waitFor();
 });
 
-test("overlapping tour cancellations both leave Planned tours and reach Timeline", async (t) => {
+test("overlapping tour cancellations both leave Planned tours and reach Activity", async (t) => {
   const firstCancel = Promise.withResolvers<void>();
   const secondCancel = Promise.withResolvers<void>();
   t.after(() => {
@@ -2339,7 +2259,7 @@ test("overlapping tour cancellations both leave Planned tours and reach Timeline
   assert.equal((await committed).ok(), true);
   await page.getByText("No planned tours.", { exact: true }).waitFor({ timeout: 5000 });
   assert.equal(await page.locator("#workspace-tours details").count(), 0);
-  await page.getByRole("tab", { name: "Timeline" }).click();
+  await page.getByRole("tab", { name: "Activity" }).click();
   await cancellations.nth(1).waitFor({ timeout: 5000 });
   assert.equal(await cancellations.count(), 2);
 });
@@ -2363,10 +2283,9 @@ test("the deal tour switch hides visited properties and the cancellation label w
   await page.request.get(`${server.origin}/auth/callback/google?fixture=first`);
   await page.goto(server.origin + dealPage);
   assert.equal(await page.locator("html[data-deal-tours-from-engine]").count(), 0);
-  await page.getByRole("tab", { name: "Correspondence & notes" }).click();
+  await page.getByRole("tab", { name: "Activity" }).click();
   await page.getByText("Property tour", { exact: true }).waitFor();
   const visitedProperties = await page.getByRole("list", { name: "Visited properties", includeHidden: true }).count();
-  await page.getByRole("tab", { name: "Timeline" }).click();
   await page.getByRole("heading", { name: "Dated events" }).waitFor();
   const cancellationLabels = await page.getByText("Tour cancelled", { exact: true }).count();
   assert.deepEqual({ visitedProperties, cancellationLabels }, { visitedProperties: 0, cancellationLabels: 0 });
@@ -2566,7 +2485,7 @@ test("an attribution timeout aborts the read and shows a sign-in prompt", async 
   assert.equal(await page.getByText("1 credited activities", { exact: true }).count(), 0);
 });
 
-test("CARR deal history and Compare terms use their existing reads", async (t) => {
+test("CARR deal history uses its existing reads", async (t) => {
   const { server, context } = await app(t, { signIn: "carr" });
   const page = await context.newPage();
   await page.goto(server.origin + dealPage);
@@ -2582,12 +2501,6 @@ test("CARR deal history and Compare terms use their existing reads", async (t) =
   await page.getByRole("heading", { name: "Activity attribution unknown" }).waitFor();
   await page.getByText("Version evidence", { exact: true }).waitFor();
   await page.getByRole("button", { name: "Close attribution" }).click();
-  await page.getByRole("tab", { name: "Compare terms" }).click();
-  await page.getByRole("tabpanel", { name: "Compare terms" }).getByRole("table").waitFor();
-  assert.deepEqual(
-    server.requests.filter(({ path }) => path === "/api/v1/market-terms/read").map(({ method }) => method),
-    ["POST"],
-  );
   assert.equal(
     server.requests.some(({ path }) => path === attributionPath || path === noteAttributionPath),
     false,

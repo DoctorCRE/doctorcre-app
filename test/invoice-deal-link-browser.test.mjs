@@ -9,6 +9,7 @@ import { buildArtifact } from '../scripts/artifact.mjs';
 import { createQaServer } from '../scripts/qa-fixture-server.mjs';
 import { invoiceTrackerFixture } from '../js/invoice-tracker-fixture.js';
 import { chromium, WAIT_MS } from './browser-harness.mjs';
+import { controlFloor } from "./control-floor.ts";
 
 const expect = baseExpect.configure({ timeout: WAIT_MS });
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -58,7 +59,7 @@ test('invoice details open the owning deal without recording payment', async t =
           return { color: style.color, height: node.getBoundingClientRect().height };
         });
         assert.notEqual(appearance.color, theme === 'light' ? 'rgb(0, 0, 238)' : 'rgb(158, 158, 255)', 'Open deal uses the app palette');
-        assert.ok(appearance.height >= 44, `Open deal has a 44px target, got ${appearance.height}`);
+        assert.ok(appearance.height >= controlFloor(width), `Open deal has a ${controlFloor(width)}px target, got ${appearance.height}`);
         assert.equal(calls.filter(name => name === 'read-invoice-tracker').length, reads);
         if (i === 0) {
           await page.locator('#invoicePaidDate').fill('2026-10-01');

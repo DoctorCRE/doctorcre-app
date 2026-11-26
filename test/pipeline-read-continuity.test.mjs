@@ -42,7 +42,7 @@ test('one card-body tap reads one detail and leaves unopened supporting sections
   await page.locator('.kanban-card[data-id="d14"]').click({position:{x:5,y:5}});
   await page.locator('#detailUpdateForm').waitFor();
   assert.deepEqual(await page.evaluate(() => window.panelReads), { getDeal: 1, getRelationshipNetwork: 0, getPartyRecord: 0 });
-  await page.getByRole('tab', {name:'Correspondence & notes'}).click();
+  await page.getByRole('tab', {name:'Activity'}).click();
   await page.locator('#panelEvidence .correspondence-evidence').waitFor();
   assert.equal(await page.evaluate(() => window.panelReads.getDeal), 1);
   await page.getByRole('tab',{name:'Overview',exact:true}).click();

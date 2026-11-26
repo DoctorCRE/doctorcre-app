@@ -21,8 +21,8 @@ import { readFile } from "node:fs/promises";
 
 import {
   CALENDAR_VIEWS, addDays, addMonths, approach, calendarHref, calendarPhase,
-  criticalDateEntries, daysBetween, entriesByDay, localToday, monthGrid, motionDirection,
-  parseCalendarState, readCalendar, settleOpenDay, stepAnchor, timelineBlocks, toDay, UNDATED, weekStrip,
+  criticalDateEntries, daysBetween, entriesByDay, entryWhen, localToday, monthGrid, motionDirection,
+  ownerNames, parseCalendarState, readCalendar, recordsFor, settleOpenDay, stepAnchor, timelineBlocks, toDay, UNDATED, weekStrip,
 } from "../js/calendar-model.js";
 import { carrInterface } from "./carr-contract.mjs";
 
@@ -261,6 +261,43 @@ test("readCalendar reads the board once and every deal's own record, and reports
   assert.equal(calendarPhase(result), "ready");
 });
 
+test("every entry reads in one template: what to do, the kind and name of its record, its owner, and when it is due or how late", async () => {
+  const step = (id, record_kind, record_label, due_on, owner = "joe") => ({
+    id, what: `Example step ${id}`, why: null, owner, record_kind, record_label, due_on, display_on: due_on,
+    days_late: Math.max(0, daysBetween(due_on, "2026-10-20")), open_url: `/relationships?node=party:${id}`,
+  });
+  const { entries } = await readCalendar({
+    getCalendarItems: async () => ({
+      critical_dates: [{ id: "c1", deal_id: "d1", deal_name: "Example lease", owner: "dell", kind: "LOI expiry", due_on: "2026-10-25", done: false }],
+      next_steps: [
+        step("s1", "deal", "Example lease", "2026-10-17"),
+        step("s2", "vendor", "Example Supply", "2026-10-19", "dell"),
+        step("s3", "building", "Example Tower", "2026-10-20"),
+        // An engine from before record_kind still names the record.
+        { ...step("s4", undefined, "Example Clinic", "2026-10-21"), record_kind: undefined },
+      ],
+    }),
+  });
+  const template = entry => {
+    const { word, records } = recordsFor(entry);
+    return [entry.label, word, records.map(record => `${record.name} ${record.url}`).join(", "), ownerNames(entry), entryWhen(entry, "2026-10-20")];
+  };
+  assert.deepEqual(entries.map(template), [
+    ["LOI expiry", "Deal", "Example lease /deals?deal=d1", "Dell", "Due Oct 25"],
+    ["Example step s1", "Deal", "Example lease /relationships?node=party:s1", "Joe", "3 days late · Due Oct 17"],
+    ["Example step s2", "Vendor", "Example Supply /relationships?node=party:s2", "Dell", "1 day late · Due Oct 19"],
+    ["Example step s3", "Building", "Example Tower /relationships?node=party:s3", "Joe", "Due Oct 20"],
+    ["Example step s4", "", "Example Clinic /relationships?node=party:s4", "Joe", "Due Oct 21"],
+  ]);
+  const meeting = {
+    type: "meeting", day: "2026-10-20", at: "2026-10-20T15:00:00.000Z", owners: ["joe", "dell"],
+    records: [{ kind: "deal", name: "Example lease", url: null }, { kind: null, name: "Example Person", url: null }],
+  };
+  assert.deepEqual([recordsFor(meeting).word, ownerNames(meeting), entryWhen(meeting, "2026-10-20")], ["", "Joe and Dell", "10:00 AM"]);
+  assert.equal(recordsFor({ records: [{ kind: "deal", name: "A" }, { kind: "deal", name: "B" }] }).word, "Deals");
+  assert.equal(entryWhen({ type: "tour", day: "2026-10-18" }, "2026-10-20"), "");
+});
+
 test("Calendar uses individual deal reads only when the engine read is missing", async () => {
   for (const [status, expected] of [[404, "empty"], [401, "unauthorized"], [403, "unauthorized"], [429, "unavailable"], [503, "unavailable"]]) {
     const client = stubClient({ board: { deals: [deal] }, details: { d1: { critical_dates: [] } } });
@@ -481,4 +518,9 @@ test('Calendar bounds its batch read and reports the remaining deals as unread',
   assert.equal(reads, 100);
   assert.equal(result.failed.length, 20);
   assert.equal(calendarPhase(result), 'partial');
+});
+
+test("a calendar entry's owner byline names a partner by first name", () => {
+  assert.equal(ownerNames({ owners: ["joe", "dell"] }), "Joe and Dell");
+  assert.equal(ownerNames({ owner: "Quinn Sample" }), "Quinn");
 });

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import {
   canDispatch, classifyPriority, contrastRatio, createFeedback, feedbackLabel, formatCalendarDate,
-  formatClock, formatDueStamp, orderWork, parseQuickAdd, preferenceAttributes,
+  formatClock, formatDueStamp, orderWork, parseQuickAdd, partnerName, preferenceAttributes,
   readTokens, resolvePreferences, transitionFeedback, weekdayName, withoutRecordCodes,
 } from "../js/visual-system.js";
 
@@ -148,4 +148,11 @@ test('only css/tokens.css declares palette or type tokens', async () => {
     const source = await readFile(new URL(`../css/${name}`, import.meta.url), 'utf8');
     assert.doesNotMatch(source, /--(?:surface-\d|hairline(?:-strong)?|fg(?:-muted|-quiet)?|accent(?:-ink|-hover)?|font-size-\d|font-text)\s*:/, `css/${name} redeclares a V2 token`);
   }
+});
+
+test("a partner is named by first name only, from a slug or a full name", () => {
+  assert.equal(partnerName("joe"), "Joe");
+  assert.equal(partnerName("Avery Example"), "Avery");
+  assert.equal(partnerName("  quinn  Sample "), "Quinn");
+  assert.equal(partnerName(null), "");
 });

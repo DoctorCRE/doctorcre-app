@@ -23,7 +23,10 @@ function DocLinkSettings({ request }: { request: DocLinkRequest }) {
     const lifetime = new AbortController();
     function clearCode() {
       codeView.current++;
-      flushSync(() => setCode(""));
+      flushSync(() => {
+        setCode("");
+        setNotice("");
+      });
     }
     addEventListener("hashchange", clearCode, { signal: lifetime.signal });
     addEventListener("pagehide", clearCode, { signal: lifetime.signal });
@@ -33,22 +36,10 @@ function DocLinkSettings({ request }: { request: DocLinkRequest }) {
 
   useEffect(() => {
     if (!copiedCode) return;
-    // eslint-disable-next-line no-restricted-syntax -- One 2 s reset of the Copied label, cancelled on a new copy or unmount.
+    // eslint-disable-next-line no-restricted-syntax -- Single 2 s Copied label, cleared on code change or unmount.
     const timer = setTimeout(() => setCopiedCode(""), 2000);
     return () => clearTimeout(timer);
   }, [copiedCode]);
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(code);
-      setNotice("");
-      setCopiedCode(code);
-    } catch {
-      const selection = getSelection();
-      if (codeText.current && selection) selection.selectAllChildren(codeText.current);
-      setNotice("Press Cmd+C to copy.");
-    }
-  }
 
   const refresh = useCallback(async () => {
     setBusy(true);
@@ -96,6 +87,17 @@ function DocLinkSettings({ request }: { request: DocLinkRequest }) {
     }
   }
 
+  async function copyCode() {
+    setNotice("");
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopiedCode(code);
+    } catch {
+      if (codeText.current) getSelection()?.selectAllChildren(codeText.current);
+      setNotice("Press Cmd+C to copy.");
+    }
+  }
+
   return (
     <section className="card glass" aria-labelledby="docLinkTitle">
       <div className="card-heading">
@@ -112,10 +114,17 @@ function DocLinkSettings({ request }: { request: DocLinkRequest }) {
             <code ref={codeText}>{code}</code>
           </p>
           <div className="pref-act">
-            <button className="btn" type="button" onClick={() => void copy()}>
+            <button className="btn doc-link-copy" type="button" onClick={() => void copyCode()}>
               {copiedCode === code ? "Copied" : "Copy"}
             </button>
-            <button className="btn" type="button" onClick={() => setCode("")}>
+            <button
+              className="btn"
+              type="button"
+              onClick={() => {
+                setCode("");
+                setNotice("");
+              }}
+            >
               Done
             </button>
           </div>

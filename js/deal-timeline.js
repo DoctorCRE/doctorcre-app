@@ -26,7 +26,7 @@ const DATE_KINDS = [
 export const CRITICAL_DATE_OPTIONS = DATE_KINDS.flatMap(({ saveKind, label }) => saveKind ? [[saveKind, label]] : []);
 const dateKind = kind => kind && DATE_KINDS.find(d => d.kind === kind || d.saveKind === kind || d.aliases?.includes(kind));
 
-export function criticalDateLabel(kind, definition = dateKind(kind)) {
+function criticalDateLabel(kind, definition = dateKind(kind)) {
   const words = kind?.replace(/[_-]+/g, ' ') || '';
   return definition?.label || words.charAt(0).toUpperCase() + words.slice(1);
 }
