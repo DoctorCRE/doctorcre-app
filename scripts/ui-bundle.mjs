@@ -55,6 +55,7 @@ export const UI_ENTRIES = {
   'ui-deal-documents': 'deal-documents',
   'ui-doc-chat': 'doc-chat',
   'ui-checklist': 'deal-checklist',
+  'ui-deal-suggestion-email': 'deal-suggestion-email',
   'ui-timeline': 'timeline',
   'ui-deal-tours': 'deal-tours',
   'ui-deal-tour-plans': 'deal-tour-plans',

@@ -1,0 +1,31 @@
+.deal-next-steps { position: relative; margin-block: var(--space-4); padding-block: var(--space-2) var(--space-3); border-radius: var(--radius-3); background: var(--surface-1); }
+.deal-next-steps > h2 { margin: 0; padding: var(--space-1) var(--space-4); min-height: var(--touch); line-height: var(--touch); font-size: var(--font-size-2); }
+.deal-next-steps > .deal-step-editor { padding-inline: var(--space-4); }
+.deal-next-steps > .deal-step-editor > summary { position: absolute; top: var(--space-2); right: var(--space-2); padding-inline: var(--space-2); border-radius: var(--radius-2); color: var(--fg-quiet); font-size: var(--font-size-1); list-style: none; }
+.deal-next-steps > .deal-step-editor > summary::-webkit-details-marker { display: none; }
+.deal-next-steps > .deal-step-editor > summary::before { content: "+ "; }
+@media (hover: hover) { .deal-next-steps > .deal-step-editor > summary:hover { background: var(--surface-2); color: var(--fg); } }
+.deal-next-steps .deal-open-steps { margin: 0; }
+.deal-steps-group { margin: var(--space-2) 0 var(--space-1); padding-inline: var(--space-4); color: var(--fg-quiet); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); }
+.deal-next-steps .deal-open-steps li, .deal-suggestion { padding: var(--space-2) var(--space-4); }
+.deal-next-steps .deal-open-steps > p { margin: 0; padding-inline: var(--space-4); color: var(--fg-muted); }
+.deal-next-steps .deal-step-owner { display: flex; align-items: center; gap: var(--space-2); }
+.deal-next-steps .deal-step-owner:has(> .deal-step-done) { margin-inline-start: calc(var(--touch) * -1 - var(--space-2)); }
+.deal-next-steps .deal-open-steps li { padding-inline-start: calc(var(--space-4) + var(--touch) + var(--space-2)); }
+.deal-step-done { flex: none; width: var(--touch); height: var(--touch); padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: pointer; }
+.deal-step-done::before { content: ""; display: block; width: 18px; height: 18px; margin: auto; border: 1.5px solid var(--fg-quiet); border-radius: 50%; }
+@media (hover: hover) { .deal-step-done:hover::before { border-color: var(--status-ok-ink); background: color-mix(in srgb, var(--status-ok-ink) 18%, transparent); } }
+.deal-suggestions { list-style: none; margin: 0; padding: 0; }
+.deal-suggestion { overflow-wrap: anywhere; }
+.deal-suggestion + .deal-suggestion { border-top: var(--hairline-width) solid var(--hairline); }
+.deal-suggestion-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); }
+.deal-suggestion-row > div { flex: 1 1 16rem; min-width: 0; }
+.deal-suggestion h3 { margin: 0; font-size: var(--font-size-2); font-weight: var(--font-weight-strong); }
+.deal-suggestion-row p { margin: 2px 0 0; color: var(--fg-quiet); font-size: var(--font-size-1); }
+.deal-suggestion-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
+.deal-suggestion-actions .deal-next-step-fields { flex-basis: 100%; }
+.deal-suggestion-email { margin: var(--space-2) 0 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius-3); background: var(--surface-2); }
+.deal-suggestion-email p { margin: 0; max-width: 72ch; }
+.deal-suggestion-email p + p { margin-top: var(--space-2); }
+.deal-suggestion-email .deal-suggestion-from { color: var(--fg-quiet); font-size: var(--font-size-1); }
+.deal-next-steps > #panelCallReview { margin: var(--space-2) var(--space-4) 0; }

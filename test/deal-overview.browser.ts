@@ -298,9 +298,9 @@ for (const [width, height] of laptops)
       .evaluateAll((all) => all.map((fact) => Math.round(fact.getBoundingClientRect().top)));
     assert.equal(new Set(factTops).size, 1, "the header's facts share one line");
 
-    const list = await box(page.locator(".deal-open-steps ul"));
+    const step = await box(page.locator(".deal-open-steps li strong").first());
     const done = await box(page.locator(".deal-open-steps").getByRole("button", { name: "Done" }).first());
-    assert.ok(Math.abs(done.x + done.width - (list.x + list.width)) <= 1, "Done sits at the row's end");
+    assert.ok(done.x + done.width <= step.x, "the Done circle opens the step's row");
 
     const body = await page.locator("body").evaluate((body) => getComputedStyle(body).fontSize);
     const refresh = page.getByRole("button", { name: "Refresh deal" });

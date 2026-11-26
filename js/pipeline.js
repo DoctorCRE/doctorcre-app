@@ -1,6 +1,8 @@
 import { hasTourDrafts, legacyTourDraftScope, TOUR_DRAFT_KEYS } from './offline-tour-session.js';
 import { createDayStore } from '../tours/day-store.js';
 import { mountWatchControl } from './ui-watches.generated.js';
+import { redactEmailAddresses, suggestionEmailHtml } from './ui-deal-suggestion-email.generated.js';
+import { createMcpRequests } from './mcp-requests.mjs';
 import { workCard } from './work-card.js';
 import { bindCardQuickMenu } from './ui-card-menu.generated.js';
 import {
@@ -1665,54 +1667,80 @@ function openFiledDocumentText(documentId, { fromHistory = false } = {}) {
   void load();
 }
 
-const emailDay = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: BUSINESS_TIME_ZONE });
+const emailDay = new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: BUSINESS_TIME_ZONE });
 
-function dealEmailSender({ sender_name, sender, happened_at }) {
+function suggestionSource({ sender_name, sender, happened_at }) {
   const name = (sender_name || sender || '').split('<', 1)[0].trim().replace(/^["']|["']$/g, '').split(/\s+/, 1)[0];
-  const from = name && !name.includes('@') ? `From ${name}` : 'Unknown sender';
+  const from = name && !name.includes('@') ? `From ${name}'s email` : 'From an email';
   const date = Date.parse(happened_at);
   return Number.isFinite(date) ? `${from}, ${emailDay.format(date)}` : from;
 }
 
-const bareEmailAddress = /(?:"(?:\\[^\r\n]|[^"\\\r\n])+"|[\p{L}\p{N}.!#$%&'*+\/=?^_`{|}~-]+)@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+/gu;
-const emailAddressInText = new RegExp(String.raw`(?:"([^"\r\n]+)"[ \t]*)?<${bareEmailAddress.source}>|${bareEmailAddress.source}`, 'gu');
-
-function redactEmailAddresses(text) {
-  return text.replace(emailAddressInText, (_, name) => name?.replace(bareEmailAddress, '') ?? '');
+// Cleaned emails by suggestion; '' marks one that could not be read.
+const suggestionEmails = new Map();
+const mcpRequest = createMcpRequests();
+async function readSuggestionEmail(id) {
+  const result = await mcpRequest('read-engine-home-proposal', { id }, { timeoutMs: 10000 });
+  return result.kind === 'payload' && !result.isError ? result.payload : null;
+}
+async function loadSuggestionEmails(detail) {
+  if (!isEngineDealDetail(detail)) return;
+  const slot = id => $('panelBody').querySelector(`[data-suggestion-email="${CSS.escape(id)}"]`);
+  await Promise.all(detail.email_follow_ups.filter(row => !suggestionEmails.has(row.proposal_id) && slot(row.proposal_id))
+    .map(async ({ proposal_id: id, email }) => {
+      const read = await readSuggestionEmail(id).catch(() => null);
+      suggestionEmails.set(id, suggestionEmailHtml(read, email?.activity_id));
+      const shown = slot(id);
+      if (shown) shown.outerHTML = suggestionEmailSlot(shown.dataset.fallback, id);
+    }));
+}
+function showSuggestionEdit(form, focus = true) {
+  const fields = form?.querySelector('[data-suggestion-edit]');
+  if (!fields) return;
+  fields.hidden = false;
+  form.querySelector('[data-edit-suggestion]').hidden = true;
+  if (focus) form.elements.what.focus();
+}
+function suggestionEmailSlot(fallback, id) {
+  const cleaned = suggestionEmails.get(id);
+  const body = cleaned || (cleaned === '' && fallback ? `<p>${esc(fallback)}</p>` : '');
+  return `<div class="deal-suggestion-email" data-suggestion-email="${esc(id)}" data-fallback="${esc(fallback)}"${body ? '' : ' hidden'}>${body}</div>`;
 }
 
-function dealEmailFollowupsHtml({ correspondence, email_follow_ups, next_deal_saves }) {
-  const today = businessDay();
-  const filed = new Set(correspondence?.filter(entry => entry.kind === 'email' && entry.activity_id).map(entry => entry.activity_id));
-  const followups = email_follow_ups.filter(row => row.kind !== 'file_to_deal' || !filed.has(row.email?.activity_id));
-  return `<h2>Email follow-ups</h2>${followups.map(row => {
-    const email = row.email || {};
-    const subject = emailSubject(redactEmailAddresses(email.subject || ''));
-    const evidence = redactEmailAddresses(row.evidence || '');
-    const hasEvidence = Boolean(evidence.trim());
-    const preview = hasEvidence ? evidence : redactEmailAddresses(email.summary || '');
-    const body = emailSubject(preview) === subject ? '' : preview;
-    const excerpt = hasEvidence ? `<details><summary>Read email excerpt</summary><q>${esc(body)}</q></details>` : `<p>${esc(body)}</p>`;
-    const change = row.kind === 'file_to_deal' ? 'File email to this deal'
-      : row.kind === 'phase_move' ? `Move to ${columnBySlug(row.to_phase)?.label || 'the next phase'}`
-      : row.what && emailPlaceholderText(redactEmailAddresses(row.what)) || 'Review email';
-    const title = row.title || (subject === '(No subject)' ? 'Email follow-up' : subject);
-    const showBody = body.trim() && title.replace(/\s+/g, ' ') !== body.replace(/\s+/g, ' ').trim();
-    const owner = row.kind === 'next_step' ? ACTOR_LABEL[row.owner] : '';
-    const details = [title !== change && esc(change), esc(owner), row.due_on && dueDateHtml(row.due_on, today)].filter(Boolean);
-    const id = esc(row.proposal_id);
-    const actions = next_deal_saves ? `<form data-email-decision="${id}">
-      ${row.kind === 'next_step' ? `<div class="deal-next-step-fields">
-        <label>Next step<input name="what" value="${esc(row.what)}" maxlength="10000" required data-detail-focus="step-${id}"></label>
+function suggestionHtml(row, today, canDecide, showEmail) {
+  const email = row.email || {};
+  const subject = emailSubject(redactEmailAddresses(email.subject || ''));
+  const fallback = redactEmailAddresses(row.evidence || email.summary || '');
+  const change = row.kind === 'file_to_deal' ? 'File email to this deal'
+    : row.kind === 'phase_move' ? `Move to ${columnBySlug(row.to_phase)?.label || 'the next phase'}`
+    : row.what && emailPlaceholderText(redactEmailAddresses(row.what)) || 'Review email';
+  const title = row.title || (subject === '(No subject)' ? 'Email follow-up' : subject);
+  const step = row.kind === 'next_step';
+  const line = [esc(suggestionSource(email)), title !== change && esc(change), step && row.owner && `For ${esc(actorName(row.owner))}`,
+    row.due_on && dueDateHtml(row.due_on, today)].filter(Boolean).join(' · ');
+  const id = esc(row.proposal_id);
+  const actions = canDecide ? `<form class="deal-suggestion-actions" data-email-decision="${id}">
+      ${step ? `<div class="deal-next-step-fields" data-suggestion-edit hidden>
+        <label>Next step<input name="what" value="${esc(row.what)}" maxlength="10000" data-detail-focus="step-${id}"></label>
         <label>Due date<input type="date" name="due_on" value="${esc(row.due_on)}" data-detail-focus="date-${id}"></label>
       </div>` : ''}
       <button class="btn" type="submit" value="accept" data-detail-focus="accept-${id}">Accept</button>
-      <button class="btn" type="submit" value="dismiss" formnovalidate data-detail-focus="dismiss-${id}">Dismiss</button>
+      ${step ? `<button class="btn btn-quiet" type="button" data-edit-suggestion data-detail-focus="edit-${id}">Edit</button>` : ''}
+      <button class="btn btn-quiet" type="submit" value="dismiss" formnovalidate data-detail-focus="dismiss-${id}">Dismiss</button>
     </form>` : '';
-    return workCard({className:'email-proposal', title:esc(title), actions,
-      meta:`<p>${esc(dealEmailSender(email))}</p>`,
-      body:`${details.length ? `<p>${details.join(' · ')}</p>` : ''}${showBody ? excerpt : ''}`});
-  }).join('') || '<p>No email follow-ups.</p>'}`;
+  return `<li class="deal-suggestion" aria-labelledby="suggestion-${id}"><div class="deal-suggestion-row">
+      <div><h3 id="suggestion-${id}">${esc(title)}</h3><p>${line}</p></div>${actions}
+    </div>${showEmail ? suggestionEmailSlot(fallback, row.proposal_id) : ''}</li>`;
+}
+
+function dealSuggestionsHtml({ correspondence, email_follow_ups, next_deal_saves }, today) {
+  const filed = new Set(correspondence?.filter(entry => entry.kind === 'email' && entry.activity_id).map(entry => entry.activity_id));
+  const rows = email_follow_ups.filter(row => row.kind !== 'file_to_deal' || !filed.has(row.email?.activity_id));
+  const emailOf = row => row.email?.activity_id ?? row.proposal_id;
+  const firstForEmail = new Set(rows.map(row => rows.find(other => emailOf(other) === emailOf(row))));
+  return rows.length ? `<h3 class="deal-steps-group">Suggested</h3>
+    <ul class="deal-suggestions" aria-label="Suggested steps" role="list">${rows.map(row =>
+      suggestionHtml(row, today, next_deal_saves, firstForEmail.has(row))).join('')}</ul>` : '';
 }
 
 function renderSnapshotFacts(deal, fromEngine) {
@@ -1754,14 +1782,14 @@ function openStepOwnerHtml(step, textId, canSave, today) {
   const canFinish = canSave && dealStepVersion(step);
   const saving = pendingCommand(commandState, completeStepKey(step.id))?.status === 'pending';
   return `<div class="deal-step-owner" role="group" aria-labelledby="${textId} step-owner-${id}"${stepFocusAttrs(step)}>
+    ${canFinish ? `<button class="deal-step-done" type="button" data-complete-step="${id}" data-detail-focus="done-${id}" aria-label="Done" title="Mark done" aria-describedby="${textId} step-owner-${id}"${saving ? ' aria-disabled="true"' : ''}></button>` : ''}
     <div><p id="step-owner-${id}">${esc(actorName(step.owner))} · ${dueDateHtml(calendarDay(step.due_on), today)}</p>
       ${stepOrigin(step)}</div>
-    ${canFinish ? `<button class="btn" type="button" data-complete-step="${id}" data-detail-focus="done-${id}" aria-describedby="${textId} step-owner-${id}"${saving ? ' aria-disabled="true"' : ''}>Done</button>` : ''}
   </div>`;
 }
 
 function openDealStepsHtml(detail, steps, today) {
-  const heading = isClosedDeal(detail.deal) && steps.length ? 'Open before this deal ended' : 'Next steps';
+  const label = isClosedDeal(detail.deal) && steps.length ? 'Open before this deal ended' : 'Open';
   const canSave = detail.next_deal_saves && Number.isSafeInteger(detail.deal.seen);
   const groups = Map.groupBy(steps, step => step.description.trim());
   const rows = Array.from(groups, ([wording, owners]) => {
@@ -1772,9 +1800,16 @@ function openDealStepsHtml(detail, steps, today) {
       ${owners.map(step => openStepOwnerHtml(step, textId, canSave, today)).join('')}
     </li>`;
   }).join('');
-  return `<section class="deal-open-steps" aria-labelledby="deal-open-steps-heading">
-    <h2 id="deal-open-steps-heading">${heading}</h2>
-    ${rows ? `<ul aria-label="Open steps" role="list">${rows}</ul>` : '<p>No next step set.</p>'}
+  return `<h3 class="deal-steps-group">${label}</h3>
+    ${rows ? `<ul aria-label="Open steps" role="list">${rows}</ul>` : '<p>No next step set.</p>'}`;
+}
+
+function dealNextStepsHtml(detail, today, { addStep, callReview }) {
+  return `<section class="deal-next-steps" aria-labelledby="deal-next-steps-heading">
+    <h2 id="deal-next-steps-heading">Next steps</h2>${addStep}
+    <div class="deal-open-steps" data-detail-read="open-steps">${openDealStepsHtml(detail, dealOwnerFirstSteps(detail.deal, detail.next_actions), today)}</div>
+    <div data-detail-read="suggested">${dealSuggestionsHtml(detail, today)}</div>
+    ${callReview}
   </section>`;
 }
 
@@ -1810,6 +1845,7 @@ async function completeDealStep(button) {
     : 'Could not mark this step done. Try again.';
 }
 
+const callReviewHtml = '<details id="panelCallReview"><summary>Review calls</summary><div></div></details>';
 function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
   const fromEngine = isEngineDealDetail(detail);
   const planTours = dealToursFromEngine();
@@ -1822,7 +1858,7 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
   const ended = isClosedDeal(d);
   const stepToday = ended ? undefined : today;
   const stepLabel = stepToday && dueOn && dueOn < stepToday ? 'Overdue action' : 'Next action';
-  const stepSummary = fromEngine ? openDealStepsHtml(detail, dealOwnerFirstSteps(d, detail.next_actions), stepToday) : `
+  const stepSummary = fromEngine ? '' : `
     ${nextStep ? `<p class="deal-current-action"><span>${stepLabel}</span>: <strong>${nextItem ? renderDealItemButton(d.id, nextItem, nextStep, 'btn btn-quiet') : esc(nextStep)}</strong> · <span>${dueDateHtml(dueOn)}</span></p>` : '<p>No next step or key date set.</p>'}
     ${otherActions.length ? `${ended ? '' : '<p class="deal-items-label">Also open:</p>'}<ul class="deal-items" aria-label="Other open steps">${otherActions.map(action =>
       `<li>${esc(action.description.trim())} · ${esc(actorName(action.owner))} · ${dueDateHtml(calendarDay(action.due_on), stepToday)}</li>`
@@ -1856,7 +1892,10 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
       <h2>Completed step</h2><p>${esc(completedStep.description)}</p>${stepOrigin(completedStep)}
     </section>` : ''}
       </div>
-      ${ownStep ? `<details id="detailNextStepEditor" class="deal-step-editor"><summary>Add next step</summary>${dealUpdateFormHtml(true, today)}</details>` : ''}
+      ${fromEngine ? dealNextStepsHtml(detail, stepToday, {
+        addStep: ownStep ? `<details id="detailNextStepEditor" class="deal-step-editor"><summary>Add step</summary>${dealUpdateFormHtml(true, today)}</details>` : '',
+        callReview: engineMode ? callReviewHtml : '' })
+      : ownStep ? `<details id="detailNextStepEditor" class="deal-step-editor"><summary>Add next step</summary>${dealUpdateFormHtml(true, today)}</details>` : ''}
       <div data-detail-read="snapshot">
     <div class="deal-alert">${renderDealItems({...d,items:items.filter(item => item !== nextItem)},{today:stepToday,buttons:true,empty:false,itemOwners})}</div>
       ${renderSnapshotFacts(d, fromEngine)}
@@ -1868,8 +1907,8 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
     ${fromEngine ? `<div data-detail-read="client-portal">${websiteSetup}</div>` : ''}
     <div data-detail-read="checklist"></div>
     ${ownStep ? '' : dealUpdateFormHtml(false, today)}
-    <section id="panelEmailFollowups" aria-label="Email follow-ups"${fromEngine ? ' data-detail-read="email-followups"' : ''}>${fromEngine ? dealEmailFollowupsHtml(detail) : '<p role="status">Updating email follow-ups…</p>'}</section>
-    ${engineMode ? '<details id="panelCallReview"><summary>Call review</summary><div></div></details>\n    ' : ''}${requirementEmailHtml(d)}
+    ${fromEngine ? '' : '<section id="panelEmailFollowups" aria-label="Email follow-ups"><p role="status">Updating email follow-ups…</p></section>'}
+    ${engineMode && !fromEngine ? `${callReviewHtml}\n    ` : ''}${requirementEmailHtml(d)}
     <div data-detail-read="vendors">${renderDealVendors(d.vendors)}</div>
     <div data-detail-read="board-controls" data-available="${controlsAvailable}">${controlsAvailable ? `<div class="detail-actions"><div class="detail-controls"><label>Phase<select id="detailPhase">${COLUMNS.map(c => `<option value="${esc(c.slug)}"${c.value === d.phase ? ' selected' : ''}>${esc(c.label)}</option>`).join('')}</select></label><label>Owner<select id="detailOwner">${fromEngine ? '' : '<option value="">Unassigned</option>'}${['joe','dell'].map(owner => `<option value="${owner}"${owner === d.owner ? ' selected' : ''}>${actorName(owner)}</option>`).join('')}</select></label></div><div data-detail-read="parking" data-parked="${parked}" data-next-parking="${nextParking}">${parked ? `${parkingSummary}<button type="button" class="btn" data-revive="${esc(d.id)}">Revive</button>` : parkFormHtml(nextParking)}</div></div>` : fromEngine ? `<div data-detail-read="parking">${nextParking && parked ? parkingSummary : parker}</div>` : ''}</div>
     <div data-detail-read="prospect">${!engineSaves && controlsAvailable && prospect?.client_status === 'prospect' ? `<form id="detailInactiveForm"><p>Inactive prospects return to Leads.</p><label>Reason<input name="reason" maxlength="1000" required value="${esc(pendingProspect?.request.reason || '')}"${pendingProspect ? ' readonly' : ''}></label><button class="btn" type="submit">${pendingProspect ? 'Check outcome' : 'Mark inactive'}</button><p role="status" data-prospect-status>${pendingProspect ? 'Confirmation pending for this prospect. Check outcome to retry the same request.' : ''}</p></form>` : ''}</div>
@@ -2037,11 +2076,13 @@ async function readPanel(id) {
           const dateAsks = [...current.querySelectorAll('[data-date-decision] .date-reason:not([hidden])')].map(n => [
             n.closest('form').dataset.dateDecision, n.querySelector('[type="submit"]').value, n.querySelector('input').value]);
           const oldScroll = current.scrollLeft;
-          if (fresh.dataset.detailRead === 'email-followups') {
+          if (fresh.dataset.detailRead === 'suggested') {
             for (const input of current.querySelectorAll('[data-email-decision] input')) {
               const replacement = fresh.querySelector(`[data-detail-focus="${CSS.escape(input.dataset.detailFocus)}"]`);
               if (replacement && replacement.defaultValue === input.defaultValue) replacement.value = input.value;
             }
+            for (const edit of current.querySelectorAll('[data-email-decision] [data-suggestion-edit]:not([hidden])'))
+              showSuggestionEdit(fresh.querySelector(`[data-email-decision="${CSS.escape(edit.closest('form').dataset.emailDecision)}"]`), false);
           }
           if (fresh.dataset.detailRead === 'updates') disposeActivityAttribution();
           current.replaceWith(fresh);
@@ -2067,6 +2108,7 @@ async function readPanel(id) {
       }
       void dealToursPanel?.refresh();
       void dealDocumentsPanel?.refresh();
+      void loadSuggestionEmails(detail);
       if ($('panelEvidenceSection')?.open) await refreshEvidence(detail, id, seq);
     }
     if (state.panelDeal !== id || seq !== panelReadSequence) return false;
@@ -2110,6 +2152,7 @@ function paintPanel(detail) {
   disposePanelCallReview();
   $('panelBody').innerHTML = workspaceHtml(detail, engineMode);
   mountChecklist(detail);
+  void loadSuggestionEmails(detail);
   const overview = $('workspace-overview');
   if (watchSubject !== detail.deal.id) disposeWatchControl();
   watchElement ||= document.createElement('div');
@@ -2650,6 +2693,8 @@ function wire() {
     }
     const item = event.target.closest('[data-deal-item]');
     if (item) { itemSheet.open(item.dataset.itemDeal,item.dataset.dealItem,item); return; }
+    const editSuggestion = event.target.closest('button[data-edit-suggestion]');
+    if (editSuggestion) { showSuggestionEdit(editSuggestion.form); return; }
     const revive = event.target.closest('button[data-revive]');
     if (revive) { setOperatingState(revive.dataset.revive, {state:'active'}); return; }
     const open = event.target.closest('button[data-open]');
@@ -2926,7 +2971,7 @@ function wire() {
         const what = String(form.get('what')).trim();
         if (!what) {
           showToast('Enter a next step before accepting.', {error:true});
-          e.target.elements.what.focus();
+          showSuggestionEdit(e.target);
           return;
         }
         edits = { what, due_on: form.get('due_on') || null };
