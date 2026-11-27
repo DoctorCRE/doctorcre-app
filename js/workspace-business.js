@@ -76,6 +76,7 @@ const dom = {
   panelMeta: document.querySelector("#recordMeta"),
   panelActions: document.querySelector("#recordActions"),
   panelMore: document.querySelector("#recordMore"),
+  panelStatus: document.querySelector("#recordStatus"),
   panelBody: document.querySelector("#recordBody"),
   panelClose: document.querySelector("#recordClose"),
   navClients: document.querySelector("#navClients"),
@@ -683,64 +684,46 @@ function clientNote({ notes, record_links }) {
   return `<section class="record-section client-note"><h3>Notes</h3><p class="entry-detail">${linkRecordNames(note, record_links)}</p><details class="record-details" data-details-key="notes"><summary><span>More</span><span>Less</span></summary></details></section>`;
 }
 
-const COPY_LINK_LABEL = "Copy link";
+const COPY_LINK_DONE = "Link copied";
 const COPY_LINK_FAILED = "Could not copy link. Copy the address from your browser.";
 
 let copyLinkTimer = null;
 
-function stopCopyLinkTimer() {
-  if (copyLinkTimer === null) return;
-  clearTimeout(copyLinkTimer);
+// The drawer's own status line: visible with the menu closed and with the page behind the drawer inert.
+function setPanelStatus(text) {
+  if (copyLinkTimer !== null) clearTimeout(copyLinkTimer);
   copyLinkTimer = null;
-}
-
-function resetCopyLinkButton() {
-  stopCopyLinkTimer();
-  const button = dom.panelActions?.querySelector("[data-copy-record-link]");
-  if (button) button.textContent = COPY_LINK_LABEL;
+  if (dom.panelStatus) dom.panelStatus.textContent = text;
 }
 
 function recordActionsHtml() {
-  const copy = `<button type="button" class="action secondary-action" data-copy-record-link>${COPY_LINK_LABEL}</button>`;
+  const copy = '<button type="button" class="action secondary-action" data-copy-record-link>Copy link</button>';
   const party = partyEditor?.actionsHtml() ?? "";
   const inner = party.replace(/^<div class="party-record-actions">/, "").replace(/<\/div>$/, "");
   return `<div class="party-record-actions">${inner}${copy}</div>`;
 }
 
-function announceCopyLinkFailure() {
-  if (dom.notices) dom.notices.textContent = COPY_LINK_FAILED;
-}
-
-async function copyRecordLink(button) {
+async function copyRecordLink() {
   const dataset = view.dataset;
   const recordId = view.recordId;
   if (!dataset || !recordId) return;
-  resetCopyLinkButton();
+  setPanelStatus("");
   const url = `${location.origin}/${dataset}?record=${encodeURIComponent(recordId)}`;
-  const write = navigator.clipboard?.writeText;
-  if (typeof write !== "function") {
-    announceCopyLinkFailure();
+  try {
+    await navigator.clipboard.writeText(url);
+  } catch {
+    if (view.dataset === dataset && view.recordId === recordId) setPanelStatus(COPY_LINK_FAILED);
     return;
   }
-  try {
-    await write.call(navigator.clipboard, url);
-    if (view.dataset !== dataset || view.recordId !== recordId || !button.isConnected) return;
-    button.textContent = "Copied";
-    // eslint-disable-next-line no-restricted-syntax -- Single 2 s Copied label, cleared on record change or close.
-    copyLinkTimer = setTimeout(() => {
-      copyLinkTimer = null;
-      if (button.isConnected) button.textContent = COPY_LINK_LABEL;
-    }, 2000);
-  } catch {
-    if (view.dataset !== dataset || view.recordId !== recordId || !button.isConnected) return;
-    button.textContent = COPY_LINK_LABEL;
-    announceCopyLinkFailure();
-  }
+  if (view.dataset !== dataset || view.recordId !== recordId) return;
+  setPanelStatus(COPY_LINK_DONE);
+  // eslint-disable-next-line no-restricted-syntax -- Single 2 s status, cleared on the next copy, record change or close.
+  copyLinkTimer = setTimeout(() => setPanelStatus(""), 2000);
 }
 
 /** The header's status, owner and record actions; empty while nothing has loaded. */
 function paintPanelHead(meta = "", actions = "") {
-  stopCopyLinkTimer();
+  setPanelStatus("");
   if (dom.panelMeta) dom.panelMeta.innerHTML = meta;
   if (dom.panelActions) dom.panelActions.innerHTML = actions;
   dom.panelTitle?.removeAttribute("title");
@@ -758,7 +741,6 @@ function renderRecordPanel() {
   if (!view.signedOut) capturePanelState();
   if (!view.recordId) {
     closePanelMenu();
-    resetCopyLinkButton();
     dom.panelTitle?.classList.remove("full");
     dom.panel.hidden = true;
     dom.panel.classList.remove("open");
@@ -1237,7 +1219,7 @@ function wireControls() {
     if (event.target.closest("#recordTitle")) dom.panelTitle.classList.toggle("full");
     if (event.target.closest("#recordActions button")) closePanelMenu();
     const copy = event.target.closest("[data-copy-record-link]");
-    if (copy) return void copyRecordLink(copy);
+    if (copy) return void copyRecordLink();
     const edit = event.target.closest("[data-party-edit]");
     if (edit) return partyEditor?.edit();
     if (event.target.closest("[data-party-link]")) return partyEditor?.link(view.record.payload?.record?.name ?? "");

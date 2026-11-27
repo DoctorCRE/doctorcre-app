@@ -124,6 +124,9 @@ body.record-open { overflow: hidden; }
 .record-panel[hidden] { display: none; }
 /* One row as tall as the app bar: name and facts on the left, actions on the right. */
 .record-panel-head { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: var(--space-2); box-sizing: border-box; min-height: 48px; margin: 0 calc(var(--space-6) * -1) var(--space-5); padding: 0 var(--space-2) 0 var(--space-6); border-bottom: var(--hairline-width) solid var(--hairline); background: var(--surface-1); }
+.record-panel-head { flex-wrap: wrap; align-content: center; }
+.record-panel-status { order: 1; flex: 1 0 100%; margin: 0; padding-block: var(--space-2); color: var(--fg-muted); font-size: var(--font-size-2); }
+.record-panel-status:empty { display: none; }
 .record-panel-title { display: flex; flex: 1; align-items: baseline; gap: var(--space-3); min-width: 0; }
 .record-panel-head .eyebrow { margin: 0; }
 .record-panel-head .record-tone { flex: none; flex-wrap: nowrap; white-space: nowrap; }
