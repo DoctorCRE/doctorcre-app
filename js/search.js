@@ -8,8 +8,9 @@ import { partnerName } from "./visual-system.js";
 import {
   SAVED_VIEW_SENTENCE, SEARCH_STATE_COPY, applyScope, buildFindArguments,
   classifySearchFailure, displaySearchGroups, parseSearchAddress, queryIsSendable,
-  readSavedViews, renameView, saveView, scopeChips, toggleSearchScope, searchAddress,
-  usesLegacyRelationScope, validSearchPayload, validSearchRecords, visibleCount, writeSavedViews,
+  highlightParts, readRecentSearches, readSavedViews, recordRecentSearch, renameView, saveView,
+  scopeChips, toggleSearchScope, searchAddress, usesLegacyRelationScope, validSearchPayload,
+  validSearchRecords, visibleCount, writeSavedViews,
 } from "./search-model.js";
 
 const IDLE_REREAD_MS = 300;
@@ -34,7 +35,8 @@ const searchReads = createCurrentRead();
 
 function rowHtml(row, group) {
   const isDeal = ["deals", "deals_via_link"].includes(group.id);
-  const title = escapeHtml(isDeal ? dealName(row.name) : withoutRecordCodes(row.name));
+  const title = highlightParts(isDeal ? dealName(row.name) : withoutRecordCodes(row.name), view.query)
+    .map((part) => part.match ? `<mark>${part.text}</mark>` : part.text).join("");
   const phase = row.phase ?? row.facts?.find(fact => fact.label === "Phase")?.value;
   const owner = row.owner ?? row.facts?.find(fact => fact.label === "Owner")?.value;
   const meta = isDeal
@@ -55,6 +57,14 @@ function renderChips(groups) {
   const chips = scopeChips(groups, view.kinds);
   bar.innerHTML = chips.map((chip) => `<button class="chip" type="button" data-chip="${escapeHtml(chip.id)}" data-count="${chip.count}" aria-pressed="${chip.selected}">${escapeHtml(chip.label)}</button>`).join("");
   if (focusKey) [...bar.querySelectorAll("[data-chip]")].find(node => node.dataset.chip === focusKey)?.focus();
+}
+
+function renderRecentSearches() {
+  const bar = $("recentSearches");
+  if (!bar) return;
+  const recents = savedViewActor ? readRecentSearches(storage, savedViewActor) : [];
+  bar.hidden = recents.length === 0;
+  bar.innerHTML = recents.map((query) => `<button class="chip" type="button" data-recent="${escapeHtml(query)}">${escapeHtml(query)}</button>`).join("");
 }
 
 function renderSavedViews() {
@@ -96,6 +106,7 @@ function render() {
   const count = visibleCount(shown);
   total.textContent = view.payload ? `${count} ${count === 1 ? "result" : "results"}` : "";
   renderChips(groups);
+  renderRecentSearches();
   renderState(phase);
 }
 
@@ -160,11 +171,16 @@ function restoreFromAddress({ reread = true, query } = {}) {
 
 /* ------------------------------------------------------------------ the wiring */
 
+function rememberQuery(query) {
+  if (savedViewActor && queryIsSendable(query)) recordRecentSearch(storage, query, savedViewActor);
+}
+
 function wire() {
   $("searchForm")?.addEventListener("submit", (event) => {
     event.preventDefault();
     view.query = $("searchQuery")?.value ?? "";
     clearTimeout(idleTimer);
+    rememberQuery(view.query);
     read({ push: true });
   });
 
@@ -181,6 +197,15 @@ function wire() {
     render();
     // eslint-disable-next-line no-restricted-syntax -- Search keeps one 300ms debounce and cancels its predecessor.
     idleTimer = setTimeout(() => read({ push: false }), IDLE_REREAD_MS);
+  });
+
+  $("recentSearches")?.addEventListener("click", (event) => {
+    const chip = event.target.closest("[data-recent]");
+    if (!chip) return;
+    view.query = chip.dataset.recent ?? "";
+    clearTimeout(idleTimer);
+    rememberQuery(view.query);
+    read({ push: true });
   });
 
   $("searchChips")?.addEventListener("click", (event) => {
@@ -226,6 +251,7 @@ function wire() {
     if (!saved) return;
     view.query = saved.query;
     view.kinds = [...saved.kinds];
+    rememberQuery(view.query);
     read({ push: true });
   });
 
@@ -253,14 +279,17 @@ export function mountSearch({ client: searchClient, storage: storageImpl } = {})
     savedViewActor = session.actor.slug;
     view.views = readSavedViews(storage, savedViewActor);
     renderSavedViews();
+    renderRecentSearches();
   }).catch(() => {});
   globalThis.addEventListener?.('doctorcre-session-invalidated', () => {
     savedViewActor = null; view.views = []; view.query = ''; view.payload = null; view.status = 'idle';
     searchReads.invalidate(); clearTimeout(idleTimer);
     renderSavedViews();
+    renderRecentSearches();
     render();
   }, {once:true});
   renderSavedViews();
+  renderRecentSearches();
   $("savedViewNote").textContent = SAVED_VIEW_SENTENCE;
   const typedQuery = $("searchQuery")?.value ?? "";
   wire();

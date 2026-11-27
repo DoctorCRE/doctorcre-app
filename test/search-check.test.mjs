@@ -16,9 +16,10 @@ import {
   AUTHORIZATION_SENTENCE, NOT_SEARCHED_SENTENCE, SAVED_VIEWS_KEY, SAVED_VIEW_SENTENCE,
   SCOPE_CHIP_SENTENCE, SEARCH_STATE_COPY, SEARCH_STATES, applyScope,
   buildFindAndCatchUpArguments, buildFindArguments, classifySearchFailure, deepLinkFor,
-  groupSearchResults, parseSearchAddress, readSavedViews, refusalDetail, renameView,
-  retiredSummary, saveView, scopeChips, searchAddress, searchPhase, truncationNotes,
-  validSearchPayload, visibleCount, writeSavedViews, toggleSearchScope, SEARCH_GROUP_IDS,
+  groupSearchResults, highlightParts, parseSearchAddress, readRecentSearches,
+  readSavedViews, recordRecentSearch, refusalDetail, renameView, retiredSummary,
+  saveView, scopeChips, searchAddress, searchPhase, truncationNotes, validSearchPayload,
+  visibleCount, writeRecentSearches, writeSavedViews, toggleSearchScope, SEARCH_GROUP_IDS,
   displaySearchGroups,
 } from "../js/search-model.js";
 import { carrInterface } from "./carr-contract.mjs";
@@ -442,3 +443,48 @@ test('a deal result names its partner owner by first name', () => {
   const group = groupSearchResults({ ...emptyPayload, deals: [deal] }).find(one => one.id === 'deals');
   assert.equal(group.rows[0].facts.find(fact => fact.label === 'Owner').value, 'Joe');
 });
+
+test("recording six searches keeps the five newest unique entries newest first", () => {
+  const map = new Map();
+  const storage = {
+    getItem: (key) => (map.has(key) ? map.get(key) : null),
+    setItem: (key, value) => { map.set(key, value); },
+    removeItem: (key) => map.delete(key),
+  };
+  let recent = Object.freeze([]);
+  for (const query of ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot"]) {
+    recent = recordRecentSearch(storage, query, "joe");
+  }
+  assert.deepEqual([...recent], ["foxtrot", "echo", "delta", "charlie", "bravo"]);
+  assert.deepEqual([...readRecentSearches(storage, "joe")], ["foxtrot", "echo", "delta", "charlie", "bravo"]);
+  recent = recordRecentSearch(storage, "ECHO", "joe");
+  assert.deepEqual([...recent], ["ECHO", "foxtrot", "delta", "charlie", "bravo"]);
+  recent = recordRecentSearch(storage, "   ", "joe");
+  assert.deepEqual([...recent], ["ECHO", "foxtrot", "delta", "charlie", "bravo"]);
+  assert.deepEqual([...readRecentSearches(storage, "dell")], []);
+  assert.deepEqual([...writeRecentSearches(null, ["alpha"], "joe")], []);
+});
+
+test("highlightParts splits matched words and escapes HTML", () => {
+  assert.deepEqual([...highlightParts("Pensacola Dental Group", "dental")], [
+    { text: "Pensacola ", match: false },
+    { text: "Dental", match: true },
+    { text: " Group", match: false },
+  ]);
+  assert.deepEqual([...highlightParts("Pensacola Dental Group", "group pensacola")], [
+    { text: "Pensacola", match: true },
+    { text: " Dental ", match: false },
+    { text: "Group", match: true },
+  ]);
+  assert.deepEqual([...highlightParts('<script>alert("x")</script>', "script")], [
+    { text: "&lt;", match: false },
+    { text: "script", match: true },
+    { text: "&gt;alert(&quot;x&quot;)&lt;/", match: false },
+    { text: "script", match: true },
+    { text: "&gt;", match: false },
+  ]);
+  const parts = highlightParts("A & B < C", "& <");
+  const html = parts.map((part) => part.match ? `<mark>${part.text}</mark>` : part.text).join("");
+  assert.equal(html, "A <mark>&amp;</mark> B <mark>&lt;</mark> C");
+});
+
