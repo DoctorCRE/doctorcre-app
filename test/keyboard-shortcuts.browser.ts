@@ -54,6 +54,7 @@ for (const [key, from, to] of [
   ["h", "/leads", "/"],
   ["d", "/", "/deals"],
   ["l", "/", "/leads"],
+  ["c", "/", "/calendar"],
   ["v", "/", "/vendors"],
 ] as const)
   test(`g ${key} goes from ${from} to ${to}`, async (t) => {
@@ -129,12 +130,13 @@ for (const width of [390, 1440])
         "g then hGo to Home",
         "g then dGo to Deals",
         "g then lGo to Leads",
+        "g then cGo to Calendar",
         "g then vGo to Vendors",
         "/Search this page, or open the quick switcher",
         "?Show keyboard shortcuts",
         "⌘/Ctrl + KOpen search",
-        "jNext card (Home, Deals)",
-        "kPrevious card (Home, Deals)",
+        "j or ↓Next card (Home, Deals)",
+        "k or ↑Previous card (Home, Deals)",
         "EnterOpen the selected card",
       ]);
       assert.equal(await dialog.locator("tr td:first-child kbd").first().textContent(), "g");
@@ -175,6 +177,15 @@ test("closing the shortcut list returns focus to the element that had it", async
   await page.keyboard.press("Escape");
   await helpDialog(page).waitFor({ state: "detached" });
   assert.equal(await home.evaluate((node) => node === document.activeElement), true);
+});
+
+test("? lists Go to Calendar", async (t) => {
+  const page = await open(t, "/");
+  await page.keyboard.press("?");
+  const dialog = helpDialog(page);
+  await dialog.waitFor();
+  const rows = await dialog.getByRole("row").evaluateAll((nodes) => nodes.map((node) => node.textContent ?? ""));
+  assert.equal(rows.includes("g then cGo to Calendar"), true);
 });
 
 test("typing in a field never fires a shortcut", async (t) => {
@@ -286,6 +297,42 @@ test("j and k move between Home cards without wrapping, and Enter opens the sele
       );
       return link?.getAttribute("aria-expanded") === "true";
     }, names[0]);
+});
+
+test("ArrowDown and ArrowUp move between Home cards without wrapping", async (t) => {
+  const page = await open(t, "/");
+  const titles = page.locator("[data-inbox-row] h3 a:visible");
+  await titles.first().waitFor();
+  const names = await titles.allTextContents();
+  assert.ok(names.length >= 2, "Home shows at least two cards");
+  await page.keyboard.press("ArrowDown");
+  assert.equal(await focused(page), names[0]);
+  await page.keyboard.press("ArrowDown");
+  assert.equal(await focused(page), names[1]);
+  await page.keyboard.press("ArrowUp");
+  assert.equal(await focused(page), names[0]);
+  await page.keyboard.press("ArrowUp");
+  assert.equal(await focused(page), names[0], "ArrowUp on the first card stays");
+  await stays(page, "/");
+});
+
+test("ArrowDown and ArrowUp are ignored inside a focused text input", async (t) => {
+  const page = await open(t, "/");
+  await page.locator("[data-inbox-row] h3 a:visible").first().waitFor();
+  await page.evaluate(() => {
+    const field = document.createElement("input");
+    field.id = "shortcutArrowField";
+    field.type = "text";
+    field.value = "sample";
+    document.body.append(field);
+  });
+  const field = page.locator("#shortcutArrowField");
+  await field.focus();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowUp");
+  assert.equal(await field.evaluate((node) => node === document.activeElement), true);
+  assert.equal(await page.evaluate(() => Boolean(document.activeElement?.closest("[data-shortcut-card]"))), false);
+  await stays(page, "/");
 });
 
 // Synthetic prospects only; no real records.
