@@ -499,6 +499,26 @@ body:not([data-directory-view="meetings"]) .vendor-meetings-host { display: none
 .deal-diagram-restack button { min-height: var(--touch); padding: 0 var(--space-1); border: 0; border-radius: var(--radius-2); background: none; color: var(--fg-quiet); font: inherit; cursor: pointer; }
 .deal-diagram-restack button:hover { background: var(--surface-2); color: var(--fg); }
 .deal-diagram-date { color: var(--fg-quiet); }
+/* A vendor box opens a small menu over the boxes below it. */
+.deal-diagram-vendor { position: relative; }
+.deal-diagram-vendor > .deal-diagram-box { cursor: pointer; }
+.deal-diagram-vendor > .deal-diagram-box:hover { filter: brightness(1.08); }
+.deal-diagram-vendor > .deal-diagram-box:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.deal-vendor-menu { position: absolute; top: calc(100% + var(--space-1)); left: 0; z-index: 5; display: flex; flex-direction: column; box-sizing: border-box; width: min(320px, 100%); min-width: 240px; padding: var(--space-1); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-3); background: var(--surface-1); box-shadow: var(--shadow-overlay); font-size: var(--font-size-2); }
+.deal-vendor-menu p { margin: 0; padding: var(--space-1) var(--space-2); }
+.deal-vendor-menu .deal-vendor-menu-who { display: flex; flex-direction: column; margin-bottom: var(--space-1); border-bottom: var(--hairline-width) solid var(--hairline); color: var(--fg); font-weight: var(--font-weight-strong); }
+.deal-vendor-menu-who :is(span, q) { color: var(--fg-muted); font-size: var(--font-size-1); font-weight: var(--font-weight-regular); }
+.deal-vendor-menu > :is(button, a), .deal-vendor-menu-row button { display: flex; align-items: center; min-height: var(--touch); padding: 0 var(--space-2); border: 0; border-radius: var(--radius-2); background: none; color: var(--fg); font: inherit; text-align: left; text-decoration: none; cursor: pointer; }
+.deal-vendor-menu > :is(button, a):hover, .deal-vendor-menu-row button:hover:enabled { background: var(--surface-2); }
+.deal-vendor-menu button:disabled { color: var(--fg-quiet); cursor: default; }
+.deal-vendor-menu form { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-1) var(--space-2); }
+.deal-vendor-menu label { display: flex; flex-direction: column; gap: var(--space-1); color: var(--fg-muted); font-size: var(--font-size-1); }
+.deal-vendor-menu select { min-height: var(--touch); padding: 0 var(--space-2); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); background: var(--surface-2); color: var(--fg); font: inherit; font-size: var(--font-size-2); }
+.deal-vendor-menu-row { display: flex; gap: var(--space-1); }
+.deal-vendor-menu-row button:first-child { font-weight: var(--font-weight-strong); }
+.deal-vendor-menu-problem { color: var(--status-danger-ink); font-size: var(--font-size-1); }
+.client-deal-undo { margin: 0 0 var(--space-2); color: var(--fg-muted); }
+.client-deal-undo button { min-height: var(--touch); padding: 0 var(--space-2); border: 0; border-radius: var(--radius-2); background: none; color: var(--fg); font: inherit; text-decoration: underline; cursor: pointer; }
 /* The opened deal grows sideways: each box's elbow joins a spine shared with its siblings. */
 .deal-diagram[data-size="large"] { --gap: 40px; flex-direction: row; align-items: center; gap: var(--gap); width: max-content; margin: auto; padding: var(--space-4) 0; }
 .deal-diagram[data-size="large"] .deal-diagram-box { width: 230px; }

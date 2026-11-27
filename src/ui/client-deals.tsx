@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
-import { type ClientDeal, DealDiagram, type DiagramClient } from "./deal-diagram.tsx";
+import { type ClientDeal, DealDiagram, type DiagramClient, type VendorMenu } from "./deal-diagram.tsx";
+import { DealVendorMenu, eachRole, type Removal, refusal, type Saved, type VendorDoors } from "./deal-vendor-menu.tsx";
 
 type Deals = { state: "loading" } | { state: "failed" } | { state: "ready"; deals: ClientDeal[] };
 interface Props {
@@ -9,7 +10,11 @@ interface Props {
   load: (signal: AbortSignal) => Promise<ClientDeal[]>;
   // The opened view paints here, and the table beside it steps aside while it has content.
   stage: HTMLElement;
+  // Present when the partner can change who is on a deal; without it the vendor boxes are labels.
+  doors?: VendorDoors | null;
 }
+// Undo after a removal stays this long (ruling 98).
+const UNDO_MS = 3_000;
 
 const MONTH = new Intl.DateTimeFormat("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
 const dealState = (deal: ClientDeal) =>
@@ -26,7 +31,35 @@ function DealTitle({ deal }: { deal: ClientDeal }) {
   );
 }
 
-function OpenedDeal({ client, deal, close }: { client: DiagramClient; deal: ClientDeal; close: () => void }) {
+type Removed = Removal & { problem?: string };
+// Each removal keeps its own Undo window, so a second removal never drops the first's Undo.
+function Undo({
+  removed,
+  expire,
+  undo,
+}: {
+  removed: Removed;
+  expire: (r: Removed) => void;
+  undo: (r: Removed) => void;
+}) {
+  useEffect(() => {
+    if (removed.problem) return;
+    // eslint-disable-next-line no-restricted-syntax -- One Undo window per removal, cleared when it ends or unmounts.
+    const timer = window.setTimeout(() => expire(removed), UNDO_MS);
+    return () => window.clearTimeout(timer);
+  }, [removed, expire]);
+  return (
+    <p className="client-deal-undo" role="status">
+      {removed.problem ?? `Removed ${removed.vendor.name} from ${removed.deal.name}.`}{" "}
+      <button type="button" onClick={() => undo(removed)}>
+        Undo
+      </button>
+    </p>
+  );
+}
+
+type Opened = { client: DiagramClient; deal: ClientDeal; menu: VendorMenu | null; close: () => void };
+function OpenedDeal({ client, deal, menu, close }: Opened) {
   const closeButton = useRef<HTMLButtonElement>(null);
   useEffect(() => closeButton.current?.focus(), []);
   return (
@@ -43,14 +76,17 @@ function OpenedDeal({ client, deal, close }: { client: DiagramClient; deal: Clie
           ×
         </button>
       </header>
-      <DealDiagram client={client} deal={deal} large />
+      <DealDiagram client={client} deal={deal} menu={menu} large />
     </section>
   );
 }
 
-function ClientDeals({ client, load, stage }: Props) {
+function ClientDeals({ client, load, stage, doors = null }: Props) {
   const [deals, setDeals] = useState<Deals>({ state: "loading" });
   const [opened, setOpened] = useState<string | null>(null);
+  const [removed, setRemoved] = useState<Removed[]>([]);
+  const reread = useRef<AbortController | null>(null);
+  useEffect(() => () => reread.current?.abort(), []);
   const openers = useRef(new Map<string, HTMLButtonElement>());
   const loading = deals.state === "loading";
   useEffect(() => {
@@ -62,6 +98,43 @@ function ClientDeals({ client, load, stage }: Props) {
     );
     return () => controller.abort();
   }, [load, loading]);
+  // After a save the diagrams read the client's deals again, in place, so a box changes state without a blank.
+  function refresh() {
+    reread.current?.abort();
+    const controller = new AbortController();
+    reread.current = controller;
+    load(controller.signal).then(
+      (list) => controller.signal.aborted || setDeals({ state: "ready", deals: list }),
+      () => {},
+    );
+  }
+  const forget = useCallback((gone: Removed) => setRemoved((now) => now.filter((r) => r !== gone)), []);
+  async function undo(gone: Removed) {
+    if (!doors) return;
+    const { deal, vendor } = gone;
+    forget(gone);
+    const answer = await eachRole(vendor.roles, (role) => doors.add(deal.id, vendor.id, role)).catch(
+      (): Saved => ({ ok: false }),
+    );
+    if (!answer.ok)
+      setRemoved((now) => [...now, { ...gone, problem: `${vendor.name} wasn't put back. ${refusal(answer.problem)}` }]);
+    refresh();
+  }
+  const menuFor = (deal: ClientDeal): VendorMenu | null =>
+    doors &&
+    ((vendor, close) => (
+      <DealVendorMenu
+        deal={deal}
+        vendor={vendor}
+        doors={doors}
+        close={close}
+        reread={refresh}
+        saved={(removal) => {
+          if (removal) setRemoved((now) => [...now, removal]);
+          refresh();
+        }}
+      />
+    ));
   if (deals.state === "loading" || (deals.state === "ready" && deals.deals.length === 0)) return null;
   const openedDeal = deals.state === "ready" ? deals.deals.find((deal) => deal.id === opened) : undefined;
   const close = () => {
@@ -100,10 +173,16 @@ function ClientDeals({ client, load, stage }: Props) {
                 </svg>
               </button>
             </header>
-            <DealDiagram client={client} deal={deal} />
+            {removed
+              .filter((r) => r.deal.id === deal.id)
+              .map((r) => (
+                <Undo key={r.vendor.id} removed={r} expire={forget} undo={undo} />
+              ))}
+            <DealDiagram client={client} deal={deal} menu={menuFor(deal)} />
           </article>
         ))}
-      {openedDeal && createPortal(<OpenedDeal client={client} deal={openedDeal} close={close} />, stage)}
+      {openedDeal &&
+        createPortal(<OpenedDeal client={client} deal={openedDeal} menu={menuFor(openedDeal)} close={close} />, stage)}
     </>
   );
 }
