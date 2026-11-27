@@ -1,30 +1,30 @@
-import { test } from '@e2e-dev/web';
-import { expect } from 'e2e';
-import { directoryFixture } from '../../test/fixtures/vendor-directory.synthetic.mjs';
+import { test } from "@e2e-dev/web";
+import { expect } from "e2e";
+import { directoryFixture } from "../../test/fixtures/vendor-directory.synthetic.mjs";
 
 // W5: the Vendors directory filters by owner and opens a vendor's full record.
-test('W5 Vendors filters by owner and opens a vendor with its original entries', async ({ app, browser, screen }) => {
-  await browser.route('**/api/v1/business/**', route => route.fulfill({ json: directoryFixture(route.request.url) }));
-  await app.open('/vendors');
+test("W5 Vendors filters by owner and opens a vendor with its original entries", async ({ app, browser, screen }) => {
+  await browser.route("**/api/v1/business/**", (route) => route.fulfill({ json: directoryFixture(route.request.url) }));
+  await app.open("/vendors?all=true");
 
-  await expect(browser.locator('#resultSummary')).toHaveText(/^62 /);
-  const filters = browser.locator('#secondaryFilters > summary');
+  await expect(browser.locator("#resultSummary")).toHaveText(/^62 /);
+  const filters = browser.locator("#secondaryFilters > summary");
   if (await filters.isVisible()) await filters.tap();
   await browser.locator('[data-owner="dell"]').tap();
-  await expect(browser.locator('#resultSummary')).toHaveText(/^31 /);
+  await expect(browser.locator("#resultSummary")).toHaveText(/^31 /);
   await browser.waitForURL(/owner=dell/);
-  await browser.locator('#resetFilters').tap();
-  await expect(browser.locator('#resultSummary')).toHaveText(/^62 /);
+  await browser.locator("#resetFilters").tap();
+  await expect(browser.locator("#resultSummary")).toHaveText(/^62 /);
 
-  await browser.locator('.record-row').first().tap();
-  await expect(browser.locator('#recordPanel')).toBeVisible();
-  await expect(browser.locator('#recordPanel')).toHaveAttribute('role', 'dialog');
-  await expect(browser.locator('#recordBody')).toContainText('Suggested introductions');
+  await browser.locator(".record-row").first().tap();
+  await expect(browser.locator("#recordPanel")).toBeVisible();
+  await expect(browser.locator("#recordPanel")).toHaveAttribute("role", "dialog");
+  await expect(browser.locator("#recordBody")).toContainText("Suggested introductions");
   const intro = browser.locator('[data-details-key="intro-demo-intro"]');
   await browser.locator('[data-details-key="intro-demo-intro"] summary').tap();
-  await expect(intro).toContainText('Original synthetic introduction entry');
+  await expect(intro).toContainText("Original synthetic introduction entry");
 
   await browser.locator('#recordPanel [aria-label="Close record"]').tap();
-  await expect(browser.locator('#recordPanel')).toBeHidden();
-  await expect(browser.locator('#resultsTitle')).toHaveText('Vendors');
+  await expect(browser.locator("#recordPanel")).toBeHidden();
+  await expect(browser.locator("#resultsTitle")).toHaveText("Vendors");
 });
