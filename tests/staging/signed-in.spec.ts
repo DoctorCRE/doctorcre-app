@@ -26,7 +26,7 @@ const screens = [
   { name: "Clients", path: "/clients", title: "Clients · DoctorCRE", more: true },
   { name: "Relationships", path: "/relationships", title: "Relationships · DoctorCRE", more: true },
   { name: "Invoices", path: "/invoices", title: "Invoices · DoctorCRE", more: true },
-  { name: "Home", path: "/", title: "Home · DoctorCRE", more: false },
+  { name: "Home", path: "/", title: /^(?:\([1-9]\d*\) )?Home · DoctorCRE$/, more: false },
 ];
 
 for (const screen of screens) {

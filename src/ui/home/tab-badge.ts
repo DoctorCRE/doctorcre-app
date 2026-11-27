@@ -1,3 +1,5 @@
+import { useEffect } from "react";
+
 const HOME_TITLE = "Home · DoctorCRE";
 
 function runBadge(api: unknown, ...args: number[]): void {
@@ -19,4 +21,13 @@ export function setHomeTabBadge(count: number): void {
   }
   document.title = HOME_TITLE;
   runBadge(navigator.clearAppBadge);
+}
+
+export function useHomeTabBadge(home: boolean, count: number | null): void {
+  useEffect(() => {
+    if (home && count != null) setHomeTabBadge(count);
+  }, [home, count]);
+  useEffect(() => {
+    if (home) return () => setHomeTabBadge(0);
+  }, [home]);
 }
