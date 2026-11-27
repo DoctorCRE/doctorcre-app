@@ -1,7 +1,7 @@
 import { hasTourDrafts, legacyTourDraftScope, TOUR_DRAFT_KEYS } from './offline-tour-session.js';
 import { createDayStore } from '../tours/day-store.js';
 import { mountWatchControl } from './ui-watches.generated.js';
-import { redactEmailAddresses, suggestionEmail } from './ui-deal-suggestion-email.generated.js';
+import { emailConversation, redactEmailAddresses, suggestionEmail } from './ui-deal-suggestion-email.generated.js';
 import { createMcpRequests } from './mcp-requests.mjs';
 import { dealPathHtml, pathQuestionHtml } from './ui-deal-path.generated.js';
 import { clientPortalHtml, copyClientLink } from './ui-deal-client-portal.generated.js';
@@ -2025,9 +2025,74 @@ function activityPanel(detail, planTours) {
   const view = renderDealActivity(detail, {
     planTours, now: new Date(), fold: foldEmailBody, filter: activityFilter, note: activityNoteDraft,
     canNote: Boolean(state.selfActor), link: text => linkRecordNames(text, detail.record_links), ports,
+    open: activityOpen, emailHtml: id => activityEmailHtml(detail, id),
   });
   activityFilter = view.filter;
+  activityOpen = view.open;
   return view.html;
+}
+
+// A filed email's cleaned conversation by deal and email: null while its read runs, 'failed' when it could not be read.
+const activityThreads = new Map();
+let activityOpen = null, activityFullEmails = false, activityAttributionPane = null;
+const threadKey = (detail, id) => `${detail.deal.id}:${id}`;
+function activityEmailHtml(detail, id) {
+  const today = businessDay(new Date());
+  // An opened email is already filed to this deal, so filing it again is never offered.
+  const suggestions = detail.email_follow_ups.filter(row => row.email?.activity_id === id && row.kind !== 'file_to_deal')
+    .map(row => suggestionHtml(row, today, detail.next_deal_saves, false)).join('')
+    .replace(/(id|aria-labelledby)="suggestion-/g, '$1="activity-suggestion-');
+  return `${suggestions ? `<ul class="deal-suggestions activity-suggestions">${suggestions}</ul>` : ''}<div data-activity-thread="${esc(id)}">${activityThreadHtml(activityThreads.get(threadKey(detail, id)))}</div>`;
+}
+function activityThreadHtml(thread) {
+  if (thread === undefined || thread === null) return '<p role="status">Loading the conversation…</p>';
+  if (thread === 'failed') return '<p role="status">The conversation couldn\'t be loaded.</p><button class="btn" type="button" data-activity-retry>Retry</button>';
+  if (!thread.length) return '<p>This email\'s text isn\'t in your mailbox.</p>';
+  const earlier = thread.some(message => message.earlier.length);
+  return `${thread.map(message => `<article class="activity-message"><p class="deal-suggestion-from">From ${esc(message.sender)} · <time datetime="${esc(message.occurredAt)}">${esc(message.sent)}</time></p>${
+    message.paragraphs.map(text => `<p>${esc(text)}</p>`).join('')}${
+    message.earlier.length ? `<div class="activity-earlier"${activityFullEmails ? '' : ' hidden'}>${message.earlier.map(text => `<p>${esc(text)}</p>`).join('')}</div>` : ''}</article>`).join('')}${
+    earlier ? `<button class="btn btn-quiet" type="button" data-activity-full aria-expanded="${activityFullEmails}">${activityFullEmails ? 'Hide the full emails' : 'Show the full emails'}</button>` : ''}`;
+}
+async function loadActivityThread(detail) {
+  const id = $('panelBody').querySelector('[data-activity-thread]')?.dataset.activityThread;
+  const key = id && threadKey(detail, id);
+  if (!key || (activityThreads.has(key) && activityThreads.get(key) !== 'failed')) return;
+  activityThreads.set(key, null);
+  const path = `/api/engine/deals/${encodeURIComponent(detail.deal.id)}/emails/${encodeURIComponent(id)}`;
+  const thread = await readWithDeadline(async signal => {
+    const response = await sessionFetch(path, { signal });
+    if (!response.ok) throw Error('Email unavailable');
+    return emailConversation(await response.json());
+  }).catch(() => 'failed');
+  activityThreads.set(key, thread);
+  const slot = $('panelBody').querySelector(`[data-activity-thread="${CSS.escape(id)}"]`);
+  if (slot && state.panelDetail?.deal.id === detail.deal.id) slot.innerHTML = activityThreadHtml(thread);
+}
+function disposeActivityPane() { activityAttributionPane?.dispose(); activityAttributionPane = null; }
+function mountActivityPane(detail) {
+  disposeActivityPane();
+  const pane = $('panelBody').querySelector('.activity-pane');
+  if (!pane || !isEngineDealDetail(detail)) return;
+  if (pane.querySelector('[data-attribution-id]')) activityAttributionPane = mountActivityAttribution(pane, { engineSignIn: privateSession()?.engineSignIn, onDenied: refusePanelDetail });
+  void loadActivityThread(detail);
+}
+function showActivityItem(key) {
+  const current = $('panelBody').querySelector('[data-detail-read="activity"]');
+  const detail = state.panelDetail;
+  if (!current || !detail) return;
+  const scroll = current.querySelector('.activity-list')?.scrollTop ?? 0;
+  if (key !== activityOpen) activityFullEmails = false;
+  activityOpen = key;
+  disposeActivityPane();
+  const template = document.createElement('div');
+  template.innerHTML = activityPanel(detail, dealToursFromEngine());
+  const fresh = template.firstElementChild;
+  current.replaceWith(fresh);
+  fresh.querySelector('.activity-list').scrollTop = scroll;
+  mountActivityPane(detail);
+  if (key) $('activityPaneTitle')?.focus();
+  else fresh.querySelector(`[data-activity-open="${CSS.escape(current.querySelector('.activity-open[aria-current]')?.dataset.activityOpen ?? '')}"]`)?.focus();
 }
 function dealUpdateFormHtml(stepEditor, today) {
   const stepFields = `<div class="deal-next-step-fields"><label for="dealUpdateStep">${stepEditor ? 'Your next step' : 'Next step'}</label><textarea id="dealUpdateStep" name="step" maxlength="10000" autocomplete="off"></textarea><label for="dealUpdateDate">Next date</label><input id="dealUpdateDate" name="date" type="date" min="${today}"><small id="detailUpdateDateHint" hidden>Current next date is overdue.</small></div>`;
@@ -2190,8 +2255,10 @@ async function readPanel(id) {
               setSuggestionEdit(fresh.querySelector(`[data-email-decision="${CSS.escape(edit.closest('form').dataset.emailDecision)}"]`), true, false);
           }
           if (fresh.dataset.detailRead === 'updates') disposeActivityAttribution();
+          if (fresh.dataset.detailRead === 'activity') disposeActivityPane();
           current.replaceWith(fresh);
           if (fresh.dataset.detailRead === 'updates') mountPanelActivityAttribution();
+          if (fresh.dataset.detailRead === 'activity') mountActivityPane(detail);
           fresh.scrollLeft = oldScroll;
           if (openDate) document.getElementById(openDate)?.showPopover();
           if (activityScroll !== null) {
@@ -2264,6 +2331,7 @@ function paintPanel(detail) {
   $('panelBody').innerHTML = workspaceHtml(detail, engineMode);
   mountChecklist(detail);
   loadSuggestionEmails(detail);
+  mountActivityPane(detail);
   const focusedTodo = $('panelBody').querySelector('.deal-path [data-focused] > summary');
   focusedTodo?.focus({ preventScroll: true });
   focusedTodo?.scrollIntoView({ block: 'center', inline: 'center' });
@@ -2433,6 +2501,8 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   timelineType = '';
   activityFilter = 'all';
   activityNoteDraft = '';
+  activityOpen = null;
+  activityFullEmails = false;
   ++panelReadSequence;
   automaticPhase.setOpenDeal(dealId);
   state.panelDeal = dealId; state.panelDetail = null; updateDraft = null;
@@ -2982,12 +3052,22 @@ function wire() {
     if (event.target.id !== 'panelEvidenceSection') return;
     if (event.target.open && state.panelDetail) void refreshEvidence(state.panelDetail, state.panelDeal, panelReadSequence);
   }, true);
-  showScrollThumbs($('panelBody'), '.activity-list');
+  showScrollThumbs($('panelBody'), '.activity-list, .activity-pane');
   $('panelBody').addEventListener('click', async e => {
     const chip = e.target.closest('[data-activity-filter]');
     if (chip && $('workspace-activity')?.contains(chip)) {
       activityFilter = showActivityFilter($('workspace-activity'), chip.dataset.activityFilter);
       return;
+    }
+    const opener = e.target.closest('[data-activity-open]');
+    if (opener) return showActivityItem(opener.dataset.activityOpen);
+    if (e.target.closest('[data-activity-close]')) return showActivityItem(null);
+    if (e.target.closest('[data-activity-retry]') && state.panelDetail) return void loadActivityThread(state.panelDetail);
+    if (e.target.closest('[data-activity-full]') && state.panelDetail) {
+      activityFullEmails = !activityFullEmails;
+      const slot = $('panelBody').querySelector('[data-activity-thread]');
+      slot.innerHTML = activityThreadHtml(activityThreads.get(threadKey(state.panelDetail, slot.dataset.activityThread)));
+      return slot.querySelector('[data-activity-full]')?.focus();
     }
     const documentText = e.target.closest('[data-open-document-text]');
     if (documentText) return openFiledDocumentText(documentText.dataset.openDocumentText);
@@ -3045,10 +3125,15 @@ function wire() {
       event.preventDefault();
       closePathQuestion();
     }
+    else if (event.key === 'Escape' && activityOpen && !$('workspace-activity')?.hidden && !document.querySelector('dialog[open]')) {
+      event.preventDefault();
+      showActivityItem(null);
+    }
   });
   $('panelBody').addEventListener('keydown', event => {
     if (event.key === 'Escape' && event.target.closest('[data-suggestion-edit]')) {
       event.preventDefault();
+      event.stopPropagation();
       setSuggestionEdit(event.target.form, false);
       return;
     }

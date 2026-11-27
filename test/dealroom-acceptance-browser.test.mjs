@@ -2734,7 +2734,8 @@ for (const width of [1440, 390]) test(`Timeline shows read-only history from the
   const line = async row => (await row.innerText()).replace(/\s+/g, ' ');
   const titles = () => timeline.locator('.activity-title').allTextContents();
   assert.equal(await rows.count(), 22);
-  assert.equal(await timeline.locator('.activity-row :is(a, button, input, select, textarea, [contenteditable])').count(), 0);
+  assert.equal(await timeline.locator('.activity-row :is(a, input, select, textarea, [contenteditable], button:not(.activity-open))').count(), 0);
+  assert.equal(await timeline.locator('.activity-row > button.activity-open').count(), 22);
   assert.match(await line(rows.nth(0)), /^Moved to Legal Written by the assistant · Nov 17, 7:00 PM$/);
   assert.match(await line(rows.nth(1)), /^Tour plans confirmed Dell · Nov 17, 2:00 PM$/);
   assert.match(await line(rows.nth(3)), /^Example plan\.pdf Mail filing · Nov 16, 8:00 AM$/);

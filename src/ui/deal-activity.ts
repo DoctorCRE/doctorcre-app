@@ -22,13 +22,25 @@ type EmailFold = (body: string, sender: string | null) => { text: string };
 
 type ActivityItem = {
   id: string;
+  key: string;
   filter: string;
   when: string;
   who: string;
   title: string;
+  /** The whole text the open item shows: its first line heads it, the rest is its body. */
+  text: string;
+  /** A filed email, opened as its conversation. */
+  email?: string;
+  /** A finished tour's visited properties. */
+  properties?: string[];
+  /** An activity whose deal attribution the open item can show. */
+  activity?: string;
   day: string;
   caption: string;
 };
+
+type ItemFacts = Pick<ActivityItem, "id" | "filter" | "who" | "title"> &
+  Partial<Pick<ActivityItem, "text" | "email" | "properties" | "activity">> & { when: unknown };
 
 const CALLS = new Set(["call", "meeting", "tour"]);
 const ENDED_STEPS = new Map([
@@ -54,6 +66,13 @@ const EMPTY_LINE = new Map([
 ]);
 
 const plainEmail: EmailFold = (body) => ({ text: body });
+const activityOf = (id: unknown) => (typeof id === "string" && id ? { activity: id } : {});
+
+function propertyLine(property: Record<string, unknown>): string[] {
+  const address = text(property.address);
+  const name = text(property.name);
+  return address ? [name ? `${name}, ${address}` : address] : [];
+}
 const oneLine = (value: string) => value.replace(/\s+/g, " ").trim();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -136,21 +155,13 @@ function sameDocument(event: Record<string, unknown>, ids: Set<string>, names: S
   return name !== null && names.has(name);
 }
 
-function push(
-  items: ActivityItem[],
-  row: { id: string; filter: string; when: unknown; who: string; title: string },
-  now: Date,
-  ports: ActivityPorts,
-  undated = false,
-): void {
+function push(items: ActivityItem[], row: ItemFacts, now: Date, ports: ActivityPorts, undated = false): void {
   const title = oneLine(row.title);
   if (!title) return;
-  const stamp = stamped(row.when, now, ports);
-  if (!stamp) {
-    if (undated) items.push({ ...row, title, when: "", day: "", caption: "Date not recorded" });
-    return;
-  }
-  items.push({ ...row, ...stamp, title });
+  const stamp = stamped(row.when, now, ports) ?? (undated ? { when: "", day: "", caption: "Date not recorded" } : null);
+  if (!stamp) return;
+  const key = `${row.filter}:${row.id || items.length}`;
+  items.push({ ...row, ...stamp, key, title, text: row.text?.trim() || row.title.trim() });
 }
 
 export function activityItems(
@@ -174,6 +185,12 @@ export function activityItems(
       return id && activity.actor !== undefined ? [[id, activity.actor] as const] : [];
     }),
   );
+  const activitySummaries = new Map(
+    activities.flatMap((activity) => {
+      const id = text(activity.id);
+      return id ? [[id, ports.noteText(activity.summary)] as const] : [];
+    }),
+  );
   const documents = rows(source.documents);
   const documentIds = values(documents, "id");
   const documentNames = values(documents, "name");
@@ -187,6 +204,7 @@ export function activityItems(
         when: note.created_at ?? note.at ?? note.recorded_at,
         who: ports.timelineActor(note.actor),
         title: ports.noteText(note.text),
+        ...activityOf(note.id),
       },
       now,
       ports,
@@ -199,6 +217,7 @@ export function activityItems(
     if (!meeting && kind !== "email") continue;
     const id = text(entry.activity_id) ?? "";
     const title = meeting ? text(entry.title)?.trim() || "Untitled meeting" : ports.emailSubject(entry.subject);
+    const visited = planTours && meeting ? rows(entry.properties).flatMap(propertyLine) : [];
     push(
       items,
       {
@@ -211,6 +230,9 @@ export function activityItems(
             : ""
           : text(entry.sender_name) || text(entry.sender) || "Unknown sender",
         title,
+        ...activityOf(id),
+        ...(meeting ? { text: [title, activitySummaries.get(id)].filter(Boolean).join("\n") } : { email: id }),
+        ...(visited.length ? { properties: visited } : {}),
       },
       now,
       ports,
@@ -232,6 +254,7 @@ export function activityItems(
         when: activity.occurred_at,
         who: email ? sender || ports.timelineActor(activity.actor) : ports.timelineActor(activity.actor),
         title: cleaned,
+        ...activityOf(id),
       },
       now,
       ports,
@@ -311,6 +334,7 @@ export function activityItems(
         when: event.when,
         who: event.actor,
         title: [event.action, ...facts].filter(Boolean).join(" · "),
+        text: [event.action, ...facts].filter(Boolean).join("\n"),
       },
       now,
       ports,
@@ -360,13 +384,18 @@ export function renderDealActivity(
     note?: string;
     canNote?: boolean;
     link?: (text: string) => string;
+    /** The key of the open item, if any. */
+    open?: string | null;
+    /** The open email's suggestions and conversation. */
+    emailHtml?: (activityId: string) => string;
     ports: ActivityPorts;
   },
-): { html: string; filter: string } {
+): { html: string; filter: string; open: string | null } {
   const now = options.now ?? new Date();
   const { ports } = options;
   const esc = ports.escapeText;
   const items = activityItems(detail, options);
+  const opened = items.find((item) => item.key === options.open) ?? null;
   const selected = knownFilter(options.filter);
   const anyVisible = selected === "all" ? items.length > 0 : items.some((item) => item.filter === selected);
   const source = record(detail);
@@ -388,7 +417,8 @@ export function renderDealActivity(
           const when = item.caption ? `<span>${esc(item.caption)}</span>` : "";
           const meta = who && when ? `${who} · ${when}` : who || when;
           const hidden = selected !== "all" && item.filter !== selected;
-          return `<li class="activity-row" data-activity-kind="${item.filter}"${hidden ? " hidden" : ""}><span class="activity-title">${link(item.title)}</span><span class="activity-meta">${meta}</span></li>`;
+          const current = item.key === opened?.key ? ' aria-current="true"' : "";
+          return `<li class="activity-row" data-activity-kind="${item.filter}"${hidden ? " hidden" : ""}><button type="button" class="activity-open" data-activity-open="${esc(item.key)}"${current}><span class="activity-title">${esc(item.title)}</span><span class="activity-meta">${meta}</span></button></li>`;
         })
         .join("")}</ol></section>`;
     })
@@ -397,13 +427,41 @@ export function renderDealActivity(
     known || items.length
       ? `<p class="activity-empty"${anyVisible ? " hidden" : ""}${waitingLine ? ' data-waiting="true"' : ""}>${esc(waitingLine || EMPTY_LINE.get(selected) || "")}</p>`
       : "";
-  const html = `<div class="deal-activity" data-detail-read="activity"><h2>Activity</h2>
+  const pane = opened ? openItemHtml(opened, { esc, link, emailHtml: options.emailHtml ?? (() => "") }) : "";
+  const html = `<div class="deal-activity" data-detail-read="activity"${opened ? " data-open" : ""}><div class="activity-side"><h2>Activity</h2>
     <form id="activityNoteForm" class="activity-note"><label class="sr-only" for="activityNote">Note</label><textarea id="activityNote" name="text" rows="1" maxlength="10000" placeholder="Add a note"${canNote ? "" : " disabled"}>${esc(note)}</textarea><button class="btn" type="submit"${canNote ? "" : " disabled"}>Add note</button><p id="activityNoteStatus" role="status"></p></form>
     <div class="chip-bar" role="group" aria-label="Activity filter">${FILTERS.map(
       ([id, label]) =>
         `<button type="button" class="chip" data-activity-filter="${id}" aria-pressed="${selected === id}">${label}</button>`,
     ).join("")}</div>
     ${known ? "" : '<p>Emails and meetings unavailable.</p><button class="btn" type="button" data-refresh-detail>Retry emails and meetings</button>'}
-    <div class="activity-list">${body}${emptyLine}</div></div>`;
-  return { html, filter: selected };
+    <div class="activity-list">${body}${emptyLine}</div></div>${pane}</div>`;
+  return { html, filter: selected, open: opened?.key ?? null };
+}
+
+function openItemHtml(
+  item: ActivityItem,
+  {
+    esc,
+    link,
+    emailHtml,
+  }: { esc: (value: unknown) => string; link: (text: string) => string; emailHtml: (id: string) => string },
+): string {
+  const meta = [item.who, item.caption].filter(Boolean).map(esc).join(" · ");
+  const doc = (question?: string) =>
+    `/doc-chats?${new URLSearchParams({ email: item.email ?? "" })}${question ? `#${new URLSearchParams({ question })}` : ""}`;
+  const actions = item.email
+    ? `<a class="btn" href="${esc(doc("Draft a reply to this email."))}">Reply</a><a class="btn btn-quiet" href="${esc(doc())}">Ask Doc</a>`
+    : "";
+  // The heading is the text's first line, so the body never repeats it.
+  const [heading = item.title, ...rest] = item.text.split("\n").filter((line) => line.trim());
+  const body = item.email ? emailHtml(item.email) : rest.map((line) => `<p>${link(line)}</p>`).join("");
+  const visited = item.properties
+    ? `<ul class="activity-visited" aria-label="Visited properties">${item.properties.map((line) => `<li>${esc(line)}</li>`).join("")}</ul>`
+    : "";
+  const attribution = item.activity
+    ? `<button type="button" class="btn btn-quiet" data-attribution-id="${esc(item.activity)}" aria-expanded="false">Show deal attribution</button>`
+    : "";
+  return `<section class="activity-pane" aria-labelledby="activityPaneTitle"><header class="activity-pane-head"><h3 id="activityPaneTitle" tabindex="-1">${esc(oneLine(heading))}</h3><div class="activity-pane-actions">${actions}<button type="button" class="btn btn-quiet" data-activity-close><span class="activity-close-wide">Close</span><span class="activity-close-narrow">Back</span></button></div></header>
+    <p class="activity-meta">${meta}</p><div class="activity-pane-body">${body}${visited}</div>${attribution}</section>`;
 }
