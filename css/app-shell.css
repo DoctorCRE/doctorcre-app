@@ -192,6 +192,8 @@ body.has-app-layout { margin: 0; padding: 0 0 var(--layout-bottom) var(--layout-
 .app-new-version[hidden] { display: none; }
 .app-new-version button { min-height: var(--touch); padding-inline: var(--space-2); border: 0; border-radius: var(--radius-2); background: transparent; color: var(--fg); font: inherit; font-weight: var(--font-weight-strong); cursor: pointer; }
 .app-new-version button:last-child { margin-inline-start: auto; color: var(--fg-muted); }
+/* The bars above and below the line cover anything drawn outside it, so its focus ring sits inside each button. */
+.app-new-version button:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: calc(var(--focus-width) * -1); }
 .app-layout-tabbar { position: sticky; top: 0; z-index: 80; display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-4); background: var(--ground); border-bottom: var(--hairline-width) solid var(--hairline); }
 :is(.app-layout-tabbar, .app-layout-tools):not(:has(a, button, input, select, textarea)), #appSidebarToggle[hidden] { display: none; }
 .app-layout-topbar .app-shell-search { margin-inline-start: auto; }

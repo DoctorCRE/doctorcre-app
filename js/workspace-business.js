@@ -285,12 +285,15 @@ function renderControls({ syncSearch = false } = {}) {
       dom.search.value = next;
     }
   }
-  // Inside a category the title names it, so the place reads without a filter chip.
+  // Inside a category the title names it, so the place reads without a filter chip. Until its name arrives, it is never the slug.
   view.place = dataset === "clients" ? clientPlace(query, view.accounts.list)
-    : query.no_category ? "No category" : query.category && ((facets.categories || []).find((option) => option.slug === query.category)?.label ?? query.category);
+    : query.no_category ? "No category" : query.category && (facets.categories || []).find((option) => option.slug === query.category)?.label;
   // The account tiles hold no list of their own, so Find searches every client.
-  if (dom.search) dom.search.placeholder = view.place && !query.accounts ? `Find in ${view.place}` : dataset === "clients" ? "Find a client" : "Find a vendor";
-  dom.placeBack.hidden = !view.place;
+  if (dom.search) {
+    dom.search.placeholder = view.place && !query.accounts ? `Find in ${view.place}` : dataset === "clients" ? "Find a client" : "Find a vendor";
+    dom.search.parentElement.style.setProperty("--hint-length", String(dom.search.placeholder.length));
+  }
+  dom.placeBack.hidden = !(view.place || query.category);
   dom.placeBack.textContent = DATASET_LABEL[dataset];
   dom.placeBack.href = viewHref({ ...defaultQuery(dataset), owner: query.owner });
   dom.accountsBack.hidden = !query.national_account;
@@ -376,7 +379,8 @@ const shortNote = value => typeof value === 'string' ? value.split(/\n/)[0].slic
 function vendorContactDate({ relationship, quiet, quiet_days }) {
   const contactedAt = relationship?.last_contacted_at;
   const date = contactedAt ? `<time datetime="${escapeHtml(contactedAt)}">${escapeHtml(formatDay(contactedAt))}</time>` : quiet ? "No contact yet" : "";
-  const days = quiet && Number.isInteger(quiet_days) ? ` · ${quiet_days} ${quiet_days === 1 ? "day" : "days"}` : "";
+  // With no contact recorded, quiet_days counts from the copy-in, which no partner would read as time since contact.
+  const days = contactedAt && quiet && Number.isInteger(quiet_days) ? ` · ${quiet_days} ${quiet_days === 1 ? "day" : "days"}` : "";
   return date ? `<span class="contact-note${quiet ? " quiet" : ""}"><span class="fact-label">Last contacted </span>${date}${days}</span>` : '';
 }
 
@@ -401,7 +405,12 @@ function vendorContactsHtml(record) {
   </section>`;
 }
 
-function relationshipHtml(record) {
+function conversationsHtml(record) {
+  const entries = record.relationship?.recent_entries || [];
+  return entries.length ? `<section class="record-section"><h3>Conversations</h3><ol class="network-list">${[...entries].sort((a,b) => compareInstants(a.when,b.when)).map(entry => `<li>${vendorNote(entry.summary) ? `<p class="note-summary">${escapeHtml(shortNote(vendorNote(entry.summary)))}</p>` : ''}${entry.when ? `<time>${escapeHtml(formatMoment(entry.when))}</time>` : ''}${vendorNote(entry.detail) ? `<details class="record-details" data-details-key="entry-${escapeHtml(entry.id)}"><summary>Details</summary><p class="entry-detail">${escapeHtml(vendorNote(entry.detail))}</p></details>` : ''}</li>`).join('')}</ol></section>` : '';
+}
+
+function partnershipHtml(record) {
   const stats = record.relationship || {};
   const intro = stats.introductions || [];
   const list = kind => {
@@ -415,9 +424,10 @@ function relationshipHtml(record) {
     ['Last contacted', stats.last_contacted_at && formatMoment(stats.last_contacted_at)],
   ].filter(([, value]) => value != null && value !== 0);
   const contactNote = shortNote(vendorNote(stats.last_contact_note));
-  return `${metrics.length || contactNote ? `<section class="record-section relationship-section" aria-label="Partnership">
+  return `${metrics.length || contactNote ? `<section class="record-section relationship-section" aria-labelledby="partnershipTitle">
+    <h3 id="partnershipTitle">Partnership</h3>
     ${metrics.length ? `<div class="relationship-metrics">${metrics.map(([label, value]) => `<div class="relationship-metric"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span></div>`).join('')}</div>` : ''}
-    ${contactNote ? `<p class="note-summary">${escapeHtml(contactNote)}</p>` : ''}</section>` : ''}${record.offers || record.loan_programs?.length ? `<section class="record-section"><h3>Services & products</h3>${record.offers ? `<p class="note-summary">${escapeHtml(shortNote(vendorNote(record.offers)))}</p>` : ""}${record.offers ? `<details class="record-details" data-details-key="offers"><summary>Details</summary><p class="entry-detail">${escapeHtml(vendorNote(record.offers))}</p></details>` : ''}${record.loan_programs?.length ? `<h3>Loan programs</h3><ul>${record.loan_programs.map(program => `<li>${escapeHtml(program)}</li>`).join('')}</ul>` : ''}</section>` : ''}${intro.length ? `<section class="record-section"><h3>Networking</h3><div class="network-grid"><div><h4>Introductions made</h4>${list('made')}</div><div><h4>Suggested introductions</h4>${list('suggested')}</div></div></section>` : ''}${stats.recent_entries?.length ? `<section class="record-section"><h3>Conversations</h3><ol class="network-list">${[...stats.recent_entries].sort((a,b) => compareInstants(a.when,b.when)).map(entry => `<li>${vendorNote(entry.summary) ? `<p class="note-summary">${escapeHtml(shortNote(vendorNote(entry.summary)))}</p>` : ''}${entry.when ? `<time>${escapeHtml(formatMoment(entry.when))}</time>` : ''}${vendorNote(entry.detail) ? `<details class="record-details" data-details-key="entry-${escapeHtml(entry.id)}"><summary>Details</summary><p class="entry-detail">${escapeHtml(vendorNote(entry.detail))}</p></details>` : ''}</li>`).join('')}</ol></section>` : ''}`;
+    ${contactNote ? `<p class="note-summary">${escapeHtml(contactNote)}</p>` : ''}</section>` : ''}${record.offers || record.loan_programs?.length ? `<section class="record-section"><h3>Services & products</h3>${record.offers ? `<p class="note-summary">${escapeHtml(shortNote(vendorNote(record.offers)))}</p>` : ""}${record.offers ? `<details class="record-details" data-details-key="offers"><summary>Details</summary><p class="entry-detail">${escapeHtml(vendorNote(record.offers))}</p></details>` : ''}${record.loan_programs?.length ? `<h3>Loan programs</h3><ul>${record.loan_programs.map(program => `<li>${escapeHtml(program)}</li>`).join('')}</ul>` : ''}</section>` : ''}${intro.length ? `<section class="record-section"><h3>Networking</h3><div class="network-grid"><div><h4>Introductions made</h4>${list('made')}</div><div><h4>Suggested introductions</h4>${list('suggested')}</div></div></section>` : ''}`;
 }
 function capturePanelState() {
   const id = dom.panelBody.dataset.recordId;
@@ -617,6 +627,11 @@ async function loadMore() {
   }
 }
 
+// The place stays its own span so a phone can show it as the title while the count is read aloud only.
+function paintSummary(status) {
+  dom.summary.innerHTML = view.place ? `<span class="summary-place">${escapeHtml(view.place)}</span><span class="summary-count"> · ${escapeHtml(status)}</span>` : escapeHtml(status);
+}
+
 function renderList() {
   const { dataset, list, query } = view;
   const tiles = showsTiles(query) && !view.signedOut;
@@ -629,7 +644,7 @@ function renderList() {
 
   if (phase === "loading") {
     setHealth("loading");
-    if (dom.summary) dom.summary.textContent = "Checking…";
+    if (dom.summary) paintSummary("Checking…");
     if (dom.observedAt) dom.observedAt.textContent = "Checking…";
     if (dom.source) dom.source.textContent = "Checking…";
     if (dom.pager) dom.pager.hidden = true;
@@ -660,7 +675,7 @@ function renderList() {
   if (dom.observedAt) dom.observedAt.textContent = updatedLabel(payload.source.observed_at, BUSINESS_TIME_ZONE);
   if (dom.source) dom.source.textContent = updatedLabel(payload.source?.observed_at, BUSINESS_TIME_ZONE);
   const counted = `${payload.total} ${(payload.total === 1 ? DATASET_SINGULAR[dataset] : DATASET_LABEL[dataset]).toLowerCase()}`;
-  if (dom.summary) dom.summary.textContent = view.place ? `${view.place} · ${counted}` : counted;
+  if (dom.summary) paintSummary(counted);
   // eslint-disable-next-line no-restricted-syntax -- Business notice metadata only; 0 automatic attempts, and any retry requires a fresh user action.
   renderNotices(view.failedPage ? [{ kind: 'unavailable', title: 'Could not load more', copy: 'Retrying automatically.', retry: true }]
     : view.loadingMore ? [{ kind: 'loading', title: 'Loading more…', copy: '' }] : []);
@@ -1077,8 +1092,8 @@ function renderRecordPanel() {
       }).join("")}</dl></section>`;
     }).join("");
   if (dom.panelBody) {
-    // The relationship diagram mounts in the empty section after Conversations once it is built.
-    dom.panelBody.innerHTML = `${dataset === 'vendors' ? vendorContactsHtml(payload.record) + relationshipHtml(payload.record) + '<section id="vendorDiagram" aria-label="Relationships" hidden></section>' : dealLinks(payload.record)}<div class="detail-columns">${sections}</div>${dataset === "clients" ? clientNote(payload.record) : ""}${referenceDetails}${activityHtml(payload.record.id)}<p class="observed">${escapeHtml(updatedLabel(payload.source?.observed_at, BUSINESS_TIME_ZONE))}</p>`;
+    // docs/screens/vendors.md orders the card; the relationship diagram mounts in the empty section once it is built.
+    dom.panelBody.innerHTML = `${dataset === 'vendors' ? vendorContactsHtml(payload.record) + conversationsHtml(payload.record) + '<section id="vendorDiagram" aria-label="Relationships" hidden></section>' + partnershipHtml(payload.record) : dealLinks(payload.record)}<div class="detail-columns">${sections}</div>${dataset === "clients" ? clientNote(payload.record) : ""}${referenceDetails}${activityHtml(payload.record.id)}<p class="observed">${escapeHtml(updatedLabel(payload.source?.observed_at, BUSINESS_TIME_ZONE))}</p>`;
     dom.panelBody.dataset.recordId = payload.record.id;
     restorePanelState();
     const note = dom.panelBody.querySelector(".client-note > p");

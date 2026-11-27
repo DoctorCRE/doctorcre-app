@@ -267,8 +267,20 @@ body.record-open { overflow: hidden; }
   #secondaryFilters[open] > summary { margin-bottom: var(--space-2); }
   /* The chip bar's Clear all already sits under the folded filters. */
   body[data-directory="clients"] .filter-row-actions { display: none; }
-  body[data-directory="vendors"] .record-row { grid-template-areas: "head" "facts" "foot"; gap: var(--space-1); padding-block: var(--space-2); }
-  body[data-directory="vendors"] .record-row:has(.contact-note) { grid-template-columns: max-content minmax(0, 1fr); grid-template-areas: "head head" "facts facts" "note foot"; column-gap: var(--space-3); }
+  /* A vendor is two lines: the colored name and its relationship word, then the territory and the last contact. Each line splits its own width. */
+  body[data-directory="vendors"] :is(.record-row, .record-row:has(.contact-note)) { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px var(--space-3); padding-block: var(--space-2); }
+  body[data-directory="vendors"] .record-row .row-facts { display: contents; }
+  body[data-directory="vendors"] .record-row .row-facts::after { content: ""; order: 3; flex-basis: 100%; }
+  body[data-directory="vendors"] .record-row :is([data-fact="Location"], [data-fact="Category"], .row-foot) { display: none; }
+  body[data-directory="vendors"] .record-row .row-head { order: 1; flex: 1 1 0; flex-wrap: nowrap; }
+  body[data-directory="vendors"] .record-row .row-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  body[data-directory="vendors"] .record-row .rel-shape { margin-inline-end: var(--space-2); vertical-align: -1px; }
+  body[data-directory="vendors"] .record-row [data-fact="Relationship"] { order: 2; }
+  body[data-directory="vendors"] .record-row [data-fact="Territory"] { order: 4; flex: 1 1 0; }
+  body[data-directory="vendors"] .record-row [data-fact="Territory"] .fact-value { color: var(--fg-muted); }
+  body[data-directory="vendors"] .record-row .contact-note { order: 5; margin-inline-start: auto; }
+  body[data-directory="vendors"] .record-row :is(.row-fact, .contact-note) .fact-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  body[data-directory="vendors"] .field-search { max-width: none; }
 }
 
 .vendor-meetings { min-height: 0; padding: 20px; margin-block-end: 16px; min-width: 0; overflow-wrap: anywhere; }
@@ -370,7 +382,8 @@ dialog.party-editor::backdrop { background: var(--scrim); }
   #applyFilters { display: none; }
   /* Each Clients filter shows its value in the toolbar, and Clear undoes them all; only the tile the list came from keeps a chip. */
   body[data-directory="clients"] #chipBar .chip:not([data-tile-chip]) { display: none; }
-  body[data-directory="vendors"] .field-search { flex-basis: 9rem; }
+  /* Wide enough for its whole hint, such as "Find in Practice Management Consultant". */
+  body[data-directory="vendors"] .field-search { flex-basis: calc(var(--hint-length, 13) * 0.62em + 2 * var(--space-3)); max-width: 24rem; }
 }
 body[data-directory="clients"] #applyFilters { display: none; }
 /* The count and owner chips sit in the top bar beside the page title. */
@@ -398,7 +411,9 @@ body[data-directory-view="meetings"] :is(.search-dock, #chipBar, .business-body)
 body:not([data-directory-view="meetings"]) .vendor-meetings-host { display: none; }
 /* The phone's one tab row has no room for the count beside the vendor views and owner chips. */
 @media (max-width: 760px), (hover: none) and (pointer: coarse) and (max-width: 1023px) {
-  body[data-directory="vendors"] .app-layout-tabs .result-summary { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  body[data-directory="vendors"] .app-layout-tabs :is(.result-summary:not(:has(.summary-place)), .summary-count) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  /* Inside a category the category's name is the title. */
+  body[data-directory="vendors"] .app-layout-tabs .summary-place { margin-inline-end: var(--space-2); color: var(--fg); font-size: var(--font-size-2); font-weight: var(--font-weight-strong); white-space: nowrap; }
   /* An account's name can be long, so on a phone the trail skips National Accounts and the name shortens to keep the owner chips in view. */
   #accountsBack { display: none; }
   body[data-directory="clients"] .app-layout-tabs .result-summary { max-width: 8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -504,7 +519,8 @@ body[data-directory] .search-dock.glass { padding-inline: 0; border: 0; border-r
 }
 /* On a phone the counts are one row that scrolls sideways. */
 @media (max-width: 767px) {
-  .table-filters { flex-basis: 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  /* The padding keeps each count's focus ring inside the row that scrolls. */
+  .table-filters { flex-basis: 100%; flex-wrap: nowrap; padding: 3px; overflow-x: auto; scrollbar-width: none; }
   .filter-count { flex: none; }
 }
 .directory-tile-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(12.5rem, 1fr)); gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
