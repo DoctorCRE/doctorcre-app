@@ -59,7 +59,7 @@ for (const [width, height, read, contactId] of [
     const page = await browser.newPage({ viewport: { width, height } });
     await page.route("https://**", (r) => r.abort());
     await page.route("**/api/v1/business/**", (r) => r.fulfill({ json: personVendor(r.request().url(), contactId) }));
-    await page.goto(`${server.url}/vendors?record=${vendorId}`);
+    await page.goto(`${server.url}/vendors?all=true&record=${vendorId}`);
     const panel = page.locator("#recordPanel");
     await panel.getByRole("region", { name: "Vendor contacts" }).waitFor();
     await page.screenshot({ path: `${shots}/vendor-drawer-${width}-${read}.png` });

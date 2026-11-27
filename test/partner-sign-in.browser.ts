@@ -2331,7 +2331,7 @@ for (const width of [390, 1440]) {
   test(`Vendor rows show only the contact date on switched CARR sign-in at ${width}px`, async (t) => {
     const { context, server } = await app(t, { width, signIn: "carr", switchDay: true });
     const page = await context.newPage();
-    await page.goto(server.origin + "/vendors");
+    await page.goto(server.origin + "/vendors?all=true");
     for (const [index, note] of vendorContactNotes.entries()) {
       const row = page.getByRole("link", { name: new RegExp(`^Demo Partner 0${index + 1}\\b`) });
       const text = (await row.textContent({ timeout: 5000 })) ?? "";
@@ -3176,7 +3176,7 @@ for (const [signIn, width] of [
       ["/", page.getByText(filingTitle, { exact: true })],
       ["/deals", page.getByRole("heading", { name: dealName, exact: true })],
       ["/leads", page.getByRole("button", { name: "Dr. Example 1", exact: true })],
-      ["/vendors", page.getByRole("link", { name: /^Demo Partner 01\b/ })],
+      ["/vendors?all=true", page.getByRole("link", { name: /^Demo Partner 01\b/ })],
       ["/clients", page.getByRole("link", { name: /^Demo Practice 01\b/ })],
       ["/calendar?day=2026-11-24", page.locator("#dayPanelBody").getByText(dealName, { exact: false }).first()],
       ["/invoices", page.getByText(invoiceName, { exact: true }).first()],

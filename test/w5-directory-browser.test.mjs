@@ -59,7 +59,7 @@ for (const width of [1440, 390]) test(`V01 vendor search destination keeps Vendo
   assert.deepEqual(errors, []);
 });
 for(const width of [1440,390])test(`W5 rendered directories and wide dialog at ${width}px`,async t=>{
-  const h=await open(t,width),{page}=h;await page.goto(origin+'/vendors?mode=live', {waitUntil:'domcontentloaded'});await page.waitForSelector('.record-row').catch(async e=>{assert.fail(JSON.stringify({errors:h.errors,body:await page.locator('main').innerText()}));});
+  const h=await open(t,width),{page}=h;await page.goto(origin+'/vendors?all=true&mode=live', {waitUntil:'domcontentloaded'});await page.waitForSelector('.record-row').catch(async e=>{assert.fail(JSON.stringify({errors:h.errors,body:await page.locator('main').innerText()}));});
   assert.doesNotMatch(await page.locator('.record-row').first().innerText(), /Yours|Proven|Not recorded/);
   assert.equal(await page.locator('#pager').count(),0);assert.doesNotMatch(await page.locator('main').innerText(),/Checked a while ago|About this list|source|No filters|read again/i);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
@@ -80,7 +80,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`ve
   const h = await open(t, width), { page } = h;
   await page.addInitScript(theme => localStorage.setItem('dealroom-theme', theme), theme);
   h.overrides.set('00000000-0000-4000-8000-000000000001', { tier: 'Trial', reason: 'Synthetic hand-set reason', recorded_by: 'joe', recorded_at: '2026-09-01T12:00:00Z' });
-  await page.goto(origin + '/vendors?mode=live', { waitUntil: 'domcontentloaded' });
+  await page.goto(origin + '/vendors?all=true&mode=live', { waitUntil: 'domcontentloaded' });
   await page.locator('.record-row').first().click();
   const record = page.locator('.relationship-section');
   await record.waitFor();
@@ -93,11 +93,12 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`ve
   assert.deepEqual(h.writes, []);
   assert.deepEqual(h.errors, []);
 });
-test('an old market bookmark opens the vendor list and its drawer', async t => {
+test('an old market bookmark opens the vendor tiles, and a vendor from there opens its drawer', async t => {
   const { page } = await open(t);
   await page.goto(`${origin}/vendors?vendorView=market&vendorMarket=example`);
   await page.waitForFunction(() => document.querySelector('#resultsTitle').textContent === 'Vendors');
   assert.equal(new URL(page.url()).search, '');
+  await page.locator('a.vendor-tile', { hasText: 'All vendors' }).click();
   await page.locator('.record-row').first().click();
   await page.getByRole('dialog').waitFor();
   await page.keyboard.press('Escape');
@@ -105,7 +106,7 @@ test('an old market bookmark opens the vendor list and its drawer', async t => {
 });
 
 test('W5 filters, traversal and autonomous refresh recover without losing search',async t=>{
-  const h=await open(t),{page}=h;await page.goto(origin+'/vendors?mode=live', {waitUntil:'domcontentloaded'});await page.waitForSelector('.record-row');
+  const h=await open(t),{page}=h;await page.goto(origin+'/vendors?all=true&mode=live', {waitUntil:'domcontentloaded'});await page.waitForSelector('.record-row');
   await page.locator('[data-owner="dell"]').click();await page.waitForFunction(()=>document.querySelector('#resultSummary').textContent.startsWith('31 '));assert.match(h.calls.at(-1),/owner=dell/);
   await page.locator('#territoryInput').fill('Demo North');await page.locator('#territoryInput').dispatchEvent('change');await page.waitForFunction(()=>location.search.includes('territory=Demo'));
   await page.locator('#sortSelect').selectOption('territory');await page.waitForFunction(()=>location.search.includes('sort=territory'));
@@ -135,7 +136,7 @@ test('W5 filters, traversal and autonomous refresh recover without losing search
   h.setFail(true);await page.evaluate(()=>window.dispatchEvent(new Event('online')));await page.waitForSelector('.record-empty');h.setFail(false);await page.clock.fastForward(31000);await page.waitForSelector('.record-row');assert.deepEqual(h.errors,[]);
 });
 test('a new search puts the reader at its first result at once',async t=>{
-  const {page}=await open(t);await page.goto(origin+'/vendors?mode=live',{waitUntil:'domcontentloaded'});await page.waitForSelector('.record-row');
+  const {page}=await open(t);await page.goto(origin+'/vendors?all=true&mode=live',{waitUntil:'domcontentloaded'});await page.waitForSelector('.record-row');
   const scrollY=await page.evaluate(()=>{
     const main=document.getElementById('appMainSlot');main.scrollTo({top:1500,behavior:'instant'});
     document.querySelector('#searchInput').value='Demo';document.querySelector('#searchInput').form.requestSubmit();
@@ -144,7 +145,7 @@ test('a new search puts the reader at its first result at once',async t=>{
   assert.equal(scrollY,0);
 });
 test('W5 reduced motion stops hover travel and pulse while keeping content visible',async t=>{
-  const {page}=await open(t);await page.emulateMedia({reducedMotion:'reduce'});await page.goto(origin+'/vendors', {waitUntil:'domcontentloaded'});await page.waitForSelector('.record-row');await page.locator('.record-row').first().hover();
+  const {page}=await open(t);await page.emulateMedia({reducedMotion:'reduce'});await page.goto(origin+'/vendors?all=true', {waitUntil:'domcontentloaded'});await page.waitForSelector('.record-row');await page.locator('.record-row').first().hover();
   const style=await page.locator('.record-row').first().evaluate(el=>({animation:getComputedStyle(el).animationName,transform:getComputedStyle(el).transform,opacity:getComputedStyle(el).opacity}));assert.deepEqual(style,{animation:'none',transform:'none',opacity:'1'});
   await page.screenshot({animations:'disabled',path:'out/test-artifacts/w5/reduced-motion.png'});
 });
@@ -156,12 +157,12 @@ test('W5 Clients exposes every requested sort and owner without territory contro
 });
 
 test('W5 keyboard reaches disclosures and keeps focus across a refresh',async t=>{
- const {page}=await open(t);await page.goto(origin+'/vendors?mode=live', {waitUntil:'domcontentloaded'});await page.locator('.record-row').first().click();await page.waitForSelector('.relationship-section');
+ const {page}=await open(t);await page.goto(origin+'/vendors?all=true&mode=live', {waitUntil:'domcontentloaded'});await page.locator('.record-row').first().click();await page.waitForSelector('.relationship-section');
  await page.locator('[data-details-key="intro-demo-intro"] summary').focus();await page.keyboard.press('Tab');assert.equal(await page.evaluate(()=>document.activeElement.tagName),'SUMMARY');
  await page.locator('[data-details-key="entry-demo-entry"] summary').focus();await page.evaluate(()=>window.dispatchEvent(new Event('online')));await page.waitForTimeout(150);assert.equal(await page.evaluate(()=>document.activeElement.closest('details')?.dataset.detailsKey),'entry-demo-entry');
 });
 test('W5 Back restores cached query rows while its read is pending',async t=>{
- const {page}=await open(t);await page.goto(origin+'/vendors?mode=live', {waitUntil:'domcontentloaded'});await page.waitForSelector('.record-row');await page.locator('[data-owner="joe"]').click();await page.waitForFunction(()=>document.querySelector('#resultSummary').textContent.startsWith('31 '));
+ const {page}=await open(t);await page.goto(origin+'/vendors?all=true&mode=live', {waitUntil:'domcontentloaded'});await page.waitForSelector('.record-row');await page.locator('[data-owner="joe"]').click();await page.waitForFunction(()=>document.querySelector('#resultSummary').textContent.startsWith('31 '));
  await page.locator('[data-owner="dell"]').click();await page.waitForFunction(()=>document.querySelector('.record-row .row-owner')?.textContent.includes('Dell'));
  const held=[];await page.route('**/api/v1/business/vendors?**',r=>new URL(r.request().url()).searchParams.get('owner')==='joe'?held.push(r):r.fallback());
  await page.goBack();await settles(async()=>{assert.equal(await page.locator('[data-owner="joe"]').getAttribute('aria-pressed'),'true');assert.equal(await page.locator('.record-row .row-owner').evaluateAll(rows=>rows.every(row=>row.textContent.includes('Joe'))),true);});
@@ -170,17 +171,17 @@ test('W5 Back restores cached query rows while its read is pending',async t=>{
 test('W5 failed continuous page is visible and polling retries without scroll',async t=>{
  const {page}=await open(t);let fail=true;
  await page.route('**/api/v1/business/vendors?**',r=>new URL(r.request().url()).searchParams.get('page')==='2'&&fail?r.fulfill({status:503,json:{error:'DEPENDENCY_UNAVAILABLE'}}):r.fallback());
- await page.goto(origin+'/vendors?mode=live', {waitUntil:'domcontentloaded'});await page.waitForSelector('.record-row');await page.evaluate(()=>{document.getElementById('appMainSlot').scrollTo(0,1e6);scrollTo(0,1e6);});await page.waitForTimeout(150);
+ await page.goto(origin+'/vendors?all=true&mode=live', {waitUntil:'domcontentloaded'});await page.waitForSelector('.record-row');await page.evaluate(()=>{document.getElementById('appMainSlot').scrollTo(0,1e6);scrollTo(0,1e6);});await page.waitForTimeout(150);
  assert.match(await page.locator('#noticeRegion').innerText(),/Could not load more/);assert.equal(await page.locator('.record-row').count(),25);
  fail=false;await page.clock.fastForward(31000);await page.waitForFunction(()=>document.querySelectorAll('.record-row').length>=50);
 });
 test('W5 missing original details never displays summary as original',async t=>{
  const {page}=await open(t);await page.route('**/api/v1/business/vendors/*',r=>{const p=directoryFixture(r.request().url());p.record.relationship.recent_entries[0].detail=null;return r.fulfill({json:p});});
- await page.goto(origin+'/vendors?mode=live', {waitUntil:'domcontentloaded'});await page.locator('.record-row').first().click();await page.waitForSelector('.relationship-section');assert.equal(await page.locator('[data-details-key="entry-demo-entry"]').count(),0);
+ await page.goto(origin+'/vendors?all=true&mode=live', {waitUntil:'domcontentloaded'});await page.locator('.record-row').first().click();await page.waitForSelector('.relationship-section');assert.equal(await page.locator('[data-details-key="entry-demo-entry"]').count(),0);
 });
 test('W5 vendor business facts remain visible in the modal',async t=>{
  const {page}=await open(t);await page.route('**/api/v1/business/vendors/*',r=>{const p=directoryFixture(r.request().url());p.record.verticals=['Synthetic specialist vertical'];return r.fulfill({json:p});});
- await page.goto(origin+'/vendors?mode=live', {waitUntil:'domcontentloaded'});await page.locator('.record-row').first().click();await page.waitForSelector('.relationship-section');const body=await page.locator('#recordBody').innerText();for(const value of ['Synthetic specialist vertical','Banking','Warm','Active'])assert.ok(body.includes(value),value);
+ await page.goto(origin+'/vendors?all=true&mode=live', {waitUntil:'domcontentloaded'});await page.locator('.record-row').first().click();await page.waitForSelector('.relationship-section');const body=await page.locator('#recordBody').innerText();for(const value of ['Synthetic specialist vertical','Banking','Warm','Active'])assert.ok(body.includes(value),value);
 });
 for(const width of [1440,390]) test(`vendor Conversations show newest notes first at ${width}px`,async t=>{
  const h=await open(t,width),{page}=h;
@@ -193,7 +194,7 @@ for(const width of [1440,390]) test(`vendor Conversations show newest notes firs
   ];
   return r.fulfill({json:payload});
  });
- await page.goto(origin+'/vendors?mode=live');
+ await page.goto(origin+'/vendors?all=true&mode=live');
  await page.locator('.record-row').first().click();
  const conversations=page.locator('.record-section').filter({has:page.getByRole('heading',{name:'Conversations',exact:true})});
  await conversations.waitFor();
@@ -217,7 +218,7 @@ for(const kind of ['introduced','can_introduce']) test(`vendor ${kind} notes sho
   ].map(item=>({...item,kind,from_name:'Demo Partner',to_name:'Demo Practice',via_party:null}));
   return r.fulfill({json:payload});
  });
- await page.goto(origin+'/vendors?mode=live');
+ await page.goto(origin+'/vendors?all=true&mode=live');
  await page.locator('.record-row').first().click();
  const network=page.locator('.network-grid');
  await network.waitFor();
@@ -227,7 +228,7 @@ for(const kind of ['introduced','can_introduce']) test(`vendor ${kind} notes sho
  assert.deepEqual(h.errors,[]);
 });
 for(const dataset of ['clients','vendors']) test(`${dataset} record panel shows no deal evidence block`,async t=>{
- const {page,errors}=await open(t);await page.goto(`${origin}/${dataset}`);await page.locator('.record-row').first().click();
+ const {page,errors}=await open(t);await page.goto(`${origin}/${dataset}${dataset==='vendors'?'?all=true':''}`);await page.locator('.record-row').first().click();
  await page.waitForFunction(()=>{const text=document.querySelector('#recordBody')?.textContent.trim();return text&&!/loading/i.test(text);});
  assert.equal(await page.locator('#recordBody .correspondence-evidence').count(),0);
  assert.doesNotMatch(await page.locator('#recordBody').innerText(),/Email threads|Meetings unavailable|Refresh deal|Retry evidence/);
@@ -235,7 +236,7 @@ for(const dataset of ['clients','vendors']) test(`${dataset} record panel shows 
 });
 
 for(const dataset of ['clients','vendors']) test(`${dataset} record panel labels the owner`,async t=>{
- const {page,errors}=await open(t);await page.goto(`${origin}/${dataset}`);await page.locator('.record-row').first().click();
+ const {page,errors}=await open(t);await page.goto(`${origin}/${dataset}${dataset==='vendors'?'?all=true':''}`);await page.locator('.record-row').first().click();
  const tone=page.locator('#recordPanel .record-tone').filter({hasText:'Owner'});await tone.waitFor();
  assert.match(await tone.innerText(),/Owner\s+Joe/);
  const [owner,fact]=await page.evaluate(()=>['#recordPanel .record-tone .fact-label','#recordBody .record-field dt'].map(selector=>getComputedStyle(document.querySelector(selector)).color));
@@ -346,7 +347,7 @@ for (const width of [390, 1440]) test(`vendor conversation provenance is hidden 
   payload.record.relationship.recent_entries = [{id:'plain', kind:'note', when:'2026-03-02T12:00:00Z', summary:"Met Alex — recovered from Alex's CARR calendar history", detail:"Met Alex — recovered from Alex's CARR calendar history\n\nMarch 2, 2026 from the historical CARR calendar read"}];
   return r.fulfill({json:payload});
  });
- await page.goto(origin+'/vendors?mode=live');
+ await page.goto(origin+'/vendors?all=true&mode=live');
  await page.locator('.record-row').first().click();
  const conversation = page.locator('[data-details-key="entry-plain"]');
  await conversation.locator('summary').click();
@@ -362,7 +363,7 @@ for (const width of [390, 1440]) for (const tall of [false, true]) test(`vendor 
   await page.emulateMedia({ reducedMotion: 'reduce' });
   const recording = JSON.parse(await readFile(new URL('./fixtures/vendor-meetings/recordings.json', import.meta.url), 'utf8'));
   await page.route('**/mcp', r => r.fulfill({ json: { jsonrpc: '2.0', id: 1, result: { content: [{ type: 'text', text: JSON.stringify(recording.research) }] } } }));
-  await page.goto(origin + '/vendors?mode=live');
+  await page.goto(origin + '/vendors?all=true&mode=live');
   await page.locator('.record-row').first().waitFor();
   await page.evaluate(() => { document.getElementById('appMainSlot').scrollTo(0, 1e6); scrollTo(0, 1e6); });
   await page.waitForFunction(() => document.querySelectorAll('.record-row').length >= 50);
@@ -414,7 +415,7 @@ test('session invalidation disconnects the search dock observer', async t => {
       }
     };
   });
-  await page.goto(origin + '/vendors?mode=live');
+  await page.goto(origin + '/vendors?all=true&mode=live');
   await page.waitForFunction(() => window.searchDockObserver);
   await page.evaluate(() => window.dispatchEvent(new Event('doctorcre-session-invalidated')));
   assert.equal(await page.evaluate(() => window.searchDockDisconnected), true);

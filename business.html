@@ -32,7 +32,7 @@
     </div>
 
     <div class="directory-views" id="directoryViews" data-layout-slot="tabs" role="group" aria-label="Vendor views">
-      <button type="button" data-directory-view="list" aria-pressed="true">List</button>
+      <button type="button" data-directory-view="list" aria-pressed="true">Categories</button>
       <button type="button" data-directory-view="meetings" aria-pressed="false">People worth meeting</button>
     </div>
 
@@ -94,6 +94,7 @@
 
     <section class="business-body" aria-labelledby="resultsTitle">
       <div class="result-column" data-panel-background>
+        <div id="vendorTiles" class="vendor-tiles" aria-describedby="resultSummary" hidden></div>
         <div id="listRegion" class="list-region" aria-busy="true" aria-describedby="resultSummary">
           <ol class="record-list" id="recordList">
             <li class="record-skeleton"><span class="skeleton-line"></span><span class="skeleton-line short"></span></li>
