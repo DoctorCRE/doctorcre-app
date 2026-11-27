@@ -6,27 +6,18 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test("Vendors filter by owner, reset and search the loaded directory", async ({ page }) => {
+test("Vendors filter by owner and search, and Clear filters brings everyone back", async ({ page }) => {
   await page.goto("/vendors?all=true");
   await expect(page.locator(".record-row").first()).toBeVisible();
   await page.getByRole("button", { name: "Close Today", exact: true }).click();
   await page.locator('[data-owner="dell"]').click();
   await expect(page).toHaveURL(/owner=dell/);
-  await page.locator("#resetFilters").click();
-  await expect(page.locator(".record-row").first()).toBeVisible();
+  await page.locator('[data-owner="all"]').click();
+  await expect(page).toHaveURL("/vendors?all=true");
   await page.locator("#searchInput").fill("V2 no matching vendor 35f9009c");
   await expect(page.locator(".record-row")).toHaveCount(0);
-  await page.locator("#resetFilters").click();
+  await page.getByRole("button", { name: "Clear filters", exact: true }).click();
   await expect(page.locator(".record-row").first()).toBeVisible();
-});
-
-test("V2-A02: Vendor Reset remains available with Today open at 1280px", async ({ page }) => {
-  await page.goto("/vendors?all=true");
-  await expect(page.locator(".record-row").first()).toBeVisible();
-  await page.locator('[data-owner="dell"]').click();
-  await expect(page).toHaveURL(/owner=dell/);
-  await page.locator("#resetFilters").click();
-  await expect(page).toHaveURL("/vendors?all=true");
 });
 
 test("Vendors inspect relationship context and close the full record", async ({ page }) => {

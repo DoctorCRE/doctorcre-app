@@ -2331,14 +2331,16 @@ for (const width of [390, 1440]) {
   test(`Vendor rows show only the contact date on switched CARR sign-in at ${width}px`, async (t) => {
     const { context, server } = await app(t, { width, signIn: "carr", switchDay: true });
     const page = await context.newPage();
-    await page.goto(server.origin + "/vendors?all=true");
+    await page.goto(server.origin + "/vendors?all=true&sort=name");
     for (const [index, note] of vendorContactNotes.entries()) {
       const row = page.getByRole("link", { name: new RegExp(`^Demo Partner 0${index + 1}\\b`) });
       const text = (await row.textContent({ timeout: 5000 })) ?? "";
       if (note === null) {
-        assert.doesNotMatch(text, /Last contacted/);
+        // A quiet vendor with no contact says how long instead of a date.
+        assert.doesNotMatch(text, /Last contacted (?!No contact yet)/);
       } else {
-        assert.ok(await row.getByText("Last contacted Sep 30, 2026", { exact: true }).isVisible(), text);
+        // A quiet vendor adds its days after the date.
+        assert.ok(await row.getByText(/^Last contacted Sep 30, 2026( · \d+ days)?$/).isVisible(), text);
       }
     }
   });

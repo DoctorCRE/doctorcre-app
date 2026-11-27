@@ -19,7 +19,7 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) test(`Ve
     return route.fulfill({ json: directoryFixture(route.request().url()) });
   });
   await page.goto('/vendors?all=true');
-  await expect(page.locator('.search-dock #refreshList')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Quiet', exact: true })).toBeVisible();
   const first = page.locator('.record-row').first();
   await first.click();
   const contacts = page.getByRole('region', { name: 'Vendor contacts' });
