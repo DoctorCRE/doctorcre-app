@@ -36,8 +36,7 @@ function directoryRead(url, state, viewer, namespace) {
     &&(!query.q||row.name.toLowerCase().includes(query.q.toLowerCase()))
     &&(!query.territory||row.territory===query.territory)
     &&(dataset==='clients'
-      ?(!query.status||row.recorded_status===query.status)&&(!query.type||row.recorded_client_type===query.type)
-        &&(query.pipeline==='any'||(query.pipeline==='active'?row.recorded_status_active_pipeline===true:query.pipeline==='other'?row.recorded_status_active_pipeline===false:row.recorded_status_active_pipeline==null))
+      ?!query.status||row.recorded_status===query.status
       :(!query.category||row.recorded_category===query.category)&&(!query.stage||row.recorded_stage===query.stage)&&(!query.disposition||row.recorded_disposition===query.disposition)));
   const sortField=query.sort==='recent'?'updated_at':query.sort.startsWith('last_deal')?'last_deal_at':query.sort;
   const descending=query.sort==='recent'||query.sort==='last_deal_desc';

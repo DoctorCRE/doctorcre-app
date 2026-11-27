@@ -22,7 +22,6 @@
 .field-search { flex: 1 1 10rem; max-width: 16rem; }
 #secondaryFilters > summary { display: none; }
 .filter-form, .filter-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
-.filter-form .field { flex: 1 1 7rem; }
 .field { display: grid; gap: var(--space-1); min-width: 0; }
 .field label { color: var(--fg-muted); font-size: var(--font-size-1); }
 .field input, .field select { width: 100%; min-height: var(--touch); padding: 0 var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); background: var(--surface-2); color: var(--fg); font: inherit; font-size: var(--font-size-1); transition: border-color var(--duration-hover) var(--ease-out); }
@@ -59,6 +58,14 @@
 .result-column { display: grid; gap: var(--space-3); min-width: 0; }
 .result-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-3); }
 .result-heading .result-title { margin: 0; font-size: var(--font-size-3); font-weight: var(--font-weight-strong); line-height: var(--line-height-heading); }
+/* Inside a tile the top bar reads "‹ Clients / Dental · 64 clients", and the first part goes back to the tiles. */
+.place-back { display: inline-flex; align-items: center; min-height: 28px; color: var(--fg-muted); font-size: var(--font-size-1); text-decoration: none; }
+.place-back::before { content: "‹"; margin-inline-end: var(--space-1); }
+.place-back::after { content: "/"; margin-inline: var(--space-2); color: var(--fg-quiet); }
+.place-back:hover { color: var(--fg); }
+.place-back[hidden] { display: none; }
+/* The link names the page, so the top bar does not name it twice. */
+body:has(#placeBack:not([hidden])) .app-layout-topbar .app-layout-title { display: none; }
 .result-summary { margin: 0; color: var(--fg-muted); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; }
 .result-summary:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: var(--space-1); }
 .record-list { display: grid; margin: 0; padding: 0; list-style: none; }
@@ -257,7 +264,6 @@ body.record-open { overflow: hidden; }
 @media (max-width: 767px) {
   #secondaryFilters > summary { display: list-item; min-height: var(--touch); align-content: center; color: var(--fg-muted); cursor: pointer; font-size: var(--font-size-1); }
   #secondaryFilters[open] > summary { margin-bottom: var(--space-2); }
-  .filter-row:not(.filter-row-actions) { display: grid; }
   /* The chip bar's Clear all already sits under the folded filters. */
   body[data-directory="clients"] .filter-row-actions { display: none; }
   body[data-directory="vendors"] .record-row { grid-template-areas: "head" "facts" "foot"; gap: var(--space-1); padding-block: var(--space-2); }
@@ -413,16 +419,26 @@ body:not([data-directory-view="meetings"]) .vendor-meetings-host { display: none
   :is(.record-row, .list-head) .row-updated { grid-area: updated; }
   .record-skeleton { grid-template-columns: minmax(0, 1fr) minmax(0, 3fr); align-items: center; padding: var(--space-3); }
   .record-skeleton .skeleton-line { margin: 0; }
-  body[data-directory="clients"] .record-list { grid-template-columns: minmax(12rem, 1.2fr) minmax(0, 4fr) max-content max-content; column-gap: var(--space-5); }
-  body[data-directory="clients"] :is(.record-list > *, .record-row, .record-item > .client-deals) { grid-column: 1 / -1; }
+  /* Every client column is a list column, so the open deal's own link can sit in its cell over the row. */
+  body[data-directory="clients"] .record-list { grid-template-columns: minmax(11rem, 1.4fr) 7rem minmax(0, 1fr) minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr) max-content max-content; column-gap: var(--space-5); --deal: 4; }
+  /* Inside a practice type the Practice type column leaves. */
+  body[data-directory="clients"] #recordList[data-in-category] { grid-template-columns: minmax(11rem, 1.4fr) 7rem minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr) max-content max-content; --deal: 3; }
+  body[data-directory="clients"] :is(.record-list > *, .record-row) { grid-column: 1 / -1; }
   body[data-directory="clients"] :is(.record-item, .record-row) { display: grid; grid-template-columns: subgrid; }
-  body[data-directory="clients"] :is(.record-row, .list-head) { grid-template-areas: "head facts owner updated"; }
-  body[data-directory="clients"] .row-facts { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); column-gap: var(--space-5); }
-  body[data-directory="clients"] [data-fact="Status"] { grid-column: 1; }
-  body[data-directory="clients"] [data-fact="Practice type"] { grid-column: 2; }
-  body[data-directory="clients"] [data-fact="Deal type"] { grid-column: 3; }
-  body[data-directory="clients"] [data-fact="Client type"] { grid-column: 4; }
-  body[data-directory="clients"] [data-fact="Territory"] { grid-column: 5; }
+  body[data-directory="clients"] .record-item > :is(.record-row, .client-deals) { grid-row: 1; }
+  body[data-directory="clients"] .row-facts { display: contents; }
+  body[data-directory="clients"] .row-head { grid-column: 1; }
+  body[data-directory="clients"] [data-fact="Status"] { grid-column: 2; }
+  body[data-directory="clients"] [data-fact="Practice type"] { grid-column: 3; }
+  body[data-directory="clients"] :is([data-fact="Open deal"], .client-deals) { grid-column: var(--deal); }
+  body[data-directory="clients"] [data-fact="Client type"] { grid-column: calc(var(--deal) + 1); }
+  body[data-directory="clients"] [data-fact="Territory"] { grid-column: calc(var(--deal) + 2); }
+  body[data-directory="clients"] :is(.record-row, .list-head) .row-owner { grid-area: 1 / calc(var(--deal) + 3); }
+  body[data-directory="clients"] :is(.record-row, .list-head) .row-updated { grid-area: 1 / calc(var(--deal) + 4); }
+  /* Only the deal names take clicks; the rest of the cell opens the client like the rest of the row. */
+  body[data-directory="clients"] .record-item > .client-deals { z-index: 1; align-self: center; min-width: 0; margin: 0; padding: 0; pointer-events: none; }
+  body[data-directory="clients"] .record-item > .client-deals a { pointer-events: auto; overflow: hidden; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
+  body[data-directory="clients"] .record-item > .client-deals a:hover { text-decoration: underline; }
 }
 
 /* A deal's diagram: who brought each vendor in and who was chosen. Lines are each box's own elbow, so they never need measuring. */
@@ -458,16 +474,18 @@ body:not([data-directory-view="meetings"]) .vendor-meetings-host { display: none
 .deal-diagram-restack button { min-height: var(--touch); padding: 0 var(--space-1); border: 0; border-radius: var(--radius-2); background: none; color: var(--fg-quiet); font: inherit; cursor: pointer; }
 .deal-diagram-restack button:hover { background: var(--surface-2); color: var(--fg); }
 /* A directory opens on tiles; the list's filters and chips return inside one. */
-body[data-tiles] :is(#filterForm .filter-row:not(.filter-row-actions), .filter-actions, #chipBar, #secondaryFilters > summary) { display: none; }
-/* Vendors name their category in the title and their filters on the toolbar, so they need no chips. */
-body[data-directory="vendors"] #chipBar,
-body[data-directory="vendors"] :is(#filterForm .filter-row:not(.filter-row-actions), .filter-actions, #refreshList, #secondaryFilters > summary) { display: none; }
-/* Without refresh, the vendor status holds only screen-reader text, so it takes no line of its own. */
-body[data-directory="vendors"] .search-dock .hero-meta { position: absolute; }
+body[data-tiles] :is(.filter-actions, #chipBar, #secondaryFilters > summary) { display: none; }
+/* A directory names its place in the title and its filters on the toolbar, so it needs no chips. */
+body[data-directory] #chipBar,
+body[data-directory] :is(.filter-actions, #refreshList, #secondaryFilters > summary) { display: none; }
+/* Its owner chips moved to the top bar, so the filter drawer holds nothing and takes no room. */
+body[data-directory] #secondaryFilters { display: none; }
+/* Without refresh, the status holds only screen-reader text, so it takes no line of its own. */
+body[data-directory] .search-dock .hero-meta { position: absolute; }
 /* The search sits on the page, not in a second box around its own field. */
-body[data-directory="vendors"] .search-dock.glass { padding-inline: 0; border: 0; border-radius: 0; background: var(--ground); box-shadow: none; }
-.vendor-filters { display: flex; flex: 1 1 auto; flex-wrap: wrap; gap: var(--space-1); }
-.vendor-filters[hidden] { display: none; }
+body[data-directory] .search-dock.glass { padding-inline: 0; border: 0; border-radius: 0; background: var(--ground); box-shadow: none; }
+.table-filters { display: flex; flex: 1 1 auto; flex-wrap: wrap; gap: var(--space-1); }
+.table-filters[hidden] { display: none; }
 .filter-count { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 28px; padding: 0 var(--space-3); border: var(--hairline-width) solid var(--hairline); border-radius: var(--radius-round); background: none; color: var(--fg-muted); font: inherit; font-size: var(--font-size-1); cursor: pointer; }
 .filter-count:hover { background: var(--surface-2); }
 .filter-count[aria-pressed="true"] { border-color: var(--hairline-strong); background: var(--surface-3); color: var(--fg); }
@@ -475,14 +493,14 @@ body[data-directory="vendors"] .search-dock.glass { padding-inline: 0; border: 0
 .quiet-filter { margin-inline-start: auto; }
 .column-sort { padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
 .column-sort:hover, .column-sort.on { color: var(--fg); }
-.column-sort.on::after { content: " ↓"; }
+.column-sort.on::after { content: " ↓" / ""; }
 .contact-note.quiet { color: var(--status-warn-ink); }
 @media (hover: none) and (pointer: coarse) {
   .filter-count { min-height: var(--touch); }
 }
 /* On a phone the counts are one row that scrolls sideways. */
 @media (max-width: 767px) {
-  .vendor-filters { flex-basis: 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .table-filters { flex-basis: 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
   .filter-count { flex: none; }
 }
 .directory-tile-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(12.5rem, 1fr)); gap: var(--space-2); margin: 0; padding: 0; list-style: none; }

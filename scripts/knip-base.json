@@ -68,7 +68,6 @@
     "tests/regressions/qa-020-cleared-search-address.e2e.ts",
     "tests/regressions/qa-021-singular-lead-count.e2e.ts",
     "tests/regressions/round2/qa-027-deal-owner-reload.e2e.ts",
-    "tests/regressions/round2/qa-028-pipeline-default-label.e2e.ts",
     "tests/regressions/round2/qa-029-singular-client-count.e2e.ts",
     "tests/regressions/round2/qa-034-national-market-agent.e2e.ts",
     "tests/regressions/synthetic.setup.e2e.ts",

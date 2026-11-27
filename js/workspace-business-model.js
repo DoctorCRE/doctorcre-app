@@ -23,17 +23,9 @@ const API_PREFIX = "/api/v1/business/";
 const SCOPES = ["team", "mine"];
 const DEFAULT_SCOPE = "team";
 const SCOPE_LABEL = { team: "Team", mine: "My work" };
-export const SORTS = ["name", "recent", "vertical", "deal_type", "last_deal_desc", "last_deal_asc", "territory", "relationship"];
+const SORTS = ["name", "recent", "vertical", "deal_type", "last_deal_desc", "last_deal_asc", "territory", "relationship", "status", "owner"];
 /** Vendors are ordered by relationship, then name, unless a column heading says otherwise. */
 export const defaultSort = (dataset) => dataset === "vendors" ? "relationship" : "name";
-const SORT_LABEL = { name: "Alphabetical", recent: "Recently updated", vertical: "Vertical", deal_type: "Deal type", last_deal_desc: "Last deal · most recent", last_deal_asc: "Last deal · least recent", territory: "Territory", relationship: "Relationship" };
-export const PIPELINE_FILTERS = ["any", "active", "other", "unknown"];
-export const PIPELINE_LABEL = {
-  any: "Any pipeline",
-  active: "Active pipeline",
-  other: "Outside active pipeline",
-  unknown: "Pipeline not recorded",
-};
 export const PAGE_SIZE = 25;
 const MAX_PAGE = 200;
 export const MAX_QUERY_LENGTH = 80;
@@ -43,7 +35,7 @@ const SIGNED_OUT_CODE = "AUTHENTICATION_REQUIRED";
 const VIEWERS = new Set(["joe", "dell"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SLUG = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
-const FILTER_KEYS = { clients: ["status", "type", "pipeline", "practice_type", "not_set", "national_account"], vendors: ["category", "no_category", "stage", "disposition", "quiet"] };
+const FILTER_KEYS = { clients: ["status", "practice_type", "not_set", "national_account"], vendors: ["category", "no_category", "stage", "disposition", "quiet"] };
 const SOURCE_FOR = { clients: "client", vendors: "vendor" };
 
 export const LIST_ROW_KEYS = {
@@ -86,7 +78,7 @@ export function datasetForPath(pathname) {
 export function defaultQuery(dataset) {
   const base = { dataset, scope: DEFAULT_SCOPE, owner: "all", territory: "", q: "", sort: defaultSort(dataset), page: 1, all: "" };
   return dataset === "clients"
-    ? { ...base, status: "", type: "", pipeline: "any", practice_type: "", not_set: "", national_account: "" }
+    ? { ...base, status: "", practice_type: "", not_set: "", national_account: "" }
     : { ...base, category: "", no_category: "", stage: "", disposition: "", quiet: "", relationship: "" };
 }
 
@@ -118,8 +110,6 @@ export function parseViewState(pathname, search) {
   const query = { ...defaultQuery(dataset), scope, sort, q: rawQuery, page: readPage(params) };
   if (dataset === "clients") {
     query.status = readSlug(params, "status");
-    query.type = readSlug(params, "type");
-    query.pipeline = PIPELINE_FILTERS.includes(params.get("pipeline")) ? params.get("pipeline") : "any";
     query.practice_type = (params.get("practice_type") || "").trim().slice(0, MAX_QUERY_LENGTH);
     query.not_set = params.get("not_set") === "true" && !query.practice_type ? "true" : "";
     query.national_account = params.get("national_account") === "any" ? "any" : "";
@@ -146,7 +136,7 @@ function queryPairs(query) {
   if (query.territory) pairs.push(["territory", query.territory]);
   for (const key of FILTER_KEYS[query.dataset]) {
     const value = query[key];
-    if (value && !(key === "pipeline" && value === "any")) pairs.push([key, value]);
+    if (value) pairs.push([key, value]);
   }
   if (query.sort !== defaultSort(query.dataset)) pairs.push(["sort", query.sort]);
   if (query.page > 1) pairs.push(["page", String(query.page)]);
@@ -238,6 +228,32 @@ export function hasActiveFilters(query) {
   return ["scope", "owner", "territory", "q", "sort", "relationship", ...FILTER_KEYS[query.dataset]].some((key) => query[key] !== base[key]);
 }
 
+/** The status chips inside a Clients tile: the engine's status filter and the tile count each one shows. */
+export const CLIENT_STATUS_CHIPS = [
+  { status: "active_deal", word: "Open deal", count: "open_deal" },
+  { status: "past_client", word: "Past client", count: "past_client" },
+  { status: "no_deal_yet", word: "No deal yet", count: "no_deal_yet" },
+];
+
+/** The Clients tile a list was opened from, or null for a search across every tile. */
+export function clientPlace(query) {
+  if (query.dataset !== "clients") return null;
+  if (query.all) return "All clients";
+  if (query.national_account) return "National Accounts";
+  if (query.not_set) return "Not set";
+  return query.practice_type || null;
+}
+
+/** That tile's counts from the tiles answer, so the chips count what the tile counted. */
+export function placeCounts(tiles, query) {
+  if (!tiles) return null;
+  if (query.all) return tiles.all;
+  if (query.national_account) return tiles.national_accounts;
+  if (query.not_set) return tiles.not_set;
+  const type = query.practice_type.toLowerCase();
+  return type ? tiles.practice_types.find((tile) => tile.practice_type.toLowerCase() === type) ?? null : null;
+}
+
 /** Visible chips: every narrowing currently applied, each removable on its own. */
 export function filterChips(query, facets = {}) {
   const chips = [];
@@ -247,9 +263,6 @@ export function filterChips(query, facets = {}) {
   if (query.q) chips.push({ key: "q", label: "Search", value: query.q, reset: "" });
   const labelFor = (list, slug) => (list || []).find((option) => option.slug === slug)?.label || slug;
   if (query.dataset === "clients") {
-    if (query.status) chips.push({ key: "status", label: "Status", value: labelFor(facets.statuses, query.status), reset: "" });
-    if (query.type) chips.push({ key: "type", label: "Client type", value: labelFor(facets.types, query.type), reset: "" });
-    if (query.pipeline !== "any") chips.push({ key: "pipeline", label: "Pipeline", value: PIPELINE_LABEL[query.pipeline], reset: "any" });
     // The tile a list was opened from stays visible at every width, and removing it returns to the tiles.
     if (query.all) chips.push({ key: "all", label: "Showing", value: "All clients", reset: "", tile: true });
     if (query.practice_type) chips.push({ key: "practice_type", label: "Practice type", value: query.practice_type, reset: "", tile: true });
@@ -261,8 +274,6 @@ export function filterChips(query, facets = {}) {
     if (query.stage) chips.push({ key: "stage", label: "Stage", value: labelFor(facets.stages, query.stage), reset: "" });
     if (query.disposition) chips.push({ key: "disposition", label: "Disposition", value: labelFor(facets.dispositions, query.disposition), reset: "" });
   }
-  // Vendors show their sort on the column heading and Quiet on its own filter.
-  if (query.dataset === "clients" && query.sort !== defaultSort("clients")) chips.push({ key: "sort", label: "Sorted by", value: SORT_LABEL[query.sort], reset: defaultSort("clients") });
   return chips;
 }
 
@@ -480,7 +491,6 @@ export function echoesQuery(payload, query) {
   if (echo.scope !== query.scope || !sorted || echo.page !== query.page || echo.page_size !== PAGE_SIZE) return false;
   return FILTER_KEYS[query.dataset].every((key) => {
     const wanted = query[key];
-    if (key === "pipeline") return echo.pipeline === wanted;
     if (key === "practice_type") return (echo.practice_type ?? null) === (query.not_set ? "" : wanted || null);
     if (key === "not_set") return true;
     if (key === "quiet" || key === "no_category") return (echo[key] === true) === (wanted === "true");

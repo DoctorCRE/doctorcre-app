@@ -2350,7 +2350,7 @@ for (const width of [390, 1440]) {
     const page = await context.newPage();
     await page.goto(server.origin + "/clients?all=true");
     await page.getByRole("link", { name: /^Demo Practice 01\b/ }).waitFor({ timeout: 5000 });
-    assert.deepEqual(await page.getByRole("heading", { level: 1 }).allTextContents(), ["Clients"]);
+    assert.deepEqual(await page.getByRole("heading", { level: 1 }).allTextContents(), ["Clients / All clients"]);
   });
 }
 

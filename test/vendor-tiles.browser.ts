@@ -179,7 +179,7 @@ for (const width of [390, 320])
 test("inside a category the relationship counts and Quiet filter the one table, and headings sort it", async (t) => {
   const { page, asked } = await openVendors(t, 1440, 900, { path: "/vendors?category=banker", ready: ".record-row" });
   const reads = () => asked.filter((url) => url.pathname.endsWith("/vendors")).length;
-  const counts = page.locator("#vendorFilters [data-relationship-filter]");
+  const counts = page.locator("#tableFilters [data-relationship-filter]");
   const total = await page.locator(".record-row").count();
   assert.equal(total, 31, "the whole category in one table");
   assert.equal(await page.locator("#resultSummary").textContent(), "Banking · 31 vendors");
@@ -218,7 +218,7 @@ test("inside a category the relationship counts and Quiet filter the one table, 
 
 test("outside a category the relationship counts and the Quiet count stay away, however small the answer", async (t) => {
   const { page } = await openVendors(t, 1440, 900, { path: "/vendors?all=true&q=Partner+0", ready: ".record-row" });
-  assert.equal(await page.locator("#vendorFilters [data-relationship-filter]").count(), 0);
+  assert.equal(await page.locator("#tableFilters [data-relationship-filter]").count(), 0);
   assert.equal(await page.getByRole("button", { name: /^Quiet/ }).textContent(), "Quiet");
 });
 
