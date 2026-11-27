@@ -60,6 +60,7 @@ export const UI_ENTRIES = {
   'ui-deal-path': 'deal-path',
   'ui-deal-diagram': 'deal-diagram',
   'ui-client-deals': 'client-deals',
+  'ui-vendor-relationships': 'vendor-relationships',
   'ui-deal-client-portal': 'deal-client-portal',
   'ui-timeline': 'timeline',
   'ui-deal-tours': 'deal-tours',

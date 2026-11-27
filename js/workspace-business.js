@@ -130,43 +130,62 @@ function clearVendorMeetings() {
   vendorMeetingsHost = null;
 }
 
-// A client's Deals section keeps its own state, such as an opened deal, across card repaints.
-let clientDeals = null;
+// A card's diagram section (a client's Deals, a vendor's Relationships) keeps its own state, such as an opened view, across card repaints.
+let cardSection = null;
 
-function clearClientDeals() {
-  clientDeals?.handle?.dispose();
-  clientDeals?.stage.remove();
-  clientDeals = null;
+const CARD_SECTIONS = {
+  clients: {
+    className: "client-deals-section",
+    read: id => `/api/engine/clients/${encodeURIComponent(id)}/deals`,
+    answer: body => Array.isArray(body?.deals) ? body.deals : null,
+    mount: () => import("./ui-client-deals.generated.js").then(module => module.mountClientDeals),
+    failed: "Couldn't load deals.",
+  },
+  vendors: {
+    className: "vendor-relationships-section",
+    read: id => `/api/engine/vendors/${encodeURIComponent(id)}/relationships`,
+    answer: body => body?.counts ? body : null,
+    mount: () => import("./ui-vendor-relationships.generated.js").then(module => module.mountVendorRelationships),
+    failed: "Couldn't load relationships.",
+  },
+};
+
+function clearCardSection() {
+  cardSection?.handle?.dispose();
+  cardSection?.stage.remove();
+  cardSection = null;
 }
 
-async function readClientDeals(id, signal) {
-  const response = await fetchRead(`/api/engine/clients/${encodeURIComponent(id)}/deals`, { headers: { accept: "application/json" }, cache: "no-store", signal });
+async function readCardSection(kind, id, signal) {
+  const response = await fetchRead(kind.read(id), { headers: { accept: "application/json" }, cache: "no-store", signal });
   if (response.status === 401) expireNow();
-  if (!response.ok) throw new Error(`Client deals read answered ${response.status}`);
-  const body = await response.json();
-  if (!Array.isArray(body?.deals)) throw new Error("Client deals read answered no deals");
-  return body.deals;
+  if (!response.ok) throw new Error(`Card read answered ${response.status}`);
+  const answer = kind.answer(await response.json());
+  if (!answer) throw new Error("Card read answered an unexpected shape");
+  return answer;
 }
 
-function clientDealsHost(record) {
+function cardSectionHost(dataset, record) {
+  const kind = CARD_SECTIONS[dataset];
   const id = record.party_id ?? record.id;
-  const client = { id, name: record.name };
-  if (clientDeals?.id === id) {
-    clientDeals.client = client;
-    clientDeals.handle?.update(client);
-    return clientDeals.host;
+  const key = `${dataset}:${id}`;
+  const subject = { id, name: record.name };
+  if (cardSection?.key === key) {
+    cardSection.subject = subject;
+    cardSection.handle?.update(subject);
+    return cardSection.host;
   }
-  clearClientDeals();
-  const deals = { id, client, host: document.createElement("section"), stage: document.createElement("div"), handle: null };
-  clientDeals = deals;
-  deals.host.className = "record-section client-deals-section";
-  deals.stage.className = "client-deal-stage";
-  dom.listRegion.closest(".result-column").append(deals.stage);
-  import("./ui-client-deals.generated.js").then(({ mountClientDeals }) => {
-    if (clientDeals !== deals) return;
-    deals.handle = mountClientDeals(deals.host, { client: deals.client, stage: deals.stage, load: signal => readClientDeals(id, signal) });
-  }, () => { deals.host.textContent = "Couldn't load deals."; });
-  return deals.host;
+  clearCardSection();
+  const section = { key, subject, host: document.createElement("section"), stage: document.createElement("div"), handle: null };
+  cardSection = section;
+  section.host.className = `record-section ${kind.className}`;
+  section.stage.className = "client-deal-stage";
+  dom.listRegion.closest(".result-column").append(section.stage);
+  kind.mount().then(mount => {
+    if (cardSection !== section) return;
+    section.handle = mount(section.host, { subject: section.subject, stage: section.stage, load: signal => readCardSection(kind, id, signal) });
+  }, () => { section.host.textContent = kind.failed; });
+  return section.host;
 }
 
 async function syncVendorMeetings() {
@@ -1056,7 +1075,7 @@ function renderRecordPanel() {
   const { record, dataset } = view;
   if (!view.signedOut) capturePanelState();
   if (!view.recordId) {
-    clearClientDeals();
+    clearCardSection();
     closePanelMenu();
     dom.panelTitle?.classList.remove("full");
     dom.panel.hidden = true;
@@ -1127,10 +1146,10 @@ function renderRecordPanel() {
       }).join("")}</dl></section>`;
     }).join("");
   if (dom.panelBody) {
-    // docs/screens/vendors.md orders the card; the relationship diagram mounts in the empty section once it is built.
-    dom.panelBody.innerHTML = `${dataset === 'vendors' ? vendorContactsHtml(payload.record) + conversationsHtml(payload.record) + '<section id="vendorDiagram" aria-label="Relationships" hidden></section>' + partnershipHtml(payload.record) : '<section id="clientDealsSlot"></section>'}<div class="detail-columns">${sections}</div>${dataset === "clients" ? clientNote(payload.record) : ""}${referenceDetails}${activityHtml(payload.record.id)}<p class="observed">${escapeHtml(updatedLabel(payload.source?.observed_at, BUSINESS_TIME_ZONE))}</p>`;
+    // docs/screens/vendors.md orders the card: Relationships follows Conversations.
+    dom.panelBody.innerHTML = `${dataset === 'vendors' ? vendorContactsHtml(payload.record) + conversationsHtml(payload.record) + '<section id="cardSectionSlot"></section>' + partnershipHtml(payload.record) : '<section id="cardSectionSlot"></section>'}<div class="detail-columns">${sections}</div>${dataset === "clients" ? clientNote(payload.record) : ""}${referenceDetails}${activityHtml(payload.record.id)}<p class="observed">${escapeHtml(updatedLabel(payload.source?.observed_at, BUSINESS_TIME_ZONE))}</p>`;
     dom.panelBody.dataset.recordId = payload.record.id;
-    dom.panelBody.querySelector("#clientDealsSlot")?.replaceWith(clientDealsHost(payload.record));
+    dom.panelBody.querySelector("#cardSectionSlot")?.replaceWith(cardSectionHost(dataset, payload.record));
     restorePanelState();
     const note = dom.panelBody.querySelector(".client-note > p");
     if (note) note.nextElementSibling.hidden = !note.nextElementSibling.open && note.scrollHeight <= note.clientHeight;
@@ -1214,7 +1233,7 @@ async function loadActivity(id, record) {
  */
 function expireNow() {
   clearVendorMeetings();
-  clearClientDeals();
+  clearCardSection();
   pageDocContext?.clear();
   view.sessionGeneration++;
   view.panelState = null;
@@ -1390,7 +1409,7 @@ function applyLocation({ reason = "initial", restoreScroll = null } = {}) {
   const recordChanged = parsed.recordId !== view.recordId;
   const hadRecord = Boolean(view.recordId);
   capturePanelState();
-  if (recordChanged) { view.panelState = null; delete dom.panelBody.dataset.recordId; clearClientDeals(); }
+  if (recordChanged) { view.panelState = null; delete dom.panelBody.dataset.recordId; clearCardSection(); }
   document.body.dataset.directory = parsed.dataset;
   if (reason === "initial" || datasetChanged) {
     document.querySelector("#secondaryFilters").open = !phoneWidth.matches;
