@@ -32,7 +32,7 @@ import {
   displayedFreshness, echoesQuery, emptyCopy, expireSession, filterChips, freshnessSignature, hasActiveFilters,
   isSessionExpiry, listPhase, listRequestUrl, opensBeside, ownerPresentation, pageSummary, panelTabTarget,
   parseViewState, partyKindText, recordRequestUrl, recordSections, recordedCode, recordedValue, refusalCopy,
-  CLIENT_STATUS_CHIPS, RELATIONSHIP_WORDS, clientPlace, defaultSort, placeCounts, holdsWholeList, relationshipCounts, rememberPayload, restoreSession, sameQuery, scrollIntent, searchBoxValue, showsTiles, sourceIsFresh,
+  CLIENT_STATUS_CHIPS, RELATIONSHIP_LEVELS, RELATIONSHIP_WORDS, clientPlace, defaultSort, placeCounts, holdsWholeList, relationshipCounts, rememberPayload, restoreSession, sameQuery, scrollIntent, searchBoxValue, showsTiles, sourceIsFresh,
   tilesFrom, tilesRequestUrl, validListPayload, validRecordPayload, vendorRelationship, viewHref,
 } from "./workspace-business-model.js";
 import { resolveDealroomBoot } from "./boot-mode.js";
@@ -114,6 +114,8 @@ view.tiles = { sequence: 0, key: null, status: "idle", payload: null };
 view.panelState = null;
 // The open vendor's stored relationship, read beside the card for its ruling reason and the values a save names.
 view.role = { id: null, value: null };
+// A refused relationship save's message, which the card redraws after the save would otherwise clear.
+view.saveNotice = { id: null, text: "" };
 let vendorMeetings = null;
 let vendorMeetingsHost = null;
 let vendorMeetingsGeneration = 0;
@@ -869,7 +871,7 @@ async function copyRecordLink() {
 
 /** The header's status, owner, relationship and record actions; empty while nothing has loaded. */
 function paintPanelHead(meta = "", actions = "", relationship = "") {
-  setPanelStatus("");
+  setPanelStatus(view.saveNotice.id === view.recordId ? view.saveNotice.text : "");
   if (dom.panelMeta) dom.panelMeta.innerHTML = meta;
   if (dom.panelActions) dom.panelActions.innerHTML = actions;
   dom.panelRelationship.innerHTML = relationship;
@@ -883,7 +885,7 @@ function closePanelMenu() {
   dom.panel?.querySelector(":popover-open")?.hidePopover();
 }
 
-const LEVEL_CHOICES = [["core", 3], ["established", 2], ["building", 1], ["prospective", 0], ["not_rated", null]];
+const LEVEL_CHOICES = [...RELATIONSHIP_LEVELS.map((key, level) => [key, level]).reverse(), ["not_rated", null]];
 const RULING_VERB = { parked: "Park", avoid: "Avoid" };
 
 /**
@@ -926,9 +928,11 @@ async function chooseRelationship(choice) {
   closePanelMenu();
   focusWithoutScrolling(dom.panelRelationship.querySelector(".rel-button"));
   if (!role || !partyEditor) return;
+  view.saveNotice = { id: null, text: "" };
   setPanelStatus("Saving…");
   const problem = await partyEditor.setRelationship(role, choice);
-  setPanelStatus(problem ?? "");
+  view.saveNotice = { id: view.recordId, text: problem ?? "" };
+  setPanelStatus(view.saveNotice.text);
 }
 
 async function loadRole(id) {
@@ -954,8 +958,10 @@ function renderRecordPanel() {
   dom.panel.hidden = false;
   dom.panel.classList.add("open");
   applyPanelModality();
-  if (dom.panelEyebrow) dom.panelEyebrow.textContent = DATASET_SINGULAR[dataset];
-  dom.panelEyebrow.hidden = opensBeside(dataset);
+  if (dom.panelEyebrow) {
+    dom.panelEyebrow.textContent = DATASET_SINGULAR[dataset];
+    dom.panelEyebrow.hidden = opensBeside(dataset);
+  }
   dom.panelBack.textContent = view.place || DATASET_LABEL[dataset];
   dom.panelBack.href = viewHref(view.query);
   // A redraw keeps focus on the record action that had it, such as Edit after a save.

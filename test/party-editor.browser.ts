@@ -875,3 +875,35 @@ test("Park opens as a question, and Escape closes it without saving or closing t
   );
   assert.deepEqual(posts(sent), []);
 });
+
+for (const [name, refusal, message] of [
+  ["a failed save", { status: 500, json: {} }, "This was not saved. Try again."],
+  [
+    "a version conflict",
+    {
+      status: 409,
+      json: {
+        error: "version_conflict",
+        fields: ["relationship_level"],
+        current: { ...vendorProfile, relationship_level: 3 },
+      },
+    },
+    "Someone changed this since you opened it. Check it and choose again.",
+  ],
+] as const) {
+  test(`The relationship button tells the partner about ${name}`, async (t) => {
+    const fake = engine(vendorParty, "vendor", {
+      ...vendorProfile,
+      relationship_level: 1,
+      disposition: null,
+      is_target: false,
+    });
+    const { page } = await setup(t, `/vendors?all=true&record=${vendor}`, (call) =>
+      call.method === "POST" ? refusal : fake.answer(call),
+    );
+    const panel = page.locator("#recordPanel");
+    await panel.locator(".rel-button:not([disabled])").click();
+    await panel.getByRole("button", { name: "Established", exact: true }).click();
+    await page.locator("#recordStatus", { hasText: message }).waitFor();
+  });
+}

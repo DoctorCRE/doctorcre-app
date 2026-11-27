@@ -591,7 +591,7 @@ export function partyKindText(value) {
   return recordedValue(value);
 }
 
-const RELATIONSHIP_LEVELS = ["prospective", "building", "established", "core"];
+export const RELATIONSHIP_LEVELS = ["prospective", "building", "established", "core"];
 export const RELATIONSHIP_WORDS = {
   core: "Core", established: "Established", building: "Building", prospective: "Prospective",
   not_rated: "Not rated", parked: "Parked", avoid: "Avoid",
