@@ -188,6 +188,10 @@ body.has-app-layout { margin: 0; padding: 0 0 var(--layout-bottom) var(--layout-
 .app-section-tabs nav + h1.repeats-page { position:absolute; width:1px; height:1px; margin:-1px; overflow:hidden; clip-path:inset(50%); }
 @media (max-width: 480px) { .app-section-tabs .wide-only { display:none; } }
 .app-layout-topbar :focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 2px; }
+.app-new-version { display: flex; align-items: center; gap: var(--space-1); margin: 0; padding-inline: var(--space-4); background: var(--surface-2); border-bottom: var(--hairline-width) solid var(--hairline); color: var(--fg-muted); font-size: var(--font-size-1); }
+.app-new-version[hidden] { display: none; }
+.app-new-version button { min-height: var(--touch); padding-inline: var(--space-2); border: 0; border-radius: var(--radius-2); background: transparent; color: var(--fg); font: inherit; font-weight: var(--font-weight-strong); cursor: pointer; }
+.app-new-version button:last-child { margin-inline-start: auto; color: var(--fg-muted); }
 .app-layout-tabbar { position: sticky; top: 0; z-index: 80; display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-4); background: var(--ground); border-bottom: var(--hairline-width) solid var(--hairline); }
 :is(.app-layout-tabbar, .app-layout-tools):not(:has(a, button, input, select, textarea)), #appSidebarToggle[hidden] { display: none; }
 .app-layout-topbar .app-shell-search { margin-inline-start: auto; }

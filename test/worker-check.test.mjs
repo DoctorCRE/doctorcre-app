@@ -274,3 +274,14 @@ test('the switched client portal takes a signed-in partner with a deal link to C
     }
   }
 });
+
+test('every response names the deployed version for open tabs, and none without a version', async () => {
+  const assets = { fetch: async () => new Response('asset') };
+  const stamped = await handleDoctorcreRequest(request('/js/routes.js'), environment({ assets }));
+  assert.equal(stamped.headers.get('server-timing'), 'version;desc="version-one"');
+  const missing = await handleDoctorcreRequest(request('/no-such-page'), environment({ assets }));
+  assert.equal(missing.status, 404);
+  assert.equal(missing.headers.get('server-timing'), 'version;desc="version-one"');
+  const local = { ...environment({ assets }), CF_VERSION_METADATA: undefined };
+  assert.equal((await handleDoctorcreRequest(request('/js/routes.js'), local)).headers.get('server-timing'), null);
+});
