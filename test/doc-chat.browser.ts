@@ -1592,6 +1592,22 @@ test("The typing box is centered on a new chat, grows with the text, and counts 
   await box.fill("a".repeat(4001));
   await expect(count).toHaveText("4,001 / 4,000");
   await expect(send).toBeDisabled();
+  const colorOf = (locator: typeof count) => locator.evaluate((node) => getComputedStyle(node).color);
+  await box.fill("a".repeat(3500));
+  const quiet = await colorOf(count);
+  await box.fill("a".repeat(4001));
+  assert.notEqual(await colorOf(count), quiet, "past 4,000 characters the count turns red");
+
+  await box.fill(Array.from({ length: 60 }, (_, line) => `Line ${line}`).join("\n"));
+  const cap = 0.4 * 772;
+  const capped = await box.evaluate((node) => ({ client: node.clientHeight, scroll: node.scrollHeight }));
+  assert.ok(capped.client <= cap + 1, `the box stops growing at 40% of the screen, at ${capped.client}`);
+  assert.ok(capped.scroll > capped.client, "past the cap the text scrolls inside the box");
+
+  await box.fill("a");
+  const idleSend = await send.evaluate((button) => getComputedStyle(button).backgroundColor);
+  await send.hover();
+  await expect.poll(() => send.evaluate((button) => getComputedStyle(button).backgroundColor)).not.toBe(idleSend);
 
   await box.fill(question);
   await send.click();
@@ -1627,6 +1643,18 @@ test("On a phone the typing box stays just above the bottom menu in a long chat"
       card && bar && card.y + card.height <= bar.y && bar.y - (card.y + card.height) <= 24,
       `the box ends at ${card && card.y + card.height}, the menu starts at ${bar?.y}`,
     );
+  }
+  const field = page.getByLabel("Question for Doc");
+  for (const focused of [false, true]) {
+    if (focused) await field.focus();
+    await page.evaluate((y) => scrollTo(0, y), 1e6);
+    const card = await page.locator(".doc-chat__composer").boundingBox();
+    assert.ok(card, "the typing box is on screen");
+    const gap = await page.evaluate(
+      ({ x, y }) => document.elementFromPoint(x, y)?.closest(".doc-chat__composer") !== null,
+      { x: card.x + 2, y: card.y + card.height + 6 },
+    );
+    assert.ok(gap, `nothing scrolls into view below the box${focused ? " while it is focused" : ""}`);
   }
 });
 

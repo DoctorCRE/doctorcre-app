@@ -137,7 +137,7 @@
   overflow-y: auto;
 }
 .doc-chat__composer textarea::placeholder { color: var(--fg-quiet); }
-.doc-chat__composer:has(textarea:focus-visible) { box-shadow: 0 0 0 1px var(--hairline-strong); }
+.doc-chat__composer:has(textarea:focus-visible) { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 1px; }
 .doc-chat__tools { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); margin-block-start: var(--space-2); }
 .doc-chat__tools small { color: var(--fg-quiet); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; }
 .doc-chat__tools small[data-over] { color: var(--status-danger-ink); }
@@ -154,7 +154,10 @@
   border: 0;
   border-radius: var(--radius-round);
   cursor: pointer;
+  transition: background-color var(--duration-hover) var(--ease-out);
 }
+.doc-chat__send:not(:disabled):hover { background: var(--fg-muted); }
+@media (prefers-reduced-motion: reduce) { .doc-chat__send { transition: none; } }
 .doc-chat__send:disabled { color: var(--fg-quiet); background: var(--surface-3); cursor: default; }
 .doc-chat__send .app-shell-icon { stroke-width: 2.2; }
 /* A new empty chat centers its one line and the typing box; after the first question the box sits at the bottom. */
@@ -176,6 +179,13 @@
     bottom: calc(var(--layout-bottom) + var(--space-3));
     z-index: 1;
     box-shadow: 0 0 0 var(--space-3) var(--ground);
+  }
+  /* The shadow's corners are rounded, so a square strip of ground closes the gap below the box and no turn shows through. */
+  .doc-chat__composer::after {
+    content: "";
+    position: absolute;
+    inset: 100% calc(-1 * var(--space-3)) calc(-1 * var(--space-3));
+    background: var(--ground);
   }
   .doc-chat__chats-toggle, .doc-chat__topbar-new { display: inline-grid; }
   /* The phone top bar is only the list icon, the chat's title and the New chat pencil at the right edge. */
