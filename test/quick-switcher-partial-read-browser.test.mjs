@@ -56,7 +56,7 @@ for (const [name, payload, message, labels] of [
     await page.getByRole('button', { name: 'Quick switcher' }).waitFor();
     await open(page, payload);
     if (message) await page.getByRole('status').filter({ hasText: message }).waitFor({ timeout: 2500 });
-    else await page.getByRole('status').filter({ hasText: '2 results' }).waitFor();
+    else await page.getByRole('status').filter({ hasText: '7 results' }).waitFor();
     await page.getByRole('combobox').fill('Valid');
     assert.deepEqual(await page.getByRole('option').allTextContents(), labels);
     await page.getByRole('combobox').press('Escape');

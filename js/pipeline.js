@@ -245,6 +245,16 @@ function syncDealCreation() {
   $('addDealCancel').disabled = creatingDeal;
   $('addDealSubmit').textContent = creatingDeal ? 'Saving…' : dealCreation ? 'Check creation outcome' : 'Create deal';
 }
+
+function consumeOpenAddDealRequest() {
+  try {
+    if (sessionStorage.getItem('doctorcre.quick-switcher.open-add-deal') !== '1') return false;
+    sessionStorage.removeItem('doctorcre.quick-switcher.open-add-deal');
+    return true;
+  } catch {
+    return false;
+  }
+}
 async function openAddDeal(client = null, conversion = null, phase = null) {
   const dialog = $('addDealDialog');
   if (dialog.open) return;
@@ -625,6 +635,7 @@ function applyBoardSnapshot(board) {
     || (previousPanelRow && JSON.stringify(previousPanelRow) !== JSON.stringify(state.deals.get(state.panelDeal))))) {
     void refreshPanel({changed:true});
   }
+  if (consumeOpenAddDealRequest()) void openAddDeal();
 }
 
 function showProspects() {
