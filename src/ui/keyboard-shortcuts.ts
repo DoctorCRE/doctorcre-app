@@ -79,20 +79,24 @@ function arrowsStepCards(root: Document): boolean {
 }
 
 // E and S click the focused Home row's own Done or Snooze button, so they share
-// that button's save path. They stand down in the same places arrows do, and
-// when the item is open those row buttons are disabled or gone.
+// that button's save path. They stand down in the same places arrows do, while
+// any item is open, and when the row or its button is not shown.
 function homeRowShortcut(root: Document, key: string): boolean {
   const action = key === "e" || key === "E" ? "done" : key === "s" || key === "S" ? "snooze" : null;
-  if (!action || !arrowsStepCards(root)) return false;
+  if (!action || !arrowsStepCards(root) || root.querySelector(".home-inline-review")) return false;
   const active = root.activeElement;
   if (!(active instanceof HTMLElement) || active === root.body) return false;
   const row = active.closest<HTMLElement>("[data-inbox-row]");
-  if (!row) return false;
+  if (!row || !shown(row)) return false;
   const button = Array.from(
     row.querySelectorAll<HTMLButtonElement>(":scope > button.home-done, :scope > .inbox-actions > button"),
   ).find((node) => {
     const text = node.textContent?.replace(/\s+/g, " ").trim() ?? "";
-    return !node.disabled && (action === "snooze" ? text === "Snooze" : text === "Mark done" || text === "Done");
+    return (
+      !node.disabled &&
+      shown(node) &&
+      (action === "snooze" ? text === "Snooze" : text === "Mark done" || text === "Done")
+    );
   });
   if (!button) return false;
   button.click();
@@ -182,8 +186,8 @@ export function mountKeyboardShortcuts({ root, openSearch }: { root: Document; o
       if (destination) {
         event.preventDefault();
         win.location.assign(destination.href);
-        return;
       }
+      if (live) return;
     }
     if (event.key === "g") pendingG = event.timeStamp;
     else if (event.key === "/") {
