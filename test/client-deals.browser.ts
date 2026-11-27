@@ -384,5 +384,7 @@ for (const [width, height, scheme] of [
       .locator(".deal-vendor-menu")
       .evaluate((node) => node.getBoundingClientRect().toJSON());
     assert.ok(left >= 0 && right <= width, `the menu stays on screen (${left} to ${right})`);
+    const sideways = await page.locator("#recordPanel").evaluate((node) => node.scrollWidth > node.clientWidth);
+    assert.equal(sideways, false, "the open menu never makes the card scroll sideways");
     await page.screenshot({ path: `${shots}/menu-${width}-${scheme}.png` });
   });
