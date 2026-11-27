@@ -79,6 +79,15 @@ const snoozeDate = new Intl.DateTimeFormat("en-US", {
 const isWaitingCard = (item: InboxItem) =>
   item.engine_marks === true && ["working", "held", "snoozed"].includes(item.section);
 
+// A click that did not come from focusing the button itself, such as the E/S
+// shortcut, returns focus to what the partner had focused in the row.
+function focusedInRow(button: HTMLElement): HTMLElement | null {
+  const active = document.activeElement;
+  return active instanceof HTMLElement && active !== button && button.closest("[data-inbox-row]")?.contains(active)
+    ? active
+    : null;
+}
+
 function snoozeLabel(item: InboxItem) {
   return item.disposition === "snoozed" && item.snoozed_until
     ? `Snoozed until ${snoozeDate.format(new Date(item.snoozed_until))}`
@@ -896,7 +905,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
         type="button"
         disabled={busy}
         onClick={(event) => {
-          snoozeOpener.current = event.currentTarget;
+          snoozeOpener.current = focusedInRow(event.currentTarget) ?? event.currentTarget;
           openSnooze([item]);
         }}
       >

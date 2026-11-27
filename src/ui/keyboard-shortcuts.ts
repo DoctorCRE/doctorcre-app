@@ -25,6 +25,8 @@ const shortcuts: Shortcut[] = [
   { keys: ["k", "↑"], or: true, description: "Previous card (Home, Deals)" },
   // Enter is the focused open control's own activation: listed, not handled.
   { keys: ["Enter"], description: "Open the selected card" },
+  { keys: ["E"], description: "Done (Home)" },
+  { keys: ["S"], description: "Snooze (Home)" },
 ];
 
 const MODIFIER_KEYS = new Set(["Shift", "Control", "Alt", "AltGraph", "Meta", "CapsLock"]);
@@ -74,6 +76,31 @@ function arrowsStepCards(root: Document): boolean {
   if (!active || active === root.body) return true;
   const onCard = active.matches(CARD) || (active.matches("[data-shortcut-open]") && active.closest(CARD) !== null);
   return onCard && active.closest("[data-lifted]") === null;
+}
+
+// E and S click the focused Home row's own Done or Snooze button, so they share
+// that button's save path. They stand down in the same places arrows do, while
+// any item is open, and when the row or its button is not shown.
+function homeRowShortcut(root: Document, key: string): boolean {
+  const action = key === "e" || key === "E" ? "done" : key === "s" || key === "S" ? "snooze" : null;
+  if (!action || !arrowsStepCards(root) || root.querySelector(".home-inline-review")) return false;
+  const active = root.activeElement;
+  if (!(active instanceof HTMLElement) || active === root.body) return false;
+  const row = active.closest<HTMLElement>("[data-inbox-row]");
+  if (!row || !shown(row)) return false;
+  const button = Array.from(
+    row.querySelectorAll<HTMLButtonElement>(":scope > button.home-done, :scope > .inbox-actions > button"),
+  ).find((node) => {
+    const text = node.textContent?.replace(/\s+/g, " ").trim() ?? "";
+    return (
+      !node.disabled &&
+      shown(node) &&
+      (action === "snooze" ? text === "Snooze" : text === "Mark done" || text === "Done")
+    );
+  });
+  if (!button) return false;
+  button.click();
+  return true;
 }
 
 function renderHelp(root: Document): HTMLDialogElement {
@@ -159,8 +186,8 @@ export function mountKeyboardShortcuts({ root, openSearch }: { root: Document; o
       if (destination) {
         event.preventDefault();
         win.location.assign(destination.href);
-        return;
       }
+      if (live) return;
     }
     if (event.key === "g") pendingG = event.timeStamp;
     else if (event.key === "/") {
@@ -169,7 +196,8 @@ export function mountKeyboardShortcuts({ root, openSearch }: { root: Document; o
     } else if (event.key === "?") {
       event.preventDefault();
       showHelp();
-    } else {
+    } else if (homeRowShortcut(root, event.key)) event.preventDefault();
+    else {
       const step = CARD_STEP.get(event.key);
       if (!step || (ARROWS.has(event.key) && !arrowsStepCards(root))) return;
       if (stepCard(root, step)) event.preventDefault();
