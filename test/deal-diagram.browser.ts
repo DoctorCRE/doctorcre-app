@@ -4,13 +4,13 @@ import test, { type TestContext } from "node:test";
 import type { Page } from "playwright";
 import { appAssetSnapshot } from "../scripts/fixture-app-assets.mjs";
 import { startWorkerFixture } from "../scripts/fixture-http.mjs";
-import type { ClientDeal } from "../src/ui/deal-diagram.tsx";
+import type { ClientDeal, DiagramClient } from "../src/ui/deal-diagram.tsx";
 import { chromium, componentDocument } from "./browser-harness.mjs";
 
 const shots = "out/test-artifacts/deal-diagram";
 await mkdir(shots, { recursive: true });
 const assets = await appAssetSnapshot();
-type Diagram = { client: string; deal: ClientDeal };
+type Diagram = { client: DiagramClient; deal: ClientDeal };
 type Introduction = ClientDeal["introductions"][number];
 const role = (label: string) => [{ role: label.toLowerCase(), label }];
 const deal = (owner: ClientDeal["owner"], parts: Partial<ClientDeal>): ClientDeal => ({
@@ -44,7 +44,7 @@ const intro = (
   chosen,
 });
 const dellsDeal: Diagram = {
-  client: "Example Harbor Dental",
+  client: { id: "client", name: "Example Harbor Dental" },
   deal: deal("dell", {
     vendors: [
       { party_id: "v2", name: "Example Pelican Ridge Bank", roles: role("Lender"), introduction_id: "i-v2" },
@@ -63,7 +63,7 @@ const dellsDeal: Diagram = {
   }),
 };
 const longNameDeal: Diagram = {
-  client: "Example Harbor Dental",
+  client: { id: "client", name: "Example Harbor Dental" },
   deal: deal("dell", {
     introductions: [
       intro("l1", "Example Northwind Harbor Commercial Mortgage and Equipment Finance Partners", "dell"),
@@ -73,7 +73,7 @@ const longNameDeal: Diagram = {
   }),
 };
 const joesOldDeal: Diagram = {
-  client: "Example Bayline Dental",
+  client: { id: "client", name: "Example Bayline Dental" },
   deal: deal("joe", {
     open: false,
     closed_on: "2024-03-01",
@@ -88,7 +88,7 @@ const joesOldDeal: Diagram = {
     ],
   }),
 };
-const emptyDeal: Diagram = { client: "Example Bayline Dental", deal: deal("joe", {}) };
+const emptyDeal: Diagram = { client: { id: "client", name: "Example Bayline Dental" }, deal: deal("joe", {}) };
 
 async function open(
   t: TestContext,
@@ -217,6 +217,18 @@ test("an old deal with no introductions hangs every vendor under not recorded, w
     "Joe | Deal owner",
     "Example Brightwater Builders | Contractor · On the deal",
     "Example Coastline Title | Attorney, Title · On the deal",
+  ]);
+});
+
+test("a vendor who referred someone else on the deal names who they referred", async (t) => {
+  const referral = intro("r2", "Example Gulf Coast Referrals", null, false, "vendor");
+  referral.introduced_party_id = "someone-else";
+  referral.introduced_party_name = "Example Mara Quill";
+  const page = await open(t, [{ ...emptyDeal, deal: deal("joe", { introductions: [referral] }) }]);
+  assert.deepEqual(await boxes(page), [
+    "Example Bayline Dental | Client",
+    "Example Gulf Coast Referrals | Referred Example Mara Quill",
+    "Joe | Deal owner",
   ]);
 });
 

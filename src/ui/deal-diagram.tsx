@@ -1,4 +1,4 @@
-import { type ReactNode, type Ref, useEffect, useRef, useState } from "react";
+import { createContext, type ReactNode, type Ref, useContext, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 
@@ -36,35 +36,51 @@ interface Vendor {
   name: string;
   role: string | null;
   chosen: boolean;
+  introducedOn: string | null;
+}
+interface Referral extends Vendor {
+  referred: string;
 }
 type Introducer = Partner | "unrecorded";
+export interface DiagramClient {
+  id: string;
+  name: string;
+}
 
-function treeOf(deal: ClientDeal) {
+function treeOf(client: DiagramClient, deal: ClientDeal) {
   const roles = new Map(deal.vendors.map((v) => [v.party_id, v.roles.map((r) => r.label).join(", ")]));
-  const vendor = (id: string, name: string, chosen: boolean): Vendor => ({
+  const vendor = (id: string, name: string, chosen: boolean, introducedOn: string | null = null): Vendor => ({
     id,
     name,
     role: roles.get(id) ?? null,
     chosen,
+    introducedOn,
   });
-  const referredBy = new Map<string, Vendor>();
-  const introducedBy = new Map<Introducer, Map<string, Vendor>>();
+  const referredBy = new Map<string, Referral>();
+  const introducedFor = new Map<Introducer, Map<string, Vendor>>();
   for (const intro of deal.introductions) {
-    const box = vendor(intro.vendor_id, intro.vendor_name, intro.chosen);
+    const box = vendor(intro.vendor_id, intro.vendor_name, intro.chosen, intro.introduced_on);
     if (intro.made_by === "vendor") {
-      referredBy.set(box.id, box);
+      const referred = intro.introduced_party_id === client.id ? "this client" : intro.introduced_party_name;
+      referredBy.set(box.id, { ...box, referred });
       continue;
     }
     const by = intro.introduced_by ?? "unrecorded";
-    introducedBy.set(by, (introducedBy.get(by) ?? new Map()).set(box.id, box));
+    introducedFor.set(by, (introducedFor.get(by) ?? new Map()).set(box.id, box));
   }
-  const list = (by: Introducer) => [...(introducedBy.get(by)?.values() ?? [])];
+  const list = (by: Introducer) => [...(introducedFor.get(by)?.values() ?? [])];
   return {
     referredBy: [...referredBy.values()],
-    introducedBy: list,
+    introducedFor: list,
     notRecorded: deal.vendors.filter((v) => v.introduction_id === null).map((v) => vendor(v.party_id, v.name, true)),
   };
 }
+
+const DAY = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+const dated = (verb: string, on: string | null) => on && `${verb} ${DAY.format(new Date(on))}`;
+
+// The opened view: dates under each name, and every introduced vendor laid out.
+const Large = createContext(false);
 
 type Mark = "chosen" | "introduced" | "onDeal";
 const WORD: Record<Mark, string> = { chosen: "Chosen", introduced: "Introduced", onDeal: "On the deal" };
@@ -99,17 +115,19 @@ interface BoxProps {
   lead: ReactNode;
   name: string;
   caption: ReactNode;
+  detail?: string | null | undefined;
   trail?: ReactNode;
   boxRef?: Ref<HTMLDivElement> | undefined;
 }
 
-function Box({ tone, lead, name, caption, trail, boxRef }: BoxProps) {
+function Box({ tone, lead, name, caption, detail, trail, boxRef }: BoxProps) {
   return (
     <div className="deal-diagram-box" data-tone={tone} ref={boxRef} tabIndex={boxRef ? -1 : undefined}>
       {lead}
       <span className="deal-diagram-text">
         <b>{name}</b>
         <span>{caption}</span>
+        {detail && <span className="deal-diagram-date">{detail}</span>}
       </span>
       {trail}
     </div>
@@ -128,8 +146,17 @@ function VendorBox({
   boxRef?: Ref<HTMLDivElement> | undefined;
 }) {
   const caption = withRole(vendor.role, <span className="deal-diagram-word">{WORD[mark]}</span>);
+  const detail = useContext(Large) ? dated("Introduced", vendor.introducedOn) : null;
   return (
-    <Box tone={mark} lead={<Glyph mark={mark} />} name={vendor.name} caption={caption} trail={trail} boxRef={boxRef} />
+    <Box
+      tone={mark}
+      lead={<Glyph mark={mark} />}
+      name={vendor.name}
+      caption={caption}
+      detail={detail}
+      trail={trail}
+      boxRef={boxRef}
+    />
   );
 }
 
@@ -139,7 +166,7 @@ function Branch({ line, children }: { line: Line; children: ReactNode }) {
 
 // Introduced vendors nobody chose sit stacked like a solitaire pile until a partner fans them out.
 function Vendors({ vendors }: { vendors: Vendor[] }) {
-  const [fanned, setFanned] = useState(false);
+  const [fanned, setFanned] = useState(useContext(Large));
   const chosen = vendors.filter((vendor) => vendor.chosen);
   const passed = vendors.filter((vendor) => !vendor.chosen);
   const [top] = passed;
@@ -218,49 +245,57 @@ function IntroducerBranch({ by, label, vendors }: { by: Introducer; label: strin
   );
 }
 
-function DealDiagramView({ client, deal }: { client: string; deal: ClientDeal }) {
-  const { referredBy, introducedBy, notRecorded } = treeOf(deal);
+interface DiagramProps {
+  client: DiagramClient;
+  deal: ClientDeal;
+}
+
+export function DealDiagram({ client, deal, large = false }: DiagramProps & { large?: boolean }) {
+  const { referredBy, introducedFor, notRecorded } = treeOf(client, deal);
   const others = (["joe", "dell", "unrecorded"] as const).filter((by) => by !== deal.owner);
   return (
-    <div className="deal-diagram">
-      <Box tone="client" lead={null} name={client} caption="Client" />
-      <ul>
-        {referredBy.map((vendor) => (
-          <Branch key={vendor.id} line="plain">
-            <Box
-              tone="person"
-              lead={<Glyph mark="referred" />}
-              name={vendor.name}
-              caption={withRole(vendor.role, "Referred this client")}
-            />
-          </Branch>
-        ))}
-        <IntroducerBranch by={deal.owner} label="Deal owner" vendors={introducedBy(deal.owner)} />
-        {others.map(
-          (by) =>
-            introducedBy(by).length > 0 && (
-              <IntroducerBranch key={by} by={by} label="Introduced" vendors={introducedBy(by)} />
-            ),
-        )}
-        {notRecorded.length > 0 && (
-          <li data-line="dashed" className="deal-diagram-junction">
-            <span>Brought in by: not recorded</span>
-            <ul data-line="dashed">
-              {notRecorded.map((vendor) => (
-                <Branch key={vendor.id} line="dashed">
-                  <VendorBox vendor={vendor} mark="onDeal" />
-                </Branch>
-              ))}
-            </ul>
-          </li>
-        )}
-      </ul>
-    </div>
+    <Large.Provider value={large}>
+      <div className="deal-diagram" data-size={large ? "large" : undefined}>
+        <Box tone="client" lead={null} name={client.name} caption="Client" />
+        <ul>
+          {referredBy.map((vendor) => (
+            <Branch key={vendor.id} line="plain">
+              <Box
+                tone="person"
+                lead={<Glyph mark="referred" />}
+                name={vendor.name}
+                caption={withRole(vendor.role, `Referred ${vendor.referred}`)}
+                detail={large ? dated("Referred", vendor.introducedOn) : null}
+              />
+            </Branch>
+          ))}
+          <IntroducerBranch by={deal.owner} label="Deal owner" vendors={introducedFor(deal.owner)} />
+          {others.map(
+            (by) =>
+              introducedFor(by).length > 0 && (
+                <IntroducerBranch key={by} by={by} label="Introduced" vendors={introducedFor(by)} />
+              ),
+          )}
+          {notRecorded.length > 0 && (
+            <li data-line="dashed" className="deal-diagram-junction">
+              <span>Brought in by: not recorded</span>
+              <ul data-line="dashed">
+                {notRecorded.map((vendor) => (
+                  <Branch key={vendor.id} line="dashed">
+                    <VendorBox vendor={vendor} mark="onDeal" />
+                  </Branch>
+                ))}
+              </ul>
+            </li>
+          )}
+        </ul>
+      </div>
+    </Large.Provider>
   );
 }
 
-export function mountDealDiagram(host: HTMLElement, props: { client: string; deal: ClientDeal }) {
+export function mountDealDiagram(host: HTMLElement, props: DiagramProps) {
   const root = createRoot(host);
-  flushSync(() => root.render(<DealDiagramView {...props} />));
+  flushSync(() => root.render(<DealDiagram {...props} />));
   return { dispose: () => flushSync(() => root.unmount()) };
 }

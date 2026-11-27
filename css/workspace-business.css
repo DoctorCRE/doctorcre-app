@@ -154,7 +154,7 @@ body.record-open { overflow: hidden; }
 .record-section h4 { margin: 0 0 var(--space-1); color: var(--fg-muted); font-size: var(--font-size-1); font-weight: var(--font-weight-regular); }
 .record-section ul:not([class]) { margin: 0; padding-inline-start: var(--space-4); font-size: var(--font-size-2); line-height: var(--line-height-body); }
 .record-panel-body :is(.note-summary, .entry-detail, .client-deals) { font-size: var(--font-size-2); }
-.record-panel-body [data-retry='activity'] { min-height: 28px; padding: 0 var(--space-2); border: 0; background: transparent; color: var(--fg); font: inherit; text-decoration: underline; cursor: pointer; }
+.record-panel-body :is([data-retry='activity'], .client-deals-retry) { min-height: 28px; padding: 0 var(--space-2); border: 0; background: transparent; color: var(--fg); font: inherit; text-decoration: underline; cursor: pointer; }
 .record-panel-body .client-deals { gap: var(--space-2); }
 .record-panel-body .client-deals a { display: inline-flex; align-items: center; padding: var(--space-1) var(--space-3); border-radius: var(--radius-round); background: var(--surface-2); text-decoration: none; }
 .record-panel-body .client-deals a:hover { background: var(--surface-3); }
@@ -254,7 +254,7 @@ body.record-open { overflow: hidden; }
   .record-panel-actions .party-record-actions { flex-direction: column; width: 100%; }
   .record-panel-actions .action { justify-content: flex-start; border-color: transparent; background: none; }
   .record-panel-actions .action:hover { background: var(--surface-2); }
-  .record-panel-body :is([data-retry='activity'], .record-details summary) { min-height: var(--touch); }
+  .record-panel-body :is([data-retry='activity'], .client-deals-retry, .record-details summary) { min-height: var(--touch); }
   .detail-columns, .network-grid { grid-template-columns: minmax(0, 1fr); }
   .record-field { grid-template-columns: 7.5rem minmax(0, 1fr); gap: var(--space-2); }
 }
@@ -492,6 +492,32 @@ body:not([data-directory-view="meetings"]) .vendor-meetings-host { display: none
 .deal-diagram-count { flex: none; padding: 0 var(--space-2); border-radius: var(--radius-round); background: var(--surface-3); color: var(--fg-muted); font-variant-numeric: tabular-nums; }
 .deal-diagram-restack button { min-height: var(--touch); padding: 0 var(--space-1); border: 0; border-radius: var(--radius-2); background: none; color: var(--fg-quiet); font: inherit; cursor: pointer; }
 .deal-diagram-restack button:hover { background: var(--surface-2); color: var(--fg); }
+.deal-diagram-date { color: var(--fg-quiet); }
+/* The opened deal grows sideways: each box's elbow joins a spine shared with its siblings. */
+.deal-diagram[data-size="large"] { --gap: 40px; flex-direction: row; align-items: center; gap: var(--gap); width: max-content; margin: auto; padding: var(--space-4) 0; }
+.deal-diagram[data-size="large"] .deal-diagram-box { width: 230px; }
+.deal-diagram[data-size="large"] ul { position: relative; justify-content: center; margin: 0; }
+.deal-diagram[data-size="large"] ul::before { content: ""; position: absolute; top: 50%; left: calc(var(--gap) * -1); width: calc(var(--gap) / 2); border-top: 1.5px solid var(--line); }
+.deal-diagram[data-size="large"] li { display: flex; align-items: center; gap: var(--gap); }
+.deal-diagram[data-size="large"] li::before { top: 50%; left: calc(var(--gap) / -2); width: calc(var(--gap) / 2); height: 0; border-width: 1.5px 0 0; border-radius: 0; }
+.deal-diagram[data-size="large"] li::after { content: ""; position: absolute; border: 0 solid var(--line); top: calc(var(--space-2) / -2); bottom: calc(var(--space-2) / -2); left: calc(var(--gap) / -2); border-width: 0 0 0 1.5px; }
+.deal-diagram[data-size="large"] li:first-child::after { top: 50%; }
+.deal-diagram[data-size="large"] li:last-child::after { bottom: 50%; }
+.deal-diagram[data-size="large"] li:only-child::after { display: none; }
+/* A client's card: one diagram per deal, and the opened deal in place of the table. */
+.client-deals-section:empty { display: none; }
+.client-deal + .client-deal { padding-top: var(--space-4); border-top: 1px solid var(--hairline); }
+.client-deal-head { display: flex; align-items: center; gap: var(--space-2); min-height: 32px; margin-bottom: var(--space-2); }
+.client-deal-head a { overflow: hidden; color: var(--fg); font-weight: var(--font-weight-strong); text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
+.client-deal-head a:hover { text-decoration: underline; }
+.client-deal-head > span { flex: none; color: var(--fg-quiet); font-size: var(--font-size-1); }
+.client-deal-control { display: grid; flex: none; place-items: center; width: 28px; height: 28px; margin-left: auto; padding: 0; border: 0; border-radius: var(--radius-2); background: none; color: var(--fg-quiet); font: inherit; font-size: 18px; cursor: pointer; }
+.client-deal-control:hover { background: var(--surface-2); color: var(--fg); }
+.client-deal-control svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.result-column:has(> .client-deal-stage:not(:empty)) > :not(.client-deal-stage) { display: none; }
+.client-deal-opened { box-sizing: border-box; height: calc(100dvh - var(--topbar-height, 0px) - var(--space-4)); overflow: auto; padding: var(--space-3) var(--space-4); border-radius: var(--radius-3); background: var(--surface-1); }
+.client-deal-opened .client-deal-head { position: sticky; top: 0; left: 0; }
+@media (max-width: 767px) { .client-deal-open { display: none; } }
 /* A directory opens on tiles; the list's filters and chips return inside one. */
 body[data-tiles] :is(.filter-actions, #chipBar, #secondaryFilters > summary) { display: none; }
 /* A directory names its place in the title and its filters on the toolbar, so it needs no chips. */
