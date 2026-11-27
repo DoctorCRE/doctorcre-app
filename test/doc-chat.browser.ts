@@ -587,7 +587,16 @@ test("A reopened Doc question keeps its place and lets the partner draft a follo
   await expect(send).toBeEnabled();
 
   await page.clock.runFor(15_000);
-  assert.deepEqual(docReads, ["/api/engine/doc/conversations", ...Array(6).fill(detailPath)]);
+  const linkPath = "/api/engine/doc/link";
+  assert.deepEqual(
+    docReads.filter((path) => path !== linkPath),
+    ["/api/engine/doc/conversations", ...Array(6).fill(detailPath)],
+  );
+  assert.equal(
+    docReads.filter((path) => path === linkPath).length,
+    waitingLines.length + 2,
+    "the Mac status is read once on load and again each time the question's state changes",
+  );
 });
 
 const detailPath = `/api/engine/doc/conversations/${id}`;
@@ -681,7 +690,12 @@ test("A visible Ask Doc chat can receive its answer after three idle hours", asy
   await expect(page.getByText(answered.answer.text)).toBeVisible();
   const requests = (await reads.jsonValue()).filter(({ path }) => path.startsWith("/api/engine/doc/"));
   await reads.dispose();
-  assert.deepEqual([...new Set(requests.map(({ path }) => path))], [detailPath]);
+  const linkPath = "/api/engine/doc/link";
+  assert.deepEqual([...new Set(requests.map(({ path }) => path).filter((path) => path !== linkPath))], [detailPath]);
+  assert.ok(
+    requests.filter(({ path }) => path === linkPath).length <= 3,
+    "the Mac status is read only when the question changes",
+  );
   for (const [start, end, expected] of [
     [0, 1, 12],
     [1, 60, 118],
@@ -764,7 +778,11 @@ test("Ask Doc retries an exhausted read after a quick tab return with input", as
   await page.keyboard.press("Shift");
   const noticesAfterInput = await paused.count();
   await page.clock.runFor(5_000);
-  assert.deepEqual(await reads.jsonValue(), [detailPath], "the next tick reads without another visibility event");
+  assert.deepEqual(
+    (await reads.jsonValue()).filter((path) => path !== "/api/engine/doc/link"),
+    [detailPath],
+    "the next tick reads without another visibility event",
+  );
   assert.equal(noticesAfterInput, 1, "input does not clear the pause");
   await expect(page.getByText(answered.answer.text)).toBeVisible();
   await expect(paused).toHaveCount(0);
@@ -1725,14 +1743,124 @@ test("On a phone the typing box stays just above the bottom menu in a long chat"
   for (const focused of [false, true]) {
     if (focused) await field.focus();
     await page.evaluate((y) => scrollTo(0, y), 1e6);
-    const card = await page.locator(".doc-chat__composer").boundingBox();
+    const card = await page.locator(".doc-chat__dock").boundingBox();
     assert.ok(card, "the typing box is on screen");
     const gap = await page.evaluate(
-      ({ x, y }) => document.elementFromPoint(x, y)?.closest(".doc-chat__composer") !== null,
+      ({ x, y }) => document.elementFromPoint(x, y)?.closest(".doc-chat__dock") !== null,
       { x: card.x + 2, y: card.y + card.height + 6 },
     );
     assert.ok(gap, `nothing scrolls into view below the box${focused ? " while it is focused" : ""}`);
   }
+});
+
+for (const [status, line] of [
+  ["ready", "Doc is ready on your Mac."],
+  ["not_set_up", "Doc isn't set up on your Mac yet."],
+  ["mac_off", "Doc answers when your Mac is on."],
+  ["signed_out", "Sign in to Claude Code on your Mac."],
+  ["plan_limited", "Doc is paused until your Claude plan resets."],
+] as const) {
+  test(`Under the typing box one line gives the Mac's status: ${status}`, async (t) => {
+    const { page, origin } = await docChatFixture(
+      t,
+      (request) =>
+        new URL(request.url).pathname === "/api/engine/doc/link"
+          ? Response.json({ status })
+          : Response.json({ conversations: [], next_before: null }),
+      undefined,
+      { viewport: { width: 1440, height: 772 } },
+    );
+    await page.goto(`${origin}/doc-chats?mode=live`);
+    const mac = page.locator(".doc-chat__dock > p");
+    await expect(mac).toHaveText(status === "not_set_up" ? `${line} Set up in Settings` : line);
+    const [box, under] = await Promise.all([page.locator(".doc-chat__composer").boundingBox(), mac.boundingBox()]);
+    assert.ok(box && under && under.y >= box.y + box.height, "the line sits under the typing box");
+    const dot = await mac.evaluate((element) => ({
+      dot: getComputedStyle(element, "::before").backgroundColor,
+      text: getComputedStyle(element).color,
+    }));
+    assert.equal(dot.dot === dot.text, status !== "ready", "ready has the green dot and every other status a grey one");
+    if (status === "not_set_up")
+      await expect(mac.getByRole("link", { name: "Set up in Settings" })).toHaveAttribute("href", "/settings");
+    await page.setViewportSize({ width: 390, height: 844 });
+    if (status === "ready") await expect(mac).toBeHidden();
+    else await expect(mac).toBeVisible();
+  });
+}
+
+test("The Mac status line shows nothing when its read fails and reads again when a waiting question is answered", async (t) => {
+  let answer = false;
+  let linkReads = 0;
+  const { page, origin } = await docChatFixture(
+    t,
+    (request) => {
+      switch (new URL(request.url).pathname) {
+        case "/api/engine/doc/link":
+          linkReads++;
+          return linkReads === 1
+            ? new Response(null, { status: 503 })
+            : Response.json({ status: answer ? "ready" : "mac_off" });
+        case "/api/engine/doc/conversations":
+          return Response.json({ conversations: [conversation], next_before: null });
+        default:
+          return Response.json({
+            conversation,
+            turns: [answer ? answered : { ...queuedTurn, waiting_reason: "Doc answers when your Mac is on." }],
+          });
+      }
+    },
+    undefined,
+    { viewport: { width: 1440, height: 772 } },
+  );
+  await pausedClock(page, new Date(created_at));
+  await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
+  const mac = page.locator(".doc-chat__dock > p");
+  await expect(page.getByText("Doc answers when your Mac is on.")).toBeVisible();
+  await expect.poll(() => linkReads).toBe(1);
+  await expect(mac).toHaveCount(0);
+  answer = true;
+  await page.clock.runFor(5_000);
+  await expect(page.getByText(answered.answer.text)).toBeVisible();
+  await expect(mac).toHaveText("Doc is ready on your Mac.");
+  assert.equal(linkReads, 2);
+});
+
+test("The Mac status line reads again when a follow-up comes back already answered", async (t) => {
+  const followUp = {
+    ...answeredTurn,
+    id: "00000000-0000-4000-8000-000000000003",
+    idempotency_key: "00000000-0000-4000-8000-000000000004",
+    position: 2,
+    question: "Any follow-ups?",
+  };
+  let asked = false;
+  let linkReads = 0;
+  const { page, origin } = await docChatFixture(
+    t,
+    (request) => {
+      switch (new URL(request.url).pathname) {
+        case "/api/engine/doc/link":
+          linkReads++;
+          return Response.json({ status: asked ? "ready" : "mac_off" });
+        case "/api/engine/doc/conversations":
+          return Response.json({ conversations: [conversation], next_before: null });
+        case "/api/engine/doc/turns":
+          asked = true;
+          return Response.json({ conversation_id: id, turn: followUp }, { status: 202 });
+        default:
+          return Response.json({ conversation, turns: asked ? [answered, followUp] : [answered] });
+      }
+    },
+    undefined,
+    { viewport: { width: 1440, height: 772 } },
+  );
+  await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
+  const mac = page.locator(".doc-chat__dock > p");
+  await expect(mac).toHaveText("Doc answers when your Mac is on.");
+  await page.getByLabel("Question for Doc").fill(followUp.question);
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(mac).toHaveText("Doc is ready on your Mac.");
+  assert.equal(linkReads, 2);
 });
 
 for (const path of [`/doc-chats?id=${id}`, `/doc/conversations/${id}/turns/${id}`]) {

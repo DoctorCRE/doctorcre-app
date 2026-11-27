@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { z } from "zod";
 import { centralToday } from "./central-time";
-import { docLinkMessages } from "./doc-link";
+import { type DocLinkStatus, docLinkMessages, readDocLinkStatus } from "./doc-link";
 import { submitOnEnter } from "./keyboard-input";
 import { refreshWhileVisible } from "./visible-refresh";
 
@@ -107,6 +107,7 @@ type TextDraft = { read(): string; write(text: string): void };
 function sessionModule(): Promise<{
   privateSession(): Session | null;
   privateTextDraft(window: Window, actor: string, field: DraftField, id: string | null): TextDraft;
+  sessionFetch(path: string, init: RequestInit): Promise<Response>;
 }> {
   return import(new URL("./private-session.js", import.meta.url).href);
 }
@@ -358,6 +359,22 @@ function TurnStatus({
     <p className="doc-chat__status" data-tone="working" aria-live="off">
       <Icon path={icons.spinner} />
       Doc is working · {elapsed(turn.created_at, now)}
+    </p>
+  );
+}
+
+function MacStatus({ status }: { status: DocLinkStatus }) {
+  return (
+    <p className="doc-chat__mac" data-ready={status === "ready" || undefined}>
+      <span>
+        {docLinkMessages[status]}
+        {status === "not_set_up" && (
+          <>
+            {" "}
+            <a href="/settings">Set up in Settings</a>
+          </>
+        )}
+      </span>
     </p>
   );
 }
@@ -655,6 +672,9 @@ function DocChat() {
   const waitingTurnId = waiting ? latest.id : undefined;
   const now = useNow(waiting && !latest.waiting_reason);
   const getWaitingReason = useEffectEvent(() => latest?.waiting_reason);
+  const [macStatus, setMacStatus] = useState<DocLinkStatus | null>(null);
+  // The Mac can come on, sign out or hit its plan limit while a question waits, so its status is read again when the latest question changes. A replayed ask keeps its state but gets a new id.
+  const macCheck = ready && `${latest?.id}:${latest?.state}:${latest?.waiting_reason}`;
   const retry =
     pendingAsk ??
     (latest?.state === "failed"
@@ -806,6 +826,17 @@ function DocChat() {
       stop();
     };
   }, [id, waitingTurnId, showUnavailable]);
+
+  useEffect(() => {
+    if (!macCheck) return;
+    const controller = new AbortController();
+    void sessionModule()
+      .then(({ sessionFetch }) => readDocLinkStatus(sessionFetch, controller.signal))
+      .then((status) => {
+        if (!controller.signal.aborted) setMacStatus(status);
+      });
+    return () => controller.abort();
+  }, [macCheck]);
 
   // While the phone drawer is open, keys anywhere act on it: Escape closes it and Tab stays inside it.
   const onDrawerKey = useEffectEvent((event: KeyboardEvent) => {
@@ -1067,48 +1098,51 @@ function DocChat() {
             )}
           </div>
         </section>
-        <form
-          className="doc-chat__composer"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (canSend)
-              send({
-                question,
-                idempotency_key: crypto.randomUUID(),
-                ...(id ? { conversation_id: id } : initialContext && { context: initialContext }),
-              });
-          }}
-        >
-          <label className="sr-only" htmlFor="docQuestion">
-            Question for Doc
-          </label>
-          <textarea
-            ref={questionBox}
-            id="docQuestion"
-            aria-describedby={showCount ? "docQuestionLength" : undefined}
-            rows={1}
-            placeholder={newEmptyChat ? "Ask about a deal, a lead, a client or your mail" : "Ask Doc"}
-            value={question}
-            disabled={(!ready && status !== "unavailable" && status !== "older") || !!pendingAsk}
-            readOnly={status === "unavailable" || status === "older"}
-            onChange={(event) => {
-              const value = event.currentTarget.value;
-              privateDraft.current?.("doc-question", id ?? composerId).write(value);
-              setQuestion(value);
+        <div className="doc-chat__dock">
+          <form
+            className="doc-chat__composer"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (canSend)
+                send({
+                  question,
+                  idempotency_key: crypto.randomUUID(),
+                  ...(id ? { conversation_id: id } : initialContext && { context: initialContext }),
+                });
             }}
-            onKeyDown={(event) => submitOnEnter(event.nativeEvent, () => event.currentTarget.form?.requestSubmit())}
-          />
-          <div className="doc-chat__tools">
-            {showCount && (
-              <small id="docQuestionLength" data-over={questionLength > questionLimit || undefined}>
-                {questionLength.toLocaleString("en-US")} / {questionLimit.toLocaleString("en-US")}
-              </small>
-            )}
-            <button className="doc-chat__send" type="submit" disabled={!canSend} aria-label="Send" title="Send">
-              <Icon path={icons.send} />
-            </button>
-          </div>
-        </form>
+          >
+            <label className="sr-only" htmlFor="docQuestion">
+              Question for Doc
+            </label>
+            <textarea
+              ref={questionBox}
+              id="docQuestion"
+              aria-describedby={showCount ? "docQuestionLength" : undefined}
+              rows={1}
+              placeholder={newEmptyChat ? "Ask about a deal, a lead, a client or your mail" : "Ask Doc"}
+              value={question}
+              disabled={(!ready && status !== "unavailable" && status !== "older") || !!pendingAsk}
+              readOnly={status === "unavailable" || status === "older"}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                privateDraft.current?.("doc-question", id ?? composerId).write(value);
+                setQuestion(value);
+              }}
+              onKeyDown={(event) => submitOnEnter(event.nativeEvent, () => event.currentTarget.form?.requestSubmit())}
+            />
+            <div className="doc-chat__tools">
+              {showCount && (
+                <small id="docQuestionLength" data-over={questionLength > questionLimit || undefined}>
+                  {questionLength.toLocaleString("en-US")} / {questionLimit.toLocaleString("en-US")}
+                </small>
+              )}
+              <button className="doc-chat__send" type="submit" disabled={!canSend} aria-label="Send" title="Send">
+                <Icon path={icons.send} />
+              </button>
+            </div>
+          </form>
+          {ready && macStatus && <MacStatus status={macStatus} />}
+        </div>
       </div>
     </>
   );
