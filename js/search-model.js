@@ -661,19 +661,16 @@ export function readRecentSearches(storage, actor) {
 
 export function writeRecentSearches(storage, queries, actor) {
   if (typeof actor !== "string" || !actor) return Object.freeze([]);
-  if (!storage) return Object.freeze([]);
   const next = normalizeRecentSearches(queries);
   assertNotPreferences(RECENT_SEARCHES_KEY);
-  try { storage.setItem(`${RECENT_SEARCHES_KEY}:${encodeURIComponent(actor)}`, JSON.stringify(next)); } catch { /* a convenience, never a requirement */ }
+  // The caller keeps the returned list, so chips survive storage that is blocked or full.
+  try { storage?.setItem(`${RECENT_SEARCHES_KEY}:${encodeURIComponent(actor)}`, JSON.stringify(next)); } catch { /* a convenience, never a requirement */ }
   return next;
 }
 
-/** Prepend a query, drop a case-insensitive duplicate, and keep five. */
-export function recordRecentSearch(storage, query, actor) {
-  const trimmed = String(query ?? "").trim();
-  if (!trimmed) return readRecentSearches(storage, actor);
-  const rest = readRecentSearches(storage, actor).filter((entry) => entry.toLowerCase() !== trimmed.toLowerCase());
-  return writeRecentSearches(storage, [trimmed, ...rest], actor);
+/** Prepend a query to `recents`, drop a case-insensitive duplicate, keep five, and store the result. */
+export function recordRecentSearch(storage, query, actor, recents = readRecentSearches(storage, actor)) {
+  return writeRecentSearches(storage, [query, ...recents], actor);
 }
 
 function escapeHtml(value) {

@@ -22,7 +22,7 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => 
 
 /** One place holds what the Search tab believes; nothing else keeps a copy. */
 const view = {
-  status: "idle", query: "", kinds: [], payload: null, views: [],
+  status: "idle", query: "", kinds: [], payload: null, views: [], recents: [],
 };
 
 let client = null;
@@ -62,7 +62,7 @@ function renderChips(groups) {
 function renderRecentSearches() {
   const bar = $("recentSearches");
   if (!bar) return;
-  const recents = savedViewActor ? readRecentSearches(storage, savedViewActor) : [];
+  const recents = view.recents;
   bar.hidden = recents.length === 0;
   bar.innerHTML = recents.map((query) => `<button class="chip" type="button" data-recent="${escapeHtml(query)}">${escapeHtml(query)}</button>`).join("");
 }
@@ -172,7 +172,7 @@ function restoreFromAddress({ reread = true, query } = {}) {
 /* ------------------------------------------------------------------ the wiring */
 
 function rememberQuery(query) {
-  if (savedViewActor && queryIsSendable(query)) recordRecentSearch(storage, query, savedViewActor);
+  if (savedViewActor && queryIsSendable(query)) view.recents = recordRecentSearch(storage, query, savedViewActor, view.recents);
 }
 
 function wire() {
@@ -206,6 +206,7 @@ function wire() {
     clearTimeout(idleTimer);
     rememberQuery(view.query);
     read({ push: true });
+    $("searchQuery")?.focus();
   });
 
   $("searchChips")?.addEventListener("click", (event) => {
@@ -263,6 +264,11 @@ function wire() {
   globalThis.addEventListener?.("popstate", () => restoreFromAddress({ reread: true }));
 }
 
+/** Reading `localStorage` itself throws when the browser blocks storage. */
+function browserStorage() {
+  try { return globalThis.localStorage || null; } catch { return null; }
+}
+
 /**
  * Mount the Search tab. `storageImpl` is injectable so a test can watch every
  * key this surface writes and assert that the workspace preference key is never
@@ -270,19 +276,21 @@ function wire() {
  */
 export function mountSearch({ client: searchClient, storage: storageImpl } = {}) {
   client = searchClient;
-  storage = storageImpl === undefined ? (globalThis.localStorage || null) : storageImpl;
+  storage = storageImpl === undefined ? browserStorage() : storageImpl;
   view.views = [];
+  view.recents = [];
   const boundary = privateSession();
   const identity = boundary ? boundary.verify() : Promise.resolve({actor:{slug:client.selfActor}});
   void identity.then(session => {
     if (boundary?.revoked) return;
     savedViewActor = session.actor.slug;
     view.views = readSavedViews(storage, savedViewActor);
+    view.recents = readRecentSearches(storage, savedViewActor);
     renderSavedViews();
     renderRecentSearches();
   }).catch(() => {});
   globalThis.addEventListener?.('doctorcre-session-invalidated', () => {
-    savedViewActor = null; view.views = []; view.query = ''; view.payload = null; view.status = 'idle';
+    savedViewActor = null; view.views = []; view.recents = []; view.query = ''; view.payload = null; view.status = 'idle';
     searchReads.invalidate(); clearTimeout(idleTimer);
     renderSavedViews();
     renderRecentSearches();
