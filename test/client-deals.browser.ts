@@ -63,7 +63,12 @@ const answer =
 async function openCard(
   t: TestContext,
   deals: Answer,
-  { width = 1440, height = 900, scheme = "dark", saves = null as Answer | null } = {},
+  {
+    width = 1440,
+    height = 900,
+    scheme = "dark",
+    saves,
+  }: { width?: number; height?: number; scheme?: string; saves?: Answer } = {},
 ) {
   const server = await startFixtureServer();
   t.after(() => server.stop());
@@ -247,7 +252,8 @@ function partyEngine(refuse: string | null = null) {
     assert.match(String(idempotency_key), /^[0-9a-f-]{36}$/);
     sent.push({ path, body });
     if (refuse) return route.fulfill({ status: 404, json: { error: refuse } });
-    const deal = list.find((d) => path.startsWith(`/api/engine/deals/${d.id}/parties`)) ?? list[0];
+    const deal = list.find((d) => path.startsWith(`/api/engine/deals/${d.id}/parties`));
+    assert.ok(deal, `a known deal: ${path}`);
     deal.vendors = deal.vendors.filter((v) => v.party_id !== body.party_id);
     const intro = deal.introductions.find((i) => i.vendor_id === body.party_id);
     if (!path.endsWith("/remove") && intro)

@@ -178,7 +178,8 @@ function VendorBox({
   const wrap = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
-    const outside = (event: PointerEvent) => wrap.current?.contains(event.target as Node) || setOpen(false);
+    const outside = ({ target }: PointerEvent) =>
+      (target instanceof Node && wrap.current?.contains(target)) || setOpen(false);
     document.addEventListener("pointerdown", outside);
     return () => document.removeEventListener("pointerdown", outside);
   }, [open]);

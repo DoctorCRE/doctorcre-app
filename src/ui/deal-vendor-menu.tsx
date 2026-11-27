@@ -28,6 +28,7 @@ export function refusal(problem: { error?: string } = {}) {
 
 // Sends one save per role, stopping at the first refusal.
 export async function eachRole(roles: Role[], save: (role: string) => Promise<Saved>): Promise<Saved> {
+  // eslint-disable-next-line no-restricted-syntax -- Only one save per role the vendor holds on this deal, no retries.
   for (const { role } of roles) {
     const saved = await save(role);
     if (!saved.ok) return saved;
