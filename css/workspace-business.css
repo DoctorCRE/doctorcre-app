@@ -439,7 +439,8 @@ body:not([data-directory-view="meetings"]) .vendor-meetings-host { display: none
 .deal-diagram li:not(:last-child)::after { top: var(--mid); bottom: calc(var(--space-2) * -1); border-left-width: 1.5px; }
 .deal-diagram li[data-line="chosen"]::before { border-color: var(--line-chosen); }
 .deal-diagram li[data-line="dashed"]::before, .deal-diagram ul[data-line="dashed"] > li::after { border-style: dashed; }
-.deal-diagram :is(.deal-diagram-junction, .deal-diagram-restack) { --mid: 11px; }
+.deal-diagram .deal-diagram-junction { --mid: 11px; }
+.deal-diagram .deal-diagram-restack { --mid: calc(var(--touch) / 2); }
 .deal-diagram-junction > span { display: flex; align-items: center; min-height: 22px; color: var(--fg-quiet); font-weight: var(--font-weight-strong); }
 .deal-diagram-box { display: flex; align-items: center; gap: var(--space-2); box-sizing: border-box; min-height: var(--box); padding: var(--space-1) var(--space-3); border-radius: var(--radius-3); background: var(--surface-2); }
 .deal-diagram-box[data-tone="client"] { background: var(--surface-3); }
@@ -454,10 +455,10 @@ body:not([data-directory-view="meetings"]) .vendor-meetings-host { display: none
 .deal-diagram-glyph .deal-diagram-fill { fill: var(--mark); stroke: none; }
 .deal-diagram-box:is([data-tone="chosen"], [data-tone="onDeal"]) .deal-diagram-glyph path { stroke: var(--surface-1); stroke-width: 2; }
 .deal-diagram-initial { display: grid; flex: none; place-items: center; width: 20px; height: 20px; border-radius: var(--radius-round); background: var(--surface-3); color: var(--fg); font-weight: var(--font-weight-strong); }
-.deal-diagram-pile { position: relative; display: block; width: 100%; margin-bottom: var(--space-2); padding: 0; border: 0; border-radius: var(--radius-3); background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.deal-diagram-pile { display: block; width: 100%; margin-bottom: var(--space-2); padding: 0; border: 0; border-radius: var(--radius-3); background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .deal-diagram-pile[data-depth="1"] { box-shadow: 0 6px 0 -3px var(--surface-2), 0 6px 0 -2px var(--hairline-strong); }
 .deal-diagram-pile[data-depth="2"] { margin-bottom: var(--space-3); box-shadow: 0 6px 0 -3px var(--surface-2), 0 6px 0 -2px var(--hairline-strong), 0 12px 0 -7px var(--surface-2), 0 12px 0 -6px var(--hairline-strong); }
 .deal-diagram-pile:hover .deal-diagram-box { background: var(--surface-2); }
-.deal-diagram-count { position: absolute; top: 50%; right: var(--space-3); translate: 0 -50%; padding: 0 var(--space-2); border-radius: var(--radius-round); background: var(--surface-3); color: var(--fg-muted); font-variant-numeric: tabular-nums; }
-.deal-diagram-restack button { min-height: 22px; padding: 0 var(--space-1); border: 0; border-radius: var(--radius-2); background: none; color: var(--fg-quiet); font: inherit; cursor: pointer; }
+.deal-diagram-count { flex: none; padding: 0 var(--space-2); border-radius: var(--radius-round); background: var(--surface-3); color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+.deal-diagram-restack button { min-height: var(--touch); padding: 0 var(--space-1); border: 0; border-radius: var(--radius-2); background: none; color: var(--fg-quiet); font: inherit; cursor: pointer; }
 .deal-diagram-restack button:hover { background: var(--surface-2); color: var(--fg); }

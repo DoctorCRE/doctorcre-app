@@ -27,6 +27,18 @@ const fullDeal: DealDiagram = {
   clientBrought: [vendor("v6", "Example Marsh & Lane CPAs", "CPA", true)],
   notRecorded: [{ id: "v7", name: "Example Halloran Title & Law", role: "Title" }],
 };
+const longNameDeal: DealDiagram = {
+  ...fullDeal,
+  introducedBy: {
+    dell: [
+      vendor("l1", "Example Northwind Harbor Commercial Mortgage and Equipment Finance Partners", "Lender"),
+      vendor("l2", "Example Pelican Ridge Bank", "Lender"),
+      vendor("l3", "Example Corwin Build Co.", "Contractor"),
+    ],
+  },
+  clientBrought: [],
+  notRecorded: [],
+};
 const emptyDeal: DealDiagram = {
   client: "Example Bayline Dental",
   owner: "joe",
@@ -48,7 +60,7 @@ async function open(
   const page = await browser.newPage({ viewport: { width, height } });
   const card = width > 600 ? "width:400px;margin:24px" : "margin:0";
   await componentDocument(page, server.origin, {
-    html: `<!doctype html><html data-theme="${theme}"${assist ? ' data-color-assist="on"' : ""}><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/css/tokens.css"><link rel="stylesheet" href="/css/workspace-business.css"><body style="margin:0;background:var(--ground);color:var(--fg);font-family:var(--font-text)"><main style="${card};padding:16px;background:var(--surface-1);border-radius:10px;display:grid;gap:24px"></main>`,
+    html: `<!doctype html><html data-theme="${theme}"${assist ? ' data-color-assist="on"' : ""}><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/css/tokens.css"><link rel="stylesheet" href="/css/workspace-business.css"><body style="margin:0;background:var(--ground);color:var(--fg);font-family:var(--font-text)"><main style="${card};padding:16px;background:var(--surface-1);border-radius:10px;display:grid;grid-template-columns:minmax(0,1fr);gap:24px"></main>`,
     dispose: () =>
       mounted.evaluate((list: { dispose(): void }[]) => {
         for (const diagram of list) diagram.dispose();
@@ -109,12 +121,31 @@ test("introduced vendors stack like a pile and fan out with one click, then stac
   assert.equal(await page.locator('[data-tone="introduced"]').count(), 1);
   await pile.click();
   assert.equal(await page.locator('[data-tone="introduced"]').count(), 3);
+  const focused = () => page.evaluate(() => document.activeElement?.textContent ?? document.activeElement?.tagName);
+  assert.match(String(await focused()), /Saltmarsh Lending/);
   const restack = page.getByRole("button", { name: "Stack the 3 introduced" });
   assert.equal(await restack.getAttribute("aria-expanded"), "true");
   await page.screenshot({ path: `${shots}/fanned-1440-dark.png` });
   await restack.click();
   assert.equal(await page.locator('[data-tone="introduced"]').count(), 1);
   assert.equal(await pile.isVisible(), true);
+  assert.equal(await pile.evaluate((node) => node === document.activeElement), true);
+});
+
+test("the pile's label tells a screen reader the top vendor, its role and state, and the count", async (t) => {
+  const page = await open(t, [fullDeal]);
+  const label = await page.locator(".deal-diagram-pile").getAttribute("aria-label");
+  assert.equal(label, "Show all 3 introduced vendors, starting with Example Saltmarsh Lending, Lender, introduced");
+});
+
+test("the restack button is a full control height", async (t) => {
+  const page = await open(t, [fullDeal]);
+  await page.locator(".deal-diagram-pile").click();
+  const box = await page.getByRole("button", { name: "Stack the 3 introduced" }).boundingBox();
+  const touch = await page.evaluate(() =>
+    Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--touch")),
+  );
+  assert.ok(box && touch > 0 && box.height >= touch, `restack is ${box?.height}px, control size is ${touch}px`);
 });
 
 test("a deal with no vendors shows the client and the deal owner only", async (t) => {
@@ -122,6 +153,32 @@ test("a deal with no vendors shows the client and the deal owner only", async (t
   assert.deepEqual(await boxes(page), ["Example Bayline Dental | Client", "Joe | Deal owner"]);
   assert.equal(await page.locator(".deal-diagram ul ul").count(), 0);
 });
+
+for (const [width, theme] of [
+  [1440, "light"],
+  [1440, "dark"],
+  [390, "light"],
+  [390, "dark"],
+] as const)
+  test(`the +N pill never covers a long top vendor name at ${width}px ${theme}`, async (t) => {
+    const page = await open(t, [longNameDeal], { width, theme });
+    const { name, count } = await page.evaluate(() => {
+      const rect = (selector: string) => {
+        const node = document.querySelector(selector);
+        if (!node) throw new Error(`No ${selector}`);
+        const { left, right } = node.getBoundingClientRect();
+        return { left, right };
+      };
+      return { name: rect(".deal-diagram-pile .deal-diagram-text"), count: rect(".deal-diagram-count") };
+    });
+    assert.ok(name.right <= count.left + 0.5, `name ends at ${name.right}, pill starts at ${count.left}`);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    await page.screenshot({ path: `${shots}/long-name-${width}-${theme}.png`, fullPage: true });
+    await page.locator(".deal-diagram-pile").click();
+    await page.screenshot({ path: `${shots}/long-name-${width}-${theme}-fanned.png`, fullPage: true });
+    await page.getByRole("button", { name: "Stack the 3 introduced" }).click();
+    await page.screenshot({ path: `${shots}/long-name-${width}-${theme}-restacked.png`, fullPage: true });
+  });
 
 const sizes = [
   { width: 1440, height: 772 },

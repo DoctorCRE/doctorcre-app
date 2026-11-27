@@ -1,4 +1,4 @@
-import { type ReactNode, useState } from "react";
+import { type ReactNode, type Ref, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 
@@ -42,25 +42,47 @@ function Glyph({ mark }: { mark: Mark | "referred" }) {
   );
 }
 
-function Box({ tone, lead, name, caption }: { tone: string; lead: ReactNode; name: string; caption: ReactNode }) {
+interface BoxProps {
+  tone: string;
+  lead: ReactNode;
+  name: string;
+  caption: ReactNode;
+  trail?: ReactNode;
+  boxRef?: Ref<HTMLDivElement> | undefined;
+}
+
+function Box({ tone, lead, name, caption, trail, boxRef }: BoxProps) {
   return (
-    <div className="deal-diagram-box" data-tone={tone}>
+    <div className="deal-diagram-box" data-tone={tone} ref={boxRef} tabIndex={boxRef ? -1 : undefined}>
       {lead}
       <span className="deal-diagram-text">
         <b>{name}</b>
         <span>{caption}</span>
       </span>
+      {trail}
     </div>
   );
 }
 
-function VendorBox({ vendor, mark }: { vendor: Vendor; mark: Mark }) {
+function VendorBox({
+  vendor,
+  mark,
+  trail,
+  boxRef,
+}: {
+  vendor: Vendor;
+  mark: Mark;
+  trail?: ReactNode;
+  boxRef?: Ref<HTMLDivElement> | undefined;
+}) {
   const caption = (
     <>
       {vendor.role} · <span className="deal-diagram-word">{WORD[mark]}</span>
     </>
   );
-  return <Box tone={mark} lead={<Glyph mark={mark} />} name={vendor.name} caption={caption} />;
+  return (
+    <Box tone={mark} lead={<Glyph mark={mark} />} name={vendor.name} caption={caption} trail={trail} boxRef={boxRef} />
+  );
 }
 
 function Branch({ line, children }: { line: Line; children: ReactNode }) {
@@ -74,6 +96,19 @@ function Vendors({ vendors }: { vendors: IntroducedVendor[] }) {
   const passed = vendors.filter((vendor) => !vendor.chosen);
   const [top] = passed;
   const stacked = top && passed.length > 1 && !fanned;
+  const pile = useRef<HTMLButtonElement>(null);
+  const firstFanned = useRef<HTMLDivElement>(null);
+  const moveFocus = useRef(false);
+  // The button a partner pressed unmounts, so hand focus to the control that replaces it.
+  useEffect(() => {
+    if (!moveFocus.current) return;
+    moveFocus.current = false;
+    (fanned ? firstFanned : pile).current?.focus();
+  }, [fanned]);
+  const toggle = (next: boolean) => {
+    moveFocus.current = true;
+    setFanned(next);
+  };
   return (
     <>
       {chosen.map((vendor) => (
@@ -88,23 +123,27 @@ function Vendors({ vendors }: { vendors: IntroducedVendor[] }) {
             className="deal-diagram-pile"
             data-depth={Math.min(passed.length - 1, 2)}
             aria-expanded="false"
-            aria-label={`Show all ${passed.length} introduced vendors`}
-            onClick={() => setFanned(true)}
+            aria-label={`Show all ${passed.length} introduced vendors, starting with ${top.name}, ${top.role}, introduced`}
+            ref={pile}
+            onClick={() => toggle(true)}
           >
-            <VendorBox vendor={top} mark="introduced" />
-            <span className="deal-diagram-count">+{passed.length - 1}</span>
+            <VendorBox
+              vendor={top}
+              mark="introduced"
+              trail={<span className="deal-diagram-count">+{passed.length - 1}</span>}
+            />
           </button>
         </Branch>
       ) : (
-        passed.map((vendor) => (
+        passed.map((vendor, index) => (
           <Branch key={vendor.id} line="plain">
-            <VendorBox vendor={vendor} mark="introduced" />
+            <VendorBox vendor={vendor} mark="introduced" boxRef={index === 0 ? firstFanned : undefined} />
           </Branch>
         ))
       )}
       {fanned && passed.length > 1 && (
         <li data-line="plain" className="deal-diagram-restack">
-          <button type="button" aria-expanded="true" onClick={() => setFanned(false)}>
+          <button type="button" aria-expanded="true" onClick={() => toggle(false)}>
             Stack the {passed.length} introduced
           </button>
         </li>
