@@ -3,27 +3,79 @@ import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 
 type Partner = "joe" | "dell";
+interface Role {
+  role: string;
+  label: string;
+}
+// One deal of the engine's client deals read, GET /api/engine/clients/{id}/deals.
+export interface ClientDeal {
+  id: string;
+  name: string;
+  phase: string | null;
+  phase_label: string | null;
+  open: boolean;
+  closed_on: string | null;
+  owner: Partner;
+  vendors: { party_id: string; name: string; roles: Role[]; introduction_id: string | null }[];
+  introductions: {
+    id: string;
+    vendor_id: string;
+    vendor_name: string;
+    made_by: "vendor" | "team";
+    introduced_by: Partner | null;
+    introduced_party_id: string;
+    introduced_party_name: string;
+    introduced_on: string | null;
+    note: string | null;
+    chosen: boolean;
+  }[];
+}
+
 interface Vendor {
   id: string;
   name: string;
-  role: string;
-}
-interface IntroducedVendor extends Vendor {
+  role: string | null;
   chosen: boolean;
 }
-export interface DealDiagram {
-  client: string;
-  owner: Partner;
-  referredBy: Vendor[];
-  introducedBy: Partial<Record<Partner, IntroducedVendor[]>>;
-  clientBrought: IntroducedVendor[];
-  notRecorded: Vendor[];
+type Introducer = Partner | "unrecorded";
+
+function treeOf(deal: ClientDeal) {
+  const roles = new Map(deal.vendors.map((v) => [v.party_id, v.roles.map((r) => r.label).join(", ")]));
+  const vendor = (id: string, name: string, chosen: boolean): Vendor => ({
+    id,
+    name,
+    role: roles.get(id) ?? null,
+    chosen,
+  });
+  const referredBy = new Map<string, Vendor>();
+  const introducedBy = new Map<Introducer, Map<string, Vendor>>();
+  for (const intro of deal.introductions) {
+    const box = vendor(intro.vendor_id, intro.vendor_name, intro.chosen);
+    if (intro.made_by === "vendor") {
+      referredBy.set(box.id, box);
+      continue;
+    }
+    const by = intro.introduced_by ?? "unrecorded";
+    introducedBy.set(by, (introducedBy.get(by) ?? new Map()).set(box.id, box));
+  }
+  const list = (by: Introducer) => [...(introducedBy.get(by)?.values() ?? [])];
+  return {
+    referredBy: [...referredBy.values()],
+    introducedBy: list,
+    notRecorded: deal.vendors.filter((v) => v.introduction_id === null).map((v) => vendor(v.party_id, v.name, true)),
+  };
 }
 
 type Mark = "chosen" | "introduced" | "onDeal";
 const WORD: Record<Mark, string> = { chosen: "Chosen", introduced: "Introduced", onDeal: "On the deal" };
 type Line = "chosen" | "plain" | "dashed";
-const PARTNER_NAME: Record<Partner, string> = { joe: "Joe", dell: "Dell" };
+const INTRODUCER_NAME: Record<Introducer, string> = { joe: "Joe", dell: "Dell", unrecorded: "Not recorded" };
+const withRole = (role: string | null, word: ReactNode) => (
+  <>
+    {role && `${role} · `}
+    {word}
+  </>
+);
 
 function Glyph({ mark }: { mark: Mark | "referred" }) {
   return (
@@ -75,11 +127,7 @@ function VendorBox({
   trail?: ReactNode;
   boxRef?: Ref<HTMLDivElement> | undefined;
 }) {
-  const caption = (
-    <>
-      {vendor.role} · <span className="deal-diagram-word">{WORD[mark]}</span>
-    </>
-  );
+  const caption = withRole(vendor.role, <span className="deal-diagram-word">{WORD[mark]}</span>);
   return (
     <Box tone={mark} lead={<Glyph mark={mark} />} name={vendor.name} caption={caption} trail={trail} boxRef={boxRef} />
   );
@@ -90,7 +138,7 @@ function Branch({ line, children }: { line: Line; children: ReactNode }) {
 }
 
 // Introduced vendors nobody chose sit stacked like a solitaire pile until a partner fans them out.
-function Vendors({ vendors }: { vendors: IntroducedVendor[] }) {
+function Vendors({ vendors }: { vendors: Vendor[] }) {
   const [fanned, setFanned] = useState(false);
   const chosen = vendors.filter((vendor) => vendor.chosen);
   const passed = vendors.filter((vendor) => !vendor.chosen);
@@ -123,7 +171,7 @@ function Vendors({ vendors }: { vendors: IntroducedVendor[] }) {
             className="deal-diagram-pile"
             data-depth={Math.min(passed.length - 1, 2)}
             aria-expanded="false"
-            aria-label={`Show all ${passed.length} introduced vendors, starting with ${top.name}, ${top.role}, introduced`}
+            aria-label={`Show all ${passed.length} introduced vendors, starting with ${[top.name, top.role, "introduced"].filter(Boolean).join(", ")}`}
             ref={pile}
             onClick={() => toggle(true)}
           >
@@ -152,15 +200,15 @@ function Vendors({ vendors }: { vendors: IntroducedVendor[] }) {
   );
 }
 
-function PartnerBranch({ partner, label, vendors }: { partner: Partner; label: string; vendors: IntroducedVendor[] }) {
-  const lead = (
+function IntroducerBranch({ by, label, vendors }: { by: Introducer; label: string; vendors: Vendor[] }) {
+  const lead = by !== "unrecorded" && (
     <span className="deal-diagram-initial" aria-hidden="true">
-      {PARTNER_NAME[partner][0]}
+      {INTRODUCER_NAME[by][0]}
     </span>
   );
   return (
     <Branch line="plain">
-      <Box tone="person" lead={lead} name={PARTNER_NAME[partner]} caption={label} />
+      <Box tone="person" lead={lead} name={INTRODUCER_NAME[by]} caption={label} />
       {vendors.length > 0 && (
         <ul>
           <Vendors vendors={vendors} />
@@ -170,10 +218,9 @@ function PartnerBranch({ partner, label, vendors }: { partner: Partner; label: s
   );
 }
 
-function DealDiagramView({ diagram }: { diagram: DealDiagram }) {
-  const { client, owner, referredBy, introducedBy, clientBrought, notRecorded } = diagram;
-  const other: Partner = owner === "joe" ? "dell" : "joe";
-  const otherIntroduced = introducedBy[other] ?? [];
+function DealDiagramView({ client, deal }: { client: string; deal: ClientDeal }) {
+  const { referredBy, introducedBy, notRecorded } = treeOf(deal);
+  const others = (["joe", "dell", "unrecorded"] as const).filter((by) => by !== deal.owner);
   return (
     <div className="deal-diagram">
       <Box tone="client" lead={null} name={client} caption="Client" />
@@ -184,13 +231,17 @@ function DealDiagramView({ diagram }: { diagram: DealDiagram }) {
               tone="person"
               lead={<Glyph mark="referred" />}
               name={vendor.name}
-              caption={`${vendor.role} · Referred this client`}
+              caption={withRole(vendor.role, "Referred this client")}
             />
           </Branch>
         ))}
-        <PartnerBranch partner={owner} label="Deal owner" vendors={introducedBy[owner] ?? []} />
-        {otherIntroduced.length > 0 && <PartnerBranch partner={other} label="Introduced" vendors={otherIntroduced} />}
-        <Vendors vendors={clientBrought} />
+        <IntroducerBranch by={deal.owner} label="Deal owner" vendors={introducedBy(deal.owner)} />
+        {others.map(
+          (by) =>
+            introducedBy(by).length > 0 && (
+              <IntroducerBranch key={by} by={by} label="Introduced" vendors={introducedBy(by)} />
+            ),
+        )}
         {notRecorded.length > 0 && (
           <li data-line="dashed" className="deal-diagram-junction">
             <span>Brought in by: not recorded</span>
@@ -208,8 +259,8 @@ function DealDiagramView({ diagram }: { diagram: DealDiagram }) {
   );
 }
 
-export function mountDealDiagram(host: HTMLElement, diagram: DealDiagram) {
+export function mountDealDiagram(host: HTMLElement, props: { client: string; deal: ClientDeal }) {
   const root = createRoot(host);
-  flushSync(() => root.render(<DealDiagramView diagram={diagram} />));
+  flushSync(() => root.render(<DealDiagramView {...props} />));
   return { dispose: () => flushSync(() => root.unmount()) };
 }
