@@ -23,8 +23,6 @@
 #secondaryFilters > summary { display: none; }
 .filter-form, .filter-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .filter-form .field { flex: 1 1 7rem; }
-.search-dock .quiet-toggle { order: 1; margin: 0; }
-.quiet-toggle[aria-pressed="true"] { border-color: var(--hairline-strong); background: var(--surface-3); color: var(--fg); }
 .field { display: grid; gap: var(--space-1); min-width: 0; }
 .field label { color: var(--fg-muted); font-size: var(--font-size-1); }
 .field input, .field select { width: 100%; min-height: var(--touch); padding: 0 var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); background: var(--surface-2); color: var(--fg); font: inherit; font-size: var(--font-size-1); transition: border-color var(--duration-hover) var(--ease-out); }
@@ -386,11 +384,13 @@ body[data-directory="clients"] #applyFilters { display: none; }
   body[data-directory="vendors"] :is(.record-list > *, .record-row) { grid-column: 1 / -1; }
   body[data-directory="vendors"] :is(.record-item, .record-row) { display: grid; grid-template-columns: subgrid; }
   body[data-directory="vendors"] :is(.record-row, .record-row:has(.contact-note), .list-head) { grid-template-areas: "head facts note owner"; }
-  body[data-directory="vendors"] .row-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  body[data-directory="vendors"] [data-fact="Category"] { grid-column: 1; }
-  body[data-directory="vendors"] [data-fact="Territory"] { grid-column: 2; }
-  body[data-directory="vendors"] [data-fact="Location"] { grid-column: 3; }
-  body[data-directory="vendors"] .row-fact.history { grid-row: 2; }
+  /* Category is a column only outside a category; a missing fact leaves its column empty. */
+  body[data-directory="vendors"] .row-facts { display: grid; grid-template-columns: 7.5rem repeat(3, minmax(0, 1fr)); --territory: 3; --location: 4; }
+  body[data-directory="vendors"] #recordList[data-in-category] .row-facts { grid-template-columns: 7.5rem repeat(2, minmax(0, 1fr)); --territory: 2; --location: 3; }
+  body[data-directory="vendors"] [data-fact="Relationship"] { grid-column: 1; }
+  body[data-directory="vendors"] [data-fact="Category"] { grid-column: 2; }
+  body[data-directory="vendors"] [data-fact="Territory"] { grid-column: var(--territory); }
+  body[data-directory="vendors"] [data-fact="Location"] { grid-column: var(--location); }
 }
 body[data-directory="vendors"] .row-updated { display: none; }
 body:not([data-directory="vendors"]) #directoryViews { display: none; }
@@ -414,7 +414,6 @@ body:not([data-directory-view="meetings"]) .vendor-meetings-host { display: none
   /* A row reached by keyboard scrolls clear of the header row as well as the toolbar. */
   .record-row { align-items: center; min-height: 0; padding-block: var(--space-2); scroll-margin-top: calc(var(--space-6) + var(--hairline-width)); }
   .row-head { flex-wrap: nowrap; }
-  .row-head .rel-word { flex: none; }
   .record-row :is(.row-fact:not(.history), .row-foot, .contact-note) .fact-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   :is(.record-row, .list-head) .row-foot { display: contents; text-align: left; }
   :is(.record-row, .list-head) .row-owner { grid-area: owner; }
@@ -466,13 +465,39 @@ body:not([data-directory-view="meetings"]) .vendor-meetings-host { display: none
 .deal-diagram-restack button { min-height: var(--touch); padding: 0 var(--space-1); border: 0; border-radius: var(--radius-2); background: none; color: var(--fg-quiet); font: inherit; cursor: pointer; }
 .deal-diagram-restack button:hover { background: var(--surface-2); color: var(--fg); }
 /* Vendors opens on a tile per category; the list's filters and chips return inside one. */
-body[data-tiles] :is(#filterForm .filter-row:not(.filter-row-actions), #territoryField, .filter-actions, #quietVendors, #chipBar, #secondaryFilters > summary) { display: none; }
+/* Vendors name their category in the title and their filters on the toolbar, so they need no chips. */
+body[data-directory="vendors"] #chipBar,
+body[data-directory="vendors"] :is(#filterForm .filter-row:not(.filter-row-actions), #territoryField, .filter-actions, #refreshList, #secondaryFilters > summary) { display: none; }
+/* Without refresh, the vendor status holds only screen-reader text, so it takes no line of its own. */
+body[data-directory="vendors"] .search-dock .hero-meta { position: absolute; }
+/* The search sits on the page, not in a second box around its own field. */
+body[data-directory="vendors"] .search-dock.glass { padding-inline: 0; border: 0; border-radius: 0; background: var(--ground); box-shadow: none; }
+.vendor-filters { display: flex; flex: 1 1 auto; flex-wrap: wrap; gap: var(--space-1); }
+.vendor-filters[hidden] { display: none; }
+.filter-count { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 28px; padding: 0 var(--space-3); border: var(--hairline-width) solid var(--hairline); border-radius: var(--radius-round); background: none; color: var(--fg-muted); font: inherit; font-size: var(--font-size-1); cursor: pointer; }
+.filter-count:hover { background: var(--surface-2); }
+.filter-count[aria-pressed="true"] { border-color: var(--hairline-strong); background: var(--surface-3); color: var(--fg); }
+.filter-count:focus-visible, .column-sort:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 2px; }
+.quiet-filter { margin-inline-start: auto; }
+.column-sort { padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
+.column-sort:hover, .column-sort.on { color: var(--fg); }
+.column-sort.on::after { content: " ↓"; }
+.contact-note.quiet { color: var(--status-warn-ink); }
+@media (hover: none) and (pointer: coarse) {
+  .filter-count { min-height: var(--touch); }
+}
+/* On a phone the counts are one row that scrolls sideways. */
+@media (max-width: 767px) {
+  .vendor-filters { flex-basis: 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .filter-count { flex: none; }
+}
 .vendor-tile-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(12.5rem, 1fr)); gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
 .vendor-tile { display: flex; flex-direction: column; gap: var(--space-2); height: 100%; min-height: 9rem; padding: var(--space-3) var(--space-4); border-radius: var(--radius-3); background: var(--surface-1); color: var(--fg); text-decoration: none; transition: background var(--duration-hover) var(--ease-out); }
 a.vendor-tile:hover { background: var(--surface-2); }
 a.vendor-tile:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 2px; }
-.tile-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
-.tile-name { font-weight: var(--font-weight-strong); line-height: var(--line-height-heading); }
+/* A long name keeps its word whole and pushes the count under it, never against the tile edge. */
+.tile-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0 var(--space-2); }
+.tile-name { min-width: 0; font-weight: var(--font-weight-strong); line-height: var(--line-height-heading); overflow-wrap: break-word; }
 .tile-count { flex: none; font-size: var(--font-size-3); font-weight: var(--font-weight-strong); font-variant-numeric: tabular-nums; }
 .tile-mix { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; color: var(--fg-muted); font-size: var(--font-size-1); }
 .tile-mix li { display: flex; align-items: center; gap: var(--space-2); }
@@ -480,7 +505,7 @@ a.vendor-tile:focus-visible { outline: var(--focus-width) solid var(--focus-ring
 .tile-quiet { margin-top: auto; color: var(--status-warn-ink); font-size: var(--font-size-1); }
 @media (max-width: 767px) {
   .vendor-tile-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .vendor-tile { min-height: 0; }
+  .vendor-tile { min-height: 0; padding-inline: var(--space-3); }
   .vendor-tile .tile-mix { display: none; }
   /* New vendor, Categories, People worth meeting and the owner chips wrap onto a second row rather than scroll Dell out of sight. */
   body[data-directory="vendors"] .app-layout-tabs { flex-wrap: wrap; overflow: visible; gap: 0; }

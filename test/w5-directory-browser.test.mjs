@@ -108,12 +108,12 @@ test('an old market bookmark opens the vendor tiles, and a vendor from there ope
 test('W5 filters, traversal and autonomous refresh recover without losing search',async t=>{
   const h=await open(t),{page}=h;await page.goto(origin+'/vendors?all=true&mode=live', {waitUntil:'domcontentloaded'});await page.waitForSelector('.record-row');
   await page.locator('[data-owner="dell"]').click();await page.waitForFunction(()=>document.querySelector('#resultSummary').textContent.startsWith('31 '));assert.match(h.calls.at(-1),/owner=dell/);
-  await page.locator('#territoryInput').fill('Demo North');await page.locator('#territoryInput').dispatchEvent('change');await page.waitForFunction(()=>location.search.includes('territory=Demo'));
-  await page.locator('#sortSelect').selectOption('territory');await page.waitForFunction(()=>location.search.includes('sort=territory'));
+  await page.locator('[data-column-sort="territory"]').click();await page.waitForFunction(()=>location.search.includes('sort=territory'));
   const resetRead=page.waitForResponse(response=>{const url=new URL(response.url());return url.pathname==='/api/v1/business/vendors' && (url.searchParams.get('owner')||'all')==='all' && !url.searchParams.get('territory') && (url.searchParams.get('sort')||'name')==='name' && (url.searchParams.get('page')||'1')==='1';});
-  await page.locator('#chipBar [data-chip="all"]').click();await resetRead;
+  await page.locator('[data-owner="all"]').click();await page.waitForFunction(()=>!location.search.includes('owner='));
+  await page.locator('[data-column-sort="territory"]').click();await resetRead;
   await page.waitForFunction(()=>document.querySelectorAll('.record-row').length>=25 && document.querySelector('#resultSummary').textContent.startsWith('62 '));
-  assert.equal(await page.locator('#territoryInput').inputValue(),'');assert.equal(await page.locator('#sortSelect').inputValue(),'name');
+  assert.equal(await page.locator('[data-column-sort="relationship"]').getAttribute('aria-pressed'),'true');
   await page.evaluate(()=>{document.getElementById('appMainSlot').scrollTo(0,1e6);scrollTo(0,1e6);});await page.waitForFunction(()=>document.querySelectorAll('.record-row').length>25);const search=await page.locator('.search-dock').boundingBox(),mainTop=await page.locator('#appMainSlot').evaluate(n=>n.getBoundingClientRect().top);assert.ok(search.y>=mainTop&&search.y<mainTop+16);assert.ok(search.height<60);assert.doesNotMatch(page.url(),/page=/);
   // Scrolling loads the next page only once the search's first page is the list on screen.
   const searchRead=page.waitForResponse(response=>{const url=new URL(response.url());return url.pathname==='/api/v1/business/vendors' && url.searchParams.get('q')==='Demo' && (url.searchParams.get('page')||'1')==='1';});

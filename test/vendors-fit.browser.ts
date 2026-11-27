@@ -71,7 +71,7 @@ async function openVendors(
   });
   await page.goto(`${server.url}/vendors?all=true`);
   await page.locator(".record-row").first().waitFor();
-  await page.getByRole("button", { name: "Show quiet vendors" }).waitFor();
+  await page.getByRole("button", { name: "Quiet", exact: true }).waitFor();
   return page;
 }
 
@@ -149,10 +149,13 @@ const rowLayout = (page: Page) =>
     });
     return {
       columns: Object.fromEntries(
-        ["[data-fact=Category]", "[data-fact=Territory]", "[data-fact=Location]", ".contact-note"].map((s) => [
-          s,
-          lefts(s),
-        ]),
+        [
+          "[data-fact=Relationship]",
+          "[data-fact=Category]",
+          "[data-fact=Territory]",
+          "[data-fact=Location]",
+          ".contact-note",
+        ].map((s) => [s, lefts(s)]),
       ),
       brokenMidWord: brokenMidWord.map((value) => value.textContent),
     };
@@ -186,9 +189,11 @@ for (const [width, height, today] of [
     const layout = await rowLayout(page);
     for (const [fact, lefts] of Object.entries(layout.columns))
       assert.equal(lefts.length, 1, `${fact} starts at one x on every row, not ${lefts.join(", ")}`);
-    const [category = 0, territory = 0, location = 0] = Object.values(layout.columns).map(([left]) => left ?? 0);
+    const [relationship = 0, category = 0, territory = 0, location = 0] = Object.values(layout.columns).map(
+      ([left]) => left ?? 0,
+    );
     assert.ok(
-      category < territory && territory < location,
+      relationship < category && category < territory && territory < location,
       `facts sit side by side: ${JSON.stringify(layout.columns)}`,
     );
     assert.deepEqual(layout.brokenMidWord, [], "facts wrap between words");
@@ -196,30 +201,21 @@ for (const [width, height, today] of [
     assert.ok((await firstScreen(page)).listTop <= (today ? 160 : 112), "the toolbar stays compact");
   });
 
-test("Reset stays on the toolbar row at 1200x750 when sorted by least recent deal", async (t) => {
+test("the vendor toolbar has no dropdowns, Reset or refresh", async (t) => {
   const page = await openVendors(t, 1200, 750);
-  await page.locator("#sortSelect").selectOption("last_deal_asc");
-  await page.screenshot({ path: `${shots}/vendors-1200-least-recent.png` });
-  const [search, reset] = await Promise.all([
-    page.locator("#searchInput").boundingBox(),
-    page.locator("#resetFilters").boundingBox(),
-  ]);
-  assert.ok(
-    search && reset && Math.abs(reset.y - search.y) < 4,
-    `Reset shares the search row: ${search?.y} vs ${reset?.y}`,
+  const shown = await page.evaluate(() =>
+    [
+      "#filterA",
+      "#filterB",
+      "#filterC",
+      "#sortSelect",
+      "#territoryInput",
+      "#resetFilters",
+      "#applyFilters",
+      "#refreshList",
+    ].filter((selector) => document.querySelector(selector)?.checkVisibility()),
   );
-  assert.deepEqual(await cutFilters(page), [], "every filter shows its whole choice");
-  const cutPlaceholders = await page.evaluate(() =>
-    ["#searchInput", "#territoryInput"].filter((selector) => {
-      const input = document.querySelector<HTMLInputElement>(selector);
-      if (!input) return true;
-      input.value = input.placeholder;
-      const cut = input.scrollWidth > input.clientWidth;
-      input.value = "";
-      return cut;
-    }),
-  );
-  assert.deepEqual(cutPlaceholders, [], "search and territory hints read whole");
+  assert.deepEqual(shown, []);
 });
 
 test("vendor rows take one line each under one header row that names the columns", async (t) => {
@@ -229,17 +225,21 @@ test("vendor rows take one line each under one header row that names the columns
   const columns = await page.evaluate(() => {
     const left = (node: Element | null | undefined) => Math.round(node?.getBoundingClientRect().left ?? Number.NaN);
     const row = document.querySelector(".record-row");
-    return [...document.querySelectorAll(".list-head :is([data-fact], .contact-note, .row-owner)")].map((label) => {
-      const fact = label.getAttribute("data-fact");
-      const value = fact
-        ? row?.querySelector(`[data-fact="${fact}"] .fact-value`)
-        : row?.querySelector(`.${label.className}`);
-      return { label: label.textContent, header: left(label), value: left(value) };
-    });
+    return [...document.querySelectorAll(".list-head :is(.row-head, [data-fact], .contact-note, .row-owner)")].map(
+      (label) => {
+        const fact = label.getAttribute("data-fact");
+        const value = fact
+          ? row?.querySelector(`[data-fact="${fact}"] .fact-value`)
+          : label.classList.contains("row-head")
+            ? row?.querySelector(".row-head")
+            : row?.querySelector(`.${label.className}`);
+        return { label: label.textContent, header: left(label), value: left(value) };
+      },
+    );
   });
   assert.deepEqual(
     columns.map(({ label }) => label),
-    ["Category", "Territory", "Location", "Last contacted", "Owner"],
+    ["Name", "Relationship", "Category", "Territory", "Location", "Last contacted", "Owner"],
   );
   for (const { label, header, value } of columns) assert.equal(value, header, `${label} values sit under their label`);
 });
