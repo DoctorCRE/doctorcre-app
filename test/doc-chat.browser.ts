@@ -397,11 +397,13 @@ for (const storageBlocked of [false, true]) {
     );
     if (storageBlocked) {
       await page.addInitScript(() => {
-        Object.defineProperty(window, "sessionStorage", {
-          get() {
-            throw new DOMException("Storage blocked", "SecurityError");
-          },
-        });
+        for (const name of ["localStorage", "sessionStorage"]) {
+          Object.defineProperty(window, name, {
+            get() {
+              throw new DOMException("Storage blocked", "SecurityError");
+            },
+          });
+        }
       });
     }
     page.on("pageerror", (error) => errors.push(error));
@@ -464,6 +466,150 @@ for (const storageBlocked of [false, true]) {
     assert.deepEqual(errors, []);
   });
 }
+
+const otherId = "00000000-0000-4000-8000-000000000021";
+const otherConversation = { id: otherId, title: "Who is the example contact?", created_at };
+const firstDraft = "Which example deals are still open this month?";
+const otherDraft = "Who is the example contact at the north campus?";
+
+async function questionDraftFixture(
+  t: TestContext,
+  conversations: { id: string; title: string; created_at: string }[] = [conversation],
+) {
+  return docChatFixture(t, async (request) => {
+    const path = new URL(request.url).pathname;
+    if (path === "/api/engine/doc/conversations") return Response.json({ conversations, next_before: null });
+    const detail = conversations.find((row) => path === `/api/engine/doc/conversations/${row.id}`);
+    if (detail) return Response.json({ conversation: detail, turns: [] });
+    if (path === "/api/engine/doc/turns") {
+      const { question: asked, idempotency_key, conversation_id } = await request.json();
+      const chat = conversations.find((row) => row.id === conversation_id) ?? conversation;
+      return Response.json({
+        conversation_id: chat.id,
+        turn: { ...answeredTurn, id: chat.id, question: asked, idempotency_key },
+      });
+    }
+    return new Response(null, { status: 404 });
+  });
+}
+
+test("A half-typed Doc question comes back after a reload, with the cursor at the end", async (t) => {
+  const { page, origin } = await questionDraftFixture(t);
+  const composer = page.getByLabel("Question for Doc");
+  await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
+  await composer.fill(firstDraft);
+  await page.reload();
+  await expect(composer).toBeEnabled();
+  await expect(composer).toHaveValue(firstDraft);
+  await expect(composer).toBeFocused();
+  assert.equal(await composer.evaluate((box: HTMLTextAreaElement) => box.selectionStart), firstDraft.length);
+  assert.equal(await composer.evaluate((box: HTMLTextAreaElement) => box.selectionEnd), firstDraft.length);
+});
+
+test("A half-typed Doc question is still there after the tab is closed", async (t) => {
+  const { page, origin } = await questionDraftFixture(t);
+  const chat = `${origin}/doc-chats?mode=live&chat=${id}`;
+  await page.goto(chat);
+  await page.getByLabel("Question for Doc").fill(firstDraft);
+  const next = await page.context().newPage();
+  t.after(() => next.close());
+  await next.goto(chat);
+  const composer = next.getByLabel("Question for Doc");
+  await expect(composer).toBeEnabled();
+  await expect(composer).toHaveValue(firstDraft);
+});
+
+test("Sending a Doc question clears the saved draft", async (t) => {
+  const { page, origin } = await questionDraftFixture(t);
+  const chat = `${origin}/doc-chats?mode=live&chat=${id}`;
+  const composer = page.getByLabel("Question for Doc");
+  await page.goto(chat);
+  await composer.fill(firstDraft);
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByText(answeredTurn.answer.text)).toBeVisible();
+  await expect(composer).toHaveValue("");
+  const next = await page.context().newPage();
+  t.after(() => next.close());
+  await next.goto(chat);
+  const restored = next.getByLabel("Question for Doc");
+  await expect(restored).toBeEnabled();
+  await expect(restored).toHaveValue("");
+});
+
+test("Two Doc conversations keep separate drafts", async (t) => {
+  const { page, origin } = await questionDraftFixture(t, [conversation, otherConversation]);
+  const firstChat = `${origin}/doc-chats?mode=live&chat=${id}`;
+  const otherChat = `${origin}/doc-chats?mode=live&chat=${otherId}`;
+  const composer = page.getByLabel("Question for Doc");
+  await page.goto(firstChat);
+  await composer.fill(firstDraft);
+  await page.goto(otherChat);
+  await expect(composer).toBeEnabled();
+  await expect(composer).toHaveValue("");
+  await composer.fill(otherDraft);
+  const next = await page.context().newPage();
+  t.after(() => next.close());
+  await next.goto(firstChat);
+  const restored = next.getByLabel("Question for Doc");
+  await expect(restored).toBeEnabled();
+  await expect(restored).toHaveValue(firstDraft);
+  await next.goto(otherChat);
+  await expect(restored).toBeEnabled();
+  await expect(restored).toHaveValue(otherDraft);
+});
+
+test("New chat keeps a draft already typed on a new chat and drops it when leaving a conversation", async (t) => {
+  const { page, origin } = await questionDraftFixture(t);
+  const composer = page.getByLabel("Question for Doc");
+  const newChat = page.getByRole("link", { name: "New chat" }).first();
+  await page.goto(`${origin}/doc-chats?mode=live`);
+  await expect(composer).toBeEnabled();
+  await composer.fill(firstDraft);
+  await newChat.click();
+  await expect(composer).toBeEnabled();
+  await expect(composer).toHaveValue(firstDraft);
+  await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
+  await expect(composer).toBeEnabled();
+  await newChat.click();
+  await expect(composer).toBeEnabled();
+  await expect(composer).toHaveValue("");
+});
+
+test("Emptying the Doc question box clears its saved draft", async (t) => {
+  const { page, origin } = await questionDraftFixture(t);
+  const chat = `${origin}/doc-chats?mode=live&chat=${id}`;
+  const composer = page.getByLabel("Question for Doc");
+  await page.goto(chat);
+  await composer.fill(firstDraft);
+  await composer.fill("");
+  await page.reload();
+  await expect(composer).toBeEnabled();
+  await expect(composer).toHaveValue("");
+});
+
+test("Blocked device storage still lets the partner type and send a Doc question", async (t) => {
+  const { page, origin } = await questionDraftFixture(t);
+  await page.addInitScript(() => {
+    const fail = () => {
+      throw new DOMException("Storage blocked", "SecurityError");
+    };
+    for (const target of [window.localStorage, window.sessionStorage]) {
+      target.setItem = fail;
+      target.getItem = fail;
+      target.removeItem = fail;
+    }
+  });
+  const errors: Error[] = [];
+  page.on("pageerror", (error) => errors.push(error));
+  const composer = page.getByLabel("Question for Doc");
+  await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
+  await expect(composer).toBeEnabled();
+  await composer.fill(firstDraft);
+  await expect(composer).toHaveValue(firstDraft);
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByText(answeredTurn.answer.text)).toBeVisible();
+  assert.deepEqual(errors, []);
+});
 
 test("Doc accepts engine IDs without RFC version or variant bits", async (t) => {
   const engineId = "11111111-2222-3333-4444-555555555555";
