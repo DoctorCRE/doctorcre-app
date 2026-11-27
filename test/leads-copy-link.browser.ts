@@ -25,19 +25,48 @@ async function openLeadDrawer(t: TestContext) {
   return { page, dialog, url };
 }
 
-test("Copy link writes the lead URL and says Copied", async (t) => {
+test("Copy link writes the lead URL and shows Link copied", async (t) => {
   const { page, dialog, url } = await openLeadDrawer(t);
   await dialog.getByRole("button", { name: "Copy link", exact: true }).click();
-  await dialog.getByRole("button", { name: "Copied", exact: true }).waitFor();
+  await dialog.getByRole("status").filter({ hasText: "Link copied" }).waitFor();
   assert.equal(await page.evaluate(() => navigator.clipboard.readText()), url);
 });
 
-test("a refused clipboard reports the fallback in #moveAnnouncement", async (t) => {
+test("a refused clipboard shows the fallback inside the open dialog until it closes", async (t) => {
   const { page, dialog } = await openLeadDrawer(t);
   await page.evaluate(() => {
     navigator.clipboard.writeText = () => Promise.reject(new DOMException("blocked", "NotAllowedError"));
   });
   await dialog.getByRole("button", { name: "Copy link", exact: true }).click();
-  await page.waitForFunction((text) => document.querySelector("#moveAnnouncement")?.textContent === text, fallback);
-  assert.equal(await dialog.getByRole("button", { name: "Copy link", exact: true }).textContent(), "Copy link");
+  const status = dialog.locator("#copyLeadStatus");
+  await status.waitFor({ state: "visible" });
+  assert.equal(await status.textContent(), fallback);
+  await dialog.locator("#closeDetail").click();
+  await status.waitFor({ state: "hidden" });
 });
+
+for (const width of [390, 1440]) {
+  test(`Copy link sits beside the close button at ${width}px, even for a long name`, async (t) => {
+    const { page, dialog } = await openLeadDrawer(t);
+    await page.setViewportSize({ width, height: 900 });
+    await dialog.locator("#detailTitle").evaluate((node) => {
+      node.textContent = "Dr. Alexandria Montgomery-Featherstonehaugh of the Very Long Named Dental Group";
+    });
+    const box = async (selector: string) => {
+      const found = await dialog.locator(selector).boundingBox();
+      assert.ok(found, `${selector} is visible`);
+      return found;
+    };
+    const link = await box("#copyLeadLink");
+    const close = await box("#closeDetail");
+    const title = await box("#detailTitle");
+    assert.ok(link.x + link.width <= close.x + 1, "Copy link ends before the close button");
+    assert.ok(close.x - (link.x + link.width) < 24, "no large gap between Copy link and close");
+    assert.ok(title.x + title.width <= link.x + 1, "the title stays left of Copy link");
+    const fits = await dialog.locator("#copyLeadLink").evaluate((node) => node.scrollWidth <= node.clientWidth);
+    assert.equal(fits, true, "label fits its border");
+    const fontSize = (selector: string) => dialog.locator(selector).evaluate((node) => getComputedStyle(node).fontSize);
+    const sizes = [await fontSize("#copyLeadLink"), await fontSize("#closeDetail")];
+    assert.notEqual(sizes[0], sizes[1]);
+  });
+}

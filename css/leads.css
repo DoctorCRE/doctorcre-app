@@ -127,8 +127,11 @@
 :is(.detail-dialog, .stage-dialog) { width: min(1120px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; padding: var(--space-5); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--panel-radius); background: var(--surface-1); color: var(--fg); box-shadow: var(--shadow-overlay); }
 .stage-dialog { width: min(780px, calc(100vw - 32px)); }
 dialog::backdrop { background: var(--scrim); }
-.dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-4); padding-bottom: var(--space-3); border-bottom: var(--hairline-width) solid var(--hairline); }
-.dialog-heading h2 { font-size: var(--font-size-3); overflow-wrap: anywhere; }
+.dialog-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-4); padding-bottom: var(--space-3); border-bottom: var(--hairline-width) solid var(--hairline); }
+.dialog-heading h2 { flex: 1; min-width: 0; font-size: var(--font-size-3); overflow-wrap: anywhere; }
+.dialog-heading #copyLeadLink { flex: none; font-size: var(--font-size-2); white-space: nowrap; }
+.copy-status { flex-basis: 100%; margin: 0; color: var(--fg-muted); font-size: var(--font-size-2); }
+.copy-status:empty { display: none; }
 .dialog-heading button { min-width: var(--touch); border-color: var(--hairline); background: transparent; color: var(--fg-muted); font-size: var(--font-size-3); line-height: 1; }
 .dialog-heading button:hover { background: var(--surface-2); color: var(--fg); }
 #detailFollowUp { margin: 0 0 var(--space-4); color: var(--fg-muted); font-size: var(--font-size-2); }

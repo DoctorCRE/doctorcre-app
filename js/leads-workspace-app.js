@@ -577,43 +577,33 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
       if (emailAcknowledgements.get(lead.id) === attempt) emailAcknowledgements.delete(lead.id);
     }
   }
-  const COPY_LINK_LABEL = "Copy link";
+  const COPY_LINK_DONE = "Link copied";
   const COPY_LINK_FAILED = "Could not copy link. Copy the address from your browser.";
   let copyLinkTimer = null;
-  function resetCopyLeadLink() {
+  function setCopyLinkStatus(text) {
     if (copyLinkTimer !== null) {
       clearTimeout(copyLinkTimer);
       copyLinkTimer = null;
     }
-    const button = $("copyLeadLink");
-    if (button) button.textContent = COPY_LINK_LABEL;
+    $("copyLeadStatus").textContent = text;
   }
   async function copyLeadLink() {
     const id = state.detailId;
     if (!id) return;
-    resetCopyLeadLink();
+    setCopyLinkStatus("");
     const url = `${win.location.origin}/leads?lead=${encodeURIComponent(id)}`;
     const clipboard = win.navigator?.clipboard;
-    const write = clipboard?.writeText;
-    if (typeof write !== "function") {
-      $("moveAnnouncement").textContent = COPY_LINK_FAILED;
-      return;
-    }
     try {
-      await write.call(clipboard, url);
+      if (typeof clipboard?.writeText !== "function") throw new Error("clipboard unavailable");
+      await clipboard.writeText(url);
     } catch {
-      if (state.detailId === id && $("leadDetail").open) $("moveAnnouncement").textContent = COPY_LINK_FAILED;
+      if (state.detailId === id && $("leadDetail").open) setCopyLinkStatus(COPY_LINK_FAILED);
       return;
     }
     if (state.detailId !== id || !$("leadDetail").open) return;
-    const button = $("copyLeadLink");
-    if (!button) return;
-    button.textContent = "Copied";
-    // eslint-disable-next-line no-restricted-syntax -- Single 2 s Copied label, cleared on the next copy, lead change or close.
-    copyLinkTimer = setTimeout(() => {
-      copyLinkTimer = null;
-      if (button.isConnected) button.textContent = COPY_LINK_LABEL;
-    }, 2000);
+    setCopyLinkStatus(COPY_LINK_DONE);
+    // eslint-disable-next-line no-restricted-syntax -- Single 2 s status, cleared on the next copy, lead change or close.
+    copyLinkTimer = setTimeout(() => setCopyLinkStatus(""), 2000);
   }
 
   async function readDetail(id, { open = true, intent = null, resolvedDetail = null } = {}) {
@@ -622,7 +612,7 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     if (open) state.historyError = null;
     if (!lead || !state.identityReady) return;
     if (open && !intent) drawerEmailAttempted = false;
-    if (open) { resetCopyLeadLink(); clearGuidance(); state.resumeDetail = intent; state.selectedId = id; render(); selectDocRecord("lead", id); state.detailId = id; state.detail = null; paintDetailFollowUp(); state.trigger = focusIdentity(doc.activeElement); $("detailTitle").textContent = leadTitle(lead); $("detailBody").innerHTML = '<p class="empty">Updating…</p>'; $("leadDetail").showModal(); }
+    if (open) { setCopyLinkStatus(""); clearGuidance(); state.resumeDetail = intent; state.selectedId = id; render(); selectDocRecord("lead", id); state.detailId = id; state.detail = null; paintDetailFollowUp(); state.trigger = focusIdentity(doc.activeElement); $("detailTitle").textContent = leadTitle(lead); $("detailBody").innerHTML = '<p class="empty">Updating…</p>'; $("leadDetail").showModal(); }
     const current = () => epoch === state.detailEpoch && actor === state.actor &&
       state.detailId === id && $("leadDetail").open;
     try {
@@ -869,11 +859,12 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
   $("refreshBoard").addEventListener("click", () => { refresh(); });
   $("checkDetailPending").addEventListener("click", executePending);
   $("copyLeadLink").addEventListener("click", () => { void copyLeadLink(); });
+  $("leadDetail").addEventListener("close", () => setCopyLinkStatus(""));
   $("closeDetail").addEventListener("click", () => $("leadDetail").close());
   $("closeStage").addEventListener("click", () => $("stageDialog").close());
   for (const id of ["leadDetail", "stageDialog"]) onDialogClosed($(id), () => {
     if (id === "stageDialog") { ++state.reviewEpoch; state.reviewTarget = null; state.proposal = null; }
-    else { resetCopyLeadLink(); clearGuidance(); ++state.detailEpoch; if (state.detailId) state.resumeDetail = null; state.detailId = null; state.detail = null; }
+    else { setCopyLinkStatus(""); clearGuidance(); ++state.detailEpoch; if (state.detailId) state.resumeDetail = null; state.detailId = null; state.detail = null; }
     paintCommandFeedback();
     if (!$("leadDetail").open && !$("stageDialog").open) {
       selectDocRecord("lead", null);
