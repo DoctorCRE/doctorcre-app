@@ -138,6 +138,8 @@ for (const width of [390, 1440])
         "j or ↓Next card (Home, Deals)",
         "k or ↑Previous card (Home, Deals)",
         "EnterOpen the selected card",
+        "EDone (Home)",
+        "SSnooze (Home)",
       ]);
       assert.equal(await dialog.locator("tr td:first-child kbd").first().textContent(), "g");
       assert.equal(await dialog.evaluate((node) => node.matches(":modal")), true);
@@ -574,4 +576,150 @@ test("j and k do nothing while the shortcut list is open", async (t) => {
   assert.equal(await page.evaluate(() => document.activeElement?.outerHTML), before);
   assert.equal(await page.evaluate(() => Boolean(document.activeElement?.closest("[data-shortcut-card]"))), false);
   assert.equal(await dialog.isVisible(), true);
+});
+
+test("E on a focused Home row sends the Done save", async (t) => {
+  const page = await open(t, "/");
+  const titles = page.locator("[data-inbox-row] h3 a:visible");
+  await titles.first().waitFor();
+  const name = (await titles.first().textContent())?.trim() ?? "";
+  assert.ok(name, "Home shows a card");
+  await page.keyboard.press("j");
+  assert.equal(await focused(page), name);
+  await page.keyboard.press("e");
+  const toast = page.locator(".toast").filter({ hasText: `Marked done: ${name}.` });
+  await toast.getByRole("button", { name: "Undo", exact: true }).waitFor();
+});
+
+test("S on a focused Home row opens the Snooze menu", async (t) => {
+  const page = await open(t, "/");
+  const titles = page.locator("[data-inbox-row] h3 a:visible");
+  await titles.first().waitFor();
+  const name = (await titles.first().textContent())?.trim() ?? "";
+  await page.keyboard.press("j");
+  assert.equal(await focused(page), name);
+  await page.keyboard.press("s");
+  const menu = page.getByRole("dialog", { name: "Snooze cards" });
+  await menu.waitFor();
+  assert.equal(await menu.evaluate((node) => node.matches(":modal")), true);
+  assert.equal(
+    await menu.evaluate((node) => Boolean(document.activeElement && node.contains(document.activeElement))),
+    true,
+    "focus is inside the Snooze menu",
+  );
+});
+
+test("E and S do nothing in a text box or an open item", async (t) => {
+  const page = await open(t, "/");
+  const titles = page.locator("[data-inbox-row] h3 a:visible");
+  await titles.first().waitFor();
+  const name = (await titles.first().textContent())?.trim() ?? "";
+  const doneToast = () => page.locator(".toast").filter({ hasText: `Marked done: ${name}.` });
+  const snooze = () => page.getByRole("dialog", { name: "Snooze cards" });
+
+  await page.evaluate(() => {
+    const field = document.createElement("input");
+    field.id = "shortcutHomeField";
+    field.type = "text";
+    document.body.append(field);
+  });
+  const field = page.locator("#shortcutHomeField");
+  await field.focus();
+  await page.keyboard.type("es");
+  assert.equal(await field.inputValue(), "es");
+  assert.equal(await field.evaluate((node) => node === document.activeElement), true);
+  assert.equal(await doneToast().count(), 0);
+  assert.equal(await snooze().count(), 0);
+
+  await field.evaluate((node) => node.blur());
+  await page.keyboard.press("j");
+  assert.equal(await focused(page), name);
+  await page.keyboard.press("Enter");
+  await page.waitForFunction((title) => {
+    const link = Array.from(document.querySelectorAll("[data-inbox-row] h3 a")).find(
+      (node) => node.textContent?.trim() === title,
+    );
+    return link?.getAttribute("aria-expanded") === "true";
+  }, name);
+  await page.keyboard.press("e");
+  await page.keyboard.press("s");
+  await page.waitForTimeout(400);
+  assert.equal(await doneToast().count(), 0);
+  assert.equal(await snooze().count(), 0);
+  assert.equal(await page.locator("[data-inbox-row] h3 a:visible").first().getAttribute("aria-expanded"), "true");
+});
+
+test("? lists E Done (Home) and S Snooze (Home)", async (t) => {
+  const page = await open(t, "/");
+  await page.keyboard.press("?");
+  const dialog = helpDialog(page);
+  await dialog.waitFor();
+  const rows = await dialog.getByRole("row").evaluateAll((nodes) => nodes.map((node) => node.textContent ?? ""));
+  assert.equal(rows.includes("EDone (Home)"), true);
+  assert.equal(rows.includes("SSnooze (Home)"), true);
+});
+
+test("E and S do nothing on another row while an item is open", async (t) => {
+  const page = await open(t, "/");
+  const titles = page.locator("[data-inbox-row] h3 a:visible");
+  await titles.first().waitFor();
+  const names = await titles.allTextContents();
+  assert.ok(names.length >= 2, "Home shows at least two cards");
+  await page.keyboard.press("j");
+  await page.keyboard.press("Enter");
+  await page.locator(".home-inline-review").waitFor();
+  await page.keyboard.press("j");
+  assert.equal(await page.evaluate(() => document.activeElement?.closest("[data-inbox-row]") !== null), true);
+  await page.keyboard.press("e");
+  await page.keyboard.press("s");
+  await page.waitForTimeout(400);
+  assert.equal(await page.locator(".toast").filter({ hasText: "Marked done" }).count(), 0);
+  assert.equal(await page.getByRole("dialog", { name: "Snooze cards" }).count(), 0);
+});
+
+test("E and S do nothing on a focused row whose buttons are hidden", async (t) => {
+  const page = await open(t, "/", { width: 390 });
+  const titles = page.locator("[data-inbox-row] h3 a:visible");
+  await titles.first().waitFor();
+  await page.keyboard.press("j");
+  await page.evaluate(() => {
+    for (const button of document.querySelectorAll<HTMLElement>("[data-inbox-row] button")) button.hidden = true;
+  });
+  await page.keyboard.press("e");
+  await page.keyboard.press("s");
+  await page.waitForTimeout(400);
+  assert.equal(await page.locator(".toast").filter({ hasText: "Marked done" }).count(), 0);
+  assert.equal(await page.getByRole("dialog", { name: "Snooze cards" }).count(), 0);
+});
+
+test("g then e or s is swallowed and acts on no row", async (t) => {
+  const page = await open(t, "/");
+  await page.locator("[data-inbox-row] h3 a:visible").first().waitFor();
+  await page.keyboard.press("j");
+  for (const key of ["e", "s"]) {
+    await page.keyboard.press("g");
+    await page.keyboard.press(key);
+  }
+  await page.waitForTimeout(400);
+  assert.equal(await page.locator(".toast").filter({ hasText: "Marked done" }).count(), 0);
+  assert.equal(await page.getByRole("dialog", { name: "Snooze cards" }).count(), 0);
+  await stays(page, "/");
+});
+
+test("Escape after S returns focus to the row so j, E and S keep working", async (t) => {
+  const page = await open(t, "/");
+  const titles = page.locator("[data-inbox-row] h3 a:visible");
+  await titles.first().waitFor();
+  const names = await titles.allTextContents();
+  await page.keyboard.press("j");
+  await page.keyboard.press("s");
+  const menu = page.getByRole("dialog", { name: "Snooze cards" });
+  await menu.waitFor();
+  await page.keyboard.press("Escape");
+  await menu.waitFor({ state: "detached" });
+  assert.equal(await focused(page), names[0]?.trim());
+  await page.keyboard.press("j");
+  assert.equal(await focused(page), names[1]?.trim());
+  await page.keyboard.press("s");
+  await menu.waitFor();
 });

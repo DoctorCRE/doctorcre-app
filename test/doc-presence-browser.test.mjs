@@ -154,7 +154,7 @@ for(const dataset of ['clients','vendors'])test(`R12/R13/R18 ${dataset} facts an
   if(url.pathname==='/mcp'&&route.request().postDataJSON().params.name==='find-and-catch-up'){
    await rpc(route,{state:'completed',match:{kind:dataset==='clients'?'client':'vendor',target:dataset==='clients'?'C-DEMO-1':'V-DEMO-1'},catch_up:{timeline:[{summary:'Older review',occurred_at:'2026-10-01T10:00:00Z'},{summary:'Newer review',occurred_at:'2026-10-01T11:00:00Z'}]}});return true;
   }return false;
- }});await goto('/'+dataset+(dataset==='vendors'?'?all=true&mode=live':'?mode=live'));await page.locator('.record-row').first().click();await page.waitForFunction(()=>document.querySelector('#recordActivity')?.textContent.includes('Newer review'));
+ }});await goto('/'+dataset+'?all=true&mode=live');await page.locator('.record-row').first().click();await page.waitForFunction(()=>document.querySelector('#recordActivity')?.textContent.includes('Newer review'));
  const c=await readContext(page);assert.equal(c.ready,true);assert.equal(c.active.fields.find(f=>f.label==='Owner').value,'Joe');assert.equal(c.active.fields.find(f=>f.label==='Status').value,dataset==='clients'?'Active':'Warm');assert.equal(c.active.activity[0]?.text,'Newer review');
 });
 test('R11/R18 Search results support positive context through live MCP',async t=>{
@@ -186,7 +186,7 @@ test('R11/R12 valid empty directory activity remains an authorized empty read',a
  const {page,goto}=await setup(t,{onRoute:async(route,{url})=>{
   if(url.pathname.startsWith('/api/v1/business/')){await route.fulfill({json:directoryFixture(url.href)});return true;}
   if(url.pathname==='/mcp'&&route.request().postDataJSON().params.name==='find-and-catch-up'){await rpc(route,{state:'completed',match:{kind:'client',target:'C-DEMO-1'},catch_up:{timeline:[]}});return true;}return false;
- }});await goto('/clients?mode=live');await page.locator('.record-row').first().click();await page.waitForFunction(()=>document.querySelector('#recordActivity')?.textContent.includes('No recent activity'));
+ }});await goto('/clients?all=true&mode=live');await page.locator('.record-row').first().click();await page.waitForFunction(()=>document.querySelector('#recordActivity')?.textContent.includes('No recent activity'));
  const c=await readContext(page);assert.equal(c.ready,true);assert.deepEqual(c.active.activity,[]);
 });
 

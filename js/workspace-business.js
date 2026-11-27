@@ -33,7 +33,7 @@ import {
   isSessionExpiry, listPhase, listRequestUrl, ownerPresentation, pageSummary, panelModality, panelTabTarget,
   parseViewState, partyKindText, recordRequestUrl, recordSections, recordedCode, recordedValue, refusalCopy,
   RELATIONSHIP_WORDS, defaultSort, holdsWholeList, relationshipCounts, rememberPayload, restoreSession, sameQuery, scrollIntent, searchBoxValue, showsTiles, sourceIsFresh,
-  summaryRequestUrl, validListPayload, validRecordPayload, validSummary, vendorRelationship, viewHref,
+  tilesFrom, tilesRequestUrl, validListPayload, validRecordPayload, vendorRelationship, viewHref,
 } from "./workspace-business-model.js";
 import { resolveDealroomBoot } from "./boot-mode.js";
 import { mountNotificationBadge } from "./shell.js";
@@ -67,7 +67,7 @@ const dom = {
   notices: document.querySelector("#noticeRegion"),
   summary: document.querySelector("#resultSummary"),
   listRegion: document.querySelector("#listRegion"),
-  tiles: document.querySelector("#vendorTiles"),
+  tiles: document.querySelector("#directoryTiles"),
   list: document.querySelector("#recordList"),
   pager: document.querySelector("#pager"),
   source: document.querySelector("#listSource"),
@@ -113,7 +113,7 @@ const view = Object.assign(createBusinessState(), { freshnessKey: null, returnFo
 // that has since been closed or replaced never paints.
 view.activity = { id: null, sequence: 0, result: null };
 view.sessionGeneration = 0;
-view.tiles = { sequence: 0, owner: null, status: "idle", payload: null };
+view.tiles = { sequence: 0, key: null, status: "idle", payload: null };
 view.panelState = null;
 let vendorMeetings = null;
 let vendorMeetingsHost = null;
@@ -300,7 +300,7 @@ function renderControls({ syncSearch = false } = {}) {
       dom.search.value = next;
     }
   }
-  if (dom.search) dom.search.placeholder = dataset === "vendors" ? "Find a vendor" : "Search by name";
+  if (dom.search) dom.search.placeholder = dataset === "clients" ? "Find a client" : "Find a vendor";
   // Inside a category the title names it, so the place reads without a filter chip.
   view.place = query.no_category ? "No category" : query.category && ((facets.categories || []).find((option) => option.slug === query.category)?.label ?? query.category);
   if (dom.resultsTitle) dom.resultsTitle.textContent = view.place ? `${DATASET_LABEL[dataset]} / ${view.place}` : DATASET_LABEL[dataset];
@@ -383,7 +383,7 @@ function renderChips() {
     return;
   }
   dom.chips.innerHTML = `${chips.map((chip) =>
-    `<button type="button" class="chip" data-chip="${escapeHtml(chip.key)}" data-chip-reset="${escapeHtml(chip.reset)}"><span class="chip-label">${escapeHtml(chip.label)}</span><span class="chip-value">${escapeHtml(chip.value)}</span><span class="chip-remove" aria-hidden="true">×</span><span class="visually-hidden">Remove this filter</span></button>`).join("")}<button type="button" class="chip chip-reset" data-chip="all">Clear all</button>`;
+    `<button type="button" class="chip" data-chip="${escapeHtml(chip.key)}"${chip.tile ? " data-tile-chip" : ""} data-chip-reset="${escapeHtml(chip.reset)}"><span class="chip-label">${escapeHtml(chip.label)}</span><span class="chip-value">${escapeHtml(chip.value)}</span><span class="chip-remove" aria-hidden="true">×</span><span class="visually-hidden">Remove this filter</span></button>`).join("")}<button type="button" class="chip chip-reset" data-chip="all">Clear all</button>`;
 }
 
 function renderNotices(notices) {
@@ -671,11 +671,42 @@ function renderList() {
 
 // -------------------------------------------------------------- the tiles
 
-function tileHtml(label, counts, query) {
-  const mix = Object.entries(RELATIONSHIP_WORDS).filter(([key]) => counts.relationship[key] > 0).map(([key, word]) =>
-    `<li data-relationship="${key}">${relationshipShape(key)}<span class="tile-n">${counts.relationship[key]}</span> ${word}</li>`).join("");
-  const quiet = counts.quiet ? `<span class="tile-quiet">${counts.quiet} quiet</span>` : "";
-  return `<li><a class="vendor-tile" href="${escapeHtml(viewHref(query))}"><span class="tile-head"><span class="tile-name">${escapeHtml(label)}</span><span class="tile-count">${counts.count}</span></span><ul class="tile-mix">${mix}</ul>${quiet}</a></li>`;
+/** One tile: a name, its number, a few smaller counts and an optional footnote. Shared by Clients and Vendors. */
+function tileHtml({ label, count, query, mix, foot = "" }) {
+  return `<li><a class="directory-tile" href="${escapeHtml(viewHref(query))}"><span class="tile-head"><span class="tile-name">${escapeHtml(label)}</span><span class="tile-count">${count}</span></span><ul class="tile-mix">${mix.join("")}</ul>${foot}</a></li>`;
+}
+
+const mixItem = (n, word, { lead = "", attrs = "" } = {}) => n > 0 ? `<li${attrs}>${lead}<span class="tile-n">${n}</span> ${word}</li>` : "";
+const TILE_SKELETON = '<li><span class="directory-tile"><span class="skeleton-line"></span><span class="skeleton-line short"></span></span></li>';
+
+function vendorTiles(payload, base) {
+  const tile = (label, counts, changes) => tileHtml({
+    label, count: counts.count, query: { ...base, ...changes },
+    mix: Object.entries(RELATIONSHIP_WORDS).map(([key, word]) => mixItem(counts.relationship[key], word, { lead: relationshipShape(key), attrs: ` data-relationship="${key}"` })),
+    foot: counts.quiet ? `<span class="tile-foot tile-quiet">${counts.quiet} quiet</span>` : "",
+  });
+  // A vendor with two categories counts under both, so the tiles add up to more than All vendors.
+  return [
+    tile("All vendors", payload.all, { all: "true" }),
+    ...payload.categories.filter((counts) => counts.count > 0).map((counts) => tile(counts.label, counts, { category: counts.slug })),
+    ...(payload.no_category.count > 0 ? [tile("No category", payload.no_category, { no_category: "true" })] : []),
+  ];
+}
+
+function clientTiles({ all, national_accounts: accounts, practice_types: types, not_set: notSet }, base) {
+  const tile = (label, counts, changes, extra = {}) => tileHtml({
+    label, count: counts.total, query: { ...base, ...changes },
+    mix: [mixItem(counts.open_deal, "Open deal"), mixItem(counts.past_client, "Past client"), mixItem(counts.no_deal_yet, "No deal yet")],
+    ...extra,
+  });
+  // Other waits for the practice type list that says which types are healthcare.
+  return [
+    tile("All clients", all, { all: "true" }),
+    ...(accounts.total > 0 ? [tile("National Accounts", accounts, { national_account: "any" },
+      { count: accounts.accounts, foot: `<span class="tile-foot">${accounts.total} ${accounts.total === 1 ? "location" : "locations"}</span>` })] : []),
+    ...types.map((type) => tile(type.practice_type, type, { practice_type: type.practice_type })),
+    ...(notSet.total > 0 ? [tile("Not set", notSet, { not_set: "true" })] : []),
+  ];
 }
 
 // A repaint keeps the reader's place: the same tile when it survives, else the results summary.
@@ -684,12 +715,14 @@ function paintTiles(html) {
   const href = focused?.getAttribute("href");
   dom.tiles.innerHTML = html;
   if (!focused) return;
-  focusWithoutScrolling((href && [...dom.tiles.querySelectorAll("a.vendor-tile")].find((tile) => tile.getAttribute("href") === href)) || dom.summary);
+  focusWithoutScrolling((href && [...dom.tiles.querySelectorAll("a.directory-tile")].find((tile) => tile.getAttribute("href") === href)) || dom.summary);
 }
 
 function renderTiles() {
   const { status, payload } = view.tiles;
+  const vendors = view.dataset === "vendors";
   document.querySelector("#scrollSentinel").hidden = true;
+  if (dom.pager) dom.pager.hidden = true;
   renderNotices([]);
   dom.tiles.setAttribute("aria-busy", String(status === "loading"));
   if (!payload) {
@@ -698,46 +731,45 @@ function renderTiles() {
     dom.summary.textContent = failed ? "Nothing loaded" : "Checking…";
     paintTiles(failed
       ? `<div class="record-empty" role="alert"><p class="empty-title">This did not load</p><p class="empty-copy">${escapeHtml(refusalCopy("DEPENDENCY_UNAVAILABLE"))}</p><button type="button" class="action secondary-action" data-retry="tiles" aria-label="Refresh" title="Refresh"><span aria-hidden="true">↻</span></button></div>`
-      : `<ul class="vendor-tile-grid">${'<li><span class="vendor-tile"><span class="skeleton-line"></span><span class="skeleton-line short"></span></span></li>'.repeat(12)}</ul>`);
+      : `<ul class="directory-tile-grid">${TILE_SKELETON.repeat(vendors ? 12 : 8)}</ul>`);
     return;
   }
   setHealth(status === "refreshing" ? "refreshing" : "available");
-  dom.summary.textContent = `${payload.all.count} ${payload.all.count === 1 ? "vendor" : "vendors"}`;
-  const base = { ...defaultQuery("vendors"), owner: view.query.owner };
-  // A vendor with two categories counts under both, so the tiles add up to more than All vendors.
-  const tiles = [
-    tileHtml("All vendors", payload.all, { ...base, all: "true" }),
-    ...payload.categories.filter((tile) => tile.count > 0).map((tile) => tileHtml(tile.label, tile, { ...base, category: tile.slug })),
-    ...(payload.no_category.count > 0 ? [tileHtml("No category", payload.no_category, { ...base, no_category: "true" })] : []),
-  ];
-  paintTiles(`<ul class="vendor-tile-grid">${tiles.join("")}</ul>`);
+  const total = vendors ? payload.all.count : payload.all.total;
+  dom.summary.textContent = `${total} ${(total === 1 ? DATASET_SINGULAR : DATASET_LABEL)[view.dataset].toLowerCase()}`;
+  const base = { ...defaultQuery(view.dataset), owner: view.query.owner };
+  paintTiles(`<ul class="directory-tile-grid">${(vendors ? vendorTiles : clientTiles)(payload, base).join("")}</ul>`);
 }
 
 async function loadTiles() {
   if (view.signedOut) return;
-  const { owner } = view.query;
+  const { dataset, query } = view;
+  const key = `${dataset}:${query.owner}`;
   const sequence = ++view.tiles.sequence;
   // A list read still in flight must not paint over the tiles.
   view.list.sequence++;
-  if (view.tiles.owner !== owner) view.tiles.payload = null;
-  view.tiles.owner = owner;
+  if (view.tiles.key !== key) view.tiles.payload = null;
+  view.tiles.key = key;
   view.tiles.status = view.tiles.payload ? "refreshing" : "loading";
   renderList();
   let payload = null;
+  let facets = null;
   try {
-    const response = await fetchRead(summaryRequestUrl(owner), { headers: { accept: "application/json" }, cache: "no-store" });
+    const response = await fetchRead(tilesRequestUrl(query), { headers: { accept: "application/json" }, cache: "no-store" });
     if (response.status === 401) return expireNow();
     const body = await response.json().catch(() => null);
     if (!response.ok && isSessionExpiry(response.status, body?.error)) return expireNow();
-    if (response.ok && validSummary(body)) payload = body;
+    if (response.ok) payload = tilesFrom(dataset, body);
+    if (payload && dataset === "clients") facets = body.facets;
   } catch {
     payload = null;
   }
   if (sequence !== view.tiles.sequence) return;
   view.tiles.payload = payload;
   view.tiles.status = payload ? "ready" : "error";
-  // The new-vendor and edit forms list these categories; the tiles view never reads the list that usually carries them.
-  if (payload) view.facets = { ...view.facets, categories: payload.categories.map(({ slug, label }) => ({ slug, label })) };
+  // The new and edit forms list these choices; the tiles view never reads the list that usually carries them.
+  if (facets) view.facets = facets;
+  else if (payload && dataset === "vendors") view.facets = { ...view.facets, categories: payload.categories.map(({ slug, label }) => ({ slug, label })) };
   renderList();
 }
 
@@ -1007,7 +1039,7 @@ function expireNow() {
   delete dom.panelBody.dataset.recordId;
   view.loadingMore = null; view.failedPage = null;
   view.loadedRows = []; view.loadedPageCount = 0;
-  view.tiles = { sequence: view.tiles.sequence + 1, owner: null, status: "idle", payload: null };
+  view.tiles = { sequence: view.tiles.sequence + 1, key: null, status: "idle", payload: null };
   view.activity = { id: null, sequence: view.activity.sequence + 1, result: null };
   Object.assign(view, expireSession(view));
   renderControls();
@@ -1228,10 +1260,10 @@ function updateQuery(changes, { replace = false } = {}) {
   navigate(viewHref(next, view.recordId), { replace });
 }
 
-// Clearing filters keeps the vendors' place: All vendors, a category or No category.
+// Clearing filters keeps the place: All, and for vendors a category or No category.
 function clearedQuery() {
   const { all, category, no_category } = view.query;
-  return view.dataset === "vendors" ? { ...defaultQuery("vendors"), all, category, no_category } : defaultQuery(view.dataset);
+  return { ...defaultQuery(view.dataset), all, ...(view.dataset === "vendors" && { category, no_category }) };
 }
 
 function closeRecord() {
@@ -1303,7 +1335,7 @@ function wireControls() {
   dom.chips?.addEventListener("click", (event) => {
     const chip = event.target.closest("[data-chip]");
     if (!chip) return;
-    if (chip.dataset.chip === "all") return navigate(viewHref(clearedQuery(), view.recordId));
+    if (chip.classList.contains("chip-reset")) return navigate(viewHref(clearedQuery(), view.recordId));
     updateQuery({ [chip.dataset.chip]: chip.dataset.chipReset ?? "" });
   });
 
@@ -1329,7 +1361,7 @@ function wireControls() {
 
   dom.tiles.addEventListener("click", (event) => {
     if (event.target.closest("[data-retry='tiles']")) return void loadTiles();
-    const tile = event.target.closest("a.vendor-tile");
+    const tile = event.target.closest("a.directory-tile");
     if (!tile || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
     navigate(tile.getAttribute("href"));
