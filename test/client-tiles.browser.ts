@@ -207,20 +207,10 @@ test("No clients still shows the tiles, and a failed read shows the tile error",
   const empty = await openClients(t, 1440, 772, "dark", zero);
   assert.equal(await countOf(empty.page, "All clients"), "0");
   assert.equal(await empty.page.locator("#directoryTiles").isVisible(), true);
-  assert.equal(
-    await empty.page.locator("#filterForm .filter-row:not(.filter-row-actions)").first().isHidden(),
-    true,
-    "no list dropdowns",
-  );
 
   const failed = await openClients(t, 1440, 772, "dark", () => "refused");
   assert.equal(await failed.page.locator("#directoryTiles [role=alert]").isVisible(), true);
   assert.equal(await failed.page.locator("body").getAttribute("data-tiles"), "");
-  assert.equal(
-    await failed.page.locator("#filterForm .filter-row:not(.filter-row-actions)").first().isHidden(),
-    true,
-    "no list dropdowns",
-  );
 });
 
 test("A tile click opens in the app without reloading the page", async (t) => {

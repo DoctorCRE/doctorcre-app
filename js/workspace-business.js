@@ -27,7 +27,7 @@ import { fetchRead, mountAutoRefresh, updatedLabel } from "./auto-refresh.mjs";
 // set are the server's answers; this file renders them or says why it cannot.
 
 import {
-  DATASET_LABEL, DATASET_ROUTE, DATASET_SINGULAR, MAX_QUERY_LENGTH, PIPELINE_FILTERS, PIPELINE_LABEL, SORTS,
+  DATASET_LABEL, DATASET_ROUTE, DATASET_SINGULAR, MAX_QUERY_LENGTH,
   SOURCE_LABEL, acceptsResponse, cachedPayload, clientNoteText, createBusinessState, datasetForPath, defaultQuery,
   displayedFreshness, echoesQuery, emptyCopy, expireSession, filterChips, freshnessSignature, hasActiveFilters,
   isSessionExpiry, listPhase, listRequestUrl, ownerPresentation, pageSummary, panelModality, panelTabTarget,
@@ -52,13 +52,6 @@ const dom = {
   observedAt: document.querySelector("#observedAt"),
   form: document.querySelector("#filterForm"),
   search: document.querySelector("#searchInput"),
-  filterA: document.querySelector("#filterA"),
-  filterB: document.querySelector("#filterB"),
-  filterC: document.querySelector("#filterC"),
-  filterALabel: document.querySelector("#filterALabel"),
-  filterBLabel: document.querySelector("#filterBLabel"),
-  filterCLabel: document.querySelector("#filterCLabel"),
-  sort: document.querySelector("#sortSelect"),
   scopeSwitch: document.querySelector("#scopeSwitch"),
   scopeNote: document.querySelector("#scopeNote"),
   reset: document.querySelector("#resetFilters"),
@@ -257,21 +250,6 @@ function focusWithoutScrolling(element) {
 
 // ------------------------------------------------------------- the controls
 
-const FILTER_FIELDS = {
-  clients: [
-    { select: "filterA", label: "filterALabel", key: "status", text: "Status", empty: "Any status", facet: "statuses" },
-    { select: "filterB", label: "filterBLabel", key: "type", text: "Client type", empty: "Any client type", facet: "types" },
-    { select: "filterC", label: "filterCLabel", key: "pipeline", text: "Pipeline", empty: null, facet: null },
-  ],
-  vendors: [],
-};
-
-function optionsHtml(options, emptyLabel, selected) {
-  const head = emptyLabel === null ? "" : `<option value="">${escapeHtml(emptyLabel)}</option>`;
-  return head + options.map((option) =>
-    `<option value="${escapeHtml(option.slug)}"${option.slug === selected ? " selected" : ""}>${escapeHtml(option.label)}</option>`).join("");
-}
-
 /**
  * `syncSearch` is the difference between the two reasons this runs. A LOCATION
  * change (first load, a link, Back, forward) is authoritative about what the
@@ -305,26 +283,6 @@ function renderControls({ syncSearch = false } = {}) {
   dom.placeBack.textContent = DATASET_LABEL[dataset];
   dom.placeBack.href = viewHref({ ...defaultQuery(dataset), owner: query.owner });
   if (dom.resultsTitle) dom.resultsTitle.textContent = view.place ? `${DATASET_LABEL[dataset]} / ${view.place}` : DATASET_LABEL[dataset];
-  dom.sort.querySelector('[value="deal_type"]').textContent = dataset === 'vendors' ? 'Service' : 'Deal type';
-  if (dom.sort) dom.sort.value = SORTS.includes(query.sort) ? query.sort : "name";
-  for (const field of FILTER_FIELDS[dataset]) {
-    const select = dom[field.select];
-    const label = dom[field.label];
-    if (!select || !label) continue;
-    label.textContent = field.text;
-    if (field.key === "pipeline") {
-      select.innerHTML = PIPELINE_FILTERS.map((value) =>
-        `<option value="${value}"${value === query.pipeline ? " selected" : ""}>${escapeHtml(PIPELINE_LABEL[value])}</option>`).join("");
-      continue;
-    }
-    select.innerHTML = optionsHtml(facets[field.facet] || [], field.empty, query[field.key]);
-    // A stored code that is not in the current list of options cannot be shown
-    // as one, so the current choice stays visible instead of vanishing.
-    if (query[field.key] && !select.value) {
-      select.insertAdjacentHTML("beforeend", `<option value="${escapeHtml(query[field.key])}" selected>${escapeHtml(query[field.key])} (code)</option>`);
-      select.value = query[field.key];
-    }
-  }
   scopeButtons.forEach((button) => {
     const selected = button.dataset.owner === query.owner;
     button.setAttribute("aria-pressed", selected ? "true" : "false");
@@ -1342,13 +1300,6 @@ function wireControls() {
       updateQuery({ q: value }, { replace: Boolean(view.query.q) && Boolean(value) });
     }, SEARCH_DEBOUNCE_MS);
   });
-  dom.sort?.addEventListener("change", () => updateQuery({ sort: SORTS.includes(dom.sort.value) ? dom.sort.value : "name" }));
-  for (const key of ["filterA", "filterB", "filterC"]) {
-    dom[key]?.addEventListener("change", () => {
-      const field = FILTER_FIELDS[view.dataset].find((candidate) => candidate.select === key);
-      if (field) updateQuery({ [field.key]: dom[key].value });
-    });
-  }
   dom.reset?.addEventListener("click", () => navigate(viewHref(clearedQuery(), view.recordId)));
   directoryViews.forEach(button => button.addEventListener("click", () => {
     showDirectoryView(button.dataset.directoryView);

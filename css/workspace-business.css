@@ -22,7 +22,6 @@
 .field-search { flex: 1 1 10rem; max-width: 16rem; }
 #secondaryFilters > summary { display: none; }
 .filter-form, .filter-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
-.filter-form .field { flex: 1 1 7rem; }
 .field { display: grid; gap: var(--space-1); min-width: 0; }
 .field label { color: var(--fg-muted); font-size: var(--font-size-1); }
 .field input, .field select { width: 100%; min-height: var(--touch); padding: 0 var(--space-3); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); background: var(--surface-2); color: var(--fg); font: inherit; font-size: var(--font-size-1); transition: border-color var(--duration-hover) var(--ease-out); }
@@ -265,7 +264,6 @@ body.record-open { overflow: hidden; }
 @media (max-width: 767px) {
   #secondaryFilters > summary { display: list-item; min-height: var(--touch); align-content: center; color: var(--fg-muted); cursor: pointer; font-size: var(--font-size-1); }
   #secondaryFilters[open] > summary { margin-bottom: var(--space-2); }
-  .filter-row:not(.filter-row-actions) { display: grid; }
   /* The chip bar's Clear all already sits under the folded filters. */
   body[data-directory="clients"] .filter-row-actions { display: none; }
   body[data-directory="vendors"] .record-row { grid-template-areas: "head" "facts" "foot"; gap: var(--space-1); padding-block: var(--space-2); }
@@ -476,10 +474,10 @@ body:not([data-directory-view="meetings"]) .vendor-meetings-host { display: none
 .deal-diagram-restack button { min-height: var(--touch); padding: 0 var(--space-1); border: 0; border-radius: var(--radius-2); background: none; color: var(--fg-quiet); font: inherit; cursor: pointer; }
 .deal-diagram-restack button:hover { background: var(--surface-2); color: var(--fg); }
 /* A directory opens on tiles; the list's filters and chips return inside one. */
-body[data-tiles] :is(#filterForm .filter-row:not(.filter-row-actions), .filter-actions, #chipBar, #secondaryFilters > summary) { display: none; }
+body[data-tiles] :is(.filter-actions, #chipBar, #secondaryFilters > summary) { display: none; }
 /* A directory names its place in the title and its filters on the toolbar, so it needs no chips. */
 body[data-directory] #chipBar,
-body[data-directory] :is(#filterForm .filter-row:not(.filter-row-actions), .filter-actions, #refreshList, #secondaryFilters > summary) { display: none; }
+body[data-directory] :is(.filter-actions, #refreshList, #secondaryFilters > summary) { display: none; }
 /* Its owner chips moved to the top bar, so the filter drawer holds nothing and takes no room. */
 body[data-directory] #secondaryFilters { display: none; }
 /* Without refresh, the status holds only screen-reader text, so it takes no line of its own. */
