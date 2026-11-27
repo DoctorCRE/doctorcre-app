@@ -146,6 +146,7 @@ async function mountedWatch(
     throw Error("Response not held");
   };
   let notifyHeld = () => {};
+  let notifyReadsHeld = () => {};
   const waitHeld = () =>
     new Promise<void>((resolve) => {
       notifyHeld = resolve;
@@ -171,6 +172,7 @@ async function mountedWatch(
         release = () => finish(snapshot);
         readReleases.push(release);
         notifyHeld();
+        notifyReadsHeld();
         return;
       }
       return finish(mode === "malformed" ? { ok: true, watch: {} } : response(current));
@@ -226,6 +228,11 @@ async function mountedWatch(
     waitHeld,
     release: () => release(),
     queueRead: (value: Watch) => queuedReads.push(value),
+    waitReadsHeld: (count: number) =>
+      new Promise<void>((resolve) => {
+        notifyReadsHeld = () => readReleases.length >= count && resolve();
+        notifyReadsHeld();
+      }),
     releaseRead: (index: number) => {
       const callback = readReleases[index];
       if (!callback) throw Error("Read not held");
@@ -383,17 +390,16 @@ test("out-of-order reads ignore the superseded callback", async (t) => {
   f.queueRead({ ...f.sample, id: "a981397b-4a90-45ce-bbe5-654509d53b4a", state: "paused", lifecycle_version: 9 });
   f.queueRead({ ...f.sample, lifecycle_version: 4 });
   f.setMode("held-read");
+  const held = f.waitReadsHeld(2);
   await f.page.getByRole("button", { name: "Refresh watch" }).evaluate((button) => {
     button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   });
+  await held;
   await f.page
     .getByRole("status")
     .getByText(/Reading/)
     .waitFor();
-  await f.page.evaluate(
-    () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
-  );
   await f.releaseRead(1);
   await f.page.getByText(/Last confirmed version 4/).waitFor();
   await f.releaseRead(0);
