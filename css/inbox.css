@@ -65,19 +65,18 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
 @media (hover: hover) {
   .home-slice[aria-label="Inbox"] .inbox-row:not(:hover, :focus-within) > .inbox-actions { opacity: 0; }
   .home-slice[aria-label="Reminders"] .inbox-row { position: relative; }
+  .home-slice[aria-label="Reminders"] .inbox-row:focus-within { background: var(--surface-2); }
   .home-slice[aria-label="Reminders"] .inbox-row > .inbox-actions {
     position: absolute;
     inset-block: 0;
     inset-inline-end: 0;
-    z-index: 1;
     align-items: center;
     padding-inline: var(--space-2);
-    background: var(--surface-1);
-  }
-  .home-slice[aria-label="Reminders"] .inbox-row:is(:hover, :focus-within) > .inbox-actions {
+    border-radius: var(--radius-2);
     background: var(--surface-2);
+    box-shadow: calc(-1 * var(--space-3)) 0 var(--space-2) calc(-1 * var(--space-1)) var(--surface-2);
   }
-  .home-slice[aria-label="Reminders"] .inbox-row:not(:hover, :focus-within) > .inbox-actions { opacity: 0; }
+  .home-slice[aria-label="Reminders"] .inbox-row:not(:hover, :focus-within) > .inbox-actions { opacity: 0; pointer-events: none; }
 }
 /* By touch, Snooze and Drop sit under the row's text. */
 @media (max-width: 999px), (hover: none) {

@@ -273,6 +273,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   const card = today.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: /^Read the sample lease/ }) });
   const undo = page.getByRole('button', { name: 'Undo', exact: true });
   const clickSnooze = async () => {
+    await card.hover();
     await card.getByRole('button', { name: 'Snooze', exact: true }).click();
     await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^Tomorrow/ }).click();
   };
@@ -644,6 +645,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   await closeOpen();
   assert.deepEqual(writes.at(-1)[1], { idempotency_key: writes.at(-1)[1].idempotency_key, version: 1, reason: 'Already answered.' });
   const lease = inbox.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: /Read the revised sample lease/ }) });
+  await lease.hover();
   await lease.getByRole('button', { name: 'Snooze', exact: true }).click();
   await snoozeSaved(page, () => page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^Tomorrow/ }).click());
   const earlierUntil = writes.at(-1)[1].until;
@@ -1722,6 +1724,7 @@ for (const width of [1440]) test(`Home keeps other cards usable while a review i
     await page.screenshot({ path: join(process.env.HOME_THREAD_SCREENSHOTS, `review-open-${width}.png`), fullPage: true });
   }
   for (const name of ['Snooze', 'Drop', 'Mark done']) assert.equal(await button(other.title, name).isDisabled(), false, name);
+  await card(other.title).hover();
   await button(other.title, 'Snooze').click();
   await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^Tomorrow/ }).click();
   await page.getByRole('status').filter({ hasText: snoozedToast(other.title) }).waitFor();
@@ -1767,6 +1770,7 @@ for (const [width, height] of [[1280, 800], [1440, 900]]) test(`Home keeps other
   assert.equal(await otherTitle.getAttribute('aria-disabled'), 'true', 'no other review replaces this one mid-save');
   for (const other of [snoozed, finished, dropped]) for (const name of ['Snooze', 'Drop', 'Mark done'])
     assert.equal(await button(other.title, name).isDisabled(), false, `${name} on ${other.title} stays usable while the review saves`);
+  await card(snoozed.title).hover();
   await button(snoozed.title, 'Snooze').click();
   await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^Tomorrow/ }).click();
   await page.getByRole('status').filter({ hasText: snoozedToast(snoozed.title) }).waitFor();
@@ -1862,6 +1866,7 @@ test('Home moves a snoozed card while the open review saves', async t => {
   const snoozedRow = reminders.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: snoozed.title }) });
 
   hold = new Promise(resolve => { release = resolve; });
+  await snoozedRow.hover();
   const followUp = page.waitForRequest('**/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6');
   await snoozedRow.locator(':scope > .inbox-actions').getByRole('button', { name: 'Snooze', exact: true }).click();
   await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^Tomorrow/ }).click();
@@ -3319,6 +3324,7 @@ for (const [label, card, expectedPath, expectedBody, path = '/'] of [
   const buttons = await row.getByRole('button').allTextContents();
   assert.equal(buttons[buttons.indexOf('Snooze') + 1], 'Drop', buttons.join(', '));
   const drop = row.getByRole('button', { name: 'Drop', exact: true });
+  await row.hover();
   await drop.click();
   const submit = dialog.getByRole('button', { name: 'Drop', exact: true });
   assert.equal(await submit.isDisabled(), true);

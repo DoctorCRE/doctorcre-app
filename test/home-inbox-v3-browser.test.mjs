@@ -108,6 +108,7 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
   assert.deepEqual(writes.map(({ args }) => args.action), ['done', 'undo_done']);
   assert.equal(writes[1].args.base_version, '2:0:done');
 
+  await lateStep.hover();
   await lateStep.getByRole('button', { name: 'Drop', exact: true }).click();
   const reason = page.getByRole('dialog', { name: 'Drop with a reason' });
   assert.equal(await reason.getByRole('button', { name: 'Drop', exact: true }).isDisabled(), true);
@@ -115,6 +116,7 @@ for (const width of [390, 1440]) test(`Engine Home shows late work, removes Hide
   await reason.waitFor({ state: 'detached' });
   assert.equal(await lateStep.getByRole('button', { name: 'Drop', exact: true }).evaluate(button => button === document.activeElement), true);
   assert.equal(writes.length, 2);
+  await lateStep.hover();
   await lateStep.getByRole('button', { name: 'Drop', exact: true }).click();
   await reason.getByLabel('Reason for dropping').fill('  Work moved to a different site.  ');
   await page.screenshot({ path: `test-artifacts/inbox-v3/engine-drop-${width}.png` });
