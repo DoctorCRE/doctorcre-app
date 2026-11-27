@@ -76,6 +76,7 @@ const dom = {
   panelMeta: document.querySelector("#recordMeta"),
   panelActions: document.querySelector("#recordActions"),
   panelMore: document.querySelector("#recordMore"),
+  panelStatus: document.querySelector("#recordStatus"),
   panelBody: document.querySelector("#recordBody"),
   panelClose: document.querySelector("#recordClose"),
   navClients: document.querySelector("#navClients"),
@@ -683,8 +684,46 @@ function clientNote({ notes, record_links }) {
   return `<section class="record-section client-note"><h3>Notes</h3><p class="entry-detail">${linkRecordNames(note, record_links)}</p><details class="record-details" data-details-key="notes"><summary><span>More</span><span>Less</span></summary></details></section>`;
 }
 
+const COPY_LINK_DONE = "Link copied";
+const COPY_LINK_FAILED = "Could not copy link. Copy the address from your browser.";
+
+let copyLinkTimer = null;
+
+// The drawer's own status line: visible with the menu closed and with the page behind the drawer inert.
+function setPanelStatus(text) {
+  if (copyLinkTimer !== null) clearTimeout(copyLinkTimer);
+  copyLinkTimer = null;
+  if (dom.panelStatus) dom.panelStatus.textContent = text;
+}
+
+function recordActionsHtml() {
+  const copy = '<button type="button" class="action secondary-action" data-copy-record-link>Copy link</button>';
+  const party = partyEditor?.actionsHtml() ?? "";
+  const inner = party.replace(/^<div class="party-record-actions">/, "").replace(/<\/div>$/, "");
+  return `<div class="party-record-actions">${inner}${copy}</div>`;
+}
+
+async function copyRecordLink() {
+  const dataset = view.dataset;
+  const recordId = view.recordId;
+  if (!dataset || !recordId) return;
+  setPanelStatus("");
+  const url = `${location.origin}/${dataset}?record=${encodeURIComponent(recordId)}`;
+  try {
+    await navigator.clipboard.writeText(url);
+  } catch {
+    if (view.dataset === dataset && view.recordId === recordId) setPanelStatus(COPY_LINK_FAILED);
+    return;
+  }
+  if (view.dataset !== dataset || view.recordId !== recordId) return;
+  setPanelStatus(COPY_LINK_DONE);
+  // eslint-disable-next-line no-restricted-syntax -- Single 2 s status, cleared on the next copy, record change or close.
+  copyLinkTimer = setTimeout(() => setPanelStatus(""), 2000);
+}
+
 /** The header's status, owner and record actions; empty while nothing has loaded. */
 function paintPanelHead(meta = "", actions = "") {
+  setPanelStatus("");
   if (dom.panelMeta) dom.panelMeta.innerHTML = meta;
   if (dom.panelActions) dom.panelActions.innerHTML = actions;
   dom.panelTitle?.removeAttribute("title");
@@ -740,7 +779,7 @@ function renderRecordPanel() {
   const kind = partyKindText(payload.record.party_kind);
   const vendor = dataset === "vendors";
   const relationship = vendor ? vendorRelationship(payload.record) : null;
-  paintPanelHead(`${relationship ? `<span class="rel-word" data-relationship="${relationship.key}">${relationshipShape(relationship.key)}${relationship.word}</span>${wantToMeetHtml(relationship)}` : ""}${owner.known ? `<span class="row-fact"><span class="fact-label">Owner</span><span class="fact-value">${escapeHtml(owner.text)}</span></span>` : ""}`, partyEditor?.actionsHtml() ?? "");
+  paintPanelHead(`${relationship ? `<span class="rel-word" data-relationship="${relationship.key}">${relationshipShape(relationship.key)}${relationship.word}</span>${wantToMeetHtml(relationship)}` : ""}${owner.known ? `<span class="row-fact"><span class="fact-label">Owner</span><span class="fact-value">${escapeHtml(owner.text)}</span></span>` : ""}`, recordActionsHtml());
   if (action >= 0) focusWithoutScrolling(actions()[action]);
   if (dom.panelTitle) dom.panelTitle.textContent = dom.panelTitle.title = vendor ? withoutRecordCodes(payload.record.name) : payload.record.name;
   if (relationship && dom.panelTitle) dom.panelTitle.dataset.relationship = relationship.key;
@@ -1179,6 +1218,8 @@ function wireControls() {
     // A long name is cut to one line; a tap shows all of it.
     if (event.target.closest("#recordTitle")) dom.panelTitle.classList.toggle("full");
     if (event.target.closest("#recordActions button")) closePanelMenu();
+    const copy = event.target.closest("[data-copy-record-link]");
+    if (copy) return void copyRecordLink();
     const edit = event.target.closest("[data-party-edit]");
     if (edit) return partyEditor?.edit();
     if (event.target.closest("[data-party-link]")) return partyEditor?.link(view.record.payload?.record?.name ?? "");
