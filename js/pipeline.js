@@ -246,11 +246,14 @@ function syncDealCreation() {
   $('addDealSubmit').textContent = creatingDeal ? 'Saving…' : dealCreation ? 'Check creation outcome' : 'Create deal';
 }
 
-function consumeOpenAddDealRequest() {
+const ADD_DEAL_FLAG = 'doctorcre.quick-switcher.open-add-deal';
+let addDealRequested = false;
+
+function takeAddDealRequest() {
   try {
-    if (sessionStorage.getItem('doctorcre.quick-switcher.open-add-deal') !== '1') return false;
-    sessionStorage.removeItem('doctorcre.quick-switcher.open-add-deal');
-    return true;
+    const requested = sessionStorage.getItem(ADD_DEAL_FLAG) === '1';
+    sessionStorage.removeItem(ADD_DEAL_FLAG);
+    return requested;
   } catch {
     return false;
   }
@@ -635,7 +638,10 @@ function applyBoardSnapshot(board) {
     || (previousPanelRow && JSON.stringify(previousPanelRow) !== JSON.stringify(state.deals.get(state.panelDeal))))) {
     void refreshPanel({changed:true});
   }
-  if (consumeOpenAddDealRequest()) void openAddDeal();
+  if (addDealRequested) {
+    addDealRequested = false;
+    void openAddDeal();
+  }
 }
 
 function showProspects() {
@@ -3364,6 +3370,8 @@ async function boot() {
   }
   if (incomingScope.get('mode') === 'live') $('mondayReviewLink').href = '/deals?view=review&mode=live';
 
+  addDealRequested = takeAddDealRequest();
+  window.addEventListener('doctorcre-session-invalidated', () => { addDealRequested = false; }, { once: true });
   mountDock();
   wire();
   renderChips();

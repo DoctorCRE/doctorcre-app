@@ -6,7 +6,7 @@ import { ownedServer as startFixtureServer } from "./fixture-probe.ts";
 const server = await startFixtureServer();
 test.after(() => server.stop());
 
-const actionNames = ["New deal", "Ask Doc", "Go to Calendar", "Go to Home"] as const;
+const actionNames = ["New deal", "Ask Doc"] as const;
 
 async function optionLabels(switcher: import("playwright").Locator) {
   return switcher
@@ -59,7 +59,7 @@ for (const theme of ["light", "dark"] as const) {
       }, theme);
       await page.goto(server.url);
       const switcher = await openSwitcher(page);
-      await switcher.getByRole("heading", { name: "Actions", exact: true }).waitFor();
+      await switcher.getByRole("group", { name: "Actions", exact: true }).waitFor();
       await readyResults(switcher);
       const names = await optionLabels(switcher);
       const mode = theme === "dark" ? "Light mode" : "Dark mode";
@@ -75,52 +75,17 @@ for (const theme of ["light", "dark"] as const) {
   });
 }
 
-test('typing "cal" shows Go to Calendar after matching records', async () => {
+test("typing Calendar shows the page once, with no action beside it", async () => {
   const browser = await chromium.launch();
   const page = await browser.newPage();
   try {
-    await page.addInitScript(() => {
-      localStorage.setItem(
-        "doctorcre.visual-preferences",
-        JSON.stringify({ theme: "light", walkthroughSeen: { joe: true } }),
-      );
-    });
+    await seenPreferences(page);
     await page.goto(server.url);
     const switcher = await openSwitcher(page);
-    const input = switcher.getByRole("combobox", { name: "Jump to" });
-    await input.fill("cal");
-    await switcher.getByRole("option", { name: "Go to Calendar", exact: true }).waitFor();
+    await switcher.getByRole("combobox", { name: "Jump to" }).fill("Calendar");
     await readyResults(switcher);
-    const names = await optionLabels(switcher);
-    const actionAt = names.indexOf("Go to Calendar");
-    const recordAt = names.findIndex((name) => name !== "Go to Calendar" && /cal/i.test(name));
-    assert.ok(actionAt >= 0, `Go to Calendar missing from ${JSON.stringify(names)}`);
-    assert.ok(recordAt >= 0, "a calendar record also matches");
-    assert.ok(recordAt < actionAt, "records stay first when both match");
-    assert.equal(await switcher.getByRole("heading", { name: "Actions", exact: true }).count(), 1);
-  } finally {
-    await browser.close();
-  }
-});
-
-test("Enter on Go to Calendar opens /calendar", async () => {
-  const browser = await chromium.launch();
-  const page = await browser.newPage();
-  try {
-    await page.addInitScript(() => {
-      localStorage.setItem(
-        "doctorcre.visual-preferences",
-        JSON.stringify({ theme: "light", walkthroughSeen: { joe: true } }),
-      );
-    });
-    await page.goto(server.url);
-    const switcher = await openSwitcher(page);
-    const input = switcher.getByRole("combobox", { name: "Jump to" });
-    await input.fill("cal");
-    await highlightOption(input, switcher, "Go to Calendar");
-    await input.press("Enter");
-    await page.waitForURL("**/calendar");
-    assert.match(new URL(page.url()).pathname, /^\/calendar$/);
+    assert.equal(await switcher.getByRole("option", { name: /Calendar/ }).count(), 1);
+    assert.equal(await switcher.getByRole("group", { name: "Actions", exact: true }).count(), 0);
   } finally {
     await browser.close();
   }
@@ -153,6 +118,125 @@ test("the mode action flips the theme without a reload", async () => {
     assert.equal(await page.locator("html").getAttribute("data-theme"), "dark");
     assert.equal(await page.evaluate(() => Reflect.get(window, "__switcherThemeMarker")), "kept");
     assert.match(new URL(page.url()).pathname, /^\/$/);
+  } finally {
+    await browser.close();
+  }
+});
+
+const addDealFlag = "doctorcre.quick-switcher.open-add-deal";
+
+async function seenPreferences(page: import("playwright").Page) {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "doctorcre.visual-preferences",
+      JSON.stringify({ theme: "light", walkthroughSeen: { joe: true } }),
+    );
+  });
+}
+
+async function axeViolations(page: import("playwright").Page) {
+  await page.addScriptTag({ path: "node_modules/axe-core/axe.min.js" });
+  const ids: string[] = await page.evaluate(
+    "axe.run(document).then((result) => result.violations.map((violation) => violation.id))",
+  );
+  return ids;
+}
+
+test("the switcher passes axe with the Actions group shown and with no matches", async () => {
+  const browser = await chromium.launch();
+  const page = await browser.newPage();
+  try {
+    await seenPreferences(page);
+    await page.goto(server.url);
+    const switcher = await openSwitcher(page);
+    await switcher.getByRole("group", { name: "Actions", exact: true }).waitFor();
+    await readyResults(switcher);
+    assert.deepEqual(await axeViolations(page), [], "actions shown");
+    await switcher.getByRole("combobox", { name: "Jump to" }).fill("zzzzqqqq");
+    await switcher.getByText("No matches. Try a deal, contact or page name.").waitFor();
+    assert.deepEqual(await axeViolations(page), [], "empty state");
+  } finally {
+    await browser.close();
+  }
+});
+
+async function chooseNewDeal(page: import("playwright").Page) {
+  const switcher = await openSwitcher(page);
+  const input = switcher.getByRole("combobox", { name: "Jump to" });
+  await input.fill("new deal");
+  await highlightOption(input, switcher, "New deal");
+  await input.press("Enter");
+}
+
+test("New deal on /deals opens Add deal at once", async () => {
+  const browser = await chromium.launch();
+  const page = await browser.newPage();
+  try {
+    await seenPreferences(page);
+    await page.goto(`${server.url}/deals`);
+    await page.locator("#addDealOpen").waitFor();
+    await chooseNewDeal(page);
+    await page.locator("#addDealDialog[open]").waitFor();
+    assert.equal(await page.evaluate((key) => sessionStorage.getItem(key), addDealFlag), null);
+  } finally {
+    await browser.close();
+  }
+});
+
+test("New deal from Home opens Add deal once, and reload or Back does not reopen it", async () => {
+  const browser = await chromium.launch();
+  const page = await browser.newPage();
+  try {
+    await seenPreferences(page);
+    await page.goto(server.url);
+    await chooseNewDeal(page);
+    await page.waitForURL("**/deals");
+    await page.locator("#addDealDialog[open]").waitFor();
+    assert.equal(await page.evaluate((key) => sessionStorage.getItem(key), addDealFlag), null);
+    await page.reload();
+    await page.locator("#addDealOpen").waitFor();
+    await page.waitForTimeout(500);
+    assert.equal(await page.locator("#addDealDialog[open]").count(), 0, "reload does not reopen");
+    await page.goBack();
+    await page.goForward();
+    await page.locator("#addDealOpen").waitFor();
+    await page.waitForTimeout(500);
+    assert.equal(await page.locator("#addDealDialog[open]").count(), 0, "Back and forward do not reopen");
+  } finally {
+    await browser.close();
+  }
+});
+
+test("a request left in storage is cleared by boot even when the board never loads", async () => {
+  const browser = await chromium.launch();
+  const page = await browser.newPage();
+  try {
+    await seenPreferences(page);
+    await page.route("**/board-seed.json", (route) => route.abort());
+    await page.addInitScript((key) => sessionStorage.setItem(key, "1"), addDealFlag);
+    await page.goto(`${server.url}/deals`);
+    await page.locator("#addDealOpen").waitFor();
+    assert.equal(await page.evaluate((key) => sessionStorage.getItem(key), addDealFlag), null);
+  } finally {
+    await browser.close();
+  }
+});
+
+test("a signed-out session drops a pending New deal request", async () => {
+  const browser = await chromium.launch();
+  const page = await browser.newPage();
+  try {
+    await seenPreferences(page);
+    await page.goto(server.url);
+    const switcher = await openSwitcher(page);
+    const input = switcher.getByRole("combobox", { name: "Jump to" });
+    await highlightOption(input, switcher, "New deal");
+    await page.evaluate((key) => {
+      sessionStorage.setItem(key, "1");
+      window.dispatchEvent(new Event("doctorcre-session-invalidated"));
+    }, addDealFlag);
+    await switcher.waitFor({ state: "detached" });
+    assert.equal(await page.evaluate((key) => sessionStorage.getItem(key), addDealFlag), null);
   } finally {
     await browser.close();
   }

@@ -358,7 +358,7 @@ for (const phase of ['loading', 'error', 'open_empty', 'typing', 'no_results']) 
     if (phase === 'loading') await page.getByText('Loading…').waitFor();
     else if (phase === 'error') await page.getByText('Deals and contacts unavailable. Pages are still available.').waitFor();
     else {
-      await page.getByText('6 results', { exact: true }).waitFor();
+      await page.getByText('4 results', { exact: true }).waitFor();
       if (phase === 'typing') await input.fill('calendar');
       if (phase === 'no_results') { await input.fill('absent'); await page.getByText('No matches. Try a deal, contact or page name.').waitFor(); }
     }

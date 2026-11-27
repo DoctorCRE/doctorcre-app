@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { fixtureInboxRpc } from "./home/fixture";
 import { createInboxClient, parseSnapshot } from "./home/inbox";
@@ -226,6 +226,14 @@ function openNewDeal() {
   location.assign("/deals");
 }
 
+function clearAddDealFlag() {
+  try {
+    sessionStorage.removeItem(ADD_DEAL_FLAG);
+  } catch {
+    /* nothing stored if this browser blocks storage */
+  }
+}
+
 function flipTheme() {
   document.querySelector<HTMLButtonElement>('[data-pref="theme"]')?.click();
 }
@@ -234,8 +242,6 @@ function switcherActions(): ActionDestination[] {
   return [
     { id: "action:new-deal", label: "New deal", kind: "Action", run: openNewDeal },
     { id: "action:ask-doc", label: "Ask Doc", kind: "Action", run: () => location.assign("/doc-chats") },
-    { id: "action:go-calendar", label: "Go to Calendar", kind: "Action", run: () => location.assign("/calendar") },
-    { id: "action:go-home", label: "Go to Home", kind: "Action", run: () => location.assign("/") },
     { id: "action:theme", label: themeActionLabel(), kind: "Action", run: flipTheme },
   ];
 }
@@ -262,6 +268,7 @@ export function openQuickSwitcher({ opener, pages, read }: Options) {
   };
   const revoke = () => {
     clearRecents();
+    clearAddDealFlag();
     close();
   };
   window.addEventListener("doctorcre-session-invalidated", revoke, { once: true });
@@ -352,6 +359,25 @@ function Switcher({ pages, read, close }: Omit<Options, "opener"> & { close: () 
   useEffect(() => {
     document.getElementById(`quick-option-${activeIndex}`)?.scrollIntoView({ block: "nearest" });
   }, [activeIndex]);
+  const actionStart = results.findIndex(isAction);
+  const option = (item: Destination, index: number) => (
+    <div
+      key={item.id}
+      id={`quick-option-${index}`}
+      role="option"
+      tabIndex={-1}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" && !isTextEntry(event.nativeEvent)) choose(item);
+      }}
+      aria-selected={index === activeIndex}
+      onPointerMove={() => setActive(index)}
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={() => choose(item)}
+    >
+      <span>{item.label}</span>
+      {isAction(item) ? null : <small>{item.kind}</small>}
+    </div>
+  );
   const choose = (item: Destination) => {
     if (isAction(item)) {
       close();
@@ -427,29 +453,13 @@ function Switcher({ pages, read, close }: Omit<Options, "opener"> & { close: () 
       )}
       {!normalized && kind === "All" && <h3>{recents.length ? "Recent" : "Pages"}</h3>}
       <div id="quick-results" role="listbox" aria-label="Destinations">
-        {results.map((item, index) => (
-          <Fragment key={item.id}>
-            {isAction(item) && results[index - 1]?.kind !== "Action" ? (
-              <h3 id="quick-actions-heading">Actions</h3>
-            ) : null}
-            <div
-              id={`quick-option-${index}`}
-              role="option"
-              tabIndex={-1}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !isTextEntry(event.nativeEvent)) choose(item);
-              }}
-              aria-selected={index === activeIndex}
-              aria-describedby={isAction(item) ? "quick-actions-heading" : undefined}
-              onPointerMove={() => setActive(index)}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => choose(item)}
-            >
-              <span>{item.label}</span>
-              {isAction(item) ? null : <small>{item.kind}</small>}
-            </div>
-          </Fragment>
-        ))}
+        {results.map((item, index) => !isAction(item) && option(item, index))}
+        {actionStart >= 0 && (
+          <fieldset>
+            <legend>Actions</legend>
+            {results.map((item, index) => isAction(item) && option(item, index))}
+          </fieldset>
+        )}
       </div>
       <a href={query.trim() ? `/search?q=${encodeURIComponent(query.trim())}` : "/search"}>Search all records</a>
       <footer>↑ ↓ to move · Enter to open · Esc to close</footer>
