@@ -359,7 +359,8 @@ test("Edit says it is opening and opens once however often it is pressed", async
   await page.getByRole("dialog", { name: "Edit Demo Partner 01" }).waitFor();
   assert.equal(await button.isEnabled(), true, "the redrawn Edit is ready again");
   await button.click({ force: true }).catch(() => {});
-  assert.equal(sent.filter((call) => call.path === `/api/engine/parties/${vendor}`).length, 1);
+  // One read is the card's relationship; Edit reads once more.
+  assert.equal(sent.filter((call) => call.path === `/api/engine/parties/${vendor}`).length, 2);
 });
 
 test("Edit to an email another record has offers that record, and Keep this email saves it anyway", async (t) => {
@@ -815,3 +816,94 @@ test("Link does not open while Edit is opening", async (t) => {
   release();
   await page.getByRole("dialog", { name: "Edit Demo Partner 01" }).waitFor();
 });
+
+test("The relationship button on a vendor card changes the level, parks with a reason, and sets Want to meet", async (t) => {
+  const fake = engine(vendorParty, "vendor", {
+    ...vendorProfile,
+    relationship_level: 1,
+    disposition: null,
+    disposition_reason: null,
+    is_target: false,
+  });
+  const { page, sent } = await setup(t, `/vendors?all=true&record=${vendor}`, fake.answer);
+  const panel = page.locator("#recordPanel");
+  const button = panel.locator(".rel-button:not([disabled])");
+  const saves = () => posts(sent).map((call) => [call.path, withoutKey(call.body ?? {})]);
+  const saved = () => page.waitForResponse((response) => response.request().method() === "POST");
+
+  await button.click();
+  await Promise.all([saved(), panel.getByRole("button", { name: "Established", exact: true }).click()]);
+  assert.deepEqual(saves(), [[`/api/engine/vendors/${vendor}`, { relationship_level: { from: 1, to: 2 } }]]);
+
+  await button.click();
+  await panel.getByRole("button", { name: "Park…" }).click();
+  const why = panel.getByLabel("Why park Demo Partner 01?");
+  await why.fill("  Slow to reply  ");
+  await Promise.all([saved(), panel.getByRole("button", { name: "Park", exact: true }).click()]);
+  await panel.locator(".rel-reason", { hasText: "Slow to reply" }).waitFor();
+  assert.deepEqual(saves()[1], [
+    `/api/engine/vendors/${vendor}`,
+    { disposition: { from: null, to: "parked" }, disposition_reason: { from: null, to: "Slow to reply" } },
+  ]);
+
+  await button.click();
+  await Promise.all([saved(), panel.getByRole("button", { name: "Want to meet" }).click()]);
+  assert.deepEqual(saves()[2], [`/api/engine/vendors/${vendor}`, { is_target: { from: false, to: true } }]);
+  assert.equal(saves().length, 3);
+});
+
+test("Park opens as a question, and Escape closes it without saving or closing the card", async (t) => {
+  const fake = engine(vendorParty, "vendor", {
+    ...vendorProfile,
+    relationship_level: 0,
+    disposition: null,
+    is_target: false,
+  });
+  const { page, sent } = await setup(t, `/vendors?all=true&record=${vendor}`, fake.answer);
+  const panel = page.locator("#recordPanel");
+  await panel.locator(".rel-button:not([disabled])").click();
+  await panel.getByRole("button", { name: "Avoid…" }).click();
+  await panel.getByLabel("Why avoid Demo Partner 01?").waitFor();
+  await page.keyboard.press("Escape");
+  await panel.locator("#relationshipMenu").waitFor({ state: "hidden" });
+  assert.equal(await panel.isVisible(), true);
+  await panel.locator(".rel-button").click();
+  assert.equal(
+    await panel.getByRole("button", { name: "Core", exact: true }).isVisible(),
+    true,
+    "the menu opens on its choices again",
+  );
+  assert.deepEqual(posts(sent), []);
+});
+
+for (const [name, refusal, message] of [
+  ["a failed save", { status: 500, json: {} }, "This was not saved. Try again."],
+  [
+    "a version conflict",
+    {
+      status: 409,
+      json: {
+        error: "version_conflict",
+        fields: ["relationship_level"],
+        current: { ...vendorProfile, relationship_level: 3 },
+      },
+    },
+    "Someone changed this since you opened it. Check it and choose again.",
+  ],
+] as const) {
+  test(`The relationship button tells the partner about ${name}`, async (t) => {
+    const fake = engine(vendorParty, "vendor", {
+      ...vendorProfile,
+      relationship_level: 1,
+      disposition: null,
+      is_target: false,
+    });
+    const { page } = await setup(t, `/vendors?all=true&record=${vendor}`, (call) =>
+      call.method === "POST" ? refusal : fake.answer(call),
+    );
+    const panel = page.locator("#recordPanel");
+    await panel.locator(".rel-button:not([disabled])").click();
+    await panel.getByRole("button", { name: "Established", exact: true }).click();
+    await page.locator("#recordStatus", { hasText: message }).waitFor();
+  });
+}

@@ -34,6 +34,12 @@ async function openDrawer(t: TestContext, dataset: "clients" | "vendors", width:
   await page.route("https://**", (r) => r.abort());
   await page.route("**/api/v1/business/**", (r) => r.fulfill({ json: heavy(r.request().url()) }));
   await page.route("**/auth/session", (r) => r.fulfill({ json: { actor: { slug: "joe" }, csrf_token: "synthetic" } }));
+  // The vendor card reads the stored relationship from the party.
+  await page.route("**/api/engine/parties/*", (r) =>
+    r.fulfill({
+      json: { vendor: { relationship_level: 3, disposition: null, disposition_reason: null, is_target: false } },
+    }),
+  );
   // The record actions show once the Clients and Vendors switch reads from the engine.
   await page.route(
     (url) => url.pathname === `/${dataset}`,
@@ -43,14 +49,14 @@ async function openDrawer(t: TestContext, dataset: "clients" | "vendors", width:
       return route.fulfill({ response, body });
     },
   );
-  await page.goto(`${server.url}/${dataset}?record=${recordId}&mode=live`);
+  await page.goto(`${server.url}/${dataset}?all=true&record=${recordId}&mode=live`);
   const panel = page.locator("#recordPanel");
   await panel.locator("#recordActions button", { hasText: "Edit" }).waitFor({ state: "attached" });
   if (dataset === "clients") await panel.locator("#recordActivity [data-retry='activity']").waitFor();
   return { page, panel };
 }
 
-for (const dataset of ["clients", "vendors"] as const)
+for (const dataset of ["clients"] as const)
   for (const [width, height] of [
     [1280, 640],
     [1440, 900],
@@ -95,11 +101,6 @@ for (const dataset of ["clients", "vendors"] as const)
             return size;
           })(),
           valueSize: style(".record-field dd")?.fontSize,
-          figureSize: style(".relationship-metric strong")?.fontSize ?? null,
-          tinted: [".vendor-contacts > li", ".relationship-metrics", ".relationship-metric + .relationship-metric"]
-            .map((selector) => [selector, style(selector)] as const)
-            .filter(([, css]) => css && (css.backgroundColor !== "rgba(0, 0, 0, 0)" || css.borderLeftStyle !== "none"))
-            .map(([selector]) => selector),
           sideways: node.scrollWidth > node.clientWidth,
           scrolls: node.scrollHeight > node.clientHeight,
           widestLabelGap: Math.max(...fields),
@@ -113,10 +114,6 @@ for (const dataset of ["clients", "vendors"] as const)
       assert.equal(drawer.titleTip, longName, "the full name shows on hover");
       // The body token's size per width belongs to the token itself (#1531); the drawer only uses it.
       assert.equal(drawer.valueSize, drawer.bodySize, "values read at body size");
-      if (dataset === "vendors") {
-        assert.equal(drawer.figureSize, drawer.bodySize, "figures are body size");
-        assert.deepEqual(drawer.tinted, [], "contacts and figures sit on the drawer, not in boxes");
-      }
       assert.doesNotMatch(drawer.body, /Edit|Link to someone/, "the body does not repeat the actions");
       assert.equal(drawer.sideways, false, "nothing in the drawer scrolls sideways");
 
@@ -133,7 +130,7 @@ for (const dataset of ["clients", "vendors"] as const)
         for (const control of drawer.controls)
           assert.ok(control.height >= 28 && control.height <= 32, `${control.name} is 28 to 32px: ${control.height}px`);
         assert.ok(drawer.widestLabelGap <= 190, `each value sits beside its label: ${drawer.widestLabelGap}`);
-        if (dataset === "clients") assert.equal(drawer.scrolls, false, "the client drawer fits one screen");
+        assert.equal(drawer.scrolls, false, "the client drawer fits one screen");
       }
     });
 
@@ -176,3 +173,55 @@ test("a second Escape after the menu closes leaves the record", async (t) => {
   await page.keyboard.press("Escape");
   await panel.waitFor({ state: "hidden" });
 });
+
+for (const [width, height] of [
+  [1280, 640],
+  [1440, 900],
+  [390, 844],
+] as const)
+  test(`a vendor card names the vendor in full beside the table, or over it with a back link on a phone, at ${width}`, async (t) => {
+    const phone = width < 768;
+    const { page, panel } = await openDrawer(t, "vendors", width, height);
+    await panel.locator(".rel-button:not([disabled])").waitFor();
+    await page.screenshot({ path: `${shots}/vendor-card-${width}.png` });
+    const card = await panel.evaluate((node) => {
+      const box = (selector: string) => node.querySelector(selector)?.getBoundingClientRect() ?? new DOMRect();
+      const title = node.querySelector<HTMLElement>("#recordTitle");
+      const style = (selector: string) => {
+        const el = node.querySelector(selector);
+        return el ? getComputedStyle(el) : null;
+      };
+      return {
+        width: node.getBoundingClientRect().width,
+        figureSize: style(".relationship-metric strong")?.fontSize,
+        valueSize: style(".record-field dd")?.fontSize,
+        tinted: [".vendor-contacts > li", ".relationship-metrics", ".relationship-metric + .relationship-metric"]
+          .map((selector) => [selector, style(selector)] as const)
+          .filter(([, css]) => css && (css.backgroundColor !== "rgba(0, 0, 0, 0)" || css.borderLeftStyle !== "none"))
+          .map(([selector]) => selector),
+        titleCut: (title?.scrollWidth ?? 0) > (title?.clientWidth ?? 0),
+        back: box(".panel-back").height,
+        close: box(".panel-close").height,
+        relationship: box(".rel-button").height,
+        sideways: node.scrollWidth > node.clientWidth,
+      };
+    });
+    assert.equal(card.titleCut, false, "the whole name shows");
+    assert.equal(card.figureSize, card.valueSize, "figures read at body size");
+    assert.deepEqual(card.tinted, [], "contacts and figures sit on the card, not in boxes");
+    assert.equal(card.sideways, false, "nothing in the card scrolls sideways");
+    if (phone) {
+      assert.ok(card.width >= width - 1, `the card takes the screen: ${card.width}px`);
+      assert.ok(card.back >= 44, `the back link is a 44px touch target: ${card.back}px`);
+      assert.ok(card.close >= 44, `the x stays at the top: ${card.close}px`);
+      await panel.locator(".panel-back").click();
+      await panel.waitFor({ state: "hidden" });
+    } else {
+      assert.ok(card.width <= 420, `the card sits beside the table: ${card.width}px`);
+      assert.equal(card.back, 0, "a computer closes the card with its close button");
+      assert.ok(card.relationship >= 28 && card.relationship <= 32, `the relationship button: ${card.relationship}px`);
+      const row = page.locator(".record-row").nth(1);
+      await row.click();
+      await page.waitForURL(/record=00000000-0000-4000-8000-000000000011/);
+    }
+  });

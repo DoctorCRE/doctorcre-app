@@ -58,15 +58,21 @@ for (const width of [1440, 390]) test(`V01 vendor search destination keeps Vendo
   assert.equal(clientContext.label, 'Clients');
   assert.deepEqual(errors, []);
 });
-for(const width of [1440,390])test(`W5 rendered directories and wide dialog at ${width}px`,async t=>{
+for(const width of [1440,390])test(`W5 rendered directories, and a vendor card beside the table or over it on a phone, at ${width}px`,async t=>{
   const h=await open(t,width),{page}=h;await page.goto(origin+'/vendors?all=true&mode=live', {waitUntil:'domcontentloaded'});await page.waitForSelector('.record-row').catch(async e=>{assert.fail(JSON.stringify({errors:h.errors,body:await page.locator('main').innerText()}));});
   assert.doesNotMatch(await page.locator('.record-row').first().innerText(), /Yours|Proven|Not recorded/);
   assert.equal(await page.locator('#pager').count(),0);assert.doesNotMatch(await page.locator('main').innerText(),/Checked a while ago|About this list|source|No filters|read again/i);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
   await page.screenshot({animations:'disabled',path:`out/test-artifacts/w5/vendors-${width}.png`});
   await page.locator('.record-row').first().click();await page.waitForSelector('.relationship-section');
-  assert.equal(await page.locator('#recordPanel').getAttribute('role'),'dialog');assert.equal(await page.locator('#appShell').evaluate(el=>el.inert),true);
-  const box=await page.locator('#recordPanel').boundingBox();assert.ok(box.width>width*.7);await page.screenshot({animations:'disabled',path:`out/test-artifacts/w5/vendor-overview-${width}.png`});
+  const phone=width<768;
+  assert.equal(await page.locator('#recordPanel').getAttribute('role'),phone?'dialog':'complementary');assert.equal(await page.locator('#appShell').evaluate(el=>el.inert),phone);
+  const box=await page.locator('#recordPanel').boundingBox();
+  if(phone)assert.ok(box.width>=width*.95,'the card takes the phone screen');
+  else{
+    assert.ok(box.width<width*.35,'the card sits beside the table');
+    assert.equal(await page.locator('.record-row').first().evaluate(row=>{const r=row.getBoundingClientRect();return row.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));}),true,'the table stays in reach');
+  }await page.screenshot({animations:'disabled',path:`out/test-artifacts/w5/vendor-overview-${width}.png`});
   const head=await page.locator('#recordTitle').boundingBox();assert.ok(head.y>=box.y && head.y+head.height<box.y+box.height);
   assert.match(await page.locator('#recordBody').innerText(),/Loan programs|Introductions made|Suggested introductions/);
   assert.equal(await page.locator('[data-details-key="intro-demo-intro"] .entry-detail').isVisible(),false);
@@ -93,16 +99,16 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`ve
   assert.deepEqual(h.writes, []);
   assert.deepEqual(h.errors, []);
 });
-test('an old market bookmark opens the vendor tiles, and a vendor from there opens its drawer', async t => {
+test('an old market bookmark opens the vendor tiles, and a vendor from there opens its card', async t => {
   const { page } = await open(t);
   await page.goto(`${origin}/vendors?vendorView=market&vendorMarket=example`);
   await page.waitForFunction(() => document.querySelector('#resultsTitle').textContent === 'Vendors');
   assert.equal(new URL(page.url()).search, '');
   await page.locator('a.directory-tile', { hasText: 'All vendors' }).click();
   await page.locator('.record-row').first().click();
-  await page.getByRole('dialog').waitFor();
+  await page.getByRole('complementary').waitFor();
   await page.keyboard.press('Escape');
-  assert.equal(await page.getByRole('dialog').isVisible(), false);
+  assert.equal(await page.locator('#recordPanel').isVisible(), false);
 });
 
 test('W5 filters, traversal and autonomous refresh recover without losing search',async t=>{
@@ -179,9 +185,9 @@ test('W5 missing original details never displays summary as original',async t=>{
  const {page}=await open(t);await page.route('**/api/v1/business/vendors/*',r=>{const p=directoryFixture(r.request().url());p.record.relationship.recent_entries[0].detail=null;return r.fulfill({json:p});});
  await page.goto(origin+'/vendors?all=true&mode=live', {waitUntil:'domcontentloaded'});await page.locator('.record-row').first().click();await page.waitForSelector('.relationship-section');assert.equal(await page.locator('[data-details-key="entry-demo-entry"]').count(),0);
 });
-test('W5 vendor business facts remain visible in the modal',async t=>{
+test('W5 vendor business facts remain visible on the card, with no Stage or Disposition beside the relationship',async t=>{
  const {page}=await open(t);await page.route('**/api/v1/business/vendors/*',r=>{const p=directoryFixture(r.request().url());p.record.verticals=['Synthetic specialist vertical'];return r.fulfill({json:p});});
- await page.goto(origin+'/vendors?all=true&mode=live', {waitUntil:'domcontentloaded'});await page.locator('.record-row').first().click();await page.waitForSelector('.relationship-section');const body=await page.locator('#recordBody').innerText();for(const value of ['Synthetic specialist vertical','Banking','Warm','Active'])assert.ok(body.includes(value),value);
+ await page.goto(origin+'/vendors?all=true&mode=live', {waitUntil:'domcontentloaded'});await page.locator('.record-row').first().click();await page.waitForSelector('.relationship-section');const body=await page.locator('#recordBody').innerText();for(const value of ['Synthetic specialist vertical','Banking'])assert.ok(body.includes(value),value);assert.doesNotMatch(body,/Stage|Disposition|Warm/);
 });
 for(const width of [1440,390]) test(`vendor Conversations show newest notes first at ${width}px`,async t=>{
  const h=await open(t,width),{page}=h;
@@ -397,7 +403,7 @@ for (const width of [390, 1440]) for (const tall of [false, true]) test(`vendor 
   await page.clock.fastForward(400);
   await page.waitForFunction(() => document.querySelectorAll('.record-row').length === 1);
   await page.locator('.record-row').click();
-  await page.getByRole('dialog', { name: 'Demo Partner 02' }).waitFor();
+  await page.getByRole(width < 768 ? 'dialog' : 'complementary', { name: 'Demo Partner 02' }).waitFor();
 });
 
 test('session invalidation disconnects the search dock observer', async t => {

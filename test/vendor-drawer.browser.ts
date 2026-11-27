@@ -22,7 +22,7 @@ function personVendor(url: string, contactId: string) {
     party_kind: "person",
     name: "Demo Vendor Person",
     territory: "Demo South",
-    contact_state: "active",
+    contact_state: "paused",
     relationship: {
       ...record.relationship,
       deals_referred: 0,
@@ -51,7 +51,7 @@ for (const [width, height, read, contactId] of [
   [390, 844, "next", vendorId],
   [1280, 800, "old", partyId],
 ] as const)
-  test(`a person vendor's drawer shows each fact once at ${width} on the ${read} read`, async (t) => {
+  test(`a person vendor's card shows each fact once at ${width} on the ${read} read`, async (t) => {
     const server = await startFixtureServer();
     t.after(() => server.stop());
     const browser = await chromium.launch();
@@ -63,6 +63,11 @@ for (const [width, height, read, contactId] of [
     const panel = page.locator("#recordPanel");
     await panel.getByRole("region", { name: "Vendor contacts" }).waitFor();
     await page.screenshot({ path: `${shots}/vendor-drawer-${width}-${read}.png` });
+    assert.equal(
+      await panel.locator("#recordMeta > :first-child").textContent(),
+      "Demo Equities",
+      "a person vendor's firm follows the name",
+    );
     const drawer = await panel.evaluate((node) => ({
       labels: [...node.querySelectorAll("dt")].map((dt) => dt.textContent?.trim()),
       contactStatus: [...node.querySelectorAll(".record-field")]
@@ -75,7 +80,7 @@ for (const [width, height, read, contactId] of [
     }));
     for (const label of ["Territory", "Phone", "Mobile", "Email"])
       assert.equal(drawer.labels.filter((text) => text === label).length, 1, `${label} shows once: ${drawer.labels}`);
-    assert.equal(drawer.contactStatus, "Active", "contact status reads as a plain label");
+    assert.equal(drawer.contactStatus, "Paused", "contact status reads as a plain label");
     assert.equal(drawer.emptySections, 0, "no empty section draws its dividers");
     assert.equal(drawer.closingLine, "0px", "no second divider under the last contact");
   });

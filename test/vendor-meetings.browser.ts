@@ -14,7 +14,7 @@ for (const path of ["/vendors", "/vendors?view=suggested"]) {
     assert.equal(await section.getByRole("tab", { name: "Suggested", exact: true }).count(), 0);
     await section.getByText("A verified office is needed", { exact: true }).waitFor();
     await section.getByRole("link", { name: "Ada Synthetic" }).click();
-    await page.getByRole("dialog").getByRole("heading", { name: "Demo Partner 01", exact: true }).waitFor();
+    await page.getByRole("complementary").getByRole("heading", { name: "Demo Partner 01", exact: true }).waitFor();
   });
 }
 

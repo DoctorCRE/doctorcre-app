@@ -30,9 +30,9 @@ import {
   DATASET_LABEL, DATASET_ROUTE, DATASET_SINGULAR, MAX_QUERY_LENGTH,
   SOURCE_LABEL, acceptsResponse, cachedPayload, clientNoteText, createBusinessState, datasetForPath, defaultQuery,
   displayedFreshness, echoesQuery, emptyCopy, expireSession, filterChips, freshnessSignature, hasActiveFilters,
-  isSessionExpiry, listPhase, listRequestUrl, ownerPresentation, pageSummary, panelModality, panelTabTarget,
+  isSessionExpiry, listPhase, listRequestUrl, opensBeside, ownerPresentation, pageSummary, panelTabTarget,
   parseViewState, partyKindText, recordRequestUrl, recordSections, recordedCode, recordedValue, refusalCopy,
-  CLIENT_STATUS_CHIPS, RELATIONSHIP_WORDS, clientPlace, defaultSort, placeCounts, holdsWholeList, relationshipCounts, rememberPayload, restoreSession, sameQuery, scrollIntent, searchBoxValue, showsTiles, sourceIsFresh,
+  CLIENT_STATUS_CHIPS, RELATIONSHIP_LEVELS, RELATIONSHIP_WORDS, clientPlace, defaultSort, placeCounts, holdsWholeList, relationshipCounts, rememberPayload, restoreSession, sameQuery, scrollIntent, searchBoxValue, showsTiles, sourceIsFresh,
   tilesFrom, tilesRequestUrl, validListPayload, validRecordPayload, vendorRelationship, viewHref,
 } from "./workspace-business-model.js";
 import { resolveDealroomBoot } from "./boot-mode.js";
@@ -69,6 +69,8 @@ const dom = {
   panelTitle: document.querySelector("#recordTitle"),
   panelEyebrow: document.querySelector("#recordEyebrow"),
   panelMeta: document.querySelector("#recordMeta"),
+  panelRelationship: document.querySelector("#recordRelationship"),
+  panelBack: document.querySelector("#recordBack"),
   panelActions: document.querySelector("#recordActions"),
   panelMore: document.querySelector("#recordMore"),
   panelStatus: document.querySelector("#recordStatus"),
@@ -85,9 +87,10 @@ const dom = {
 // they go.
 const phoneNavLinks = [...document.querySelectorAll(".mobile-nav a[href]")];
 
-const phoneFilters = window.matchMedia("(max-width: 767px)");
-phoneFilters.addEventListener("change", event => {
+const phoneWidth = window.matchMedia("(max-width: 767px)");
+phoneWidth.addEventListener("change", event => {
   if (!event.matches) document.querySelector("#secondaryFilters").open = true;
+  applyPanelModality();
 });
 
 const directoryViews = [...document.querySelectorAll("[data-directory-view]")];
@@ -109,6 +112,10 @@ view.activity = { id: null, sequence: 0, result: null };
 view.sessionGeneration = 0;
 view.tiles = { sequence: 0, key: null, status: "idle", payload: null };
 view.panelState = null;
+// The open vendor's stored relationship, read beside the card for its ruling reason and the values a save names.
+view.role = { id: null, value: null };
+// A refused relationship save's message, which the card redraws after the save would otherwise clear.
+view.saveNotice = { id: null, text: "" };
 let vendorMeetings = null;
 let vendorMeetingsHost = null;
 let vendorMeetingsGeneration = 0;
@@ -768,18 +775,21 @@ async function loadTiles() {
 
 // ------------------------------------------------------------- the record
 //
-// The record opens in a modal dialog at every width. Keep keyboard focus inside
-// and restore the launching row on close.
+// A client opens in a modal dialog at every width; a vendor opens as a card beside
+// the table, and only on a phone does the card cover the page. A dialog keeps
+// keyboard focus inside and restores the launching row on close.
 
 const FOCUSABLE = 'summary, a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-function panelIsModal() { return Boolean(view.recordId); }
+function panelIsModal() { return Boolean(view.recordId) && (!opensBeside(view.dataset) || phoneWidth.matches); }
 
 function backgroundRegions() { return [...document.querySelectorAll("[data-panel-background], #appShell")]; }
 
 function applyPanelModality() {
   if (!dom.panel) return;
   const modal = panelIsModal();
+  dom.panel.classList.toggle("record-card", opensBeside(view.dataset));
+  document.body.toggleAttribute("data-card-open", Boolean(view.recordId) && !modal);
   document.querySelector('#recordBackdrop').hidden = !modal;
   document.body.classList.toggle('record-open', modal);
   dom.panel.setAttribute("role", modal ? "dialog" : "complementary");
@@ -859,18 +869,78 @@ async function copyRecordLink() {
   copyLinkTimer = setTimeout(() => setPanelStatus(""), 2000);
 }
 
-/** The header's status, owner and record actions; empty while nothing has loaded. */
-function paintPanelHead(meta = "", actions = "") {
-  setPanelStatus("");
+/** The header's status, owner, relationship and record actions; empty while nothing has loaded. */
+function paintPanelHead(meta = "", actions = "", relationship = "") {
+  setPanelStatus(view.saveNotice.id === view.recordId ? view.saveNotice.text : "");
   if (dom.panelMeta) dom.panelMeta.innerHTML = meta;
   if (dom.panelActions) dom.panelActions.innerHTML = actions;
+  dom.panelRelationship.innerHTML = relationship;
+  dom.panelRelationship.hidden = !relationship;
   dom.panelTitle?.removeAttribute("title");
   dom.panelTitle?.removeAttribute("data-relationship");
 }
 
-/** On a phone the record actions open as a menu; it closes once one is chosen. */
+/** The record actions on a phone and the relationship choices open as menus; one closes once a choice is made. */
 function closePanelMenu() {
-  if (dom.panelActions?.matches(":popover-open")) dom.panelActions.hidePopover();
+  dom.panel?.querySelector(":popover-open")?.hidePopover();
+}
+
+const LEVEL_CHOICES = [...RELATIONSHIP_LEVELS.map((key, level) => [key, level]).reverse(), ["not_rated", null]];
+const RULING_VERB = { parked: "Park", avoid: "Avoid" };
+
+/**
+ * The relationship as a button whose menu changes it. Its choices wait for the
+ * stored relationship, which names what a save changes; without party saves the
+ * relationship is a word, as it is on the row.
+ */
+function relationshipControlHtml(relationship) {
+  const shown = `${relationshipShape(relationship.key)}${relationship.word}`;
+  const read = view.role.id === view.recordId;
+  const role = read ? view.role.value : null;
+  if (!partyEditor || (read && !role)) return `<span class="rel-word" data-relationship="${relationship.key}">${shown}</span>${wantToMeetHtml(relationship)}`;
+  const item = (attrs, label, current = false) => `<button type="button" class="rel-choice" ${attrs}${current ? ' aria-current="true"' : ""}>${label}</button>`;
+  const choices = [
+    ...LEVEL_CHOICES.map(([key, level]) => item(`data-rel-level="${level}" data-relationship="${key}"`, `${relationshipShape(key)}${RELATIONSHIP_WORDS[key]}`, key === relationship.key)),
+    "<hr>",
+    ...Object.entries(RULING_VERB).map(([ruling, verb]) => item(`data-rel-ruling="${ruling}" data-relationship="${ruling}"`, `${relationshipShape(ruling)}${verb}…`, ruling === relationship.key)),
+    relationship.key === "avoid" ? "" : "<hr>" + item(`data-rel-target aria-pressed="${role?.is_target === true}"`, "Want to meet"),
+  ].join("");
+  const reason = role?.disposition && role.disposition_reason ? `<span class="rel-reason">${escapeHtml(role.disposition_reason)}</span>` : "";
+  const ask = '<form class="rel-reason-form" hidden><label for="relReason"></label><textarea id="relReason" rows="3" required maxlength="500"></textarea><div class="rel-reason-actions"><button type="button" class="action secondary-action" data-rel-cancel>Cancel</button><button type="submit" class="action primary-action"></button></div></form>';
+  return `<button type="button" class="rel-button" data-relationship="${relationship.key}" popovertarget="relationshipMenu"${role ? "" : " disabled"}>${shown}<span class="rel-caret" aria-hidden="true">▾</span><span class="visually-hidden">, change relationship</span></button>${wantToMeetHtml(relationship)}${reason}<div class="rel-menu" id="relationshipMenu" popover><div class="rel-choices">${choices}</div>${ask}</div>`;
+}
+
+/** Park and Avoid ask why before they save: the menu shows that one question until it next opens. */
+function showRulingQuestion(ruling) {
+  const menu = dom.panel.querySelector("#relationshipMenu");
+  const form = menu.querySelector("form");
+  menu.querySelector(".rel-choices").hidden = Boolean(ruling);
+  form.hidden = !ruling;
+  if (!ruling) return form.reset();
+  form.dataset.relReason = ruling;
+  form.querySelector("label").textContent = `Why ${RULING_VERB[ruling].toLowerCase()} ${withoutRecordCodes(view.record.payload?.record?.name ?? "")}?`;
+  form.querySelector("[type=submit]").textContent = RULING_VERB[ruling];
+  focusWithoutScrolling(form.querySelector("textarea"));
+}
+
+async function chooseRelationship(choice) {
+  const role = view.role.id === view.recordId ? view.role.value : null;
+  closePanelMenu();
+  focusWithoutScrolling(dom.panelRelationship.querySelector(".rel-button"));
+  if (!role || !partyEditor) return;
+  view.saveNotice = { id: null, text: "" };
+  setPanelStatus("Saving…");
+  const problem = await partyEditor.setRelationship(role, choice);
+  view.saveNotice = { id: view.recordId, text: problem ?? "" };
+  setPanelStatus(view.saveNotice.text);
+}
+
+async function loadRole(id) {
+  if (!partyEditor || !opensBeside(view.dataset)) return;
+  const value = await partyEditor.vendorRole();
+  if (view.recordId !== id) return;
+  view.role = { id, value };
+  renderRecordPanel();
 }
 
 function renderRecordPanel() {
@@ -888,10 +958,16 @@ function renderRecordPanel() {
   dom.panel.hidden = false;
   dom.panel.classList.add("open");
   applyPanelModality();
-  if (dom.panelEyebrow) dom.panelEyebrow.textContent = DATASET_SINGULAR[dataset];
+  if (dom.panelEyebrow) {
+    dom.panelEyebrow.textContent = DATASET_SINGULAR[dataset];
+    dom.panelEyebrow.hidden = opensBeside(dataset);
+  }
+  dom.panelBack.textContent = view.place || DATASET_LABEL[dataset];
+  dom.panelBack.href = viewHref(view.query);
   // A redraw keeps focus on the record action that had it, such as Edit after a save.
   const actions = () => [...(dom.panelActions?.querySelectorAll("button") ?? [])];
   const action = actions().indexOf(document.activeElement);
+  const relationshipFocused = dom.panelRelationship.contains(document.activeElement);
   paintPanelHead();
   // A known sign-out empties the panel before anything else can render from it.
   if (view.signedOut) {
@@ -917,9 +993,14 @@ function renderRecordPanel() {
   const kind = partyKindText(payload.record.party_kind);
   const vendor = dataset === "vendors";
   const relationship = vendor ? vendorRelationship(payload.record) : null;
-  paintPanelHead(`${relationship ? `<span class="rel-word" data-relationship="${relationship.key}">${relationshipShape(relationship.key)}${relationship.word}</span>${wantToMeetHtml(relationship)}` : ""}${owner.known ? `<span class="row-fact"><span class="fact-label">Owner</span><span class="fact-value">${escapeHtml(owner.text)}</span></span>` : ""}`, recordActionsHtml());
+  const category = vendor ? recordedCode(payload.record.recorded_category, payload.record.recorded_category_label) : null;
+  // A person vendor's firm is the company their contact line names.
+  const firm = vendor && payload.record.party_kind === "person" ? payload.record.people?.find((person) => person.company)?.company.name : null;
+  paintPanelHead(`${firm ? `<span>${escapeHtml(withoutRecordCodes(firm))}</span>` : ""}${category?.resolved ? `<span>${escapeHtml(category.text)}</span>` : ""}${owner.known ? `<span class="row-fact"><span class="fact-label">Owner</span><span class="fact-value">${escapeHtml(owner.text)}</span></span>` : ""}`, recordActionsHtml(), relationship ? relationshipControlHtml(relationship) : "");
   if (action >= 0) focusWithoutScrolling(actions()[action]);
+  if (relationshipFocused) focusWithoutScrolling(dom.panelRelationship.querySelector(".rel-button"));
   if (dom.panelTitle) dom.panelTitle.textContent = dom.panelTitle.title = vendor ? withoutRecordCodes(payload.record.name) : payload.record.name;
+  if (relationship) dom.panelTitle.insertAdjacentHTML("afterbegin", relationshipShape(relationship.key));
   if (relationship && dom.panelTitle) dom.panelTitle.dataset.relationship = relationship.key;
   const ref = recordedValue(payload.record.ref);
   const referenceDetails = !vendor && ref.known
@@ -941,7 +1022,8 @@ function renderRecordPanel() {
       }).join("")}</dl></section>`;
     }).join("");
   if (dom.panelBody) {
-    dom.panelBody.innerHTML = `${dataset === 'vendors' ? vendorContactsHtml(payload.record) + relationshipHtml(payload.record) : dealLinks(payload.record)}<div class="detail-columns">${sections}</div>${dataset === "clients" ? clientNote(payload.record) : ""}${referenceDetails}${activityHtml(payload.record.id)}<p class="observed">${escapeHtml(updatedLabel(payload.source?.observed_at, BUSINESS_TIME_ZONE))}</p>`;
+    // The relationship diagram mounts in the empty section after Conversations once it is built.
+    dom.panelBody.innerHTML = `${dataset === 'vendors' ? vendorContactsHtml(payload.record) + relationshipHtml(payload.record) + '<section id="vendorDiagram" aria-label="Relationships" hidden></section>' : dealLinks(payload.record)}<div class="detail-columns">${sections}</div>${dataset === "clients" ? clientNote(payload.record) : ""}${referenceDetails}${activityHtml(payload.record.id)}<p class="observed">${escapeHtml(updatedLabel(payload.source?.observed_at, BUSINESS_TIME_ZONE))}</p>`;
     dom.panelBody.dataset.recordId = payload.record.id;
     restorePanelState();
     const note = dom.panelBody.querySelector(".client-note > p");
@@ -1034,6 +1116,7 @@ function expireNow() {
   view.loadedRows = []; view.loadedPageCount = 0;
   view.tiles = { sequence: view.tiles.sequence + 1, key: null, status: "idle", payload: null };
   view.activity = { id: null, sequence: view.activity.sequence + 1, result: null };
+  view.role = { id: null, value: null };
   Object.assign(view, expireSession(view));
   renderControls();
   renderChips();
@@ -1166,7 +1249,10 @@ async function loadRecord(id, { focusOnOpen = false } = {}) {
     const payload = await response.json().catch(() => null);
     if (!validRecordPayload(payload, view.dataset, id, { people: view.dataset === 'vendors' })) return settle("error", "FRESHNESS_UNKNOWN");
     settle("ready", null, payload);
-    if (acceptsResponse(view.record.sequence, sequence) && view.recordId === id) loadActivity(id, payload.record);
+    if (acceptsResponse(view.record.sequence, sequence) && view.recordId === id) {
+      loadActivity(id, payload.record);
+      void loadRole(id);
+    }
   } catch {
     settle("error", "DEPENDENCY_UNAVAILABLE");
   }
@@ -1198,7 +1284,7 @@ function applyLocation({ reason = "initial", restoreScroll = null } = {}) {
   if (recordChanged) { view.panelState = null; delete dom.panelBody.dataset.recordId; }
   document.body.dataset.directory = parsed.dataset;
   if (reason === "initial" || datasetChanged) {
-    document.querySelector("#secondaryFilters").open = !phoneFilters.matches;
+    document.querySelector("#secondaryFilters").open = !phoneWidth.matches;
   }
   view.dataset = parsed.dataset;
   view.query = parsed.query;
@@ -1367,6 +1453,21 @@ function wireControls() {
   });
 
   dom.panelClose?.addEventListener("click", () => closeRecord());
+  dom.panelBack.addEventListener("click", (event) => { event.preventDefault(); closeRecord(); });
+  dom.panelRelationship.addEventListener("beforetoggle", (event) => { if (event.newState === "open") showRulingQuestion(null); }, true);
+  dom.panelRelationship.addEventListener("click", (event) => {
+    const level = event.target.closest("[data-rel-level]")?.dataset.relLevel;
+    if (level !== undefined) return void chooseRelationship({ level: level === "null" ? null : Number(level) });
+    const ruling = event.target.closest("[data-rel-ruling]")?.dataset.relRuling;
+    if (ruling) return showRulingQuestion(ruling);
+    if (event.target.closest("[data-rel-target]")) return void chooseRelationship({ wantToMeet: !view.role.value?.is_target });
+    if (event.target.closest("[data-rel-cancel]")) closePanelMenu();
+  });
+  dom.panelRelationship.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const reason = event.target.querySelector("textarea").value.trim();
+    if (reason) void chooseRelationship({ ruling: event.target.dataset.relReason, reason });
+  });
   // Every way the menu opens or closes ends here, so the button always says which.
   dom.panelActions?.addEventListener("toggle", (event) => {
     dom.panelMore?.setAttribute("aria-expanded", String(event.newState === "open"));
@@ -1395,9 +1496,10 @@ function wireControls() {
     // Escape leaves the panel, never the page, and never the reader's place.
     event.preventDefault();
     // An open menu is the innermost layer: Escape closes only it.
-    if (dom.panelActions?.matches(":popover-open")) {
+    const menu = dom.panel?.querySelector(":popover-open");
+    if (menu) {
       closePanelMenu();
-      dom.panelMore?.focus();
+      (menu === dom.panelActions ? dom.panelMore : dom.panelRelationship.querySelector(".rel-button"))?.focus();
       return;
     }
     closeRecord();
@@ -1447,7 +1549,7 @@ function start() {
       },
     });
     partyEditor.setDataset(view.dataset);
-    if (view.recordId) renderRecordPanel();
+    if (view.recordId) { renderRecordPanel(); void loadRole(view.recordId); }
   });
   wireControls();
   const searchDock = document.querySelector('.search-dock');

@@ -2354,7 +2354,7 @@ for (const width of [390, 1440]) {
   });
 }
 
-test("the Vendor drawer shows deal-history metrics with no rating in either sign-in", async (t) => {
+test("the Vendor card shows deal-history metrics with no rating in either sign-in", async (t) => {
   for (const signIn of ["engine", "carr"] as const) {
     const { server, context, carrChecks } = await app(t, { signIn });
     await context.addCookies([
@@ -2369,7 +2369,8 @@ test("the Vendor drawer shows deal-history metrics with no rating in either sign
     const page = await context.newPage();
     await page.goto(server.origin + "/vendors?mode=live&q=Demo+Partner+01");
     await page.locator(".record-row").filter({ hasText: "Demo Partner 01" }).click({ timeout: 5000 });
-    const drawer = page.getByRole("dialog");
+    // The card's own relationship menu names the levels, so the old ratings are looked for in its body.
+    const drawer = page.locator("#recordBody");
     await drawer.getByText("Deals worked", { exact: true }).waitFor({ timeout: 5000 });
     assert.doesNotMatch(
       (await drawer.textContent()) ?? "",

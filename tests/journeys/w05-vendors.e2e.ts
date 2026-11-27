@@ -20,7 +20,9 @@ test("W5 Vendors filters by owner and opens a vendor with its original entries",
 
   await browser.locator(".record-row").first().tap();
   await expect(browser.locator("#recordPanel")).toBeVisible();
-  await expect(browser.locator("#recordPanel")).toHaveAttribute("role", "dialog");
+  // A vendor opens as a card beside the table; on a phone the card covers it as a dialog.
+  const phone = await browser.evaluate(() => innerWidth < 768);
+  await expect(browser.locator("#recordPanel")).toHaveAttribute("role", phone ? "dialog" : "complementary");
   await expect(browser.locator("#recordBody")).toContainText("Suggested introductions");
   const intro = browser.locator('[data-details-key="intro-demo-intro"]');
   await browser.locator('[data-details-key="intro-demo-intro"] summary').tap();

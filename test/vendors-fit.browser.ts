@@ -237,6 +237,22 @@ test("vendor rows take one line each under one header row that names the columns
   for (const { label, header, value } of columns) assert.equal(value, header, `${label} values sit under their label`);
 });
 
+test("every vendor fact reads on one line at 1280x640 with the card open", async (t) => {
+  const page = await openVendors(t, 1280, 640, undefined, uneven);
+  await page.locator(".record-row .row-head").first().click();
+  await page.locator("body[data-card-open]").waitFor();
+  const wrapped = await page.evaluate(() =>
+    [...document.querySelectorAll(".record-row .fact-value")]
+      .filter((value) => {
+        const range = document.createRange();
+        range.selectNodeContents(value);
+        return new Set([...range.getClientRects()].map((rect) => Math.round(rect.top))).size > 1;
+      })
+      .map((value) => value.textContent),
+  );
+  assert.deepEqual(wrapped, [], "no fact wraps with the card open");
+});
+
 test("Vendors stays usable on a phone", async (t) => {
   const page = await openVendors(t, 390, 844);
   await page.screenshot({ path: `${shots}/vendors-390.png` });
