@@ -94,3 +94,27 @@ test("a page loaded without a version never shows the line", async (t) => {
   await respond(page, release, "release-two");
   assert.equal(await notice(page).count(), 0);
 });
+
+test("the Reload button's focus ring shows whole between the bars around the line", async (t) => {
+  const release: Release = { version: "release-one" };
+  const page = await open(t, release);
+  await respond(page, release, "release-two");
+  const reload = notice(page).getByRole("button", { name: "Reload" });
+  await reload.focus();
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Tab");
+  const ring = await reload.evaluate((button) => {
+    const style = getComputedStyle(button);
+    const reach = Number.parseFloat(style.outlineWidth) + Number.parseFloat(style.outlineOffset);
+    const box = button.getBoundingClientRect();
+    const x = box.left + box.width / 2;
+    return {
+      focused: button.matches(":focus-visible") && style.outlineStyle !== "none",
+      covered: [box.top - reach + 1, box.bottom + reach - 1].filter(
+        (y) => !button.contains(document.elementFromPoint(x, y)),
+      ).length,
+    };
+  });
+  assert.equal(ring.focused, true, "the ring is drawn");
+  assert.equal(ring.covered, 0, "no bar paints over the ring's top or bottom edge");
+});

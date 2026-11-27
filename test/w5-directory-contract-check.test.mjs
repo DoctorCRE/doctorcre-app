@@ -134,7 +134,8 @@ for (const dataset of ['clients', 'vendors']) {
       assert.match(document.querySelector('.activity-when').textContent, /\b(?:AM|PM)\b/);
       if (dataset === 'vendors') {
         assert.match([...document.querySelectorAll('.relationship-metric strong')].at(-1).textContent, /\b(?:AM|PM)\b/);
-        assert.match([...document.querySelectorAll('.network-list time')].at(-1).textContent, /\b(?:AM|PM)\b/);
+        // Conversations is the card's first list, ahead of the introductions' dates.
+        assert.match(document.querySelector('.network-list time').textContent, /\b(?:AM|PM)\b/);
       }
       assert.equal(app.formatMoment('invalid'), 'an unknown time');
     });

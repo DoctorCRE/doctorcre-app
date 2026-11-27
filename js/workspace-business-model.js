@@ -772,10 +772,6 @@ const VENDOR_SECTIONS = [
   { title: "Who they are", fields: [
     ["ref", "Vendor reference"], ["title", "Title"],
   ] },
-  { title: "Where", fields: [
-    ["city", "City"], ["state", "State"], ["county", "County"], ["territory", "Territory"],
-    ["out_of_market", "Out of market"],
-  ] },
   { title: "Contact", fields: [
     ["phone", "Phone"], ["cell", "Mobile"], ["email", "Email"],
     ["contact_state", "Contact status"],
@@ -791,6 +787,10 @@ const VENDOR_SECTIONS = [
     ["links_label", "Links"],
   ] },
   { title: "Notes", fields: [["intro_notes", "Intro notes"]] },
+  { title: "Where", fields: [
+    ["city", "City"], ["state", "State"], ["county", "County"], ["territory", "Territory"],
+    ["out_of_market", "Out of market"],
+  ] },
   { title: "About this record", fields: [
     ["owner_label", "Owner"],
     ["record_version", "Version"],
