@@ -27,7 +27,8 @@ test("Clients search, clear and a column sort keep the place in the URL", async 
 
 test("Clients open a complete record and return to results", async ({ page }) => {
   await openAllClients(page);
-  await page.locator(".record-row").first().click();
+  // The row's open deal name opens the deal, so the client is opened by its own name.
+  await page.locator(".record-row .row-name").first().click();
   await expect(page.locator("#recordPanel")).toBeVisible();
   await expect(page.locator("#recordTitle")).not.toHaveText("Opening…");
   await expect(page.locator("#recordBody")).not.toBeEmpty();
