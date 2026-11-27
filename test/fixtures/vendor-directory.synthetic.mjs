@@ -18,7 +18,8 @@ export function directoryFixture(url, { now = Date.now(), overrides = new Map() 
   }));
   if(path==='/vendors/summary') return vendorSummary(records,u.searchParams.get('owner'));
   const allowed=(row,keys,optional)=>Object.fromEntries([...keys,...optional].map(key=>[key,row[key]??null]));
-  const optional=dataset==='vendors'?['relationship','vertical','deal_type','last_deal_at','territory']:['deal_type','last_deal_at'];
+  const optional=dataset==='vendors'?['relationship','vertical','deal_type','last_deal_at','territory','categories','quiet','quiet_days']:['deal_type','last_deal_at'];
+  for(const [n,row] of records.entries()) Object.assign(row,{categories:row.recorded_category?[{slug:row.recorded_category,label:row.recorded_category_label}]:[],quiet:n%4===0,quiet_days:n%4===0?90+n:null});
   if(recordId){
     const row=records.find(row=>row.id===recordId);
     const record=allowed(row,RECORD_KEYS[dataset],dataset==='vendors'?['relationship','loan_programs']:['deal_type','last_deal_at']);
@@ -32,15 +33,18 @@ export function directoryFixture(url, { now = Date.now(), overrides = new Map() 
     }
     return {viewer:'joe',dataset,record,partial:null,not_in_this_read:[],recorded_field_note:'Synthetic',source};
   }
-  const parsed=parseViewState('/'+dataset,u.search), {all,no_category,...asked}=parsed.query, query={...asked,...(no_category&&{no_category:true}),q:parsed.query.q||null,page_size:PAGE_SIZE};
+  const parsed=parseViewState('/'+dataset,u.search), {all,no_category,relationship:_,...asked}=parsed.query, query={...asked,...(no_category&&{no_category:true}),...(asked.quiet&&{quiet:true}),q:parsed.query.q||null,page_size:PAGE_SIZE};
   for(const key of ['category','stage','disposition','status','type','territory']) if(key in query && !query[key]) query[key]=null;
   // Like the engine, the tile filters echo only when sent, and the app's own key never travels.
   for(const key of ['practice_type','national_account']) if(u.searchParams.has(key)) query[key]=u.searchParams.get(key); else delete query[key];
   delete query.not_set;
-  let filtered=records.filter(row=>(!query.q||row.name.toLowerCase().includes(query.q.toLowerCase()))&&(query.owner==='all'||row.owner_label.toLowerCase()===query.owner)&&(!query.territory||row.territory===query.territory)&&(!query.category||row.recorded_category===query.category)&&(!query.no_category||row.recorded_category===null));
-  filtered.sort((a,b)=>query.sort==='last_deal_desc'?b.last_deal_at.localeCompare(a.last_deal_at):query.sort==='last_deal_asc'?a.last_deal_at.localeCompare(b.last_deal_at):['vertical','deal_type','territory'].includes(query.sort)?a[query.sort].localeCompare(b[query.sort])||a.name.localeCompare(b.name):a.name.localeCompare(b.name));
+  let filtered=records.filter(row=>(!query.q||row.name.toLowerCase().includes(query.q.toLowerCase()))&&(query.owner==='all'||row.owner_label.toLowerCase()===query.owner)&&(!query.territory||row.territory===query.territory)&&(!query.category||row.recorded_category===query.category)&&(!query.no_category||row.recorded_category===null)&&(!query.quiet||row.quiet));
+  const rank=row=>row.recorded_disposition==='avoid'?6:row.recorded_disposition==='parked'?5:row.relationship_level===null?4:3-row.relationship_level;
+  filtered.sort((a,b)=>query.sort==='last_deal_desc'?b.last_deal_at.localeCompare(a.last_deal_at):query.sort==='last_deal_asc'?a.last_deal_at.localeCompare(b.last_deal_at):['vertical','deal_type','territory'].includes(query.sort)?a[query.sort].localeCompare(b[query.sort])||a.name.localeCompare(b.name):query.sort==='relationship'?rank(a)-rank(b)||a.name.localeCompare(b.name):a.name.localeCompare(b.name));
+  // Like the engine, a vendor category answers every vendor in one page.
+  const size=dataset==='vendors'&&(query.category||query.no_category)?Math.max(filtered.length,1):PAGE_SIZE;
   const tiles=dataset==='clients'&&u.searchParams.get('tiles')==='true'?{tiles:CLIENT_TILES}:{};
-  return {...tiles,viewer:'joe',dataset,query,total:filtered.length,page:query.page,page_size:PAGE_SIZE,page_count:Math.max(1,Math.ceil(filtered.length/PAGE_SIZE)),out_of_range:query.page>Math.max(1,Math.ceil(filtered.length/PAGE_SIZE)),rows:filtered.slice((query.page-1)*PAGE_SIZE,query.page*PAGE_SIZE).map(row=>allowed(row,LIST_ROW_KEYS[dataset],optional)),facets:dataset==='vendors'?{categories:[{slug:'banker',label:'Banking'}],stages:[],dispositions:[],territories:[{slug:'Demo North',label:'Demo North'},{slug:'Demo South',label:'Demo South'}]}:{statuses:[{slug:'active',label:'Active'}],types:[]},partial:null,recorded_field_note:'Synthetic',source};
+  return {...tiles,viewer:'joe',dataset,query,total:filtered.length,page:query.page,page_size:size,page_count:Math.max(1,Math.ceil(filtered.length/size)),out_of_range:query.page>Math.max(1,Math.ceil(filtered.length/size)),rows:filtered.slice((query.page-1)*size,query.page*size).map(row=>allowed(row,LIST_ROW_KEYS[dataset],optional)),facets:dataset==='vendors'?{categories:[{slug:'banker',label:'Banking'}],stages:[],dispositions:[],territories:[{slug:'Demo North',label:'Demo North'},{slug:'Demo South',label:'Demo South'}]}:{statuses:[{slug:'active',label:'Active'}],types:[]},partial:null,recorded_field_note:'Synthetic',source};
 }
 
 // The engine's category tiles over the same made-up vendors.

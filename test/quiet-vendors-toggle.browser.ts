@@ -11,8 +11,11 @@ await mkdir(shots, { recursive: true });
 type Row = { id: string; name: string };
 // The engine answers quiet=true with only the quiet vendors; here every third made-up vendor is quiet.
 function answer(url: string) {
-  const payload = directoryFixture(url);
-  if (new URL(url).searchParams.get("quiet") !== "true" || !Array.isArray(payload.rows)) return payload;
+  const asked = new URL(url);
+  const quiet = asked.searchParams.get("quiet") === "true";
+  asked.searchParams.delete("quiet");
+  const payload = directoryFixture(asked.href);
+  if (!quiet || !Array.isArray(payload.rows)) return payload;
   // The fixture is declared as a loose record; its list payload carries vendor rows.
   const rows = (payload.rows as Row[]).filter((_, n) => n % 3 === 0);
   // Its list payload always echoes the query object it answered.
@@ -20,7 +23,7 @@ function answer(url: string) {
   return { ...payload, query: { ...query, quiet: true }, rows, total: rows.length, page_count: 1 };
 }
 
-test("Show quiet vendors narrows the same list in place and a second press shows every vendor", async (t) => {
+test("Quiet narrows the same list in place and a second press shows every vendor", async (t) => {
   const server = await startFixtureServer();
   t.after(() => server.stop());
   const browser = await chromium.launch();
@@ -34,7 +37,7 @@ test("Show quiet vendors narrows the same list in place and a second press shows
   await rows.first().waitFor();
   const all = await rows.count();
 
-  const toggle = page.getByRole("button", { name: "Show quiet vendors" });
+  const toggle = page.getByRole("button", { name: /^Quiet/ });
   assert.equal(await toggle.getAttribute("aria-pressed"), "false");
   await toggle.click();
   await page.waitForURL(/quiet=true/);
@@ -42,7 +45,6 @@ test("Show quiet vendors narrows the same list in place and a second press shows
   await page.waitForFunction((count) => document.querySelectorAll(".record-row").length === count, quiet);
   assert.equal(await toggle.getAttribute("aria-pressed"), "true");
   assert.equal(await page.getByRole("region", { name: "Quiet vendor follow-ups" }).count(), 0, "no separate section");
-  assert.equal(await page.locator("#chipBar").getByText("Quiet vendors").count(), 1);
   await page.screenshot({ path: `${shots}/quiet-on-1440.png` });
 
   await toggle.click();
@@ -51,7 +53,7 @@ test("Show quiet vendors narrows the same list in place and a second press shows
   assert.equal(await toggle.getAttribute("aria-pressed"), "false");
   await page.screenshot({ path: `${shots}/quiet-off-1440.png` });
 
-  const relationship = await rows.first().locator(".rel-word").textContent();
+  const relationship = await rows.first().locator('[data-fact="Relationship"] .fact-value').textContent();
   await rows.first().click();
   await page.locator("#recordMeta .rel-word").waitFor();
   assert.equal(

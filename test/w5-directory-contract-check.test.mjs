@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { echoesQuery, filterChips, listRequestUrl, relationshipValid, sameQuery, validListPayload, validRecordPayload, parseViewState, viewHref } from '../js/workspace-business-model.js';
+import { echoesQuery, filterChips, holdsWholeList, listRequestUrl, relationshipCounts, relationshipValid, sameQuery, validListPayload, validRecordPayload, parseViewState, viewHref } from '../js/workspace-business-model.js';
 import { directoryFixture } from './fixtures/vendor-directory.synthetic.mjs';
 
 test('W5 validates the complete partnership payload and rejects malformed evidence before rendering', () => {
@@ -29,7 +29,7 @@ test('Quiet vendors is a filter on the same vendor list that a second press remo
   const quiet=parseViewState('/vendors','?quiet=true&owner=dell').query;
   assert.equal(quiet.quiet,'true');
   assert.equal(new URL(listRequestUrl(quiet),'http://demo.example').searchParams.get('quiet'),'true');
-  assert.deepEqual(filterChips(quiet).find(chip=>chip.key==='quiet'),{key:'quiet',label:'Showing',value:'Quiet vendors',reset:''});
+  assert.equal(filterChips(quiet).some(chip=>chip.key==='quiet'),false,'Quiet is its own filter, not a chip');
   const all={...quiet,quiet:''};
   assert.equal(new URL(viewHref(all),'http://demo.example').searchParams.has('quiet'),false);
   assert.equal(sameQuery(quiet,all),false);
@@ -152,7 +152,8 @@ test('Vendors show recorded facts and keep names, phones and notes readable', ()
   assert.equal(link.querySelector('.row-name').textContent, '(TBD: intake contact)');
   assert.equal(link.querySelector('.row-owner').textContent, 'Owner: Avery');
   assert.doesNotMatch(link.textContent, /Trial|CARR|Not recorded|Win rate/);
-  assert.equal(link.querySelector('.contact-note').textContent, 'Last contacted Sep 30, 2026');
+  assert.equal(link.querySelector('.contact-note').textContent, 'Last contacted Sep 30, 2026 · 90 days');
+  assert.ok(link.querySelector('.contact-note').classList.contains('quiet'), 'a quiet vendor says how long');
   app.view.recordId = payload.record.id;
   app.view.record = { status: 'ready', payload };
   app.renderRecordPanel();
@@ -191,7 +192,7 @@ test('A vendor shows one relationship by shape, word and name color, the same on
     const name = list.querySelector('.row-name');
     assert.equal(name.dataset.relationship, key, word);
     assert.ok(name.querySelector('svg.rel-shape'), `${word} has a shape before the name`);
-    assert.equal(list.querySelector('.rel-word').textContent, word);
+    assert.equal(list.querySelector('[data-fact="Relationship"] .fact-value').textContent, word);
     assert.equal(Boolean(list.querySelector('.want-tag')), wantToMeet, `${word} want to meet`);
     Object.assign(payload.record, facts);
     app.view.recordId = payload.record.id;
@@ -276,4 +277,30 @@ test('A provenance-only conversation shows its date alone', () => {
   assert.equal(entry.querySelector('.note-summary'), null);
   assert.equal(entry.querySelector('details'), null);
   assert.match(entry.textContent, /Mar 2, 2026/);
+});
+
+test('A vendor category answers whole, in relationship order, and its relationship filter stays in the browser', () => {
+  const asked=parseViewState('/vendors','?category=banker&relationship=core').query;
+  assert.equal(asked.sort,'relationship');
+  const request=new URL(listRequestUrl(asked),'http://demo.example');
+  assert.equal(request.searchParams.has('sort'),false,'the engine default is relationship');
+  assert.equal(request.searchParams.has('relationship'),false,'the filter never reaches the read');
+  assert.equal(new URL(viewHref(asked),'http://demo.example').searchParams.get('relationship'),'core');
+  assert.equal(parseViewState('/vendors','?relationship=friendly').query.relationship,'');
+  assert.equal(sameQuery(asked,{...asked,relationship:''}),true,'changing it re-reads nothing');
+  const whole=directoryFixture(`http://demo.example/api/v1/business/vendors${request.search}`);
+  assert.equal(whole.rows.length,31);
+  assert.equal(whole.page_size,31);
+  assert.equal(validListPayload(whole,'vendors'),true);
+  assert.equal(echoesQuery(whole,asked),true);
+  assert.equal(holdsWholeList(whole),true);
+  const counts=relationshipCounts(whole.rows);
+  assert.equal(Object.values(counts).reduce((a,b)=>a+b),31);
+  assert.deepEqual(Object.keys(counts),['core','established','building','prospective','not_rated','parked','avoid']);
+  assert.equal(validListPayload({...whole,page_size:30},'vendors'),false,'a short page is not whole');
+  assert.equal(validListPayload({...whole,dataset:'clients'},'clients'),false);
+  assert.equal(echoesQuery({query:{...whole.query,sort:'name'}},asked),true,'an engine before relationship order answers by name');
+  assert.equal(echoesQuery({query:{...whole.query,sort:'territory'}},asked),false);
+  const paged=directoryFixture('http://demo.example/api/v1/business/vendors');
+  assert.equal(holdsWholeList(paged),false,'All vendors pages at 25, so it shows no counts');
 });

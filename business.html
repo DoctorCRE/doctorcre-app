@@ -65,7 +65,6 @@
               <option value="deal_type">Deal type</option>
               <option value="last_deal_desc">Last deal · most recent</option>
               <option value="last_deal_asc">Last deal · least recent</option>
-              <option value="territory" data-vendor-sort>Territory</option>
             </select>
           </div>
         </div>
@@ -75,7 +74,6 @@
             <button type="button" class="scope-option" data-owner="joe" aria-pressed="false">Joe</button>
             <button type="button" class="scope-option" data-owner="dell" aria-pressed="false">Dell</button>
           </div>
-<div class="field territory-field" id="territoryField" hidden><label class="visually-hidden" for="territoryInput">Territory</label><input id="territoryInput" maxlength="80" placeholder="All territories" list="territories"><datalist id="territories"></datalist></div>
           <div class="filter-actions">
             <button type="submit" class="action primary-action" id="applyFilters">Apply</button>
             <button type="button" class="action secondary-action" id="resetFilters">Reset</button>
@@ -83,10 +81,10 @@
         </div>
       </form>
       </details>
+      <div id="vendorFilters" class="vendor-filters" role="group" aria-label="Show only" hidden></div>
       <div class="hero-meta" aria-label="Status">
         <span id="observedAt" class="observed visually-hidden">Updating…</span><button type="button" class="refresh-icon" id="refreshList" aria-label="Refresh" title="Refresh">↻</button>
       </div>
-      <button type="button" class="action quiet-toggle" id="quietVendors" aria-pressed="false" hidden>Show quiet vendors</button>
     </div>
     <div id="chipBar" class="chip-bar" role="group" aria-label="Active filters" data-panel-background></div>
 

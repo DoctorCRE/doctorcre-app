@@ -15,7 +15,7 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) {
     await page.addLocatorHandler(page.getByRole('button', { name: 'Dismiss morning brief' }), dismiss => dismiss.click());
     await page.goto('/vendors?all=true');
     await expect(page.locator('.record-row').first()).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Show quiet vendors', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Quiet/ })).toBeVisible();
     await expect(page.locator('.result-heading').getByRole('button', { name: 'Market', exact: true })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Vendors', exact: true })).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath(`directory-${width}-${theme}.png`) });
@@ -37,15 +37,13 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) {
     await page.screenshot({ path: testInfo.outputPath(`detail-${width}-${theme}.png`) });
     await page.getByRole('button', { name: 'Close record', exact: true }).click();
     if (width === 390) {
-      await expect(page.getByLabel('Category', { exact: true })).toBeHidden();
-      await page.getByText('Filters and sort', { exact: true }).click();
-      await expect(page.getByLabel('Category', { exact: true })).toBeVisible();
+      await expect(page.getByText('Filters and sort', { exact: true })).toBeHidden();
       await page.getByRole('button', { name: 'Dell', exact: true }).click();
       await expect(page).toHaveURL(/owner=dell/);
-      await page.getByRole('button', { name: 'Reset', exact: true }).click();
+      await page.getByRole('button', { name: 'All', exact: true }).click();
       await expect(page).toHaveURL('/vendors?all=true');
       await page.setViewportSize({ width: 1440, height: 844 });
-      await expect(page.getByLabel('Category', { exact: true })).toBeVisible();
+      await expect(page.getByLabel('Category', { exact: true })).toBeHidden();
     }
   });
 }

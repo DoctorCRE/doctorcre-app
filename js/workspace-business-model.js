@@ -5,7 +5,9 @@
 // the filtered set are the server's answers; everything here either validates
 // them or decides how to say them. That is deliberate — a browser-side count
 // would be a second definition of "how many clients match", and the two would
-// eventually disagree in front of a partner.
+// eventually disagree in front of a partner. The one exception is a vendor
+// category: the server answers every vendor in it at once, so its relationship
+// counts and filter are over that whole answer (see relationshipCounts).
 //
 // It also never fills a blank. A missing value reads "Not recorded", never 0,
 // never an empty string that reads as "none", and never a guessed label.
@@ -21,9 +23,10 @@ const API_PREFIX = "/api/v1/business/";
 const SCOPES = ["team", "mine"];
 const DEFAULT_SCOPE = "team";
 const SCOPE_LABEL = { team: "Team", mine: "My work" };
-export const SORTS = ["name", "recent", "vertical", "deal_type", "last_deal_desc", "last_deal_asc", "territory"];
-const DEFAULT_SORT = "name";
-const SORT_LABEL = { name: "Alphabetical", recent: "Recently updated", vertical: "Vertical", deal_type: "Deal type", last_deal_desc: "Last deal · most recent", last_deal_asc: "Last deal · least recent", territory: "Territory" };
+export const SORTS = ["name", "recent", "vertical", "deal_type", "last_deal_desc", "last_deal_asc", "territory", "relationship"];
+/** Vendors are ordered by relationship, then name, unless a column heading says otherwise. */
+export const defaultSort = (dataset) => dataset === "vendors" ? "relationship" : "name";
+const SORT_LABEL = { name: "Alphabetical", recent: "Recently updated", vertical: "Vertical", deal_type: "Deal type", last_deal_desc: "Last deal · most recent", last_deal_asc: "Last deal · least recent", territory: "Territory", relationship: "Relationship" };
 export const PIPELINE_FILTERS = ["any", "active", "other", "unknown"];
 export const PIPELINE_LABEL = {
   any: "Any pipeline",
@@ -55,6 +58,8 @@ export const LIST_ROW_KEYS = {
 
 // The engine still sends these until it drops them; nothing here reads them.
 const RETIRED_VENDOR_KEYS = ["recorded_disposition_workable"];
+// The engine adds these to vendor rows; an engine without them still answers a valid list.
+const NEW_VENDOR_ROW_KEYS = ["categories", "quiet", "quiet_days"];
 
 export const RECORD_KEYS = {
   clients: ["id", "ref", "name", "party_kind", "city", "state", "county", "title", "specialty", "npi", "phone",
@@ -79,10 +84,10 @@ export function datasetForPath(pathname) {
 }
 
 export function defaultQuery(dataset) {
-  const base = { dataset, scope: DEFAULT_SCOPE, owner: "all", territory: "", q: "", sort: DEFAULT_SORT, page: 1, all: "" };
+  const base = { dataset, scope: DEFAULT_SCOPE, owner: "all", territory: "", q: "", sort: defaultSort(dataset), page: 1, all: "" };
   return dataset === "clients"
     ? { ...base, status: "", type: "", pipeline: "any", practice_type: "", not_set: "", national_account: "" }
-    : { ...base, category: "", no_category: "", stage: "", disposition: "", quiet: "" };
+    : { ...base, category: "", no_category: "", stage: "", disposition: "", quiet: "", relationship: "" };
 }
 
 function readSlug(params, key) {
@@ -108,7 +113,7 @@ export function parseViewState(pathname, search) {
   if (!dataset) return null;
   const params = new URLSearchParams(search || "");
   const scope = SCOPES.includes(params.get("scope")) ? params.get("scope") : DEFAULT_SCOPE;
-  const sort = SORTS.includes(params.get("sort")) ? params.get("sort") : DEFAULT_SORT;
+  const sort = SORTS.includes(params.get("sort")) ? params.get("sort") : defaultSort(dataset);
   const rawQuery = (params.get("q") || "").trim().slice(0, MAX_QUERY_LENGTH);
   const query = { ...defaultQuery(dataset), scope, sort, q: rawQuery, page: readPage(params) };
   if (dataset === "clients") {
@@ -124,6 +129,7 @@ export function parseViewState(pathname, search) {
     query.disposition = readSlug(params, "disposition");
     query.quiet = params.get("quiet") === "true" ? "true" : "";
     query.no_category = params.get("no_category") === "true" && !query.category ? "true" : "";
+    query.relationship = params.get("relationship") in RELATIONSHIP_WORDS ? params.get("relationship") : "";
   }
   query.all = params.get("all") === "true" ? "true" : "";
   query.owner = ["joe", "dell"].includes(params.get("owner")) ? params.get("owner") : "all";
@@ -142,7 +148,7 @@ function queryPairs(query) {
     const value = query[key];
     if (value && !(key === "pipeline" && value === "any")) pairs.push([key, value]);
   }
-  if (query.sort !== DEFAULT_SORT) pairs.push(["sort", query.sort]);
+  if (query.sort !== defaultSort(query.dataset)) pairs.push(["sort", query.sort]);
   if (query.page > 1) pairs.push(["page", String(query.page)]);
   return pairs;
 }
@@ -151,6 +157,8 @@ function queryPairs(query) {
 export function viewHref(query, recordId = null) {
   const params = new URLSearchParams(queryPairs(query));
   if (query.all) params.set("all", "true");
+  // Filtered in the browser over the whole category, so it never reaches the read.
+  if (query.relationship) params.set("relationship", query.relationship);
   if (recordId) params.set("record", recordId);
   const search = params.toString();
   return `${DATASET_ROUTE[query.dataset]}${search ? `?${search}` : ""}`;
@@ -227,7 +235,7 @@ function tilesValid(tiles) {
 
 export function hasActiveFilters(query) {
   const base = defaultQuery(query.dataset);
-  return ["scope", "owner", "territory", "q", "sort", ...FILTER_KEYS[query.dataset]].some((key) => query[key] !== base[key]);
+  return ["scope", "owner", "territory", "q", "sort", "relationship", ...FILTER_KEYS[query.dataset]].some((key) => query[key] !== base[key]);
 }
 
 /** Visible chips: every narrowing currently applied, each removable on its own. */
@@ -252,9 +260,9 @@ export function filterChips(query, facets = {}) {
     if (query.no_category) chips.push({ key: "no_category", label: "Showing", value: "No category", reset: "" });
     if (query.stage) chips.push({ key: "stage", label: "Stage", value: labelFor(facets.stages, query.stage), reset: "" });
     if (query.disposition) chips.push({ key: "disposition", label: "Disposition", value: labelFor(facets.dispositions, query.disposition), reset: "" });
-    if (query.quiet) chips.push({ key: "quiet", label: "Showing", value: "Quiet vendors", reset: "" });
   }
-  if (query.sort !== DEFAULT_SORT) chips.push({ key: "sort", label: "Sorted by", value: SORT_LABEL[query.sort], reset: DEFAULT_SORT });
+  // Vendors show their sort on the column heading and Quiet on its own filter.
+  if (query.dataset === "clients" && query.sort !== defaultSort("clients")) chips.push({ key: "sort", label: "Sorted by", value: SORT_LABEL[query.sort], reset: defaultSort("clients") });
   return chips;
 }
 
@@ -441,7 +449,7 @@ function activeDealsValid(deals) {
 }
 
 function rowValid(row, dataset) {
-  return extendedKeys(row, LIST_ROW_KEYS[dataset], dataset === "vendors" ? ["relationship", "vertical", "deal_type", "last_deal_at", "territory", ...RETIRED_VENDOR_KEYS] : ["deal_type", "last_deal_at", "active_deals"]) && typeof row.id === "string" && UUID.test(row.id) &&
+  return extendedKeys(row, LIST_ROW_KEYS[dataset], dataset === "vendors" ? ["relationship", "vertical", "deal_type", "last_deal_at", "territory", ...RETIRED_VENDOR_KEYS, ...NEW_VENDOR_ROW_KEYS] : ["deal_type", "last_deal_at", "active_deals"]) && typeof row.id === "string" && UUID.test(row.id) &&
     typeof row.name === "string" && row.name.length > 0 && relationshipValid(row.relationship) && activeDealsValid(row.active_deals);
 }
 
@@ -467,7 +475,9 @@ export function echoesQuery(payload, query) {
   const searched = query.q ? query.q : null;
   if ((echo.q ?? null) !== searched) return false;
   if ((echo.owner || "all") !== (query.owner || "all") || (echo.territory || "") !== (query.territory || "")) return false;
-  if (echo.scope !== query.scope || echo.sort !== query.sort || echo.page !== query.page || echo.page_size !== PAGE_SIZE) return false;
+  // An engine that predates relationship order answers the vendor default by name.
+  const sorted = echo.sort === query.sort || (query.dataset === "vendors" && query.sort === "relationship" && echo.sort === "name");
+  if (echo.scope !== query.scope || !sorted || echo.page !== query.page || echo.page_size !== PAGE_SIZE) return false;
   return FILTER_KEYS[query.dataset].every((key) => {
     const wanted = query[key];
     if (key === "pipeline") return echo.pipeline === wanted;
@@ -484,15 +494,18 @@ export function validListPayload(payload, dataset) {
   if ("tiles" in payload && !tilesValid(payload.tiles)) return false;
   if (!VIEWERS.has(payload.viewer) || payload.dataset !== dataset || !sourceValid(payload.source, dataset)) return false;
   if (!counted(payload.total) || !Number.isInteger(payload.page) || payload.page < 1) return false;
-  if (payload.page_size !== PAGE_SIZE || !Number.isInteger(payload.page_count) || payload.page_count < 1) return false;
+  // A vendor category comes whole: one page as large as its total.
+  const whole = dataset === "vendors" && payload.page_size === Math.max(payload.total, 1) && payload.page_count === 1;
+  const size = payload.page_size;
+  if ((size !== PAGE_SIZE && !whole) || !Number.isInteger(payload.page_count) || payload.page_count < 1) return false;
   if (typeof payload.out_of_range !== "boolean" || typeof payload.recorded_field_note !== "string") return false;
-  if (!Array.isArray(payload.rows) || payload.rows.length > PAGE_SIZE) return false;
+  if (!Array.isArray(payload.rows) || payload.rows.length > size) return false;
   if (!payload.rows.every((row) => rowValid(row, dataset))) return false;
   // The page and the total have to be able to coexist: a page of rows that
   // reaches past its own total is a disagreement, not a rounding difference.
   // An empty page past the end is the one honest exception.
-  if (payload.rows.length > 0 && (payload.page - 1) * PAGE_SIZE + payload.rows.length > payload.total) return false;
-  if (payload.page_count !== Math.max(1, Math.ceil(payload.total / PAGE_SIZE))) return false;
+  if (payload.rows.length > 0 && (payload.page - 1) * size + payload.rows.length > payload.total) return false;
+  if (payload.page_count !== Math.max(1, Math.ceil(payload.total / size))) return false;
   if (payload.out_of_range !== (payload.page > payload.page_count)) return false;
   if (!partialValid(payload.partial)) return false;
   // "N records use codes with no name" is a claim about the rows on screen, so
@@ -580,6 +593,16 @@ export const RELATIONSHIP_WORDS = {
   core: "Core", established: "Established", building: "Building", prospective: "Prospective",
   not_rated: "Not rated", parked: "Parked", avoid: "Avoid",
 };
+
+/** Whether a list answer holds every vendor it counts, as a category answers. */
+export const holdsWholeList = (payload) => payload.page_count === 1 && payload.rows.length === payload.total;
+
+/** How many vendors of a whole answer hold each relationship, in screen order. */
+export function relationshipCounts(rows) {
+  const counts = Object.fromEntries(Object.keys(RELATIONSHIP_WORDS).map((key) => [key, 0]));
+  for (const row of rows) counts[vendorRelationship(row).key]++;
+  return counts;
+}
 
 /** A vendor's relationship, from its ruling, level and target flag. A ruling outranks the level. */
 export function vendorRelationship(row) {

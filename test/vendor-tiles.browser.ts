@@ -175,3 +175,73 @@ for (const width of [390, 320])
     }
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   });
+
+test("inside a category the relationship counts and Quiet filter the one table, and headings sort it", async (t) => {
+  const { page, asked } = await openVendors(t, 1440, 900, { path: "/vendors?category=banker", ready: ".record-row" });
+  const reads = () => asked.filter((url) => url.pathname.endsWith("/vendors")).length;
+  const counts = page.locator("#vendorFilters [data-relationship-filter]");
+  const total = await page.locator(".record-row").count();
+  assert.equal(total, 31, "the whole category in one table");
+  assert.equal(await page.locator("#resultSummary").textContent(), "Banking · 31 vendors");
+  const core = counts.filter({ hasText: "Core" });
+  const shown = Number(await core.locator(".tile-n").textContent());
+  const before = reads();
+  await core.click();
+  await page.waitForURL(/relationship=core/);
+  assert.equal(await page.locator(".record-row").count(), shown, "only Core vendors");
+  assert.equal(await core.getAttribute("aria-pressed"), "true");
+  assert.equal(reads(), before, "the filter re-reads nothing");
+  await core.click();
+  await page.waitForURL((url) => !url.searchParams.has("relationship"));
+  assert.equal(await page.locator(".record-row").count(), total);
+
+  const quiet = page.getByRole("button", { name: /^Quiet/ });
+  const quietRows = await page.locator(".record-row .contact-note.quiet").count();
+  assert.ok(quietRows > 0, "the category holds quiet vendors");
+  assert.equal(await quiet.locator(".tile-n").textContent(), String(quietRows), "Quiet counts the quiet vendors");
+  await quiet.click();
+  await page.waitForURL(/quiet=true/);
+  await page.waitForFunction(() => document.querySelectorAll(".record-row .contact-note.quiet").length > 0);
+  assert.equal(asked.at(-1)?.searchParams.get("quiet"), "true");
+  assert.equal(await page.locator(".record-row .contact-note:not(.quiet)").count(), 0, "every quiet row says how long");
+  await quiet.click();
+  await page.waitForURL((url) => !url.searchParams.has("quiet"));
+
+  await page.locator('[data-column-sort="name"]').click();
+  await page.waitForURL(/sort=name/);
+  assert.equal(asked.at(-1)?.searchParams.get("sort"), "name");
+  assert.equal(await page.locator('[data-column-sort="name"]').getAttribute("aria-pressed"), "true");
+  await page.locator('[data-column-sort="name"]').click();
+  await page.waitForURL((url) => !url.searchParams.has("sort"));
+  assert.equal(await page.locator(".list-head [data-fact=Category]").count(), 0, "no Category column inside one");
+});
+
+test("outside a category the relationship counts and the Quiet count stay away, however small the answer", async (t) => {
+  const { page } = await openVendors(t, 1440, 900, { path: "/vendors?all=true&q=Partner+0", ready: ".record-row" });
+  assert.equal(await page.locator("#vendorFilters [data-relationship-filter]").count(), 0);
+  assert.equal(await page.getByRole("button", { name: /^Quiet/ }).textContent(), "Quiet");
+});
+
+test("a filter that matches nothing says so and Clear filters brings the category back", async (t) => {
+  const { page } = await openVendors(t, 1280, 640, {
+    path: "/vendors?category=banker&q=Nobody",
+    ready: ".record-empty",
+  });
+  await page.getByRole("button", { name: "Clear filters" }).click();
+  await page.waitForURL((url) => url.search === "?category=banker");
+  await page.locator(".record-row").first().waitFor();
+});
+
+for (const width of [320, 390])
+  test(`at ${width} wide a tile's count stays inside its tile`, async (t) => {
+    const { page } = await openVendors(t, width, 740);
+    const touching = await page.locator("a.directory-tile").evaluateAll((tiles) =>
+      tiles
+        .filter((tile) => {
+          const count = tile.querySelector(".tile-count")?.getBoundingClientRect();
+          return count && count.right > tile.getBoundingClientRect().right - 8;
+        })
+        .map((tile) => tile.querySelector(".tile-name")?.textContent),
+    );
+    assert.deepEqual(touching, []);
+  });

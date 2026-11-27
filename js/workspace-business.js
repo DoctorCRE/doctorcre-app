@@ -32,7 +32,7 @@ import {
   displayedFreshness, echoesQuery, emptyCopy, expireSession, filterChips, freshnessSignature, hasActiveFilters,
   isSessionExpiry, listPhase, listRequestUrl, ownerPresentation, pageSummary, panelModality, panelTabTarget,
   parseViewState, partyKindText, recordRequestUrl, recordSections, recordedCode, recordedValue, refusalCopy,
-  RELATIONSHIP_WORDS, rememberPayload, restoreSession, sameQuery, scrollIntent, searchBoxValue, showsTiles, sourceIsFresh,
+  RELATIONSHIP_WORDS, defaultSort, holdsWholeList, relationshipCounts, rememberPayload, restoreSession, sameQuery, scrollIntent, searchBoxValue, showsTiles, sourceIsFresh,
   tilesFrom, tilesRequestUrl, validListPayload, validRecordPayload, vendorRelationship, viewHref,
 } from "./workspace-business-model.js";
 import { resolveDealroomBoot } from "./boot-mode.js";
@@ -62,7 +62,7 @@ const dom = {
   scopeSwitch: document.querySelector("#scopeSwitch"),
   scopeNote: document.querySelector("#scopeNote"),
   reset: document.querySelector("#resetFilters"),
-  quiet: document.querySelector("#quietVendors"),
+  vendorFilters: document.querySelector("#vendorFilters"),
   chips: document.querySelector("#chipBar"),
   notices: document.querySelector("#noticeRegion"),
   summary: document.querySelector("#resultSummary"),
@@ -262,11 +262,7 @@ const FILTER_FIELDS = {
     { select: "filterB", label: "filterBLabel", key: "type", text: "Client type", empty: "Any client type", facet: "types" },
     { select: "filterC", label: "filterCLabel", key: "pipeline", text: "Pipeline", empty: null, facet: null },
   ],
-  vendors: [
-    { select: "filterA", label: "filterALabel", key: "category", text: "Category", empty: "Any category", facet: "categories" },
-    { select: "filterB", label: "filterBLabel", key: "stage", text: "Stage", empty: "Any stage", facet: "stages" },
-    { select: "filterC", label: "filterCLabel", key: "disposition", text: "Disposition", empty: "Any disposition", facet: "dispositions" },
-  ],
+  vendors: [],
 };
 
 function optionsHtml(options, emptyLabel, selected) {
@@ -301,13 +297,9 @@ function renderControls({ syncSearch = false } = {}) {
     }
   }
   if (dom.search) dom.search.placeholder = dataset === "clients" ? "Find a client" : "Find a vendor";
-  document.querySelector('#territoryField').hidden = dataset !== 'vendors';
-  dom.quiet.hidden = dataset !== 'vendors';
-  dom.quiet.setAttribute('aria-pressed', String(query.quiet === 'true'));
-  const territory = document.querySelector('#territoryInput');
-  if (document.activeElement !== territory) territory.value = query.territory || '';
-  document.querySelector('[data-vendor-sort]').hidden = dataset !== 'vendors';
-  document.querySelector('#territories').innerHTML = (facets.territories || []).map(option => `<option value="${escapeHtml(option.slug)}"></option>`).join('');
+  // Inside a category the title names it, so the place reads without a filter chip.
+  view.place = query.no_category ? "No category" : query.category && ((facets.categories || []).find((option) => option.slug === query.category)?.label ?? query.category);
+  if (dom.resultsTitle) dom.resultsTitle.textContent = view.place ? `${DATASET_LABEL[dataset]} / ${view.place}` : DATASET_LABEL[dataset];
   dom.sort.querySelector('[value="deal_type"]').textContent = dataset === 'vendors' ? 'Service' : 'Deal type';
   if (dom.sort) dom.sort.value = SORTS.includes(query.sort) ? query.sort : "name";
   for (const field of FILTER_FIELDS[dataset]) {
@@ -393,7 +385,6 @@ function renderNotices(notices) {
 
 // --------------------------------------------------------------- the list
 
-const metric = value => Number.isInteger(value) ? String(value) : '—';
 const winRate = stats => Number.isFinite(stats?.win_rate) ? `${Math.round(stats.win_rate * 100)}%` : '—';
 const vendorNote = value => withoutRecordCodes((value || '')
   .replace(/[ \t]*— recovered from [A-Z][a-z]{1,29}(?:[ '-][A-Z][a-z]{1,29}){0,1}'s CARR calendar history(?=\s*$|\n)/g, '')
@@ -404,9 +395,12 @@ const vendorNote = value => withoutRecordCodes((value || '')
   .replace(/^Recovered from CARR calendar history$/i, '')
   );
 const shortNote = value => typeof value === 'string' ? value.split(/\n/)[0].slice(0, 140) : '';
-function vendorContactDate(contactedAt) {
-  const date = contactedAt && formatDay(contactedAt);
-  return date ? `<span class="contact-note"><span class="fact-label">Last contacted </span><time datetime="${escapeHtml(contactedAt)}">${escapeHtml(date)}</time></span>` : '';
+// A quiet vendor's last contact says how long it has been, in amber.
+function vendorContactDate({ relationship, quiet, quiet_days }) {
+  const contactedAt = relationship?.last_contacted_at;
+  const date = contactedAt ? `<time datetime="${escapeHtml(contactedAt)}">${escapeHtml(formatDay(contactedAt))}</time>` : quiet ? "No contact yet" : "";
+  const days = quiet && Number.isInteger(quiet_days) ? ` · ${quiet_days} ${quiet_days === 1 ? "day" : "days"}` : "";
+  return date ? `<span class="contact-note${quiet ? " quiet" : ""}"><span class="fact-label">Last contacted </span>${date}${days}</span>` : '';
 }
 
 const vendorField = (label, value) => value ? `<div class="record-field"><dt>${label}</dt><dd>${escapeHtml(value)}</dd></div>` : '';
@@ -480,14 +474,13 @@ function rowFacts(dataset, row) {
     const type = recordedCode(row.recorded_client_type, row.recorded_client_type_label);
     facts.push({ label: "Client type", value: type.text, known: type.known, unresolved: type.known && !type.resolved });
   } else {
-    const category = recordedCode(row.recorded_category, row.recorded_category_label);
-    facts.push({ label: "Category", value: category.text, known: category.resolved });
-    const stats = row.relationship;
+    facts.push({ label: "Relationship", value: vendorRelationship(row).word, known: "id" in row });
+    // Inside a category the column would repeat the category's own name on every row.
+    if (!view.query.category && !view.query.no_category) {
+      const category = recordedCode(row.recorded_category, row.recorded_category_label);
+      facts.push({ label: "Category", value: category.text, known: category.resolved });
+    }
     facts.push({ label: 'Territory', value: row.territory || 'Not recorded', known: Boolean(row.territory) });
-    // The engine counts deal history and sends 0 when none is recorded, so a 0 says nothing.
-    facts.push({ label: 'Referred', value: metric(stats?.deals_referred), known: stats?.deals_referred > 0, history: true });
-    facts.push({ label: 'Worked', value: metric(stats?.deals_worked), known: stats?.deals_worked > 0, history: true });
-    facts.push({ label: 'Win rate', value: winRate(stats), known: stats?.win_rate != null, history: true });
   }
   const place = [row.city, row.state].filter(Boolean).join(", ");
   facts.push({ label: dataset === "clients" ? "Territory" : "Location", value: place || "Not recorded", known: Boolean(place) });
@@ -520,18 +513,46 @@ function rowHtml(dataset, row, selectedId) {
   const vendor = dataset === "vendors";
   const relationship = vendor ? vendorRelationship(row) : null;
   const name = relationship
-    ? `<span class="row-name" data-relationship="${relationship.key}">${relationshipShape(relationship.key)}${escapeHtml(withoutRecordCodes(row.name))}</span>${wantToMeetHtml(relationship)}<span class="rel-word">${relationship.word}</span>`
+    ? `<span class="row-name" data-relationship="${relationship.key}">${relationshipShape(relationship.key)}${escapeHtml(withoutRecordCodes(row.name))}</span>${wantToMeetHtml(relationship)}`
     : `<span class="row-name">${escapeHtml(row.name)}</span>`;
   const facts = rowFacts(dataset, row).filter((fact) => fact.known).map((fact) =>
     `<span class="row-fact${fact.unresolved ? " unresolved" : ""}${fact.history ? " history" : ""}" data-fact="${escapeHtml(fact.label)}"><span class="fact-label">${escapeHtml(fact.label)}</span><span class="fact-value">${breakAfterSlashes(fact.value)}</span></span>`).join("");
-  return `<li class="record-item"><a class="record-row${selected ? " selected" : ""}" id="row-${escapeHtml(row.id)}" data-record-id="${escapeHtml(row.id)}" href="${escapeHtml(viewHref(view.query, row.id))}"${selected ? ' aria-current="true"' : ""}><span class="row-head">${name}</span><span class="row-facts">${facts}</span>${vendor ? vendorContactDate(row.relationship?.last_contacted_at) : ''}<span class="row-foot">${owner.known ? `<span class="row-owner"><span class="fact-label">Owner: </span>${escapeHtml(owner.text)}</span>` : ""}<span class="row-updated"><span class="fact-label">Updated </span>${escapeHtml(formatMoment(row.updated_at))}</span></span></a>${dataset === "clients" ? dealLinks(row) : ""}</li>`;
+  return `<li class="record-item"><a class="record-row${selected ? " selected" : ""}" id="row-${escapeHtml(row.id)}" data-record-id="${escapeHtml(row.id)}" href="${escapeHtml(viewHref(view.query, row.id))}"${selected ? ' aria-current="true"' : ""}><span class="row-head">${name}</span><span class="row-facts">${facts}</span>${vendor ? vendorContactDate(row) : ''}<span class="row-foot">${owner.known ? `<span class="row-owner"><span class="fact-label">Owner: </span>${escapeHtml(owner.text)}</span>` : ""}<span class="row-updated"><span class="fact-label">Updated </span>${escapeHtml(formatMoment(row.updated_at))}</span></span></a>${dataset === "clients" ? dealLinks(row) : ""}</li>`;
+}
+
+// The vendor columns a heading click can sort, by the engine sort each one asks for.
+const VENDOR_COLUMN_SORTS = { Name: "name", Relationship: "relationship", Territory: "territory" };
+
+function columnHeading(dataset, label) {
+  const sort = dataset === "vendors" ? VENDOR_COLUMN_SORTS[label] : null;
+  if (!sort) return escapeHtml(label);
+  const on = view.query.sort === sort;
+  return `<button type="button" class="column-sort${on ? " on" : ""}" data-column-sort="${sort}" aria-pressed="${on}">${escapeHtml(label)}</button>`;
 }
 
 // Names the row columns once on a computer, where rows drop their inline labels; deal history keeps its own labels.
 function headHtml(dataset) {
   const facts = rowFacts(dataset, {}).filter((fact) => !fact.history).map((fact) =>
-    `<span class="row-fact" data-fact="${escapeHtml(fact.label)}">${escapeHtml(fact.label)}</span>`).join("");
-  return `<li class="list-head" aria-hidden="true"><span class="row-head">Name</span><span class="row-facts">${facts}</span>${dataset === "vendors" ? '<span class="contact-note">Last contacted</span>' : ""}<span class="row-foot"><span class="row-owner">Owner</span><span class="row-updated">Updated</span></span></li>`;
+    `<span class="row-fact" data-fact="${escapeHtml(fact.label)}">${columnHeading(dataset, fact.label)}</span>`).join("");
+  // Vendor headings sort, so they stay in the reading order; client headings only repeat the row labels.
+  return `<li class="list-head"${dataset === "vendors" ? "" : ' aria-hidden="true"'}><span class="row-head">${columnHeading(dataset, "Name")}</span><span class="row-facts">${facts}</span>${dataset === "vendors" ? '<span class="contact-note">Last contacted</span>' : ""}<span class="row-foot"><span class="row-owner">Owner</span><span class="row-updated">Updated</span></span></li>`;
+}
+
+// Inside one category the counts are the colors' key and a filter; Quiet asks the engine for quiet vendors only.
+function vendorFiltersHtml(payload) {
+  const { relationship, quiet, category, no_category: noCategory } = view.query;
+  const inCategory = Boolean(category || noCategory) && holdsWholeList(payload);
+  const counts = inCategory ? relationshipCounts(payload.rows) : null;
+  const quietCount = counts ? ` <span class="tile-n">${payload.rows.filter((row) => row.quiet).length}</span>` : "";
+  const words = counts ? Object.entries(RELATIONSHIP_WORDS).filter(([key]) => counts[key] > 0 || key === relationship).map(([key, word]) =>
+    `<button type="button" class="filter-count" data-relationship="${key}" data-relationship-filter="${key}" aria-pressed="${key === relationship}">${relationshipShape(key)}${word} <span class="tile-n">${counts[key]}</span></button>`).join("") : "";
+  return `${words}<button type="button" class="filter-count quiet-filter" data-quiet-filter aria-pressed="${quiet === "true"}">Quiet${quietCount}</button>`;
+}
+
+function renderVendorFilters(payload) {
+  dom.list.toggleAttribute("data-in-category", Boolean(view.query.category || view.query.no_category));
+  dom.vendorFilters.hidden = view.dataset !== "vendors" || !payload;
+  if (!dom.vendorFilters.hidden) dom.vendorFilters.innerHTML = vendorFiltersHtml(payload);
 }
 
 function paintList(html, { busy = false } = {}) {
@@ -546,7 +567,8 @@ function paintList(html, { busy = false } = {}) {
 }
 
 function renderEmpty(phase) {
-  paintList(`<li class="record-empty"><p class="empty-title">${escapeHtml(emptyCopy(view.dataset, phase))}</p>${hasActiveFilters(view.query) ? '<button type="button" class="action secondary-action" data-chip="all">Clear all filters</button>' : ""}</li>`);
+  const clear = view.dataset === "vendors" ? "Clear filters" : "Clear all filters";
+  paintList(`<li class="record-empty"><p class="empty-title">${escapeHtml(emptyCopy(view.dataset, phase))}</p>${hasActiveFilters(view.query) ? `<button type="button" class="action secondary-action" data-chip="all">${clear}</button>` : ""}</li>`);
 }
 
 function renderPager(payload) {
@@ -587,7 +609,7 @@ function renderList() {
   document.body.toggleAttribute("data-tiles", tiles);
   dom.tiles.hidden = !tiles;
   dom.listRegion.hidden = tiles;
-  if (tiles) return renderTiles();
+  if (tiles) { renderVendorFilters(null); return renderTiles(); }
   const phase = listPhase({ status: list.status, payload: list.payload, query, dataset, signedOut: view.signedOut });
   view.freshnessKey = list.payload ? freshnessSignature(list.payload, dataset) : null;
 
@@ -623,15 +645,19 @@ function renderList() {
   setHealth(refreshing ? "refreshing" : stale ? "stale" : "available");
   if (dom.observedAt) dom.observedAt.textContent = updatedLabel(payload.source.observed_at, BUSINESS_TIME_ZONE);
   if (dom.source) dom.source.textContent = updatedLabel(payload.source?.observed_at, BUSINESS_TIME_ZONE);
-  if (dom.summary) dom.summary.textContent = `${payload.total} ${(payload.total === 1 ? DATASET_SINGULAR[dataset] : DATASET_LABEL[dataset]).toLowerCase()}`;
+  const counted = `${payload.total} ${(payload.total === 1 ? DATASET_SINGULAR[dataset] : DATASET_LABEL[dataset]).toLowerCase()}`;
+  if (dom.summary) dom.summary.textContent = view.place ? `${view.place} · ${counted}` : counted;
   // eslint-disable-next-line no-restricted-syntax -- Business notice metadata only; 0 automatic attempts, and any retry requires a fresh user action.
   renderNotices(view.failedPage ? [{ kind: 'unavailable', title: 'Could not load more', copy: 'Retrying automatically.', retry: true }]
     : view.loadingMore ? [{ kind: 'loading', title: 'Loading more…', copy: '' }] : []);
 
-  if (payload.rows.length === 0) {
+  renderVendorFilters(payload);
+  const rows = (view.loadedRows || payload.rows).filter((row) =>
+    !query.relationship || !holdsWholeList(payload) || vendorRelationship(row).key === query.relationship);
+  if (rows.length === 0) {
     renderEmpty(payload.out_of_range ? "out-of-range" : hasActiveFilters(query) ? "empty-no-matches" : "empty-no-records");
   } else {
-    paintList(headHtml(dataset) + (view.loadedRows || payload.rows).map((row) => rowHtml(dataset, row, view.recordId)).join(""));
+    paintList(headHtml(dataset) + rows.map((row) => rowHtml(dataset, row, view.recordId)).join(""));
   }
   renderPager(payload);
 }
@@ -1180,7 +1206,6 @@ function applyLocation({ reason = "initial", restoreScroll = null } = {}) {
   if (datasetChanged) { clearVendorMeetings(); showDirectoryView("list"); }
   document.title = `${DATASET_LABEL[parsed.dataset]} · DoctorCRE`;
   if (dom.footer) dom.footer.textContent = `DoctorCRE · ${DATASET_LABEL[parsed.dataset]}`;
-  if (dom.resultsTitle) dom.resultsTitle.textContent = DATASET_LABEL[parsed.dataset];
   if (dom.intro) {
     dom.intro.textContent = "";
   }
@@ -1228,9 +1253,10 @@ function updateQuery(changes, { replace = false } = {}) {
   navigate(viewHref(next, view.recordId), { replace });
 }
 
-// Clearing filters on All vendors stays on All vendors; inside a category it returns to the tiles.
+// Clearing filters keeps the place: All, and for vendors a category or No category.
 function clearedQuery() {
-  return { ...defaultQuery(view.dataset), ...(view.query.all && { all: "true" }) };
+  const { all, category, no_category } = view.query;
+  return { ...defaultQuery(view.dataset), all, ...(view.dataset === "vendors" && { category, no_category }) };
 }
 
 function closeRecord() {
@@ -1246,8 +1272,12 @@ function closeRecord() {
 
 function wireControls() {
   document.querySelector('#refreshList').addEventListener('click', () => loadList('background'));
+  dom.vendorFilters.addEventListener("click", (event) => {
+    const word = event.target.closest("[data-relationship-filter]")?.dataset.relationshipFilter;
+    if (word) return updateQuery({ relationship: view.query.relationship === word ? "" : word });
+    if (event.target.closest("[data-quiet-filter]")) updateQuery({ quiet: view.query.quiet ? "" : "true" });
+  });
   document.querySelector('#recordBackdrop').addEventListener('click', closeRecord);
-  document.querySelector('#territoryInput').addEventListener('change', event => updateQuery({ territory: event.target.value.trim() }));
   const sentinel = document.querySelector('#scrollSentinel');
   if (typeof IntersectionObserver === 'function') new IntersectionObserver(entries => { if (entries.some(e => e.isIntersecting)) loadMore(); }, { rootMargin: '400px' }).observe(sentinel);
   document.addEventListener('scroll', () => { if (sentinel.getBoundingClientRect().top < window.innerHeight + 400) loadMore(); }, { capture: true, passive: true });
@@ -1275,7 +1305,6 @@ function wireControls() {
     });
   }
   dom.reset?.addEventListener("click", () => navigate(viewHref(clearedQuery(), view.recordId)));
-  dom.quiet?.addEventListener("click", () => updateQuery({ quiet: view.query.quiet ? "" : "true" }));
   directoryViews.forEach(button => button.addEventListener("click", () => {
     showDirectoryView(button.dataset.directoryView);
     if (button.dataset.directoryView === "list") navigate(viewHref({ ...defaultQuery("vendors"), owner: view.query.owner }));
@@ -1303,6 +1332,8 @@ function wireControls() {
   });
 
   dom.list?.addEventListener("click", (event) => {
+    const column = event.target.closest("[data-column-sort]")?.dataset.columnSort;
+    if (column) return updateQuery({ sort: view.query.sort === column ? defaultSort("vendors") : column });
     if (event.target.closest("[data-chip='all']")) {
       event.preventDefault();
       return navigate(viewHref(clearedQuery(), view.recordId));
