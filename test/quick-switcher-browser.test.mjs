@@ -358,7 +358,7 @@ for (const phase of ['loading', 'error', 'open_empty', 'typing', 'no_results']) 
     if (phase === 'loading') await page.getByText('Loading…').waitFor();
     else if (phase === 'error') await page.getByText('Deals and contacts unavailable. Pages are still available.').waitFor();
     else {
-      await page.getByText('1 result', { exact: true }).waitFor();
+      await page.getByText('4 results', { exact: true }).waitFor();
       if (phase === 'typing') await input.fill('calendar');
       if (phase === 'no_results') { await input.fill('absent'); await page.getByText('No matches. Try a deal, contact or page name.').waitFor(); }
     }
@@ -396,10 +396,15 @@ test('arrow selection wraps exactly and Tab excludes background controls', async
     });
     const input = page.getByRole('combobox');
     await input.waitFor();
-    for (const [key, id] of [['ArrowUp', 'quick-option-1'], ['ArrowDown', 'quick-option-0'], ['ArrowDown', 'quick-option-1'], ['ArrowDown', 'quick-option-0']]) {
-      await input.press(key);
-      assert.equal(await input.getAttribute('aria-activedescendant'), id);
-    }
+    const count = await page.getByRole('option').count();
+    assert.ok(count >= 2);
+    const last = `quick-option-${count - 1}`;
+    await input.press('ArrowUp');
+    assert.equal(await input.getAttribute('aria-activedescendant'), last);
+    await input.press('ArrowDown');
+    assert.equal(await input.getAttribute('aria-activedescendant'), 'quick-option-0');
+    await input.press('ArrowDown');
+    assert.equal(await input.getAttribute('aria-activedescendant'), 'quick-option-1');
     for (const key of ['Tab', 'Tab', 'Tab', 'Shift+Tab', 'Shift+Tab', 'Shift+Tab']) {
       await page.keyboard.press(key);
       assert.equal(await page.evaluate(() => document.activeElement === document.body || !!document.activeElement.closest('[data-quick-switcher]')), true);

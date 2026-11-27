@@ -6,11 +6,14 @@ import { recordRoutes } from "./home/routes";
 import { isTextEntry } from "./keyboard-input";
 import { clearRecents, recentIds, rememberDestination as remember } from "./switcher-history";
 
-type Destination = { id: string; label: string; kind: "Deal" | "Contact" | "Task" | "Page"; href: string };
+type RecordKind = "Deal" | "Contact" | "Task" | "Page";
+type RecordDestination = { id: string; label: string; kind: RecordKind; href: string };
+type ActionDestination = { id: string; label: string; kind: "Action"; run: () => void };
+type Destination = RecordDestination | ActionDestination;
 type Availability = "full" | "board" | "contacts" | "none";
 type ReadState =
   | { kind: "loading" }
-  | { kind: "ready"; items: Destination[]; availability: Availability; inboxNotice: string }
+  | { kind: "ready"; items: RecordDestination[]; availability: Availability; inboxNotice: string }
   | { kind: "error" };
 type Sources = { board: unknown; network: unknown; inbox: unknown };
 type Options = {
@@ -32,9 +35,9 @@ const taskLabel = (what: string, record: unknown) =>
   text(record) && nameKey(record) !== nameKey(what) ? `${what} · ${record}` : what;
 const roleLabels: Record<string, string> = { vendor: "Vendor", client: "Client", lead: "Lead", contact: "Contact" };
 
-function boardDestinations(board: unknown): Destination[] {
+function boardDestinations(board: unknown): RecordDestination[] {
   if (!record(board) || !Array.isArray(board.deals)) throw Error("Invalid board");
-  const result: Destination[] = [];
+  const result: RecordDestination[] = [];
   const seen = new Set<string>();
   const deals = [...board.deals];
   for (const key of ["closed_deals", "lost_deals"]) {
@@ -70,7 +73,7 @@ function boardDestinations(board: unknown): Destination[] {
   return result;
 }
 
-function contactDestinations(network: unknown): Destination[] {
+function contactDestinations(network: unknown): RecordDestination[] {
   if (!record(network) || !Array.isArray(network.nodes)) throw Error("Invalid contacts");
   const contacts: { id: string; name: string; detail: string; href: string }[] = [];
   for (const node of network.nodes) {
@@ -100,7 +103,7 @@ function contactDestinations(network: unknown): Destination[] {
   }));
 }
 
-function admittedSection(parse: () => Destination[]): Destination[] | null {
+function admittedSection(parse: () => RecordDestination[]): RecordDestination[] | null {
   try {
     return parse();
   } catch {
@@ -203,6 +206,48 @@ export function switcherInboxReader(
   ).read;
 }
 
+const ADD_DEAL_FLAG = "doctorcre.quick-switcher.open-add-deal";
+
+function themeActionLabel() {
+  return document.documentElement.getAttribute("data-theme") === "dark" ? "Light mode" : "Dark mode";
+}
+
+function openNewDeal() {
+  const add = document.getElementById("addDealOpen");
+  if (add instanceof HTMLElement && location.pathname === "/deals") {
+    add.click();
+    return;
+  }
+  try {
+    sessionStorage.setItem(ADD_DEAL_FLAG, "1");
+  } catch {
+    /* going to Deals still works if this browser blocks storage */
+  }
+  location.assign("/deals");
+}
+
+function clearAddDealFlag() {
+  try {
+    sessionStorage.removeItem(ADD_DEAL_FLAG);
+  } catch {
+    /* nothing stored if this browser blocks storage */
+  }
+}
+
+function flipTheme() {
+  document.querySelector<HTMLButtonElement>('[data-pref="theme"]')?.click();
+}
+
+function switcherActions(): ActionDestination[] {
+  return [
+    { id: "action:new-deal", label: "New deal", kind: "Action", run: openNewDeal },
+    { id: "action:ask-doc", label: "Ask Doc", kind: "Action", run: () => location.assign("/doc-chats") },
+    { id: "action:theme", label: themeActionLabel(), kind: "Action", run: flipTheme },
+  ];
+}
+
+const isAction = (item: Destination): item is ActionDestination => item.kind === "Action";
+
 export function openQuickSwitcher({ opener, pages, read }: Options) {
   if (document.querySelector("[data-quick-switcher]")) return;
   const dialog = document.createElement("dialog");
@@ -223,6 +268,7 @@ export function openQuickSwitcher({ opener, pages, read }: Options) {
   };
   const revoke = () => {
     clearRecents();
+    clearAddDealFlag();
     close();
   };
   window.addEventListener("doctorcre-session-invalidated", revoke, { once: true });
@@ -249,12 +295,12 @@ export function openQuickSwitcher({ opener, pages, read }: Options) {
 function Switcher({ pages, read, close }: Omit<Options, "opener"> & { close: () => void }) {
   const [state, setState] = useState<ReadState>({ kind: "loading" });
   const [query, setQuery] = useState("");
-  const [kind, setKind] = useState<Destination["kind"] | "All">("All");
+  const [kind, setKind] = useState<RecordKind | "All">("All");
   const [active, setActive] = useState(0);
   const [request, setRequest] = useState({ read });
   const input = useRef<HTMLInputElement>(null);
-  const pageItems = useMemo<Destination[]>(
-    () => pages.map((page) => ({ ...page, id: `page:${page.href}`, kind: "Page" })),
+  const pageItems = useMemo<RecordDestination[]>(
+    () => pages.map((page) => ({ ...page, id: `page:${page.href}`, kind: "Page" as const })),
     [pages],
   );
   const all = [...(state.kind === "ready" ? state.items : []), ...pageItems];
@@ -264,11 +310,16 @@ function Switcher({ pages, read, close }: Omit<Options, "opener"> & { close: () 
     normalized || kind !== "All"
       ? all
       : [...recents, ...pageItems.filter((page) => !recents.some((item) => item.id === page.id))];
-  const results = candidates.filter(
+  const recordResults = candidates.filter(
     (item) =>
       (kind === "All" || item.kind === kind) &&
       (!normalized || `${item.label} ${item.kind}`.toLocaleLowerCase().includes(normalized)),
   );
+  const actionResults =
+    kind === "All"
+      ? switcherActions().filter((action) => !normalized || action.label.toLocaleLowerCase().includes(normalized))
+      : [];
+  const results: Destination[] = [...recordResults, ...actionResults];
   const activeIndex = Math.min(active, Math.max(0, results.length - 1));
   const selected = results[activeIndex];
   const unavailable =
@@ -308,7 +359,31 @@ function Switcher({ pages, read, close }: Omit<Options, "opener"> & { close: () 
   useEffect(() => {
     document.getElementById(`quick-option-${activeIndex}`)?.scrollIntoView({ block: "nearest" });
   }, [activeIndex]);
-  const navigate = (item: Destination) => {
+  const actionStart = results.findIndex(isAction);
+  const option = (item: Destination, index: number) => (
+    <div
+      key={item.id}
+      id={`quick-option-${index}`}
+      role="option"
+      tabIndex={-1}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" && !isTextEntry(event.nativeEvent)) choose(item);
+      }}
+      aria-selected={index === activeIndex}
+      onPointerMove={() => setActive(index)}
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={() => choose(item)}
+    >
+      <span>{item.label}</span>
+      {isAction(item) ? null : <small>{item.kind}</small>}
+    </div>
+  );
+  const choose = (item: Destination) => {
+    if (isAction(item)) {
+      close();
+      item.run();
+      return;
+    }
     remember(item.id);
     close();
     location.assign(item.href);
@@ -345,7 +420,7 @@ function Switcher({ pages, read, close }: Omit<Options, "opener"> & { close: () 
               setActive((index) => (index + (event.key === "ArrowDown" ? 1 : -1) + results.length) % results.length);
           } else if (event.key === "Enter" && selected) {
             event.preventDefault();
-            navigate(selected);
+            choose(selected);
           }
         }}
       />
@@ -353,7 +428,7 @@ function Switcher({ pages, read, close }: Omit<Options, "opener"> & { close: () 
         aria-label="Destination kind"
         style={{ display: "flex", flexWrap: "wrap", gap: "0.25rem", border: 0, padding: 0, margin: 0 }}
       >
-        {(["All", "Deal", "Contact", "Task", "Page"] satisfies (Destination["kind"] | "All")[]).map((value) => (
+        {(["All", "Deal", "Contact", "Task", "Page"] satisfies ("All" | RecordKind)[]).map((value) => (
           <button
             key={value}
             type="button"
@@ -378,24 +453,13 @@ function Switcher({ pages, read, close }: Omit<Options, "opener"> & { close: () 
       )}
       {!normalized && kind === "All" && <h3>{recents.length ? "Recent" : "Pages"}</h3>}
       <div id="quick-results" role="listbox" aria-label="Destinations">
-        {results.map((item, index) => (
-          <div
-            key={item.id}
-            id={`quick-option-${index}`}
-            role="option"
-            tabIndex={-1}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !isTextEntry(event.nativeEvent)) navigate(item);
-            }}
-            aria-selected={index === activeIndex}
-            onPointerMove={() => setActive(index)}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => navigate(item)}
-          >
-            <span>{item.label}</span>
-            <small>{item.kind}</small>
-          </div>
-        ))}
+        {results.map((item, index) => !isAction(item) && option(item, index))}
+        {actionStart >= 0 && (
+          <fieldset>
+            <legend>Actions</legend>
+            {results.map((item, index) => isAction(item) && option(item, index))}
+          </fieldset>
+        )}
       </div>
       <a href={query.trim() ? `/search?q=${encodeURIComponent(query.trim())}` : "/search"}>Search all records</a>
       <footer>↑ ↓ to move · Enter to open · Esc to close</footer>
