@@ -278,6 +278,10 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
       }
       await route.fulfill({ json });
     });
+    // The card names each deal from the engine's read of the client's deals.
+    await page.route('**/api/engine/clients/*/deals', route => route.fulfill({ json: { deals: route.request().url().includes(id) ? [{
+      ...deal, phase: 'touring', phase_label: 'Touring', open: true, closed_on: null, owner: 'joe', vendors: [], introductions: [],
+    }] : [] } }));
     await page.route('**/mcp', async route => {
       const { name, arguments: args } = route.request().postDataJSON().params;
       if (name !== 'find-and-catch-up') return route.fallback();

@@ -130,6 +130,45 @@ function clearVendorMeetings() {
   vendorMeetingsHost = null;
 }
 
+// A client's Deals section keeps its own state, such as an opened deal, across card repaints.
+let clientDeals = null;
+
+function clearClientDeals() {
+  clientDeals?.handle?.dispose();
+  clientDeals?.stage.remove();
+  clientDeals = null;
+}
+
+async function readClientDeals(id, signal) {
+  const response = await fetchRead(`/api/engine/clients/${encodeURIComponent(id)}/deals`, { headers: { accept: "application/json" }, cache: "no-store", signal });
+  if (response.status === 401) expireNow();
+  if (!response.ok) throw new Error(`Client deals read answered ${response.status}`);
+  const body = await response.json();
+  if (!Array.isArray(body?.deals)) throw new Error("Client deals read answered no deals");
+  return body.deals;
+}
+
+function clientDealsHost(record) {
+  const id = record.party_id ?? record.id;
+  const client = { id, name: record.name };
+  if (clientDeals?.id === id) {
+    clientDeals.client = client;
+    clientDeals.handle?.update(client);
+    return clientDeals.host;
+  }
+  clearClientDeals();
+  const deals = { id, client, host: document.createElement("section"), stage: document.createElement("div"), handle: null };
+  clientDeals = deals;
+  deals.host.className = "record-section client-deals-section";
+  deals.stage.className = "client-deal-stage";
+  dom.listRegion.closest(".result-column").append(deals.stage);
+  import("./ui-client-deals.generated.js").then(({ mountClientDeals }) => {
+    if (clientDeals !== deals) return;
+    deals.handle = mountClientDeals(deals.host, { client: deals.client, stage: deals.stage, load: signal => readClientDeals(id, signal) });
+  }, () => { deals.host.textContent = "Couldn't load deals."; });
+  return deals.host;
+}
+
 async function syncVendorMeetings() {
   if (view.dataset !== 'vendors' || view.signedOut) { clearVendorMeetings(); return; }
   if (vendorMeetingsHost) return;
@@ -1017,6 +1056,7 @@ function renderRecordPanel() {
   const { record, dataset } = view;
   if (!view.signedOut) capturePanelState();
   if (!view.recordId) {
+    clearClientDeals();
     closePanelMenu();
     dom.panelTitle?.classList.remove("full");
     dom.panel.hidden = true;
@@ -1088,8 +1128,9 @@ function renderRecordPanel() {
     }).join("");
   if (dom.panelBody) {
     // docs/screens/vendors.md orders the card; the relationship diagram mounts in the empty section once it is built.
-    dom.panelBody.innerHTML = `${dataset === 'vendors' ? vendorContactsHtml(payload.record) + conversationsHtml(payload.record) + '<section id="vendorDiagram" aria-label="Relationships" hidden></section>' + partnershipHtml(payload.record) : dealLinks(payload.record)}<div class="detail-columns">${sections}</div>${dataset === "clients" ? clientNote(payload.record) : ""}${referenceDetails}${activityHtml(payload.record.id)}<p class="observed">${escapeHtml(updatedLabel(payload.source?.observed_at, BUSINESS_TIME_ZONE))}</p>`;
+    dom.panelBody.innerHTML = `${dataset === 'vendors' ? vendorContactsHtml(payload.record) + conversationsHtml(payload.record) + '<section id="vendorDiagram" aria-label="Relationships" hidden></section>' + partnershipHtml(payload.record) : '<section id="clientDealsSlot"></section>'}<div class="detail-columns">${sections}</div>${dataset === "clients" ? clientNote(payload.record) : ""}${referenceDetails}${activityHtml(payload.record.id)}<p class="observed">${escapeHtml(updatedLabel(payload.source?.observed_at, BUSINESS_TIME_ZONE))}</p>`;
     dom.panelBody.dataset.recordId = payload.record.id;
+    dom.panelBody.querySelector("#clientDealsSlot")?.replaceWith(clientDealsHost(payload.record));
     restorePanelState();
     const note = dom.panelBody.querySelector(".client-note > p");
     if (note) note.nextElementSibling.hidden = !note.nextElementSibling.open && note.scrollHeight <= note.clientHeight;
@@ -1173,6 +1214,7 @@ async function loadActivity(id, record) {
  */
 function expireNow() {
   clearVendorMeetings();
+  clearClientDeals();
   pageDocContext?.clear();
   view.sessionGeneration++;
   view.panelState = null;
@@ -1348,7 +1390,7 @@ function applyLocation({ reason = "initial", restoreScroll = null } = {}) {
   const recordChanged = parsed.recordId !== view.recordId;
   const hadRecord = Boolean(view.recordId);
   capturePanelState();
-  if (recordChanged) { view.panelState = null; delete dom.panelBody.dataset.recordId; }
+  if (recordChanged) { view.panelState = null; delete dom.panelBody.dataset.recordId; clearClientDeals(); }
   document.body.dataset.directory = parsed.dataset;
   if (reason === "initial" || datasetChanged) {
     document.querySelector("#secondaryFilters").open = !phoneWidth.matches;
