@@ -302,7 +302,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     assert.doesNotMatch(await page.locator('#listRegion').innerText(), /Not in the active pipeline|Not recorded:/);
     await page.screenshot({ animations: 'disabled', path: `out/test-artifacts/w5/clients-list-${width}-${theme}.png` });
     await page.locator('.record-row').first().click();
-    const panel = page.getByRole('dialog', { name: /Demo Practice 01/ });
+    const panel = page.getByRole(width < 768 ? 'dialog' : 'complementary', { name: /Demo Practice 01/ });
     assert.equal(await panel.getByRole('link', { name: deal.name, exact: true }).getAttribute('href'), url);
     assert.match(await panel.innerText(), /How found\s+Cold outreach/);
     assert.match(await panel.innerText(), /\(202\) 555-0101 x45/);
@@ -333,7 +333,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
     await page.screenshot({ animations: 'disabled', path: `out/test-artifacts/w5/clients-activity-${width}-${theme}.png` });
     await panel.getByRole('button', { name: 'Close record', exact: true }).click();
     await page.getByRole('link', { name: /^1234/ }).click();
-    const unchanged = page.getByRole('dialog', { name: '1234', exact: true });
+    const unchanged = page.getByRole(width < 768 ? 'dialog' : 'complementary', { name: '1234', exact: true });
     await unchanged.getByText('Imported from Salesforce. Original source not recorded.').waitFor();
     assert.match(await unchanged.innerText(), /How found\s+Not recorded/);
     assert.match(await unchanged.innerText(), /12345; Demo City/);
@@ -487,7 +487,7 @@ test('A late activity retry cannot paint another client', async t => {
   });
   await page.goto(origin + '/clients?all=true&mode=live');
   await page.locator('.record-row').first().click();
-  const activity = page.getByRole('dialog', { name: /Demo Practice 01/ }).getByRole('region', { name: 'Recent activity' });
+  const activity = page.getByRole('complementary', { name: /Demo Practice 01/ }).getByRole('region', { name: 'Recent activity' });
   await activity.locator('[data-state="unavailable"]').waitFor();
   assert.equal(await activity.locator('[data-state="unavailable"]').isVisible(), true, 'Activity is unavailable');
   const retry = activity.getByRole('button', { name: 'Retry' });
@@ -496,7 +496,7 @@ test('A late activity retry cannot paint another client', async t => {
   await started.promise;
   await page.keyboard.press('Escape');
   await page.locator('.record-row').nth(1).click();
-  const second = page.getByRole('dialog', { name: /Demo Practice 02/ });
+  const second = page.getByRole('complementary', { name: /Demo Practice 02/ });
   await second.getByText('Current client history').waitFor();
   pending.resolve();
   await page.waitForFunction(() => window.activitySettles >= 3);
