@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { z } from "zod";
 import { centralToday } from "./central-time";
+import { docQuestionDraft } from "./device-text";
 import { type DocLinkStatus, docLinkMessages, readDocLinkStatus } from "./doc-link";
 import { submitOnEnter } from "./keyboard-input";
 import { refreshWhileVisible } from "./visible-refresh";
@@ -662,6 +663,7 @@ function DocChat() {
   const chatsPanel = useRef<HTMLElement>(null);
   const chatsToggle = useRef<HTMLButtonElement>(null);
   const questionBox = useRef<HTMLTextAreaElement>(null);
+  const restoreCaret = useRef(false);
   const latest = turns.at(-1);
   const review = latest?.draft_review;
   const draftId = review?.draft_id ?? initialDraft?.id;
@@ -745,7 +747,8 @@ function DocChat() {
         const session = await privateSession()?.verify({ fresh: false });
         if (retired.current || !session) return;
         const actor = session.actor.slug;
-        const storage = (field: DraftField, id: string | null) => privateTextDraft(window, actor, field, id);
+        const storage = (field: DraftField, id: string | null) =>
+          field === "doc-question" ? docQuestionDraft(actor, id) : privateTextDraft(window, actor, field, id);
         privateDraft.current = storage;
         setTurns(detail?.turns ?? []);
         setTitle(detail?.conversation.title ?? "");
@@ -760,6 +763,7 @@ function DocChat() {
           if (question !== savedQuestion) draft.write(question);
           history.replaceState(history.state, "", location.pathname + location.search);
         }
+        restoreCaret.current = question.length > 0;
         setQuestion(question);
         setReady(true);
       });
@@ -942,16 +946,15 @@ function DocChat() {
     if (!box) return;
     box.style.height = "auto";
     if (question) box.style.height = `${box.scrollHeight}px`;
+    if (!restoreCaret.current) return;
+    restoreCaret.current = false;
+    box.focus();
+    const end = box.value.length;
+    box.setSelectionRange(end, end);
   }, [question]);
   const today = new Date();
   const newChat = (className: string) => (
-    <a
-      className={`doc-chat__icon ${className}`}
-      href={chatHref(null)}
-      aria-label="New chat"
-      title="New chat"
-      onClick={() => privateDraft.current?.("doc-question", null).write("")}
-    >
+    <a className={`doc-chat__icon ${className}`} href={chatHref(null)} aria-label="New chat" title="New chat">
       <Icon path={icons.newChat} />
     </a>
   );
