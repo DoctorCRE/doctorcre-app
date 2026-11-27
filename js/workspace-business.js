@@ -644,7 +644,8 @@ function renderList() {
 
   if (phase === "loading") {
     setHealth("loading");
-    if (dom.summary) paintSummary("Checking…");
+    // A category opened from a link has no name yet, and the title stays empty rather than say "Checking…" or the slug.
+    if (dom.summary) paintSummary(view.place || !view.query.category ? "Checking…" : "");
     if (dom.observedAt) dom.observedAt.textContent = "Checking…";
     if (dom.source) dom.source.textContent = "Checking…";
     if (dom.pager) dom.pager.hidden = true;

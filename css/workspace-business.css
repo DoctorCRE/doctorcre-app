@@ -510,6 +510,9 @@ body[data-directory] .search-dock.glass { padding-inline: 0; border: 0; border-r
 .filter-count[aria-pressed="true"] { border-color: var(--hairline-strong); background: var(--surface-3); color: var(--fg); }
 .filter-count:focus-visible, .column-sort:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 2px; }
 .quiet-filter { margin-inline-start: auto; }
+/* With the card open the table is narrow: the counts shrink to share one row and scroll inside it if a name is long. */
+body[data-card-open] .table-filters { flex-wrap: nowrap; gap: 2px; padding: 3px; overflow-x: auto; scrollbar-width: none; }
+body[data-card-open] .filter-count { flex: none; gap: var(--space-1); padding-inline: 6px; }
 .column-sort { padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
 .column-sort:hover, .column-sort.on { color: var(--fg); }
 .column-sort.on::after { content: " ↓" / ""; }

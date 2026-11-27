@@ -112,6 +112,7 @@ test("while a category loads it is named, never by its slug", async (t) => {
   const shown = async () =>
     `${await search.getAttribute("placeholder")} ${await page.locator("#resultSummary").textContent()}`;
   assert.doesNotMatch(await shown(), /banker/, "a direct link never shows the slug");
+  assert.doesNotMatch(await shown(), /Checking/, "a direct link has no title until the name arrives");
   await release();
   await page.locator(".record-row").first().waitFor();
   assert.equal(await search.getAttribute("placeholder"), "Find in CPA / Financial");
@@ -122,6 +123,23 @@ test("while a category loads it is named, never by its slug", async (t) => {
   assert.equal(await page.locator(".summary-place").textContent(), "CPA / Financial", "a tile's name, while it loads");
   assert.equal(await search.getAttribute("placeholder"), "Find in CPA / Financial");
 });
+
+for (const [width, height] of [
+  [1280, 640],
+  [1440, 900],
+] as const)
+  test(`the relationship counts stay on one row with the card open at ${width}x${height}`, async (t) => {
+    const { page } = await openVendors(t, width, height);
+    await page.locator(".record-row .row-head").first().click();
+    await page.locator("body[data-card-open]").waitFor();
+    const tops = await page
+      .locator(".table-filters .filter-count")
+      .evaluateAll((counts) => counts.map((count) => Math.round(count.getBoundingClientRect().top)));
+    assert.ok(tops.length > 1, "the counts are drawn");
+    assert.equal(new Set(tops).size, 1, `every count shares one row: ${tops}`);
+    const row = await page.locator(".table-filters").evaluate((el) => el.scrollWidth - el.clientWidth);
+    assert.ok(row <= 0, `the row needs no scrolling (${row}px over)`);
+  });
 
 test("the search hint shows whole for a long category name", async (t) => {
   const label = "Practice Management Consultant";
