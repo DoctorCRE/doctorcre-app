@@ -40,7 +40,7 @@ const SIGNED_OUT_CODE = "AUTHENTICATION_REQUIRED";
 const VIEWERS = new Set(["joe", "dell"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SLUG = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
-const FILTER_KEYS = { clients: ["status", "type", "pipeline"], vendors: ["category", "stage", "disposition", "quiet"] };
+const FILTER_KEYS = { clients: ["status", "type", "pipeline"], vendors: ["category", "no_category", "stage", "disposition", "quiet"] };
 const SOURCE_FOR = { clients: "client", vendors: "vendor" };
 
 export const LIST_ROW_KEYS = {
@@ -82,7 +82,7 @@ export function defaultQuery(dataset) {
   const base = { dataset, scope: DEFAULT_SCOPE, owner: "all", territory: "", q: "", sort: DEFAULT_SORT, page: 1 };
   return dataset === "clients"
     ? { ...base, status: "", type: "", pipeline: "any" }
-    : { ...base, category: "", stage: "", disposition: "", quiet: "" };
+    : { ...base, all: "", category: "", no_category: "", stage: "", disposition: "", quiet: "" };
 }
 
 function readSlug(params, key) {
@@ -120,6 +120,8 @@ export function parseViewState(pathname, search) {
     query.stage = readSlug(params, "stage");
     query.disposition = readSlug(params, "disposition");
     query.quiet = params.get("quiet") === "true" ? "true" : "";
+    query.no_category = params.get("no_category") === "true" && !query.category ? "true" : "";
+    query.all = params.get("all") === "true" ? "true" : "";
   }
   query.owner = ["joe", "dell"].includes(params.get("owner")) ? params.get("owner") : "all";
   query.territory = dataset === "vendors" ? (params.get("territory") || "").slice(0,80) : "";
@@ -145,6 +147,7 @@ function queryPairs(query) {
 /** The address a partner keeps. Defaults are omitted so the common URL stays short. */
 export function viewHref(query, recordId = null) {
   const params = new URLSearchParams(queryPairs(query));
+  if (query.all) params.set("all", "true");
   if (recordId) params.set("record", recordId);
   const search = params.toString();
   return `${DATASET_ROUTE[query.dataset]}${search ? `?${search}` : ""}`;
@@ -158,13 +161,37 @@ export function listRequestUrl(query) {
   return `${API_PREFIX}${query.dataset}${search ? `?${search}` : ""}`;
 }
 
+/**
+ * Vendors opens on a tile per category. Any narrowing, a search, or All vendors
+ * shows the list instead.
+ */
+export function showsTiles(query) {
+  return query.dataset === "vendors" && !query.all && !query.q && !query.territory
+    && FILTER_KEYS.vendors.every((key) => !query[key]);
+}
+
+export function summaryRequestUrl(owner) {
+  return `${API_PREFIX}vendors/summary${owner && owner !== "all" ? `?owner=${owner}` : ""}`;
+}
+
+const isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+const validCounts = (counts) => isRecord(counts) && Number.isInteger(counts.count) && Number.isInteger(counts.quiet)
+  && isRecord(counts.relationship) && Object.keys(RELATIONSHIP_WORDS).every((key) => Number.isInteger(counts.relationship[key]));
+
+/** Whether an answer is the vendor summary the tiles draw. */
+export function validSummary(payload) {
+  return isRecord(payload) && validCounts(payload.all) && validCounts(payload.no_category)
+    && Array.isArray(payload.categories)
+    && payload.categories.every((tile) => validCounts(tile) && SLUG.test(tile.slug) && typeof tile.label === "string");
+}
+
 export function recordRequestUrl(dataset, id, { people = false } = {}) {
   return `${API_PREFIX}${dataset}/${id}?contract=vendor-directory.${dataset === 'clients' || people ? 'v2' : 'v1'}`;
 }
 
 export function sameQuery(left, right) {
   if (!left || !right || left.dataset !== right.dataset) return false;
-  const keys = ["scope", "owner", "territory", "q", "sort", "page", ...FILTER_KEYS[left.dataset]];
+  const keys = ["scope", "owner", "territory", "q", "sort", "page", "all", ...FILTER_KEYS[left.dataset]];
   return keys.every((key) => left[key] === right[key]);
 }
 
@@ -187,6 +214,7 @@ export function filterChips(query, facets = {}) {
     if (query.pipeline !== "any") chips.push({ key: "pipeline", label: "Pipeline", value: PIPELINE_LABEL[query.pipeline], reset: "any" });
   } else {
     if (query.category) chips.push({ key: "category", label: "Category", value: labelFor(facets.categories, query.category), reset: "" });
+    if (query.no_category) chips.push({ key: "no_category", label: "Showing", value: "No category", reset: "" });
     if (query.stage) chips.push({ key: "stage", label: "Stage", value: labelFor(facets.stages, query.stage), reset: "" });
     if (query.disposition) chips.push({ key: "disposition", label: "Disposition", value: labelFor(facets.dispositions, query.disposition), reset: "" });
     if (query.quiet) chips.push({ key: "quiet", label: "Showing", value: "Quiet vendors", reset: "" });
@@ -408,7 +436,7 @@ export function echoesQuery(payload, query) {
   return FILTER_KEYS[query.dataset].every((key) => {
     const wanted = query[key];
     if (key === "pipeline") return echo.pipeline === wanted;
-    if (key === "quiet") return (echo.quiet === true) === (wanted === "true");
+    if (key === "quiet" || key === "no_category") return (echo[key] === true) === (wanted === "true");
     return (echo[key] ?? null) === (wanted || null);
   });
 }
@@ -510,7 +538,7 @@ export function partyKindText(value) {
 }
 
 const RELATIONSHIP_LEVELS = ["prospective", "building", "established", "core"];
-const RELATIONSHIP_WORDS = {
+export const RELATIONSHIP_WORDS = {
   core: "Core", established: "Established", building: "Building", prospective: "Prospective",
   not_rated: "Not rated", parked: "Parked", avoid: "Avoid",
 };

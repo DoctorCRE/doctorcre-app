@@ -12,6 +12,7 @@ export function directoryFixture(url, { now = Date.now(), overrides = new Map() 
     relationship:{coverage_verified_at:source.observed_at,deals_referred:12,deals_worked:10,won:8,lost:2,win_rate:.8,first_worked_at:'2022-01-01T00:00:00Z',last_contacted_at:'2026-09-30T16:30:00Z',last_contact_note:'Discussed financing for a new office.',computed_tier:n%3===0?'Proven':n%3===1?'Established':'Trial',formula_version:'vendor-trust.v1',override:overrides.get(id(n+1))||null,
     introductions:[{id:'demo-intro',kind:'introduced',from_name:'Demo Partner A',to_name:'Demo Practice B',note:'Practice financing introduction.\nOriginal synthetic introduction entry with the recorded conversation.',occurred_at:'2026-09-23',via_party:null},{id:'demo-suggestion',kind:'can_introduce',from_name:'Demo Partner C',to_name:'Demo Practice D',note:'Shared dental focus.',occurred_at:null,via_party:null}],recent_entries:[{id:'demo-entry',kind:'email_in',when:'2026-09-30T16:30:00Z',summary:'Discussed financing for a new office.',detail:'Original synthetic email: We discussed the new office and the equipment financing options.'}]}
   }));
+  if(path==='/vendors/summary') return vendorSummary(records,u.searchParams.get('owner'));
   const allowed=(row,keys,optional)=>Object.fromEntries([...keys,...optional].map(key=>[key,row[key]??null]));
   const optional=dataset==='vendors'?['relationship','vertical','deal_type','last_deal_at','territory']:['deal_type','last_deal_at'];
   if(recordId){
@@ -27,9 +28,17 @@ export function directoryFixture(url, { now = Date.now(), overrides = new Map() 
     }
     return {viewer:'joe',dataset,record,partial:null,not_in_this_read:[],recorded_field_note:'Synthetic',source};
   }
-  const parsed=parseViewState('/'+dataset,u.search), query={...parsed.query,q:parsed.query.q||null,page_size:PAGE_SIZE};
+  const parsed=parseViewState('/'+dataset,u.search), {all,no_category,...asked}=parsed.query, query={...asked,...(no_category&&{no_category:true}),q:parsed.query.q||null,page_size:PAGE_SIZE};
   for(const key of ['category','stage','disposition','status','type','territory']) if(key in query && !query[key]) query[key]=null;
-  let filtered=records.filter(row=>(!query.q||row.name.toLowerCase().includes(query.q.toLowerCase()))&&(query.owner==='all'||row.owner_label.toLowerCase()===query.owner)&&(!query.territory||row.territory===query.territory));
+  let filtered=records.filter(row=>(!query.q||row.name.toLowerCase().includes(query.q.toLowerCase()))&&(query.owner==='all'||row.owner_label.toLowerCase()===query.owner)&&(!query.territory||row.territory===query.territory)&&(!query.category||row.recorded_category===query.category)&&(!query.no_category||row.recorded_category===null));
   filtered.sort((a,b)=>query.sort==='last_deal_desc'?b.last_deal_at.localeCompare(a.last_deal_at):query.sort==='last_deal_asc'?a.last_deal_at.localeCompare(b.last_deal_at):['vertical','deal_type','territory'].includes(query.sort)?a[query.sort].localeCompare(b[query.sort])||a.name.localeCompare(b.name):a.name.localeCompare(b.name));
   return {viewer:'joe',dataset,query,total:filtered.length,page:query.page,page_size:PAGE_SIZE,page_count:Math.max(1,Math.ceil(filtered.length/PAGE_SIZE)),out_of_range:query.page>Math.max(1,Math.ceil(filtered.length/PAGE_SIZE)),rows:filtered.slice((query.page-1)*PAGE_SIZE,query.page*PAGE_SIZE).map(row=>allowed(row,LIST_ROW_KEYS[dataset],optional)),facets:dataset==='vendors'?{categories:[{slug:'banker',label:'Banking'}],stages:[],dispositions:[],territories:[{slug:'Demo North',label:'Demo North'},{slug:'Demo South',label:'Demo South'}]}:{statuses:[{slug:'active',label:'Active'}],types:[]},partial:null,recorded_field_note:'Synthetic',source};
+}
+
+// The engine's category tiles over the same made-up vendors.
+function vendorSummary(records,owner){
+  const words=['core','established','building','prospective','not_rated','parked','avoid'];
+  const vendors=records.filter(row=>!owner||row.owner_label.toLowerCase()===owner);
+  const counts=rows=>({count:rows.length,quiet:rows.filter((_,n)=>n%4===0).length,relationship:Object.fromEntries(words.map(word=>[word,rows.filter(row=>(row.recorded_disposition==='avoid'?'avoid':row.recorded_disposition==='parked'?'parked':['prospective','building','established','core'][row.relationship_level]??'not_rated')===word).length]))});
+  return {all:counts(vendors),no_category:counts(vendors.filter(row=>row.recorded_category===null)),categories:[{slug:'architect',label:'Architecture'},{slug:'attorney',label:'Attorney'},{slug:'banker',label:'Banking'}].map(c=>({...c,...counts(vendors.filter(row=>row.recorded_category===c.slug))}))};
 }

@@ -1200,6 +1200,7 @@ for (const [path, engine] of [
     `/api/v1/business/vendors/${recordId}?contract=vendor-directory.v2`,
     `/api/engine/vendors/${recordId}?contract=vendor-directory.v2`,
   ],
+  ["/api/v1/business/vendors/summary?owner=dell", "/api/engine/vendors/summary?owner=dell"],
 ] as const) {
   test(`clients and vendors switch routes GET ${path} to the engine unchanged`, async () => {
     const f = fixture(directoryOn, async () => new Response(payload, { headers: { "set-cookie": "session=fresh" } }));

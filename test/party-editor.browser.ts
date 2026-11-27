@@ -262,7 +262,7 @@ const vendorProfile = { party_id: vendor, stage: "warm", offers: null, categorie
 
 test("Edit takes the record's current values after a conflict, so the next save applies what the partner typed", async (t) => {
   const fake = engine(vendorParty, "vendor", { ...vendorProfile, categories: [] });
-  const { page, sent } = await setup(t, `/vendors?record=${vendor}`, fake.answer);
+  const { page, sent } = await setup(t, `/vendors?all=true&record=${vendor}`, fake.answer);
   await page.locator("#recordPanel").getByRole("button", { name: "Edit" }).click();
   const dialog = page.getByRole("dialog", { name: "Edit Demo Partner 01" });
   await dialog.getByLabel("Phone").fill("202-555-0199");
@@ -284,7 +284,7 @@ test("Edit takes the record's current values after a conflict, so the next save 
 
 test("Edit before the list's choices load keeps the record's categories and stage, and saves only the city", async (t) => {
   const fake = engine(vendorParty, "vendor", vendorProfile);
-  const { page, sent } = await setup(t, `/vendors?record=${vendor}`, fake.answer, { holdList: true });
+  const { page, sent } = await setup(t, `/vendors?all=true&record=${vendor}`, fake.answer, { holdList: true });
   await page.locator("#recordPanel").getByRole("button", { name: "Edit" }).click();
   const dialog = page.getByRole("dialog", { name: "Edit Demo Partner 01" });
   assert.equal(await dialog.getByLabel("Banker").isChecked(), true);
@@ -340,7 +340,7 @@ test("Edit says it is opening and opens once however often it is pressed", async
   });
   const { page, sent } = await setup(
     t,
-    `/vendors?record=${vendor}`,
+    `/vendors?all=true&record=${vendor}`,
     async (call) => {
       if (call.method === "GET") await read;
       return fake.answer(call);
@@ -364,7 +364,7 @@ test("Edit says it is opening and opens once however often it is pressed", async
 
 test("Edit to an email another record has offers that record, and Keep this email saves it anyway", async (t) => {
   const fake = engine(vendorParty, "vendor", vendorProfile);
-  const { page, sent } = await setup(t, `/vendors?record=${vendor}`, (call) =>
+  const { page, sent } = await setup(t, `/vendors?all=true&record=${vendor}`, (call) =>
     call.method === "POST" && call.path === `/api/engine/parties/${vendor}` && !call.body?.force_new
       ? {
           status: 409,
@@ -420,7 +420,7 @@ test("Open on another record's email opens it in the list that holds it", async 
 
 test("Edit opened from the keyboard gives focus back to Edit when it closes", async (t) => {
   const fake = engine(vendorParty, "vendor", vendorProfile);
-  const { page } = await setup(t, `/vendors?record=${vendor}`, fake.answer);
+  const { page } = await setup(t, `/vendors?all=true&record=${vendor}`, fake.answer);
   // Settled activity re-renders the panel, which would take keyboard focus off Edit before Enter lands.
   await page.locator('#recordActivity :is(.activity-list, .activity-note:not([data-state="loading"]))').waitFor();
   await page.locator("#recordPanel").getByRole("button", { name: "Edit" }).press("Enter");
@@ -436,7 +436,7 @@ test("A saved edit gives focus to the redrawn Edit", async (t) => {
   const reread = new Promise<void>((resolve) => {
     answer = resolve;
   });
-  const { page } = await setup(t, `/vendors?record=${vendor}`, fake.answer, { reread });
+  const { page } = await setup(t, `/vendors?all=true&record=${vendor}`, fake.answer, { reread });
   await page.locator('#recordActivity :is(.activity-list, .activity-note:not([data-state="loading"]))').waitFor();
   await page.locator("#recordPanel").getByRole("button", { name: "Edit" }).click();
   const dialog = page.getByRole("dialog", { name: "Edit Demo Partner 01" });
@@ -452,7 +452,7 @@ test("A saved edit gives focus to the redrawn Edit", async (t) => {
 
 test("A saved contact with a refused profile refreshes the record, and focus finds the new Edit", async (t) => {
   const fake = engine(vendorParty, "vendor", vendorProfile);
-  const { page } = await setup(t, `/vendors?record=${vendor}`, (call) =>
+  const { page } = await setup(t, `/vendors?all=true&record=${vendor}`, (call) =>
     call.path === `/api/engine/vendors/${vendor}`
       ? { status: 422, json: { error: "invalid_field_value", fields: ["offers"] } }
       : fake.answer(call),
@@ -505,7 +505,7 @@ test("Edit does not open for a record the partner has already left", async (t) =
   const read = new Promise<void>((resolve) => {
     release = resolve;
   });
-  const { page } = await setup(t, `/vendors?record=${vendor}`, async (call) => {
+  const { page } = await setup(t, `/vendors?all=true&record=${vendor}`, async (call) => {
     if (call.method === "GET") await read;
     return fake.answer(call);
   });
@@ -520,7 +520,7 @@ test("Edit does not open for a record the partner has already left", async (t) =
 });
 
 test("Using an existing record that is already a vendor opens it", async (t) => {
-  const { page, sent } = await setup(t, "/vendors", ({ path }) =>
+  const { page, sent } = await setup(t, "/vendors?all=true", ({ path }) =>
     path === "/api/engine/parties"
       ? {
           status: 409,
@@ -534,7 +534,7 @@ test("Using an existing record that is already a vendor opens it", async (t) => 
   await dialog.getByRole("button", { name: "Save vendor" }).click();
   assert.equal(await dialog.getByText("An existing record keeps its own").count(), 0);
   await dialog.getByRole("button", { name: "Use Example Lending" }).click();
-  await page.waitForURL(`**/vendors?record=${other}`);
+  await page.waitForURL(`**/vendors?all=true&record=${other}`);
   await page.getByText("This record is already a vendor, so it is open now.").waitFor();
   assert.equal(await dialog.count(), 0);
   assert.equal(posts(sent).length, 2);
@@ -579,7 +579,7 @@ test("New client asks for How found before saving anything, and says what is wro
 });
 
 test("New vendor fits a 560 px form at 1440, offers no relationship level, and explains a refused save plainly", async (t) => {
-  const { page, sent } = await setup(t, "/vendors", ({ path }) =>
+  const { page, sent } = await setup(t, "/vendors?all=true", ({ path }) =>
     path === "/api/engine/parties"
       ? { status: 201, json: { party_id: added, name: "Example Lending" } }
       : { status: 422, json: { error: "database_refused_the_statement", rule: "party_role_avoid_not_target" } },
@@ -639,7 +639,7 @@ test("Link to someone on a record opened by its old id links the party the recor
   const party = "00000000-0000-4000-8000-000000000555";
   const { page, sent } = await setup(
     t,
-    `/vendors?record=${vendor}`,
+    `/vendors?all=true&record=${vendor}`,
     ({ method, path }) =>
       method === "GET" && path.startsWith("/api/engine/parties/search")
         ? {
@@ -692,7 +692,7 @@ const search = (call: Sent): Answer | null =>
       }
     : null;
 async function openLink(t: import("node:test").TestContext, save: Answer) {
-  const { page, sent } = await setup(t, `/vendors?record=${vendor}`, (call) => search(call) ?? save, {
+  const { page, sent } = await setup(t, `/vendors?all=true&record=${vendor}`, (call) => search(call) ?? save, {
     record: { party_id: self },
   });
   await page.locator("#recordPanel").getByRole("button", { name: "Link to someone" }).click();
@@ -744,7 +744,7 @@ test("A saved link gives focus to the redrawn Link to someone", async (t) => {
   });
   const { page } = await setup(
     t,
-    `/vendors?record=${vendor}`,
+    `/vendors?all=true&record=${vendor}`,
     (call) => search(call) ?? { status: 201, json: { link_id: "00000000-0000-4000-8000-000000000999" } },
     { reread },
   );
@@ -767,9 +767,14 @@ test("Link closed after the record redraws gives focus to the new Link to someon
   const activity = new Promise<void>((resolve) => {
     settle = resolve;
   });
-  const { page } = await setup(t, `/vendors?record=${vendor}`, (call) => search(call) ?? { status: 500, json: {} }, {
-    activity,
-  });
+  const { page } = await setup(
+    t,
+    `/vendors?all=true&record=${vendor}`,
+    (call) => search(call) ?? { status: 500, json: {} },
+    {
+      activity,
+    },
+  );
   await page.locator("#recordPanel").getByRole("button", { name: "Link to someone" }).click();
   const dialog = page.getByRole("dialog", { name: "Link Demo Partner 01 to someone" });
   await dialog.waitFor();
@@ -792,7 +797,7 @@ test("Link does not open while Edit is opening", async (t) => {
   });
   const { page } = await setup(
     t,
-    `/vendors?record=${vendor}`,
+    `/vendors?all=true&record=${vendor}`,
     async (call) => {
       if (call.method === "GET") await read;
       return fake.answer(call);

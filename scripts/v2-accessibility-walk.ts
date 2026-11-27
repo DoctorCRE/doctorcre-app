@@ -24,7 +24,7 @@ export async function walkV2Accessibility(page: Page, origin: string, capture: (
     ["Home", "/", ".inbox-row"],
     ["Deals board", "/deals", ".kanban-card .card-open:visible"],
     ["Tours library", "/tours", ".tour-button"],
-    ["Vendors Research", "/vendors", "#recordList > li:not(.list-head)"],
+    ["Vendors Research", "/vendors?all=true", "#recordList > li:not(.list-head)"],
     ["Relationships", "/relationships", "#networkRefresh"],
     ["Leads", "/leads", ".lead-card"],
   ] satisfies [string, string, string][]) {

@@ -29,7 +29,7 @@ test("Show quiet vendors narrows the same list in place and a second press shows
   await page.route("https://**", (r) => r.abort());
   await page.route("**/api/v1/business/**", (r) => r.fulfill({ json: answer(r.request().url()) }));
   await page.route("**/mcp", (r) => r.fulfill({ json: { jsonrpc: "2.0", id: 1, result: { content: [] } } }));
-  await page.goto(`${server.url}/vendors`);
+  await page.goto(`${server.url}/vendors?all=true`);
   const rows = page.locator(".record-row");
   await rows.first().waitFor();
   const all = await rows.count();
