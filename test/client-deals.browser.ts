@@ -387,6 +387,7 @@ for (const [width, height, scheme] of [
     const sideways = await page.locator("#recordPanel").evaluate((node) => node.scrollWidth > node.clientWidth);
     assert.equal(sideways, false, "the open menu never makes the card scroll sideways");
     await page.screenshot({ path: `${shots}/menu-${width}-${scheme}.png` });
+  });
 
 const longName = "Example Brand - Example Deal 2 - EXAMPLE CITY ST";
 for (const [width, height, scheme] of [
