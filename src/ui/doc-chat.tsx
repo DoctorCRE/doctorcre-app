@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useEffectEvent, useId, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { z } from "zod";
@@ -227,6 +227,7 @@ const icons = {
   mail: "M3 5h18v14H3zM3 7l9 6 9-6",
   spinner: "M12 3a9 9 0 1 0 9 9",
   send: "M12 19V5M5 12l7-7 7 7",
+  check: "M5 12l5 5L20 7",
 };
 const sourceIcon = {
   deal: icons.deal,
@@ -301,10 +302,10 @@ async function docFetch<T>(
 }
 
 const proposalCopy = {
-  note: { save: "Save note", saved: "Note saved.", open: "Open saved note" },
-  next_step: { save: "Save next step", saved: "Next step saved.", open: "Open saved next step" },
-  reply_draft: { save: "Save draft and open review", saved: "Reply draft saved.", open: "Open reply review" },
-  reply_revision: { save: "Save revision", saved: "Reply revision saved.", open: "Open reply review" },
+  note: { what: "Note on", save: "Save note", saved: "Saved note on" },
+  next_step: { what: "Next step on", save: "Save next step", saved: "Saved next step on" },
+  reply_draft: { what: "Reply to", save: "Save draft and open review", saved: "Saved reply to" },
+  reply_revision: { what: "Revision of", save: "Save revision", saved: "Saved revision of" },
 };
 
 function keptSavedDraft(result: Confirmation) {
@@ -361,19 +362,25 @@ function TurnStatus({
   );
 }
 
-function SavedProposal({ result }: { result: Confirmation }) {
+function SavedProposal({ result, target }: { result: Confirmation; target: Proposal["target"] }) {
   const href = recordHref(result.href);
-  const { saved, open } = proposalCopy[result.kind];
-  const status = keptSavedDraft(result) ? "Opened your saved draft. Doc’s new wording wasn’t used." : !href && saved;
+  if (keptSavedDraft(result))
+    return (
+      <p className="doc-chat__saved">
+        Opened your saved draft. Doc’s new wording wasn’t used.
+        {href && (
+          <a className="doc-chat__action" href={href}>
+            Open reply review
+          </a>
+        )}
+      </p>
+    );
   return (
-    <p>
-      {status}
-      {status && href && " "}
-      {href && (
-        <a className="doc-chat__action" href={href}>
-          {open}
-        </a>
-      )}
+    <p className="doc-chat__saved" data-tone="ok">
+      <Icon path={icons.check} />
+      <span>
+        {proposalCopy[result.kind].saved} {href ? <a href={href}>{target.label}</a> : target.label}
+      </span>
     </p>
   );
 }
@@ -471,7 +478,6 @@ function ProposalEditor({
   );
   const [saving, setSaving] = useState(false);
   const request = useRef<AbortController | null>(null);
-  const fieldId = useId();
   const { edits, idempotency_key } = draft;
   const { target, kind } = suggestion;
   const targetHref = recordHref(target.href);
@@ -535,13 +541,14 @@ function ProposalEditor({
         void save();
       }}
     >
-      <p>For {targetHref ? <a href={targetHref}>{target.label}</a> : target.label}</p>
+      <p className="doc-chat__proposal-for">
+        {proposalCopy[kind].what} {targetHref ? <a href={targetHref}>{target.label}</a> : target.label}
+      </p>
       <fieldset disabled={Boolean(idempotency_key)}>
         {"text" in edits ? (
           <>
-            <label htmlFor={fieldId}>Note</label>
             <textarea
-              id={fieldId}
+              aria-label="Note"
               required
               maxLength={4000}
               value={edits.text}
@@ -551,32 +558,23 @@ function ProposalEditor({
           </>
         ) : "what" in edits ? (
           <>
-            <label htmlFor={fieldId}>Next step</label>
             <textarea
-              id={fieldId}
+              aria-label="Next step"
               required
               maxLength={4000}
               value={edits.what}
               onChange={(event) => writeDraft({ edits: { ...edits, what: event.currentTarget.value } })}
             />
             {fieldNotice("what")}
-            <p>Owner: You</p>
-            <label htmlFor={`${fieldId}-date`}>Due date</label>
-            <input
-              id={`${fieldId}-date`}
-              type="date"
-              value={edits.due_on ?? ""}
-              onChange={(event) => writeDraft({ edits: { ...edits, due_on: event.currentTarget.value || null } })}
-            />
             {fieldNotice("due_on")}
           </>
         ) : (
           <>
             {edits.subject !== undefined && (
               <>
-                <label htmlFor={`${fieldId}-subject`}>Subject</label>
                 <input
-                  id={`${fieldId}-subject`}
+                  aria-label="Subject"
+                  placeholder="Subject"
                   required
                   type="text"
                   maxLength={998}
@@ -588,9 +586,8 @@ function ProposalEditor({
             )}
             {edits.body !== undefined && (
               <>
-                <label htmlFor={fieldId}>Reply</label>
                 <textarea
-                  id={fieldId}
+                  aria-label="Reply"
                   required
                   value={edits.body}
                   onChange={(event) => writeDraft({ edits: { ...edits, body: event.currentTarget.value } })}
@@ -606,9 +603,23 @@ function ProposalEditor({
           {notice.text} {notice.link && <a href={notice.link.href}>{notice.link.label}</a>}
         </p>
       )}
-      <button className="btn" type="submit" disabled={saving || notice?.requiresReview}>
-        {saving ? "Saving…" : idempotency_key ? "Retry save" : proposalCopy[kind].save}
-      </button>
+      <div className="doc-chat__proposal-foot">
+        {"what" in edits && (
+          <>
+            <input
+              aria-label="Due date"
+              type="date"
+              disabled={Boolean(idempotency_key)}
+              value={edits.due_on ?? ""}
+              onChange={(event) => writeDraft({ edits: { ...edits, due_on: event.currentTarget.value || null } })}
+            />
+            <span>Yours</span>
+          </>
+        )}
+        <button className="btn btn-primary" type="submit" disabled={saving || notice?.requiresReview}>
+          {saving ? "Saving…" : idempotency_key ? "Retry save" : proposalCopy[kind].save}
+        </button>
+      </div>
     </form>
   );
 }
@@ -1015,8 +1026,8 @@ function DocChat() {
                         />
                       )
                     )}
-                    {turn.confirmation ? (
-                      <SavedProposal result={turn.confirmation} />
+                    {suggestion && turn.confirmation ? (
+                      <SavedProposal result={turn.confirmation} target={suggestion.target} />
                     ) : (
                       suggestion &&
                       storage && (

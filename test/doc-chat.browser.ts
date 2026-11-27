@@ -905,11 +905,22 @@ for (const scenario of ["note", "next step", "reply", "unavailable"] as const) {
     await expect(target).toHaveAttribute("href", proposal.target.href);
     const targetBox = await target.boundingBox();
     assert.ok(targetBox && targetBox.height < 44, "an in-sentence link keeps its line height");
+    const card = page.locator(".doc-chat__proposal");
+    const what = { note: "Note on", "next step": "Next step on", reply: "Reply to", unavailable: "Note on" }[scenario];
+    await expect(card.locator(".doc-chat__proposal-for")).toHaveText(`${what} ${proposal.target.label}`);
+    const accent = await page.evaluate(() => {
+      const probe = document.body.appendChild(document.createElement("i"));
+      probe.style.background = "var(--accent)";
+      const color = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return color;
+    });
+    await expect(card.getByRole("button")).toHaveCSS("background-color", accent);
     assert.equal(attempts.length, 0);
     const save = (name: string) => page.getByRole("button", { name, exact: true }).click();
 
     if (scenario === "next step") {
-      await expect(page.getByText("Owner: You")).toBeVisible();
+      await expect(card.getByText("Yours", { exact: true })).toBeVisible();
       await page.getByLabel("Next step", { exact: true }).fill("An edited step");
       await page.getByLabel("Due date").fill("");
       await save("Save next step");
@@ -962,7 +973,11 @@ for (const scenario of ["note", "next step", "reply", "unavailable"] as const) {
     await expect(field).toHaveValue("An edited note");
     assert.equal(saves, 1);
     await save("Retry save");
-    const saved = page.getByRole("link", { name: "Open saved note" });
+    const savedLine = page.locator(".doc-chat__saved");
+    await expect(savedLine).toHaveText(`Saved note on ${deal.label}`);
+    await expect(savedLine.locator("svg")).toBeVisible();
+    await expect(card).toHaveCount(0);
+    const saved = savedLine.getByRole("link", { name: deal.label, exact: true });
     await expect(saved).toHaveAttribute("href", deal.href);
     assert.equal(attempts.length, 2);
     assert.deepEqual(attempts[1], attempts[0]);
@@ -1465,10 +1480,13 @@ test("On a phone Older chats keeps focus when the page it loads holds the curren
   await page.getByRole("button", { name: "Recent chats", exact: true }).click();
   const list = page.getByRole("complementary", { name: "Chats" });
   const older = list.getByRole("button", { name: "Older chats" });
-  // Older chats waits while the current chat is still loading.
+  // Older chats waits while the current chat is still loading, and looks it.
   await expect(older).toBeDisabled();
+  await expect(older).toHaveCSS("opacity", "0.55");
+  await expect(older).toHaveCSS("cursor", "not-allowed");
   chatArrives();
   await expect(older).toBeEnabled();
+  await expect(older).toHaveCSS("opacity", "1");
   await older.focus();
   await page.keyboard.press("Enter");
   await expect(list.getByRole("link", { name: new RegExp(`^${question}`) })).toBeVisible();
