@@ -15,7 +15,7 @@ import {
   FEED_STATES, NO_PAGE_SENTENCE, PREFERENCE_OPERATION_KEY,
   PREFERENCE_REFUSALS, QUIET_NOW_BANNER,
   QUIET_SUPPRESSED_MARK, SEVERITIES, SEVERITY_LABELS, TIME_REFUSAL,
-  acknowledgeArgs, acknowledgeOperationKey, activityRows, dayHeading, foldChanges, groupByDay, preferenceTimeLabel, classifyPreferenceFailure,
+  acknowledgeArgs, acknowledgeOperationKey, activityRows, assistantRunLine, dayHeading, foldChanges, groupRecords, groupByDay, preferenceTimeLabel, classifyPreferenceFailure,
   classifyPreferenceReadFailure, classifyReadFailure, changeRows, parseChangesPage, deepLinkView, deliveryPhrases, feedState,
   notificationCards, unreadCards, preferenceState, preferenceSummary,
   preferenceView, quietNowBanner, setPreferenceArgs, toInputTime, unreadLine,
@@ -795,6 +795,32 @@ test('Updates folds a run of one actor making one change, and keys old events by
   assert.deepEqual(groups.map(group => group.map(one => one.id)), [['a', 'b'], ['c'], ['d']]);
   const events = [{ id: 'e1', actor: 'joe', verb: 'set-next-step', recorded_at: '2026-01-14T14:20:00Z' }, { id: 'e2', actor: 'joe', verb: 'add-deal-note', recorded_at: '2026-01-14T14:21:00Z' }];
   assert.deepEqual(activityRows(events).map(one => one.id), ['e2', 'e1']);
+});
+
+test('a run of the assistant\'s work folds into one line that counts each kind', () => {
+  const change = (id, who, job, what, record) => ({ id, who, job, what, record,
+    changed_at: '2026-01-15T18:30:00Z', open_url: '/deals?deal=example' });
+  const { changes } = parseChangesPage({ next_before: null, changes: [
+    change('1', null, 'agent', 'added a next step: Call the clinic', 'Example Dental'),
+    change('2', null, 'agent', 'moved the deal to LOI', 'Example Vision'),
+    change('3', null, 'agent', 'added a next step: Send the tour list', 'Example Dental'),
+    change('4', 'joe', null, 'added a next step: Call back', 'Example Dental'),
+    change('5', null, 'agent', 'renamed the deal to Example Ortho', 'Example Ortho'),
+  ] });
+  const groups = foldChanges(changes);
+  assert.deepEqual(groups.map(group => group.map(row => row.id)), [['1', '2', '3'], ['4'], ['5']],
+    "Joe's row splits the assistant's work, and the assistant's last change stands alone");
+  assert.equal(assistantRunLine(groups[0]), 'The assistant added 2 next steps and moved 1 deal');
+  assert.equal(groupRecords(groups[0]), 'Example Dental and Example Vision');
+  assert.equal(assistantRunLine(groups[1]), null, "a partner's row is never an assistant run");
+  assert.equal(assistantRunLine(groups[2]), null, 'one assistant row stays a normal row');
+});
+
+test('an assistant run names unfamiliar changes plainly and shortens a long record list', () => {
+  const rows = ['finished the next step: Call', 'set the market to Austin', 'added a note', 'cleared the market']
+    .map((verb, n) => ({ id: String(n), actor: 'Written by the assistant', verb, subject: `Clinic ${n + 1}` }));
+  assert.equal(assistantRunLine(rows), 'The assistant finished 1 next step, made 2 changes, and added 1 note');
+  assert.equal(groupRecords(rows), 'Clinic 1, Clinic 2, and 2 more');
 });
 
 test('an Updates change names a job plainly and a partner by first name', () => {

@@ -366,15 +366,47 @@ export function groupByDay(rows, zone = BUSINESS_TIME_ZONE, now = new Date()) {
   return groups;
 }
 
-/** Changes in a row by one actor with one action fold into one group, so a run of the same thing reads once. */
+const ASSISTANT = knownAuthor("agent");
+
+/** Changes in a row by one actor with one action fold into one group, and so does any run of the assistant's own work. */
 export function foldChanges(rows) {
   const groups = [];
   for (const row of rows) {
-    const last = groups.at(-1);
-    if (last?.[0].actor === row.actor && last[0].verb === row.verb) last.push(row);
+    const last = groups.at(-1)?.[0];
+    if (last?.actor === row.actor && (row.actor === ASSISTANT || last.verb === row.verb)) groups.at(-1).push(row);
     else groups.push([row]);
   }
   return groups;
+}
+
+// The engine words each change as a phrase; these name its kind, broadest last.
+const RUN_KINDS = [
+  [/^added a next step\b/, "added", "next step"],
+  [/^finished the next step\b/, "finished", "next step"],
+  [/\bthe next step\b/, "updated", "next step"],
+  [/^opened the deal\b/, "opened", "deal"],
+  [/^moved the deal\b/, "moved", "deal"],
+  [/\bthe deal\b/, "updated", "deal"],
+  [/^added a note\b/, "added", "note"],
+];
+const listed = (items) => new Intl.ListFormat("en", { type: "conjunction" }).format(items);
+
+/** The one line a run of the assistant's work reads as, such as "The assistant added 2 next steps and moved 1 deal"; null for any other group. */
+export function assistantRunLine(group) {
+  if (group.length < 2 || group[0].actor !== ASSISTANT) return null;
+  const counts = new Map();
+  for (const { verb } of group) {
+    const [, did, noun] = RUN_KINDS.find(([kind]) => kind.test(verb)) ?? [null, "made", "change"];
+    const kind = `${did} ${noun}`;
+    counts.set(kind, { did, noun, n: (counts.get(kind)?.n ?? 0) + 1 });
+  }
+  return `The assistant ${listed([...counts.values()].map(({ did, noun, n }) => `${did} ${n} ${noun}${n === 1 ? "" : "s"}`))}`;
+}
+
+/** The records a group touched, named once each: two and a count past three. */
+export function groupRecords(group) {
+  const names = [...new Set(group.map((row) => row.subject))];
+  return listed(names.length > 3 ? [...names.slice(0, 2), `${names.length - 2} more`] : names);
 }
 
 /* -------------------------------------------------------------- the one write */
