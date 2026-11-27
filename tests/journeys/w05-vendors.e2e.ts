@@ -3,8 +3,10 @@ import { expect } from "e2e";
 import { directoryFixture } from "../../test/fixtures/vendor-directory.synthetic.mjs";
 
 // W5: the Vendors directory filters by owner and opens a vendor's full record.
-test("W5 Vendors filters by owner and opens a vendor with its original entries", async ({ app, browser, screen }) => {
-  await browser.route("**/api/v1/business/**", (route) => route.fulfill({ json: directoryFixture(route.request.url) }));
+test("W5 Vendors filters by owner and opens a vendor with its original entries", async ({ app, browser }) => {
+  await browser.route("**/api/v1/business/**", (route) =>
+    route.fulfill({ contentType: "application/json", body: JSON.stringify(directoryFixture(route.request.url)) }),
+  );
   await app.open("/vendors?all=true");
 
   await expect(browser.locator("#resultSummary")).toHaveText(/^62 /);

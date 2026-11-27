@@ -314,7 +314,7 @@ for (const [width, height] of laptops)
       if (json.record) Object.assign(json.record, { is_target: false });
       return route.fulfill({ json });
     });
-    await page.goto(`${server.url}/vendors`);
+    await page.goto(`${server.url}/vendors?all=true`);
     await page.locator(".record-row").first().click();
     const contacts = page.getByRole("region", { name: "Vendor contacts" });
     await contacts.getByText("Demo Contact Alpha", { exact: true }).waitFor();
