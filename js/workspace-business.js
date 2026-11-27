@@ -1181,8 +1181,8 @@ function expireNow() {
 
 async function loadList(reason = "initial") {
   if (view.signedOut) return;
-  const { accounts, national_account: account, owner } = view.query;
-  if ((accounts || (account && account !== "any")) && (view.accounts.key !== owner || view.accounts.status === "error")) void loadAccounts();
+  const { accounts, national_account: account } = view.query;
+  if (accounts || (account && account !== "any")) void loadAccounts();
   if (showsTiles(view.query)) return loadTiles();
   const query = { ...view.query, page: 1 };
   const targetPages = reason === 'background' ? Math.max(1, view.loadedPageCount || 1, view.failedPage || 1) : 1;

@@ -43,14 +43,22 @@ async function openClients(t: TestContext, path: string, width = 1440, height = 
   const page = await browser.newPage({ viewport: { width, height } });
   await page.addInitScript((saved) => localStorage.setItem("dealroom-theme", saved), theme);
   const asked: URL[] = [];
+  const served: { extra: number; hold: Promise<void> | null } = { extra: 0, hold: null };
   await page.route("https://**", (r) => r.abort());
-  await page.route("**/api/v1/business/**", (r) => {
+  await page.route("**/api/v1/business/**", async (r) => {
     const url = new URL(r.request().url());
     if (url.pathname === "/api/v1/business/clients") asked.push(url);
     // The fixture is declared as a loose record; the tiles ride beside its list answer.
     const payload = directoryFixture(url.href) as Record<string, unknown>;
-    if (url.searchParams.get("tiles") === "true")
-      payload.tiles = tilesFor(url.searchParams.get("national_account"), url.searchParams.get("owner"));
+    if (url.searchParams.get("tiles") === "true") {
+      await served.hold;
+      const tiles = tilesFor(url.searchParams.get("national_account"), url.searchParams.get("owner"));
+      if (url.searchParams.get("national_account") === ACCOUNT) {
+        tiles.national_accounts.total += served.extra;
+        tiles.national_accounts.no_deal_yet += served.extra;
+      }
+      payload.tiles = tiles;
+    }
     return r.fulfill({ json: payload });
   });
   await page.route("**/api/engine/deals?*", (r) =>
@@ -66,7 +74,7 @@ async function openClients(t: TestContext, path: string, width = 1440, height = 
   );
   await page.route("**/mcp", (r) => r.fulfill({ json: { jsonrpc: "2.0", id: 1, result: { content: [] } } }));
   await page.goto(`${server.url}${path}`);
-  return { page, asked };
+  return { page, asked, served };
 }
 
 const tile = (page: Page, name: string) =>
@@ -125,6 +133,33 @@ test("National Accounts opens a tile per account with its locations and owner, a
   await page.locator(".record-row").first().waitFor();
   assert.equal(asked.at(-1)?.searchParams.get("national_account"), "any");
   assert.match((await page.locator("#resultSummary").textContent()) ?? "", /^All locations · /);
+});
+
+test("An account tile's counts follow a refresh when the window regains focus and stay on screen while it runs", async (t) => {
+  const { page, served } = await openClients(t, "/clients?accounts=true");
+  const count = tile(page, "Demo Music Studios").locator(".tile-count");
+  await count.waitFor();
+  assert.equal(await count.textContent(), "6");
+
+  let release = () => {};
+  served.extra = 4;
+  served.hold = new Promise((resolve) => {
+    release = resolve;
+  });
+  await Promise.all([
+    page.waitForRequest((request) => request.url().includes(`national_account=${ACCOUNT}`)),
+    page.evaluate(() => window.dispatchEvent(new Event("focus"))),
+  ]);
+  assert.equal(await count.textContent(), "6", "the old tiles stay while the account reads run");
+  assert.equal(await page.locator(".directory-tile-grid .skeleton-line").count(), 0, "no flash to skeletons");
+  release();
+  await page.waitForFunction(
+    (name) =>
+      [...document.querySelectorAll("a.directory-tile")]
+        .find((el) => el.querySelector(".tile-name")?.textContent === name)
+        ?.querySelector(".tile-count")?.textContent === "10",
+    "Demo Music Studios",
+  );
 });
 
 test("An account's link names the account and counts its chips", async (t) => {
