@@ -23,10 +23,10 @@ const API_PREFIX = "/api/v1/business/";
 const SCOPES = ["team", "mine"];
 const DEFAULT_SCOPE = "team";
 const SCOPE_LABEL = { team: "Team", mine: "My work" };
-export const SORTS = ["name", "recent", "vertical", "deal_type", "last_deal_desc", "last_deal_asc", "territory", "relationship"];
+export const SORTS = ["name", "recent", "vertical", "deal_type", "last_deal_desc", "last_deal_asc", "territory", "relationship", "status", "owner"];
 /** Vendors are ordered by relationship, then name, unless a column heading says otherwise. */
 export const defaultSort = (dataset) => dataset === "vendors" ? "relationship" : "name";
-const SORT_LABEL = { name: "Alphabetical", recent: "Recently updated", vertical: "Vertical", deal_type: "Deal type", last_deal_desc: "Last deal · most recent", last_deal_asc: "Last deal · least recent", territory: "Territory", relationship: "Relationship" };
+const SORT_LABEL = { name: "Alphabetical", recent: "Recently updated", vertical: "Vertical", deal_type: "Deal type", last_deal_desc: "Last deal · most recent", last_deal_asc: "Last deal · least recent", territory: "Territory", relationship: "Relationship", status: "Status", owner: "Owner" };
 export const PIPELINE_FILTERS = ["any", "active", "other", "unknown"];
 export const PIPELINE_LABEL = {
   any: "Any pipeline",
@@ -236,6 +236,32 @@ function tilesValid(tiles) {
 export function hasActiveFilters(query) {
   const base = defaultQuery(query.dataset);
   return ["scope", "owner", "territory", "q", "sort", "relationship", ...FILTER_KEYS[query.dataset]].some((key) => query[key] !== base[key]);
+}
+
+/** The status chips inside a Clients tile: the engine's status filter and the tile count each one shows. */
+export const CLIENT_STATUS_CHIPS = [
+  { status: "active_deal", word: "Open deal", count: "open_deal" },
+  { status: "past_client", word: "Past client", count: "past_client" },
+  { status: "no_deal_yet", word: "No deal yet", count: "no_deal_yet" },
+];
+
+/** The Clients tile a list was opened from, or null for a search across every tile. */
+export function clientPlace(query) {
+  if (query.dataset !== "clients") return null;
+  if (query.all) return "All clients";
+  if (query.national_account) return "National Accounts";
+  if (query.not_set) return "Not set";
+  return query.practice_type || null;
+}
+
+/** That tile's counts from the tiles answer, so the chips count what the tile counted. */
+export function placeCounts(tiles, query) {
+  if (!tiles) return null;
+  if (query.all) return tiles.all;
+  if (query.national_account) return tiles.national_accounts;
+  if (query.not_set) return tiles.not_set;
+  const type = query.practice_type.toLowerCase();
+  return type ? tiles.practice_types.find((tile) => tile.practice_type.toLowerCase() === type) ?? null : null;
 }
 
 /** Visible chips: every narrowing currently applied, each removable on its own. */

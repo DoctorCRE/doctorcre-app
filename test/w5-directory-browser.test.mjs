@@ -49,9 +49,9 @@ for (const width of [1440, 390]) test(`V01 vendor search destination keeps Vendo
   await page.screenshot({ animations: 'disabled', path: `out/test-artifacts/w5/vendor-search-identity-${width}.png` });
 
   await page.goto(`${origin}/clients?all=true`);
-  await page.waitForFunction(() => document.querySelector('#resultsTitle').textContent === 'Clients');
+  await page.waitForFunction(() => document.querySelector('#resultsTitle').textContent === 'Clients / All clients');
   assert.equal(await page.title(), 'Clients · DoctorCRE');
-  assert.equal(await page.locator('#resultsTitle').innerText(), 'Clients');
+  assert.equal(await page.locator('#resultsTitle').innerText(), 'Clients / All clients');
   assert.equal(await page.locator('.footer').innerText(), 'DoctorCRE · Clients');
   const clientContext = await page.evaluate(async () => (await import('/js/doc-context.js')).pageDocContext.snapshot());
   assert.equal(clientContext.page, 'clients');
@@ -150,10 +150,10 @@ test('W5 reduced motion stops hover travel and pulse while keeping content visib
   await page.screenshot({animations:'disabled',path:'out/test-artifacts/w5/reduced-motion.png'});
 });
 
-test('W5 Clients exposes every requested sort and owner without territory controls',async t=>{
+test('W5 Clients sorts by its column names and owner without territory controls',async t=>{
  const {page,calls}=await open(t);await page.goto(origin+'/clients?all=true');await page.waitForSelector('.record-row');assert.equal(await page.locator('#territoryField').count(),0);
- for(const sort of ['vertical','name','deal_type','last_deal_desc','last_deal_asc']){await page.locator('#sortSelect').selectOption(sort);await page.waitForFunction(s=>document.querySelector('#sortSelect').value===s,sort);await settles(()=>assert.ok(calls.some(url=>new URL(url).searchParams.get('sort')===sort)||sort==='name'));}
- await page.locator('[data-owner="joe"]').click();await page.waitForFunction(()=>document.querySelector('#resultSummary').textContent.startsWith('31 '));
+ for(const sort of ['status','vertical','territory','owner','recent']){await page.locator(`[data-column-sort="${sort}"]`).click();await page.waitForSelector(`[data-column-sort="${sort}"][aria-pressed="true"]`);await settles(()=>assert.ok(calls.some(url=>new URL(url).searchParams.get('sort')===sort)));}
+ await page.locator('[data-owner="joe"]').click();await page.waitForFunction(()=>document.querySelector('#resultSummary').textContent==='All clients · 31 clients');
 });
 
 test('W5 keyboard reaches disclosures and keeps focus across a refresh',async t=>{

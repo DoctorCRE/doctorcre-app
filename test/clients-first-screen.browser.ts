@@ -68,8 +68,8 @@ for (const [width, height] of [
     const fit = await firstScreen(page);
     assert.equal(fit.pageScrolls, false, "the page itself does not scroll");
     assert.equal(fit.sideways, false, "nothing scrolls sideways");
-    // The toolbar, then one chip row saying All clients is open.
-    assert.ok(fit.listTop <= 160, `the list starts near the top, not at ${fit.listTop}px`);
+    // Search and the status chips share the toolbar's one row.
+    assert.ok(fit.listTop <= 112, `the list starts near the top, not at ${fit.listTop}px`);
     assert.ok(fit.listWidth >= fit.mainWidth - 48, `the list is ${fit.listWidth}px of a ${fit.mainWidth}px page`);
     assert.ok(fit.wholeRows >= 8, `at least eight clients show whole, not ${fit.wholeRows}`);
     const before = {
@@ -92,18 +92,23 @@ test("Clients rows take one line each under one header row that names the column
   assert.ok((await firstScreen(page)).wholeRows >= 11, "at least 11 clients show whole at 1280x640");
   const columns = await page.evaluate(() => {
     const left = (node: Element | null | undefined) => Math.round(node?.getBoundingClientRect().left ?? Number.NaN);
-    const row = document.querySelector(".record-row");
+    const item = document.querySelector(".record-item");
+    const row = item?.querySelector(".record-row");
     return [...document.querySelectorAll(".list-head :is([data-fact], .row-owner, .row-updated)")].map((label) => {
       const fact = label.getAttribute("data-fact");
-      const value = fact
-        ? row?.querySelector(`[data-fact="${fact}"] .fact-value`)
-        : row?.querySelector(`.${label.className}`);
+      // The open deal is its own link, laid in its column over the row.
+      const value =
+        fact === "Open deal"
+          ? item?.querySelector(".client-deals a")
+          : fact
+            ? row?.querySelector(`[data-fact="${fact}"] .fact-value`)
+            : row?.querySelector(`.${label.className}`);
       return { label: label.textContent, header: left(label), value: left(value) };
     });
   });
   assert.deepEqual(
     columns.map(({ label }) => label),
-    ["Status", "Practice type", "Deal type", "Client type", "Territory", "Owner", "Updated"],
+    ["Status", "Practice type", "Open deal", "Client type", "Territory", "Owner", "Updated"],
   );
   for (const { label, header, value } of columns) assert.equal(value, header, `${label} values sit under their label`);
   const inline = await page.evaluate(
@@ -161,38 +166,45 @@ test("loading Clients shows row-height placeholders that fill the list", async (
   assert.ok(Math.max(...heights) <= 40, `placeholders are one row tall, not ${Math.max(...heights)}px`);
 });
 
-test("a Clients filter applies as it changes and Clear undoes it", async (t) => {
+test("a column name sorts the list and a second click returns to name order", async (t) => {
   const { page, listReads } = await openClients(t, 1280, 800);
-  const toolbar = page.getByRole("form", { name: "Search and filter" });
-  assert.equal(await page.getByRole("button", { name: "Apply" }).count(), 0, "there is no Apply button");
-  assert.equal(await page.getByRole("button", { name: "Reset" }).count(), 0, "there is no Reset button");
-  const clear = page.getByRole("button", { name: "Clear", exact: true });
-  assert.equal(await clear.isVisible(), false, "Clear hides while nothing is filtered");
-  await toolbar.getByLabel("Status").selectOption("active");
-  await page.waitForURL(/status=active/);
-  await page.locator(".record-row").first().waitFor();
-  assert.equal(listReads.at(-1)?.searchParams.get("status"), "active", "the list is read with the new status");
-  assert.ok(await clear.isVisible(), "Clear shows once a filter is set");
-  await page.screenshot({ path: `${shots}/clients-filtered-1280.png` });
-  await clear.click();
-  await page.waitForURL((url) => !url.search.includes("status="));
-  assert.equal(await toolbar.getByLabel("Status").inputValue(), "", "Status returns to Any status");
-  assert.equal(await clear.isVisible(), false, "Clear hides again");
+  for (const [label, sort] of [
+    ["Status", "status"],
+    ["Practice type", "vertical"],
+    ["Territory", "territory"],
+    ["Owner", "owner"],
+    ["Updated", "recent"],
+  ] as const) {
+    const heading = page.locator(".list-head").getByRole("button", { name: label, exact: true });
+    await heading.click();
+    await page.waitForURL(new RegExp(`sort=${sort}`));
+    await page.locator(".record-row").first().waitFor();
+    assert.equal(listReads.at(-1)?.searchParams.get("sort"), sort, `${label} asks the engine for its order`);
+    assert.equal(await heading.getAttribute("aria-pressed"), "true");
+  }
+  await page.locator(".list-head").getByRole("button", { name: "Updated", exact: true }).click();
+  await page.waitForURL((url) => !url.searchParams.has("sort"));
+  for (const label of ["Open deal", "Client type"])
+    assert.equal(
+      await page.locator(".list-head").getByRole("button", { name: label }).count(),
+      0,
+      `${label} does not sort`,
+    );
 });
 
-test("search, the filters, sort, refresh and Clear share one toolbar row", async (t) => {
+test("inside a practice type the table drops the Practice type column", async (t) => {
+  const { page } = await openClients(t, 1280, 800, { path: "/clients?practice_type=Dental" });
+  const labels = await page.locator(".list-head [data-fact]").allTextContents();
+  assert.deepEqual(labels, ["Status", "Open deal", "Client type", "Territory"]);
+});
+
+test("search and the status chips share one toolbar row under the owner chips", async (t) => {
   const { page } = await openClients(t, 1280, 800);
-  const filters = page.getByRole("form", { name: "Search and filter" });
-  await filters.getByLabel("Pipeline").selectOption({ index: 1 });
-  await page.getByRole("button", { name: "Clear", exact: true }).waitFor();
-  const controls = [page.getByRole("searchbox", { name: "Search" })];
-  controls.push(
-    ...["Status", "Client type", "Pipeline", "Sort"].map((label) => filters.getByLabel(label, { exact: true })),
-  );
-  controls.push(
-    page.getByRole("button", { name: "Refresh", exact: true }),
-    page.getByRole("button", { name: "Clear", exact: true }),
-  );
+  await page.locator("#tableFilters [data-status-filter]").first().waitFor();
+  const controls = [
+    page.getByRole("searchbox", { name: "Search" }),
+    ...(await page.locator("#tableFilters [data-status-filter]").all()),
+  ];
   const middles = await Promise.all(
     controls.map(async (control) => {
       const box = await control.boundingBox();
@@ -200,6 +212,7 @@ test("search, the filters, sort, refresh and Clear share one toolbar row", async
     }),
   );
   assert.ok(Math.max(...middles) - Math.min(...middles) < 8, `the controls sit on one row: ${middles.join(", ")}`);
+  assert.equal(await page.locator("#filterForm select:visible").count(), 0, "the chips replace the dropdowns");
   const joe = await page
     .getByRole("group", { name: "Record scope" })
     .getByRole("button", { name: "Joe" })
@@ -213,11 +226,11 @@ test("Clients stays usable on a phone", async (t) => {
   assert.equal((await firstScreen(page)).sideways, false, "nothing scrolls sideways");
   assert.equal(await page.getByRole("button", { name: "Apply" }).count(), 0, "there is no Apply button");
   const row = await page.locator(".record-row").first().boundingBox();
-  assert.ok(row && row.y <= 260, `filters fold away so the first client starts at ${row?.y}px`);
-  await page.getByText("Filters and sort").click();
-  await page.getByRole("form", { name: "Search and filter" }).getByLabel("Status").selectOption("active");
-  await page.waitForURL(/status=active/);
-  assert.equal((await firstScreen(page)).sideways, false, "open filters fit the width");
+  assert.ok(row && row.y <= 260, `the first client starts at ${row?.y}px`);
+  await page.locator("#tableFilters [data-status-filter]", { hasText: "Open deal" }).click();
+  await page.waitForURL(/status=active_deal/);
+  await page.locator(".record-row").first().waitFor();
+  assert.equal((await firstScreen(page)).sideways, false, "the chips fit the width");
   await page.screenshot({ path: `${shots}/clients-390-filters.png` });
   await page.locator(".record-row").first().click();
   await page.getByRole("dialog").getByRole("heading", { name: "Demo Practice 01" }).waitFor();

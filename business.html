@@ -28,6 +28,7 @@
   <main id="main" class="shell business-shell">
     <div class="result-heading" data-layout-slot="tabs">
       <h1 class="result-title visually-hidden" id="resultsTitle">Records</h1>
+      <a class="place-back" id="placeBack" href="/clients" hidden>Clients</a>
       <p class="result-summary" id="resultSummary" tabindex="-1">Checking…</p>
     </div>
 
@@ -81,7 +82,7 @@
         </div>
       </form>
       </details>
-      <div id="vendorFilters" class="vendor-filters" role="group" aria-label="Show only" hidden></div>
+      <div id="tableFilters" class="table-filters" role="group" aria-label="Show only" hidden></div>
       <div class="hero-meta" aria-label="Status">
         <span id="observedAt" class="observed visually-hidden">Updating…</span><button type="button" class="refresh-icon" id="refreshList" aria-label="Refresh" title="Refresh">↻</button>
       </div>

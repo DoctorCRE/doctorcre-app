@@ -136,29 +136,65 @@ test("Clients opens on tiles in the approved order, and a tile opens its clients
   assert.equal(asked.at(-1)?.searchParams.has("all"), false, "All clients is the plain list read");
 });
 
-test("An opened tile stays marked at every width and its chip goes back to the tiles", async (t) => {
+test("Inside a tile its chips count and filter its clients, and Clients goes back to the tiles", async (t) => {
   for (const [width, height] of [
     [1440, 772],
     [390, 844],
   ] as const) {
-    const { page } = await openClients(t, width, height, "light");
-    await page.screenshot({ path: `${shots}/dk-fix1675-tiles-${width}-light.png`, fullPage: width === 390 });
+    const { page, asked } = await openClients(t, width, height, "light");
     await page.locator("a.directory-tile", { hasText: "Dental" }).click();
     await page.waitForURL(/practice_type=Dental/);
     await page.locator(".record-row").first().waitFor();
-    const chip = page.locator("#chipBar [data-tile-chip]");
-    assert.equal(await chip.isVisible(), true, `tile chip at ${width}`);
-    assert.match((await chip.textContent()) ?? "", /Dental/);
-    await page.screenshot({ path: `${shots}/dk-fix1675-open-${width}-light.png`, fullPage: width === 390 });
-    await chip.click();
+    const chips = page.locator("#tableFilters [data-status-filter]");
+    await chips.first().waitFor();
+    assert.deepEqual(
+      await chips.allTextContents(),
+      ["Open deal 6", "Past client 18", "No deal yet 40"],
+      `Dental's counts at ${width}`,
+    );
+    assert.equal(await page.locator("#chipBar").isVisible(), false, "no removable chips beside the table");
+    assert.equal(await page.locator("#searchInput").getAttribute("placeholder"), "Find in Dental");
+    await page.screenshot({ path: `${shots}/dl-cl-a3-open-${width}-light.png`, fullPage: width === 390 });
+    const noDeal = chips.filter({ hasText: "No deal yet" });
+    await noDeal.click();
+    await page.waitForURL(/status=no_deal_yet/);
+    await page.locator(".record-row").first().waitFor();
+    assert.equal(asked.at(-1)?.searchParams.get("status"), "no_deal_yet");
+    assert.equal(await noDeal.getAttribute("aria-pressed"), "true");
+    await noDeal.click();
+    await page.waitForURL((url) => !url.searchParams.has("status"));
+    const back = page.locator("#placeBack");
+    assert.equal(await back.textContent(), "Clients");
+    await back.click();
     await page.waitForURL((url) => !url.searchParams.has("practice_type"));
     await page.locator("a.directory-tile").first().waitFor();
     assert.equal(await page.locator("#listRegion").isHidden(), true);
+    assert.equal(await back.isHidden(), true, "the tiles need no way back");
   }
   const { page } = await openClients(t, 1440, 772);
   await page.locator("a.directory-tile", { hasText: "All clients" }).click();
   await page.locator(".record-row").first().waitFor();
-  assert.match((await page.locator("#chipBar [data-tile-chip]").textContent()) ?? "", /All clients/);
+  assert.match((await page.locator("#resultSummary").textContent()) ?? "", /^All clients · /);
+  await page.locator("#tableFilters [data-status-filter]").first().waitFor();
+  assert.deepEqual(await page.locator("#tableFilters [data-status-filter]").allTextContents(), [
+    "Open deal 12",
+    "Past client 30",
+    "No deal yet 78",
+  ]);
+});
+
+test("A tile's link counts its chips without opening the tiles first", async (t) => {
+  const { page, asked } = await openClients(t, 1280, 640);
+  await page.goto(new URL("/clients?practice_type=dental&owner=dell", page.url()).href);
+  await page.locator("#tableFilters [data-status-filter]").first().waitFor();
+  assert.deepEqual(await page.locator("#tableFilters [data-status-filter]").allTextContents(), [
+    "Open deal 2",
+    "Past client 6",
+    "No deal yet 13",
+  ]);
+  const counted = asked.filter((url) => url.searchParams.get("tiles") === "true").at(-1);
+  assert.equal(counted?.searchParams.get("owner"), "dell", "the counts follow the owner chip");
+  assert.equal(counted?.searchParams.has("practice_type"), false, "the counts come from the opening tiles");
 });
 
 test("No clients still shows the tiles, and a failed read shows the tile error", async (t) => {
