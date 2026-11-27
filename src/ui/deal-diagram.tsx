@@ -1,9 +1,10 @@
+import type { KeyboardEvent } from "react";
 import { createContext, type ReactNode, type Ref, useContext, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 
 type Partner = "joe" | "dell";
-interface Role {
+export interface Role {
   role: string;
   label: string;
 }
@@ -30,13 +31,15 @@ export interface ClientDeal {
     chosen: boolean;
   }[];
 }
+type Introduction = ClientDeal["introductions"][number];
 
-interface Vendor {
+export interface Vendor {
   id: string;
   name: string;
-  role: string | null;
+  // The roles the vendor holds on the deal, none while only introduced.
+  roles: Role[];
   chosen: boolean;
-  introducedOn: string | null;
+  introduction: Introduction | null;
 }
 interface Referral extends Vendor {
   referred: string;
@@ -48,18 +51,18 @@ export interface DiagramClient {
 }
 
 function treeOf(client: DiagramClient, deal: ClientDeal) {
-  const roles = new Map(deal.vendors.map((v) => [v.party_id, v.roles.map((r) => r.label).join(", ")]));
-  const vendor = (id: string, name: string, chosen: boolean, introducedOn: string | null = null): Vendor => ({
+  const roles = new Map(deal.vendors.map((v) => [v.party_id, v.roles]));
+  const vendor = (id: string, name: string, chosen: boolean, introduction: Introduction | null): Vendor => ({
     id,
     name,
-    role: roles.get(id) ?? null,
+    roles: roles.get(id) ?? [],
     chosen,
-    introducedOn,
+    introduction,
   });
   const referredBy = new Map<string, Referral>();
   const introducedFor = new Map<Introducer, Map<string, Vendor>>();
   for (const intro of deal.introductions) {
-    const box = vendor(intro.vendor_id, intro.vendor_name, intro.chosen, intro.introduced_on);
+    const box = vendor(intro.vendor_id, intro.vendor_name, intro.chosen, intro);
     if (intro.made_by === "vendor") {
       const referred = intro.introduced_party_id === client.id ? "this client" : intro.introduced_party_name;
       referredBy.set(box.id, { ...box, referred });
@@ -72,7 +75,9 @@ function treeOf(client: DiagramClient, deal: ClientDeal) {
   return {
     referredBy: [...referredBy.values()],
     introducedFor: list,
-    notRecorded: deal.vendors.filter((v) => v.introduction_id === null).map((v) => vendor(v.party_id, v.name, true)),
+    notRecorded: deal.vendors
+      .filter((v) => v.introduction_id === null)
+      .map((v) => vendor(v.party_id, v.name, true, null)),
   };
 }
 
@@ -81,6 +86,10 @@ export const dated = (verb: string, on: string | null) => on && `${verb} ${DAY.f
 
 // The opened view: dates under each name, and every introduced vendor laid out.
 const Large = createContext(false);
+// What a vendor box opens when the partner can act on the deal; without it a box is a label.
+export type VendorMenu = (vendor: Vendor, close: () => void) => ReactNode;
+const Menu = createContext<VendorMenu | null>(null);
+const roleOf = (vendor: Vendor) => vendor.roles.map((r) => r.label).join(", ") || null;
 
 type Mark = "chosen" | "introduced" | "onDeal";
 export const WORD: Record<Mark, string> = { chosen: "Chosen", introduced: "Introduced", onDeal: "On the deal" };
@@ -124,11 +133,27 @@ interface BoxProps {
   detail?: string | null | undefined;
   trail?: ReactNode;
   boxRef?: Ref<HTMLDivElement> | undefined;
+  // A box that opens a menu is a button: Enter or Space toggles it, Esc closes it.
+  toggle?: { open: boolean; flip: () => void } | undefined;
 }
 
-export function Box({ tone, lead, name, caption, detail, trail, boxRef }: BoxProps) {
+export function Box({ tone, lead, name, caption, detail, trail, boxRef, toggle }: BoxProps) {
+  const button = toggle && {
+    role: "button",
+    tabIndex: 0,
+    "aria-haspopup": "dialog" as const,
+    "aria-expanded": toggle.open,
+    onClick: toggle.flip,
+    onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
+      const closing = event.key === "Escape" && toggle.open;
+      if (event.key !== "Enter" && event.key !== " " && !closing) return;
+      event.preventDefault();
+      event.stopPropagation();
+      toggle.flip();
+    },
+  };
   return (
-    <div className="deal-diagram-box" data-tone={tone} ref={boxRef} tabIndex={boxRef ? -1 : undefined}>
+    <div className="deal-diagram-box" data-tone={tone} ref={boxRef} tabIndex={boxRef ? -1 : undefined} {...button}>
       {lead}
       <span className="deal-diagram-text">
         <b>{name}</b>
@@ -145,15 +170,28 @@ function VendorBox({
   mark,
   trail,
   boxRef,
+  still = false,
 }: {
   vendor: Vendor;
   mark: Mark;
   trail?: ReactNode;
   boxRef?: Ref<HTMLDivElement> | undefined;
+  // A box inside the stacked pile is part of the pile's own button.
+  still?: boolean;
 }) {
-  const caption = withRole(vendor.role, <span className="deal-diagram-word">{WORD[mark]}</span>);
-  const detail = useContext(Large) ? dated("Introduced", vendor.introducedOn) : null;
-  return (
+  const menu = useContext(Menu);
+  const [open, setOpen] = useState(false);
+  const wrap = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const outside = ({ target }: PointerEvent) =>
+      (target instanceof Node && wrap.current?.contains(target)) || setOpen(false);
+    document.addEventListener("pointerdown", outside);
+    return () => document.removeEventListener("pointerdown", outside);
+  }, [open]);
+  const caption = withRole(roleOf(vendor), <span className="deal-diagram-word">{WORD[mark]}</span>);
+  const detail = useContext(Large) ? dated("Introduced", vendor.introduction?.introduced_on ?? null) : null;
+  const box = (toggle?: BoxProps["toggle"]) => (
     <Box
       tone={mark}
       lead={<Glyph mark={mark} />}
@@ -162,7 +200,19 @@ function VendorBox({
       detail={detail}
       trail={trail}
       boxRef={boxRef}
+      toggle={toggle}
     />
+  );
+  if (!menu || still) return box();
+  const close = () => {
+    setOpen(false);
+    wrap.current?.querySelector<HTMLElement>(".deal-diagram-box")?.focus();
+  };
+  return (
+    <div className="deal-diagram-vendor" ref={wrap}>
+      {box({ open, flip: () => setOpen(!open) })}
+      {open && menu(vendor, close)}
+    </div>
   );
 }
 
@@ -204,13 +254,14 @@ function Vendors({ vendors }: { vendors: Vendor[] }) {
             className="deal-diagram-pile"
             data-depth={Math.min(passed.length - 1, 2)}
             aria-expanded="false"
-            aria-label={`Show all ${passed.length} introduced vendors, starting with ${[top.name, top.role, "introduced"].filter(Boolean).join(", ")}`}
+            aria-label={`Show all ${passed.length} introduced vendors, starting with ${[top.name, roleOf(top), "introduced"].filter(Boolean).join(", ")}`}
             ref={pile}
             onClick={() => toggle(true)}
           >
             <VendorBox
               vendor={top}
               mark="introduced"
+              still
               trail={<span className="deal-diagram-count">+{passed.length - 1}</span>}
             />
           </button>
@@ -254,9 +305,10 @@ function IntroducerBranch({ by, label, vendors }: { by: Introducer; label: strin
 interface DiagramProps {
   client: DiagramClient;
   deal: ClientDeal;
+  menu?: VendorMenu | null;
 }
 
-export function DealDiagram({ client, deal, large = false }: DiagramProps & { large?: boolean }) {
+function Diagram({ client, deal, large }: { client: DiagramClient; deal: ClientDeal; large: boolean }) {
   const { referredBy, introducedFor, notRecorded } = treeOf(client, deal);
   const others = (["joe", "dell", "unrecorded"] as const).filter((by) => by !== deal.owner);
   return (
@@ -270,8 +322,8 @@ export function DealDiagram({ client, deal, large = false }: DiagramProps & { la
                 tone="person"
                 lead={<Glyph mark="referred" />}
                 name={vendor.name}
-                caption={withRole(vendor.role, `Referred ${vendor.referred}`)}
-                detail={large ? dated("Referred", vendor.introducedOn) : null}
+                caption={withRole(roleOf(vendor), `Referred ${vendor.referred}`)}
+                detail={large ? dated("Referred", vendor.introduction?.introduced_on ?? null) : null}
               />
             </Branch>
           ))}
@@ -297,6 +349,14 @@ export function DealDiagram({ client, deal, large = false }: DiagramProps & { la
         </ul>
       </div>
     </Large.Provider>
+  );
+}
+
+export function DealDiagram({ menu = null, large = false, ...props }: DiagramProps & { large?: boolean }) {
+  return (
+    <Menu.Provider value={menu}>
+      <Diagram {...props} large={large} />
+    </Menu.Provider>
   );
 }
 

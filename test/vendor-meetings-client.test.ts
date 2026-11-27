@@ -50,8 +50,8 @@ test("parser refuses malformed identity, membership, calendar, cursor and view",
     assert.throws(() => parseMeetingPage({ ...recordings.research, ...patch }, 5));
 });
 
-test("researchReason maps workable_vendor to parked or avoided", () => {
+test("researchReason names the Parked or Avoid relationship", () => {
   const reason = researchReason("workable_vendor");
-  assert.equal(reason, "Vendor is parked or avoided");
+  assert.equal(reason, "Vendor is marked Parked or Avoid");
   assert.equal(reason.includes("workable"), false);
 });

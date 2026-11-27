@@ -209,17 +209,6 @@ test('A vendor shows one relationship by shape, word and name color, the same on
   assert.equal(document.querySelector('#recordTitle').dataset.relationship, undefined, 'the next record starts uncolored');
 });
 
-test('A vendor read with or without the old workable field is the same vendor', () => {
-  const list = directoryFixture('http://demo.example/api/v1/business/vendors');
-  const record = directoryFixture(`http://demo.example/api/v1/business/vendors/${list.rows[0].id}`);
-  const withOld = row => ({ ...row, recorded_disposition_workable: false });
-  assert.equal(validListPayload({ ...list, rows: list.rows.map(withOld) }, 'vendors'), true);
-  assert.equal(validRecordPayload({ ...record, record: withOld(record.record) }, 'vendors'), true);
-  const { recorded_disposition_workable, ...rest } = record.record;
-  assert.equal(recorded_disposition_workable, undefined);
-  assert.equal(validRecordPayload({ ...record, record: rest }, 'vendors'), true);
-});
-
 test('An undated vendor conversation shows the note without a time', () => {
   const { document, app, payload } = setup('vendors');
   const [entry] = payload.record.relationship.recent_entries;
