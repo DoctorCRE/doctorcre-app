@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
-import { type ClientDeal, DealDiagram, type DiagramClient } from "./deal-diagram.tsx";
+import { type ClientDeal, DealDiagram, type DiagramClient, type VendorMenu } from "./deal-diagram.tsx";
+import { DealVendorMenu, eachRole, type Removal, refusal, type Saved, type VendorDoors } from "./deal-vendor-menu.tsx";
 
 type Deals = { state: "loading" } | { state: "failed" } | { state: "ready"; deals: ClientDeal[] };
 interface Props {
@@ -9,7 +10,11 @@ interface Props {
   load: (signal: AbortSignal) => Promise<ClientDeal[]>;
   // The opened view paints here, and the table beside it steps aside while it has content.
   stage: HTMLElement;
+  // Present when the partner can change who is on a deal; without it the vendor boxes are labels.
+  doors?: VendorDoors | null;
 }
+// Undo after a removal stays this long (ruling 98).
+const UNDO_MS = 3_000;
 
 const MONTH = new Intl.DateTimeFormat("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
 const dealState = (deal: ClientDeal) =>
@@ -24,7 +29,17 @@ function DealTitle({ deal }: { deal: ClientDeal }) {
   );
 }
 
-function OpenedDeal({ client, deal, close }: { client: DiagramClient; deal: ClientDeal; close: () => void }) {
+function OpenedDeal({
+  client,
+  deal,
+  menu,
+  close,
+}: {
+  client: DiagramClient;
+  deal: ClientDeal;
+  menu: VendorMenu | null;
+  close: () => void;
+}) {
   const closeButton = useRef<HTMLButtonElement>(null);
   useEffect(() => closeButton.current?.focus(), []);
   return (
@@ -41,14 +56,34 @@ function OpenedDeal({ client, deal, close }: { client: DiagramClient; deal: Clie
           ×
         </button>
       </header>
-      <DealDiagram client={client} deal={deal} large />
+      <DealDiagram client={client} deal={deal} menu={menu} large />
     </section>
   );
 }
 
-function ClientDeals({ client, load, stage }: Props) {
+function UndoLine({ removed, undo }: { removed: Removal & { problem?: string }; undo: () => void }) {
+  return (
+    <p className="client-deal-undo" role="status">
+      {removed.problem ?? `Removed ${removed.vendor.name} from ${removed.deal.name}.`}{" "}
+      <button type="button" onClick={undo}>
+        Undo
+      </button>
+    </p>
+  );
+}
+
+function ClientDeals({ client, load, stage, doors = null }: Props) {
   const [deals, setDeals] = useState<Deals>({ state: "loading" });
   const [opened, setOpened] = useState<string | null>(null);
+  const [removed, setRemoved] = useState<(Removal & { problem?: string }) | null>(null);
+  const reread = useRef<AbortController | null>(null);
+  useEffect(() => () => reread.current?.abort(), []);
+  useEffect(() => {
+    if (!removed || removed.problem) return;
+    // eslint-disable-next-line no-restricted-syntax -- One Undo window per removal, cleared when it changes or unmounts.
+    const timer = window.setTimeout(() => setRemoved(null), UNDO_MS);
+    return () => window.clearTimeout(timer);
+  }, [removed]);
   const openers = useRef(new Map<string, HTMLButtonElement>());
   const loading = deals.state === "loading";
   useEffect(() => {
@@ -60,6 +95,40 @@ function ClientDeals({ client, load, stage }: Props) {
     );
     return () => controller.abort();
   }, [load, loading]);
+  // After a save the diagrams read the client's deals again, in place, so a box changes state without a blank.
+  function refresh() {
+    reread.current?.abort();
+    const controller = new AbortController();
+    reread.current = controller;
+    load(controller.signal).then(
+      (list) => controller.signal.aborted || setDeals({ state: "ready", deals: list }),
+      () => {},
+    );
+  }
+  async function undo() {
+    if (!removed || !doors) return;
+    const { deal, vendor } = removed;
+    setRemoved(null);
+    const answer = await eachRole(vendor.roles, (role) => doors.add(deal.id, vendor.id, role)).catch(
+      (): Saved => ({ ok: false }),
+    );
+    if (!answer.ok) setRemoved({ ...removed, problem: `${vendor.name} wasn't put back. ${refusal(answer)}` });
+    refresh();
+  }
+  const menuFor = (deal: ClientDeal): VendorMenu | null =>
+    doors &&
+    ((vendor, close) => (
+      <DealVendorMenu
+        deal={deal}
+        vendor={vendor}
+        doors={doors}
+        close={close}
+        saved={(removal) => {
+          setRemoved(removal ?? null);
+          refresh();
+        }}
+      />
+    ));
   if (deals.state === "loading" || (deals.state === "ready" && deals.deals.length === 0)) return null;
   const openedDeal = deals.state === "ready" ? deals.deals.find((deal) => deal.id === opened) : undefined;
   const close = () => {
@@ -98,10 +167,12 @@ function ClientDeals({ client, load, stage }: Props) {
                 </svg>
               </button>
             </header>
-            <DealDiagram client={client} deal={deal} />
+            {removed?.deal.id === deal.id && <UndoLine removed={removed} undo={() => void undo()} />}
+            <DealDiagram client={client} deal={deal} menu={menuFor(deal)} />
           </article>
         ))}
-      {openedDeal && createPortal(<OpenedDeal client={client} deal={openedDeal} close={close} />, stage)}
+      {openedDeal &&
+        createPortal(<OpenedDeal client={client} deal={openedDeal} menu={menuFor(openedDeal)} close={close} />, stage)}
     </>
   );
 }

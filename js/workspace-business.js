@@ -148,6 +148,30 @@ async function readClientDeals(id, signal) {
   return body.deals;
 }
 
+// The deal party doors behind a vendor box on a client's deal; party saves follow the Clients and Vendors switch.
+const vendorDoors = {
+  add: (deal, party, role) => saveDealParty(deal, "", party, role),
+  remove: (deal, party, role) => saveDealParty(deal, "/remove", party, role),
+  roles: readVendorRoles,
+  vendorHref: id => viewHref(defaultQuery("vendors"), id),
+  openVendor: id => navigate(viewHref(defaultQuery("vendors"), id)),
+};
+
+async function saveDealParty(deal, suffix, party_id, role) {
+  const client = await dealroomClient();
+  const path = `/api/engine/deals/${encodeURIComponent(deal)}/parties${suffix}`;
+  return client.savePartnerRecord(path, `client-deal${suffix}:${deal}:${party_id}:${role}`, "party_id", { party_id, role });
+}
+
+async function readVendorRoles(signal) {
+  const response = await fetchRead("/api/engine/vendors/summary", { headers: { accept: "application/json" }, cache: "no-store", signal });
+  if (response.status === 401) expireNow();
+  if (!response.ok) throw new Error(`Vendor summary read answered ${response.status}`);
+  const body = await response.json();
+  if (!Array.isArray(body?.categories)) throw new Error("Vendor summary read answered no categories");
+  return body.categories.map(({ slug, label }) => ({ role: slug, label }));
+}
+
 function clientDealsHost(record) {
   const id = record.party_id ?? record.id;
   const client = { id, name: record.name };
@@ -164,7 +188,8 @@ function clientDealsHost(record) {
   dom.listRegion.closest(".result-column").append(deals.stage);
   import("./ui-client-deals.generated.js").then(({ mountClientDeals }) => {
     if (clientDeals !== deals) return;
-    deals.handle = mountClientDeals(deals.host, { client: deals.client, stage: deals.stage, load: signal => readClientDeals(id, signal) });
+    const doors = partySavesOn() ? vendorDoors : null;
+    deals.handle = mountClientDeals(deals.host, { client: deals.client, stage: deals.stage, doors, load: signal => readClientDeals(id, signal) });
   }, () => { deals.host.textContent = "Couldn't load deals."; });
   return deals.host;
 }
@@ -207,6 +232,8 @@ async function syncVendorMeetings() {
 let searchTimer = null;
 let dealroomClientPromise = null;
 const initialBootMode = resolveDealroomBoot(window.location);
+// Party saves land in the new database, so the controls follow the Clients and Vendors switch.
+const partySavesOn = () => initialBootMode.mode === "live" && document.documentElement.hasAttribute("data-clients-vendors-from-engine");
 let partyEditor = null;
 
 /**
@@ -1643,9 +1670,7 @@ function start() {
     return;
   }
   if ("scrollRestoration" in window.history) window.history.scrollRestoration = "manual";
-  // Party saves land in the new database, so the controls follow the Clients and Vendors switch.
-  const partySaves = initialBootMode.mode === "live" && document.documentElement.hasAttribute("data-clients-vendors-from-engine");
-  if (partySaves) import("./ui-party-editor.generated.js").then(({ mountPartyEditor }) => {
+  if (partySavesOn()) import("./ui-party-editor.generated.js").then(({ mountPartyEditor }) => {
     partyEditor = mountPartyEditor({
       document, client: dealroomClient, dataset: () => view.dataset, facets: () => view.facets, phoneLabel,
       // A drawer opened by an old UUID answers that UUID as its id; party_id is the id the party saves take.
