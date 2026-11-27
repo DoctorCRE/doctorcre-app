@@ -179,7 +179,7 @@ export function showsTiles(query) {
   return !query.all && ["scope", "q", "territory", ...FILTER_KEYS[query.dataset]].every((key) => query[key] === base[key]);
 }
 
-export function summaryRequestUrl(owner) {
+function summaryRequestUrl(owner) {
   return `${API_PREFIX}vendors/summary${owner && owner !== "all" ? `?owner=${owner}` : ""}`;
 }
 
@@ -188,7 +188,7 @@ const validCounts = (counts) => isRecord(counts) && Number.isInteger(counts.coun
   && isRecord(counts.relationship) && Object.keys(RELATIONSHIP_WORDS).every((key) => Number.isInteger(counts.relationship[key]));
 
 /** Whether an answer is the vendor summary the tiles draw. */
-export function validSummary(payload) {
+function validSummary(payload) {
   return isRecord(payload) && validCounts(payload.all) && validCounts(payload.no_category)
     && Array.isArray(payload.categories)
     && payload.categories.every((tile) => validCounts(tile) && SLUG.test(tile.slug) && typeof tile.label === "string");
