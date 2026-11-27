@@ -54,6 +54,7 @@ for (const [key, from, to] of [
   ["h", "/leads", "/"],
   ["d", "/", "/deals"],
   ["l", "/", "/leads"],
+  ["c", "/", "/calendar"],
   ["v", "/", "/vendors"],
 ] as const)
   test(`g ${key} goes from ${from} to ${to}`, async (t) => {
@@ -129,12 +130,13 @@ for (const width of [390, 1440])
         "g then hGo to Home",
         "g then dGo to Deals",
         "g then lGo to Leads",
+        "g then cGo to Calendar",
         "g then vGo to Vendors",
         "/Search this page, or open the quick switcher",
         "?Show keyboard shortcuts",
         "⌘/Ctrl + KOpen search",
-        "jNext card (Home, Deals)",
-        "kPrevious card (Home, Deals)",
+        "j or ↓Next card (Home, Deals)",
+        "k or ↑Previous card (Home, Deals)",
         "EnterOpen the selected card",
       ]);
       assert.equal(await dialog.locator("tr td:first-child kbd").first().textContent(), "g");
@@ -175,6 +177,15 @@ test("closing the shortcut list returns focus to the element that had it", async
   await page.keyboard.press("Escape");
   await helpDialog(page).waitFor({ state: "detached" });
   assert.equal(await home.evaluate((node) => node === document.activeElement), true);
+});
+
+test("? lists Go to Calendar", async (t) => {
+  const page = await open(t, "/");
+  await page.keyboard.press("?");
+  const dialog = helpDialog(page);
+  await dialog.waitFor();
+  const rows = await dialog.getByRole("row").evaluateAll((nodes) => nodes.map((node) => node.textContent ?? ""));
+  assert.equal(rows.includes("g then cGo to Calendar"), true);
 });
 
 test("typing in a field never fires a shortcut", async (t) => {
@@ -286,6 +297,42 @@ test("j and k move between Home cards without wrapping, and Enter opens the sele
       );
       return link?.getAttribute("aria-expanded") === "true";
     }, names[0]);
+});
+
+test("ArrowDown and ArrowUp move between Home cards without wrapping", async (t) => {
+  const page = await open(t, "/");
+  const titles = page.locator("[data-inbox-row] h3 a:visible");
+  await titles.first().waitFor();
+  const names = await titles.allTextContents();
+  assert.ok(names.length >= 2, "Home shows at least two cards");
+  await page.keyboard.press("ArrowDown");
+  assert.equal(await focused(page), names[0]);
+  await page.keyboard.press("ArrowDown");
+  assert.equal(await focused(page), names[1]);
+  await page.keyboard.press("ArrowUp");
+  assert.equal(await focused(page), names[0]);
+  await page.keyboard.press("ArrowUp");
+  assert.equal(await focused(page), names[0], "ArrowUp on the first card stays");
+  await stays(page, "/");
+});
+
+test("ArrowDown and ArrowUp are ignored inside a focused text input", async (t) => {
+  const page = await open(t, "/");
+  await page.locator("[data-inbox-row] h3 a:visible").first().waitFor();
+  await page.evaluate(() => {
+    const field = document.createElement("input");
+    field.id = "shortcutArrowField";
+    field.type = "text";
+    field.value = "sample";
+    document.body.append(field);
+  });
+  const field = page.locator("#shortcutArrowField");
+  await field.focus();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowUp");
+  assert.equal(await field.evaluate((node) => node === document.activeElement), true);
+  assert.equal(await page.evaluate(() => Boolean(document.activeElement?.closest("[data-shortcut-card]"))), false);
+  await stays(page, "/");
 });
 
 // Synthetic prospects only; no real records.
@@ -431,6 +478,70 @@ test("a lifted card keeps its lift and focus when j or k is pressed", async (t) 
   await card.focus();
   await page.keyboard.press("Escape");
   assert.equal(await page.locator('#kanban [data-lifted="true"]').count(), 0);
+});
+
+test("ArrowDown and ArrowUp leave a lifted card's own open control alone", async (t) => {
+  const page = await openBoard(t);
+  const [column = []] = await boardColumns(page);
+  const card = page.locator(`#kanban [data-column] .kanban-card[data-id="${column[0] ?? ""}"]`);
+  await card.focus();
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => /lifted from/.test(document.getElementById("dragLive")?.textContent ?? ""));
+  const openControl = card.locator("[data-shortcut-open]");
+  await openControl.focus();
+  for (const key of ["ArrowDown", "ArrowUp"]) {
+    await page.keyboard.press(key);
+    assert.equal(await isFocused(openControl), true, `${key} leaves focus on the lifted card's open control`);
+    assert.equal(await card.getAttribute("data-lifted"), "true");
+  }
+});
+
+// A key press that bubbles from the focused control; true means something handled it.
+const arrowsHandled = (control: Locator) =>
+  control.evaluate((node) =>
+    ["ArrowDown", "ArrowUp"].map((key) => {
+      const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+      node.dispatchEvent(event);
+      return event.defaultPrevented;
+    }),
+  );
+
+async function keepsArrows(control: Locator, name: string) {
+  await control.waitFor();
+  await control.focus();
+  assert.equal(await isFocused(control), true, `${name} takes focus`);
+  assert.deepEqual(await arrowsHandled(control), [false, false], `${name} keeps its arrow keys`);
+  assert.equal(await isFocused(control), true, `${name} keeps focus`);
+}
+
+test("ArrowDown and ArrowUp stay with the More list, the account menu and an open Home item", async (t) => {
+  const page = await open(t, "/");
+  await page.locator("[data-inbox-row] h3 a:visible").first().waitFor();
+  await page.evaluate(() => {
+    const review = document.createElement("div");
+    review.className = "home-inline-review";
+    review.innerHTML = '<button id="shortcutReviewButton" type="button">Send</button>';
+    document.querySelector("[data-inbox-row]")?.append(review);
+  });
+  await page.locator(".app-shell-more-toggle").click();
+  await keepsArrows(page.locator(".app-shell-more-list a").locator("visible=true").first(), "the More list");
+  await page.locator("#selfAvatar").click();
+  await keepsArrows(
+    page.locator("#accountMenu button, #accountMenu a").locator("visible=true").first(),
+    "the account menu",
+  );
+  await keepsArrows(page.locator("#shortcutReviewButton"), "an open Home item");
+});
+
+test("ArrowDown and ArrowUp stay with the Today drawer on the Deals board", async (t) => {
+  const page = await open(t, "/deals?mode=live", {
+    before: async (page) => {
+      await withProspects(page);
+      await page.addInitScript(() => localStorage.setItem("doctorcre:today:/deals", "open"));
+    },
+  });
+  await page.locator("#kanban [data-column] .kanban-card").first().waitFor();
+  await keepsArrows(page.locator("#appToday button, #appToday a").locator("visible=true").first(), "the Today drawer");
 });
 
 test("j and k do nothing on a page without cards", async (t) => {

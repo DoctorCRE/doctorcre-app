@@ -6,7 +6,7 @@ import { blocksShortcut } from "./keyboard-input";
 // app shell's capture listener; it is listed here only so the help dialog
 // shows every shortcut.
 const SEQUENCE_MS = 1000;
-const GO_TO = { h: "Home", d: "Deals", l: "Leads", v: "Vendors" } as const;
+const GO_TO = { h: "Home", d: "Deals", l: "Leads", c: "Calendar", v: "Vendors" } as const;
 
 const destinations = Object.entries(GO_TO).map(([key, label]) => {
   const item = navigationItems.find((page) => page.label === label);
@@ -14,15 +14,15 @@ const destinations = Object.entries(GO_TO).map(([key, label]) => {
   return { key, label, href: item.href };
 });
 
-type Shortcut = { keys: string[]; sequence?: boolean; description: string };
+type Shortcut = { keys: string[]; sequence?: boolean; or?: boolean; description: string };
 
 const shortcuts: Shortcut[] = [
   ...destinations.map(({ key, label }) => ({ keys: ["g", key], sequence: true, description: `Go to ${label}` })),
   { keys: ["/"], description: "Search this page, or open the quick switcher" },
   { keys: ["?"], description: "Show keyboard shortcuts" },
   { keys: ["⌘/Ctrl", "K"], description: "Open search" },
-  { keys: ["j"], description: "Next card (Home, Deals)" },
-  { keys: ["k"], description: "Previous card (Home, Deals)" },
+  { keys: ["j", "↓"], or: true, description: "Next card (Home, Deals)" },
+  { keys: ["k", "↑"], or: true, description: "Previous card (Home, Deals)" },
   // Enter is the focused open control's own activation: listed, not handled.
   { keys: ["Enter"], description: "Open the selected card" },
 ];
@@ -37,8 +37,11 @@ const visible = (element: HTMLElement): boolean =>
 const CARD = "[data-shortcut-card]";
 const CARD_STEP = new Map<string, 1 | -1>([
   ["j", 1],
+  ["ArrowDown", 1],
   ["k", -1],
+  ["ArrowUp", -1],
 ]);
+const ARROWS = new Set(["ArrowDown", "ArrowUp"]);
 const shown = (element: HTMLElement): boolean =>
   element.getClientRects().length > 0 && !element.closest("details:not([open])");
 
@@ -63,6 +66,16 @@ function stepCard(root: Document, step: 1 | -1): boolean {
   return root.activeElement === target;
 }
 
+// Arrows scroll drawers and menus and belong to an open item or a lifted
+// board card, so they step cards only from the page body or from a card's own
+// open control. j and k are letters and keep working wherever focus is.
+function arrowsStepCards(root: Document): boolean {
+  const active = root.activeElement;
+  if (!active || active === root.body) return true;
+  const onCard = active.matches(CARD) || (active.matches("[data-shortcut-open]") && active.closest(CARD) !== null);
+  return onCard && active.closest("[data-lifted]") === null;
+}
+
 function renderHelp(root: Document): HTMLDialogElement {
   const dialog = root.createElement("dialog");
   dialog.className = "keyboard-shortcuts";
@@ -83,7 +96,7 @@ function renderHelp(root: Document): HTMLDialogElement {
     const row = root.createElement("tr");
     const keys = root.createElement("td");
     shortcut.keys.forEach((key, index) => {
-      if (index > 0) keys.append(shortcut.sequence ? " then " : " + ");
+      if (index > 0) keys.append(shortcut.sequence ? " then " : shortcut.or ? " or " : " + ");
       const kbd = root.createElement("kbd");
       kbd.textContent = key;
       keys.append(kbd);
@@ -158,7 +171,8 @@ export function mountKeyboardShortcuts({ root, openSearch }: { root: Document; o
       showHelp();
     } else {
       const step = CARD_STEP.get(event.key);
-      if (step && stepCard(root, step)) event.preventDefault();
+      if (!step || (ARROWS.has(event.key) && !arrowsStepCards(root))) return;
+      if (stepCard(root, step)) event.preventDefault();
     }
   };
 

@@ -48,6 +48,8 @@
 .doc-chat__chats [aria-current] { color: var(--fg); background: var(--surface-2); }
 .doc-chat__chats p { margin: var(--space-2); color: var(--fg-quiet); }
 .doc-chat__older { inline-size: 100%; font: inherit; color: var(--fg-quiet); background: transparent; border: 0; cursor: pointer; }
+/* Matches a disabled button: Older chats waits while the open chat loads but keeps focus, so it is aria-disabled. */
+.doc-chat__older[aria-disabled="true"] { cursor: not-allowed; opacity: 0.55; color: var(--fg-quiet); background: transparent; }
 .doc-chat__scrim { display: none; }
 .doc-chat__empty { margin: auto 0 var(--space-2); color: var(--fg); font-size: var(--font-size-3); font-weight: var(--font-weight-strong); text-align: center; }
 .doc-chat__actions {
@@ -100,17 +102,6 @@
 .doc-chat__status[data-tone="failed"]::before { background: var(--status-danger); }
 .doc-chat__status .app-shell-icon { animation: spin 1.2s linear infinite; }
 @media (prefers-reduced-motion: reduce) { .doc-chat__status .app-shell-icon { animation: none; } }
-.doc-chat__proposal :is(textarea, input) {
-  display: block;
-  width: 100%;
-  margin-block: var(--space-1);
-  padding: var(--space-2);
-  color: var(--fg);
-  background: var(--surface-1);
-  border: 1px solid var(--hairline-strong);
-  border-radius: var(--radius-2);
-}
-.doc-chat__proposal textarea { resize: vertical; }
 /* The typing box is one rounded card in the conversation's column: it grows with the text up to a cap, then scrolls. */
 .doc-chat__composer {
   inline-size: 100%;
@@ -254,13 +245,39 @@
   .doc-chat__layout > section > * { flex: none; }
   .doc-chat__layout > section > .doc-chat__scroll { flex: 1 1 0; display: flex; flex-direction: column-reverse; }
 }
+/* A save to confirm is one outlined card: what it is and where it goes, the text to edit, then the date, whose it is and the one orange button. */
 .doc-chat__proposal {
+  display: grid;
+  gap: var(--space-3);
   padding: var(--space-3);
-  border: 1px solid var(--hairline-strong);
+  border: 1px solid var(--hairline);
   border-radius: var(--radius-3);
   overflow-wrap: anywhere;
 }
-.doc-chat__proposal fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
-.doc-chat__proposal button { margin-top: var(--space-2); }
-.doc-chat__proposal p { margin-block: 0 var(--space-2); }
-.doc-chat__proposal label { display: block; }
+.doc-chat__proposal fieldset { display: grid; gap: var(--space-2); border: 0; padding: 0; margin: 0; min-width: 0; }
+.doc-chat__proposal p { margin: 0; }
+.doc-chat__proposal-for { color: var(--fg-quiet); font-size: var(--font-size-1); }
+.doc-chat__proposal-for a { color: inherit; }
+.doc-chat__proposal :is(textarea, input) {
+  display: block;
+  inline-size: 100%;
+  box-sizing: border-box;
+  min-block-size: var(--touch);
+  padding: var(--space-2) var(--space-3);
+  color: var(--fg);
+  font: inherit;
+  background: var(--surface-1);
+  border: 0;
+  border-radius: var(--radius-2);
+}
+.doc-chat__proposal :is(textarea, input):disabled { opacity: 0.55; cursor: not-allowed; }
+.doc-chat__proposal textarea { field-sizing: content; min-block-size: calc(var(--touch) + var(--space-3)); max-block-size: 40dvh; resize: none; }
+.doc-chat__proposal-foot { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); }
+.doc-chat__proposal-foot input[type="date"] { inline-size: auto; color: var(--fg-muted); padding-block: 0; }
+.doc-chat__proposal-foot span { color: var(--fg-quiet); font-size: var(--font-size-1); }
+.doc-chat__proposal-foot .btn { margin-inline-start: auto; }
+/* Once saved, the card is one line; a green check marks a new save. */
+.doc-chat__saved { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin: 0; color: var(--fg-muted); }
+.doc-chat__saved > span { flex: 1; min-inline-size: 0; }
+.doc-chat__saved[data-tone="ok"] .app-shell-icon { color: var(--status-ok); }
+.doc-chat__saved a:not(.doc-chat__action) { color: inherit; }
