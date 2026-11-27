@@ -30,7 +30,7 @@ const paragraphs = (text: string | null) =>
 
 type SuggestionEmail = { sender: string; occurredAt: string; sent: string; paragraphs: string[] };
 
-/** The suggestion's email as Home cleans it: sender and time, then its paragraphs. Null when unreadable. */
+/** The suggestion's email as the engine answers it: sender and time, then its paragraphs. Null when unreadable. */
 export function suggestionEmail(read: unknown, emailId: string): SuggestionEmail | null {
   const { messages } = object(read) ? emailThread(read) : { messages: [] };
   const message = messages.find(({ id }) => id === emailId) ?? messages.at(-1);
@@ -47,7 +47,7 @@ export function suggestionEmail(read: unknown, emailId: string): SuggestionEmail
 
 type ConversationMessage = SuggestionEmail & { earlier: string[] };
 
-/** A filed email's conversation as Home cleans it, oldest first, each message with its folded earlier text. */
+/** A filed email's conversation as the engine answers it, oldest first, each message with its folded earlier text. */
 export function emailConversation(read: unknown): ConversationMessage[] {
   const { messages } = object(read) ? emailThread(read) : { messages: [] };
   return messages.map(({ sender, occurredAt, body, folded }) => ({

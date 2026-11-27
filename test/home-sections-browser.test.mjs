@@ -1553,52 +1553,34 @@ async function reviewShot(page, name) {
   await page.screenshot({ path: join(process.env.HOME_THREAD_SCREENSHOTS, `${name}.png`), fullPage: true });
 }
 
-test('Home puts a trailing signature under Show earlier text with the quoted history', async t => {
-  const { page, open, state } = await dashboard(t, 390, 'light');
-  const signature = 'Example Realty Group\nP: (555) 010-0100 | F: 555.010.0101\npat@example.test';
+for (const [width, theme] of [[390, 'light'], [390, 'dark'], [1280, 'light'], [1280, 'dark']]) test(`Home shows each email's text as the engine stored it at ${width}px in ${theme}`, async t => {
+  const { page, open, state } = await dashboard(t, width, theme);
+  await page.setViewportSize({ width, height: width === 1280 ? 640 : 844 });
+  const written = 'The east suite also works.\n\nThanks,\nPat Example\nExample Realty Group\nP: (555) 010-0100 | F: 555.010.0101\npat@example.test';
+  const unsplit = 'What is the story on this building?\n\nFrom: Sam Example <sam@example.test>\nSent: Monday, November 23, 2026 3:23 PM\nSubject: Building';
+  const earlier = 'On Nov 2, Maya Example wrote:\nCan you send the plan?';
   state.items = [mailCard];
-  state.thread = [{ ...mailThread[1], body: `The east suite also works.\n\nThanks,\nPat Example\n${signature}`,
-    folded: 'On Nov 2, Maya Example wrote:\nCan you send the plan?' }];
+  state.thread = [
+    { ...mailThread[0], body: unsplit, folded: null },
+    { ...mailThread[1], body: written, folded: earlier },
+  ];
   await open('/?mode=live');
   await page.getByRole('link', { name: mailCard.title }).click();
-  const message = page.getByRole('region', { name: 'Email thread' }).getByRole('article');
-  await message.getByText('Pat Example', { exact: false }).waitFor();
-  assert.equal(await message.getByText(/555\) 010-0100/).isVisible(), false);
-  assert.deepEqual(await message.getByRole('button').allTextContents(), ['Show earlier text']);
-  await reviewShot(page, 'signature-folded');
-  await message.getByRole('button', { name: 'Show earlier text', exact: true }).click();
-  assert.equal(await message.getByText(/555\) 010-0100/).isVisible(), true);
-  assert.equal(await message.getByText(/Maya Example wrote/).isVisible(), true);
-});
-
-for (const width of [390, 1280, 1440]) test(`Home folds a stored message's Outlook reply header and what follows under Show earlier text at ${width}px`, async t => {
-  const { page, open, state } = await dashboard(t, width, 'light');
-  const header = 'From: Pat Example <pat@example.test>\nSent: Monday, November 23, 2026 3:23 PM\nTo: Sam Example <sam@example.test>\nSubject: Building';
-  state.items = [mailCard];
-  state.thread = [{ ...mailThread[1], body: `What is the story on this building?\n\n${header}\n\n12 Example Ln - Office for Lease`,
-    folded: 'Example Bank & Trust\nP: (555) 010-0100' }];
-  await open('/?mode=live');
-  await page.getByRole('link', { name: mailCard.title }).click();
-  const message = page.getByRole('region', { name: 'Email thread' }).getByRole('article');
-  await message.getByText('What is the story on this building?', { exact: true }).waitFor();
-  assert.equal(await message.getByText(/Sent: Monday/).isVisible(), false);
-  await reviewShot(page, `outlook-header-folded-${width}`);
-  await message.getByRole('button', { name: 'Show earlier text', exact: true }).click();
-  assert.match(await message.locator('.home-email-earlier-text').innerText(), /^From: Pat Example[\s\S]*Office for Lease\s+Example Bank & Trust/);
-});
-
-test('Home folds the contact details at the end of a one-line email with no sign-off', async t => {
-  const { page, open, state } = await dashboard(t, 390, 'light');
-  state.items = [mailCard];
-  state.thread = [{ ...mailThread[1], folded: null,
-    body: 'The east suite also works. Pat Example Example Realty Group P: (555) 010-0100 F: 555.010.0101 pat@example.test' }];
-  await open('/?mode=live');
-  await page.getByRole('link', { name: mailCard.title }).click();
-  const message = page.getByRole('region', { name: 'Email thread' }).getByRole('article');
-  await message.getByText('The east suite also works. Pat Example', { exact: true }).waitFor();
-  assert.equal(await message.getByText(/555\) 010-0100/).isVisible(), false);
-  await message.getByRole('button', { name: 'Show earlier text', exact: true }).click();
-  assert.equal(await message.getByText(/555\) 010-0100/).isVisible(), true);
+  const thread = page.getByRole('region', { name: 'Email thread' });
+  await thread.waitFor();
+  const [first, second] = await thread.getByRole('article').all();
+  assert.equal(await first.getByRole('heading', { level: 5 }).innerText(), 'From Maya · Nov 2');
+  assert.equal(await first.locator('p').first().innerText(), unsplit, 'a body with no stored split shows whole');
+  assert.equal(await first.getByRole('button').count(), 0);
+  assert.equal(await second.getByRole('heading', { level: 5 }).innerText(), 'From Pat · Nov 3');
+  assert.equal(await second.locator('p').first().innerText(), written, 'the stored message shows verbatim, signature included');
+  assert.equal(await second.getByText(/Maya Example wrote/).isVisible(), false);
+  if (process.env.HOME_THREAD_SCREENSHOTS) {
+    await mkdir(process.env.HOME_THREAD_SCREENSHOTS, { recursive: true });
+    await page.screenshot({ path: join(process.env.HOME_THREAD_SCREENSHOTS, `dn-u5-${width}-${theme}.png`) });
+  }
+  await second.getByRole('button', { name: 'Show earlier text', exact: true }).click();
+  assert.equal(await second.locator('.home-email-earlier-text').innerText(), earlier);
 });
 
 test('Home shows who and why for a possible new deal from an email', async t => {

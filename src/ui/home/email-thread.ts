@@ -1,4 +1,3 @@
-import { foldEmailBody } from "./email-signature.ts";
 import { object } from "./inbox.tsx";
 
 const string = (value: unknown) => (typeof value === "string" ? value : null);
@@ -8,6 +7,7 @@ export type EmailThread = {
   messages: { id: string; sender: string | null; occurredAt: string; body: string; folded: string | null }[];
 };
 
+/** The engine's thread as it answers it: each message's text, and its earlier text for Show earlier text. */
 export function emailThread(value: Record<string, unknown>): EmailThread {
   const messages = Array.isArray(value.thread)
     ? value.thread.flatMap((message: unknown) => {
@@ -21,15 +21,13 @@ export function emailThread(value: Record<string, unknown>): EmailThread {
           typeof body !== "string"
         )
           return [];
-        const { text, folded } = foldEmailBody(body, string(sender_name));
-        const earlier = string(message.folded);
         return [
           {
             id,
             occurredAt,
-            body: text,
+            body,
             sender: string(sender_name)?.trim().split(/\s+/, 1)[0] || null,
-            folded: folded === null ? earlier : [folded, earlier].filter(Boolean).join("\n\n"),
+            folded: string(message.folded),
           },
         ];
       })
