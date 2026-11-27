@@ -570,6 +570,30 @@ test("each search adds a chip, newest first, and shows at most five", async (t) 
   assert.deepEqual(page.chips(), ["THREE", "six", "five", "four", "two"]);
 });
 
+test("a remount watches only the new recent-searches row", async (t) => {
+  const observers = [];
+  globalThis.ResizeObserver = class {
+    targets = [];
+    disconnected = false;
+    constructor() { observers.push(this); }
+    observe(node) { this.targets.push(node); }
+    disconnect() { this.disconnected = true; }
+  };
+  t.after(() => { delete globalThis.ResizeObserver; });
+  const page = await mountSearchPage(t);
+  const oldBar = page.document.getElementById("recentSearches");
+  const freshBar = oldBar.cloneNode(false);
+  oldBar.replaceWith(freshBar);
+  const { mountSearch } = await import("../js/search.js");
+  mountSearch({ client: { selfActor: "joe", find: async () => answers("") }, storage: page.storage });
+  await idle();
+  assert.equal(observers.length, 2);
+  assert.equal(observers[0].disconnected, true, "the old observer is disconnected");
+  assert.deepEqual(observers[0].targets, [oldBar]);
+  assert.equal(observers[1].disconnected, false);
+  assert.deepEqual(observers[1].targets, [freshBar]);
+});
+
 test("clicking a chip runs that search again and keeps focus in the search box", async (t) => {
   const page = await mountSearchPage(t);
   await page.search("alpha");

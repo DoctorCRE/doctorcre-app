@@ -299,6 +299,8 @@ function browserStorage() {
  * one of them.
  */
 export function mountSearch({ client: searchClient, storage: storageImpl } = {}) {
+  recentSearchesObserver?.disconnect();
+  recentSearchesObserver = null;
   client = searchClient;
   storage = storageImpl === undefined ? browserStorage() : storageImpl;
   view.views = [];

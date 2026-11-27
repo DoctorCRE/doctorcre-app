@@ -671,7 +671,7 @@ test('Tab from the search box never lands on a recent chip outside the visible r
     if (!chip || !bar) return false;
     const box = chip.getBoundingClientRect();
     const row = bar.getBoundingClientRect();
-    return box.left >= row.left - 0.5 && box.right <= row.right + 0.5 && box.top >= row.top - 0.5 && box.bottom <= row.bottom + 0.5;
+    return !chip.hasAttribute('inert') && box.left >= row.left - 0.5 && box.right <= row.right + 0.5 && box.top >= row.top - 0.5 && box.bottom <= row.bottom + 0.5;
   }, hidden);
 
   const secondPass = await tabFromSearch();
