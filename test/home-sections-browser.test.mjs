@@ -16,6 +16,11 @@ const closeAny = /^(Close|Back)/;
 const snoozedToast = title => new RegExp(`Snoozed until \\w{3}, \\w{3} \\d+: ${title}\\.`);
 
 describe('test/home-sections-browser.test.mjs', () => {
+// The card moves before the mocked save is recorded, so a test that reads `writes` waits for the save's response first.
+const snoozeSaved = (page, click) => Promise.all([
+  page.waitForResponse(response => response.url().endsWith('/mcp') && JSON.parse(response.request().postData()).params?.arguments?.action === 'snooze'),
+  click(),
+]);
 const NOW = new Date('2026-11-03T10:00:00-06:00');
 let outDir;
 before(async () => { outDir = temporaryDirectory('home-sections-'); await buildArtifact({ root: process.cwd(), outDir }); });
@@ -423,7 +428,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
     const base_version = state.items.find(card => card.item_id === id).base_version;
     await toggle(row);
     await row.getByRole('button', { name: 'Snooze', exact: true }).click();
-    await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^Tomorrow/ }).click();
+    await snoozeSaved(page, () => page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^Tomorrow/ }).click());
     await today.locator(`[data-inbox-row="${id}"]`).waitFor({ state: 'detached' });
     await closeOpen();
     assert.equal(writes.at(-1)[1].item_id, id);
@@ -640,7 +645,7 @@ for (const [enabled, width] of [[false, 1440], [true, 1440], [true, 390]]) test(
   assert.deepEqual(writes.at(-1)[1], { idempotency_key: writes.at(-1)[1].idempotency_key, version: 1, reason: 'Already answered.' });
   const lease = inbox.locator('[data-inbox-row]').filter({ has: page.getByRole('link', { name: /Read the revised sample lease/ }) });
   await lease.getByRole('button', { name: 'Snooze', exact: true }).click();
-  await page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^Tomorrow/ }).click();
+  await snoozeSaved(page, () => page.getByRole('dialog', { name: 'Snooze cards' }).getByRole('button', { name: /^Tomorrow/ }).click());
   const earlierUntil = writes.at(-1)[1].until;
   async function undoRestore(label, action, until, advanceClock = false) {
     // The bottom toast sits over In motion and waiting at 1440px, so this uses the keyboard.
