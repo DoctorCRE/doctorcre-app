@@ -188,7 +188,7 @@ function clientDealsHost(record) {
   dom.listRegion.closest(".result-column").append(deals.stage);
   import("./ui-client-deals.generated.js").then(({ mountClientDeals }) => {
     if (clientDeals !== deals) return;
-    const doors = partySavesOn() ? vendorDoors : null;
+    const doors = dealPartySavesOn() ? vendorDoors : null;
     deals.handle = mountClientDeals(deals.host, { client: deals.client, stage: deals.stage, doors, load: signal => readClientDeals(id, signal) });
   }, () => { deals.host.textContent = "Couldn't load deals."; });
   return deals.host;
@@ -234,6 +234,8 @@ let dealroomClientPromise = null;
 const initialBootMode = resolveDealroomBoot(window.location);
 // Party saves land in the new database, so the controls follow the Clients and Vendors switch.
 const partySavesOn = () => initialBootMode.mode === "live" && document.documentElement.hasAttribute("data-clients-vendors-from-engine");
+// A deal's vendors are deal saves too, so they also need the deal-saves switch.
+const dealPartySavesOn = () => partySavesOn() && document.documentElement.hasAttribute("data-deals-saves-from-engine");
 let partyEditor = null;
 
 /**

@@ -68,7 +68,8 @@ async function openCard(
     height = 900,
     scheme = "dark",
     saves,
-  }: { width?: number; height?: number; scheme?: string; saves?: Answer } = {},
+    dealSaves = true,
+  }: { width?: number; height?: number; scheme?: string; saves?: Answer; dealSaves?: boolean } = {},
 ) {
   const server = await startFixtureServer();
   t.after(() => server.stop());
@@ -96,12 +97,15 @@ async function openCard(
         },
       }),
     );
-    // Party saves follow the Clients and Vendors switch.
+    // Party saves follow the Clients and Vendors switch, and a deal's vendors the deal-saves switch too.
     await page.route(
       (url) => url.pathname === "/clients",
       async (route) => {
         const response = await route.fetch();
-        const html = (await response.text()).replace("<html ", "<html data-clients-vendors-from-engine ");
+        const html = (await response.text()).replace(
+          "<html ",
+          `<html data-clients-vendors-from-engine ${dealSaves ? "data-deals-saves-from-engine " : ""}`,
+        );
         return route.fulfill({ response, body: html });
       },
     );
@@ -239,7 +243,7 @@ for (const [width, height, scheme] of [
   });
 
 // A made-up engine: the deals read answers what the party saves left, deriving Chosen as the engine does.
-function partyEngine(refuse: string | null = null) {
+function partyEngine(refuse: string | null = null, after = 0) {
   const list = structuredClone(deals);
   const sent: { path: string; body: Record<string, unknown> }[] = [];
   const chosen = (d: ClientDeal) =>
@@ -251,10 +255,15 @@ function partyEngine(refuse: string | null = null) {
     const { idempotency_key, ...body } = route.request().postDataJSON();
     assert.match(String(idempotency_key), /^[0-9a-f-]{36}$/);
     sent.push({ path, body });
-    if (refuse) return route.fulfill({ status: 404, json: { error: refuse } });
+    if (refuse && sent.length > after) return route.fulfill({ status: 404, json: { error: refuse } });
     const deal = list.find((d) => path.startsWith(`/api/engine/deals/${d.id}/parties`));
     assert.ok(deal, `a known deal: ${path}`);
-    deal.vendors = deal.vendors.filter((v) => v.party_id !== body.party_id);
+    // A removal drops one role; the vendor leaves the deal with its last.
+    deal.vendors = deal.vendors.flatMap((v) => {
+      if (v.party_id !== body.party_id) return [v];
+      const left = v.roles.filter((r) => r.role !== body.role);
+      return path.endsWith("/remove") && left.length ? [{ ...v, roles: left }] : [];
+    });
     const intro = deal.introductions.find((i) => i.vendor_id === body.party_id);
     if (!path.endsWith("/remove") && intro)
       deal.vendors.push({
@@ -265,7 +274,7 @@ function partyEngine(refuse: string | null = null) {
       });
     return route.fulfill({ json: { deal_id: deal.id, ...body } });
   };
-  return { read, save, sent };
+  return { read, save, sent, list };
 }
 
 async function openParties(t: TestContext, engine = partyEngine(), size = {}) {
@@ -318,6 +327,60 @@ test("Remove asks once, takes the vendor off the deal, and Undo puts them back w
   await undo.waitFor();
   await page.clock.runFor(3_000);
   await undo.waitFor({ state: "detached" });
+});
+
+test("a second removal inside 3 seconds keeps the first removal's Undo for its own 3 seconds", async (t) => {
+  const engine = partyEngine();
+  engine.list[0]?.vendors.push({
+    party_id: titleVendor,
+    name: "Example Halloran Title",
+    roles: role("Title"),
+    introduction_id: null,
+  });
+  const { page, deal, box, shows } = await openParties(t, engine);
+  await page.clock.install();
+  const remove = async (name: string) => {
+    await box(name).click();
+    await page.getByRole("button", { name: "Remove from this deal" }).click();
+    await page.getByRole("button", { name: "Remove", exact: true }).click();
+    await page.clock.runFor(1_000);
+  };
+  await remove("Example Halloran Title");
+  await remove("Example Pelican Bank");
+  await shows("Example Pelican Bank", "introduced");
+  const undo = deal.locator(".client-deal-undo");
+  assert.deepEqual(await undo.allTextContents(), [
+    "Removed Example Halloran Title from Example second office. Undo",
+    "Removed Example Pelican Bank from Example second office. Undo",
+  ]);
+  await page.clock.runFor(2_100);
+  assert.deepEqual(await undo.allTextContents(), ["Removed Example Pelican Bank from Example second office. Undo"]);
+  await page.clock.runFor(1_000);
+  await undo.waitFor({ state: "detached" });
+});
+
+test("a removal that stops partway re-reads the diagram and says how far it got", async (t) => {
+  const engine = partyEngine("not_found", 1);
+  const lender = engine.list[0]?.vendors[0];
+  assert.ok(lender);
+  lender.roles = [...role("Lender"), ...role("Title")];
+  const { page, deal, box } = await openParties(t, engine);
+  await box("Example Pelican Bank").click();
+  await page.getByRole("button", { name: "Remove from this deal" }).click();
+  await page.getByRole("button", { name: "Remove", exact: true }).click();
+  const alert = page.locator(".deal-vendor-menu").getByRole("alert");
+  assert.equal(await alert.textContent(), "That vendor isn't on this deal anymore. 1 of 2 roles were removed.");
+  assert.match((await box("Example Pelican Bank").textContent()) ?? "", /Title/);
+  assert.doesNotMatch((await box("Example Pelican Bank").textContent()) ?? "", /Lender/);
+  assert.equal(await deal.locator(".client-deal-undo").count(), 0);
+});
+
+test("with deal saves off the vendor boxes are labels and open no menu", async (t) => {
+  const { page, deal } = await openParties(t, partyEngine(), { dealSaves: false });
+  await deal.locator(".deal-diagram-box", { hasText: "Example Pelican Bank" }).waitFor();
+  assert.equal(await deal.getByRole("button", { name: /^Example Pelican Bank/ }).count(), 0);
+  await deal.locator(".deal-diagram-box", { hasText: "Example Pelican Bank" }).click();
+  assert.equal(await page.locator(".deal-vendor-menu").count(), 0);
 });
 
 test("Open takes the partner to the vendor's card", async (t) => {

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { type ClientDeal, dated, type Role, type Vendor } from "./deal-diagram.tsx";
 
-export type Saved = { ok: true } | { ok: false; problem?: { error?: string } };
+// `done` counts the roles a multi-role save had already landed when it stopped.
+export type Saved = { ok: true } | { ok: false; problem?: { error?: string }; done?: number };
 // The engine's deal party doors and the vendor card, as the page reaches them.
 export interface VendorDoors {
   add(deal: string, party: string, role: string): Promise<Saved>;
@@ -29,9 +30,9 @@ export function refusal(problem: { error?: string } = {}) {
 // Sends one save per role, stopping at the first refusal.
 export async function eachRole(roles: Role[], save: (role: string) => Promise<Saved>): Promise<Saved> {
   // eslint-disable-next-line no-restricted-syntax -- Only one save per role the vendor holds on this deal, no retries.
-  for (const { role } of roles) {
+  for (const [done, { role }] of roles.entries()) {
     const saved = await save(role);
-    if (!saved.ok) return saved;
+    if (!saved.ok) return { ...saved, done };
   }
   return { ok: true };
 }
@@ -51,9 +52,11 @@ interface Props {
   close: () => void;
   // A save landed; a removal carries what Undo puts back.
   saved: (removal?: Removal) => void;
+  // A save failed after some of it may have landed, so the diagram reads the deal again.
+  reread: () => void;
 }
 
-export function DealVendorMenu({ deal, vendor, doors, close, saved }: Props) {
+export function DealVendorMenu({ deal, vendor, doors, close, saved, reread }: Props) {
   const [step, setStep] = useState<Step>({ at: "menu" });
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState("");
@@ -78,7 +81,12 @@ export function DealVendorMenu({ deal, vendor, doors, close, saved }: Props) {
     setProblem("");
     const answer = await save().catch((): Saved => ({ ok: false }));
     setBusy(false);
-    if (!answer.ok) return setProblem(refusal(answer.problem));
+    if (!answer.ok) {
+      reread();
+      return setProblem(
+        `${refusal(answer.problem)}${answer.done ? ` ${answer.done} of ${vendor.roles.length} roles were removed.` : ""}`,
+      );
+    }
     close();
     saved(removal);
   }

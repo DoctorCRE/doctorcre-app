@@ -2969,6 +2969,32 @@ test("A Deals client search still answers while Clients and Vendors read the old
   assert.equal(deals.engine[0]?.url, origin + path);
 });
 
+test("A deal's party saves reach the engine only with Deals and Deal saves on the engine", async () => {
+  const deal = "00000000-0000-4000-8000-000000000002";
+  for (const door of ["parties", "parties/remove"]) {
+    const path = `/api/engine/deals/${deal}/${door}`;
+    const request = () =>
+      new Request(origin + path, {
+        method: "POST",
+        headers: { cookie: "session=synthetic", origin },
+        body: "{}",
+      });
+    for (const routing of [
+      new Map(),
+      new Map([["clients-vendors-from-engine", "on"]]),
+      dealsReadOn,
+      new Map([["deals-saves-from-engine", "on"]]),
+    ]) {
+      const off = fixture(routing);
+      assert.equal((await worker.fetch(request(), off.env)).status, 404, `${path} with ${[...routing.keys()]}`);
+      assert.deepEqual(off.engine, []);
+    }
+    const on = fixture(nextDealsOn);
+    assert.equal((await worker.fetch(request(), on.env)).status, 200, path);
+    assert.equal(on.engine[0]?.url, origin + path);
+  }
+});
+
 test("A closed party save names New, Edit or Link only while Clients and Vendors read the engine", async () => {
   const hints = {
     "new-client": ["Open Clients and choose New client.", "Open Clients to see the current records."],

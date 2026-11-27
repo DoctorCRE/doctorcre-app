@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { type ClientDeal, DealDiagram, type DiagramClient, type VendorMenu } from "./deal-diagram.tsx";
@@ -31,6 +31,33 @@ function DealTitle({ deal }: { deal: ClientDeal }) {
   );
 }
 
+type Removed = Removal & { problem?: string };
+// Each removal keeps its own Undo window, so a second removal never drops the first's Undo.
+function Undo({
+  removed,
+  expire,
+  undo,
+}: {
+  removed: Removed;
+  expire: (r: Removed) => void;
+  undo: (r: Removed) => void;
+}) {
+  useEffect(() => {
+    if (removed.problem) return;
+    // eslint-disable-next-line no-restricted-syntax -- One Undo window per removal, cleared when it ends or unmounts.
+    const timer = window.setTimeout(() => expire(removed), UNDO_MS);
+    return () => window.clearTimeout(timer);
+  }, [removed, expire]);
+  return (
+    <p className="client-deal-undo" role="status">
+      {removed.problem ?? `Removed ${removed.vendor.name} from ${removed.deal.name}.`}{" "}
+      <button type="button" onClick={() => undo(removed)}>
+        Undo
+      </button>
+    </p>
+  );
+}
+
 type Opened = { client: DiagramClient; deal: ClientDeal; menu: VendorMenu | null; close: () => void };
 function OpenedDeal({ client, deal, menu, close }: Opened) {
   const closeButton = useRef<HTMLButtonElement>(null);
@@ -57,15 +84,9 @@ function OpenedDeal({ client, deal, menu, close }: Opened) {
 function ClientDeals({ client, load, stage, doors = null }: Props) {
   const [deals, setDeals] = useState<Deals>({ state: "loading" });
   const [opened, setOpened] = useState<string | null>(null);
-  const [removed, setRemoved] = useState<(Removal & { problem?: string }) | null>(null);
+  const [removed, setRemoved] = useState<Removed[]>([]);
   const reread = useRef<AbortController | null>(null);
   useEffect(() => () => reread.current?.abort(), []);
-  useEffect(() => {
-    if (!removed || removed.problem) return;
-    // eslint-disable-next-line no-restricted-syntax -- One Undo window per removal, cleared when it changes or unmounts.
-    const timer = window.setTimeout(() => setRemoved(null), UNDO_MS);
-    return () => window.clearTimeout(timer);
-  }, [removed]);
   const openers = useRef(new Map<string, HTMLButtonElement>());
   const loading = deals.state === "loading";
   useEffect(() => {
@@ -87,14 +108,16 @@ function ClientDeals({ client, load, stage, doors = null }: Props) {
       () => {},
     );
   }
-  async function undo() {
-    if (!removed || !doors) return;
-    const { deal, vendor } = removed;
-    setRemoved(null);
+  const forget = useCallback((gone: Removed) => setRemoved((now) => now.filter((r) => r !== gone)), []);
+  async function undo(gone: Removed) {
+    if (!doors) return;
+    const { deal, vendor } = gone;
+    forget(gone);
     const answer = await eachRole(vendor.roles, (role) => doors.add(deal.id, vendor.id, role)).catch(
       (): Saved => ({ ok: false }),
     );
-    if (!answer.ok) setRemoved({ ...removed, problem: `${vendor.name} wasn't put back. ${refusal(answer.problem)}` });
+    if (!answer.ok)
+      setRemoved((now) => [...now, { ...gone, problem: `${vendor.name} wasn't put back. ${refusal(answer.problem)}` }]);
     refresh();
   }
   const menuFor = (deal: ClientDeal): VendorMenu | null =>
@@ -105,8 +128,9 @@ function ClientDeals({ client, load, stage, doors = null }: Props) {
         vendor={vendor}
         doors={doors}
         close={close}
+        reread={refresh}
         saved={(removal) => {
-          setRemoved(removal ?? null);
+          if (removal) setRemoved((now) => [...now, removal]);
           refresh();
         }}
       />
@@ -149,14 +173,11 @@ function ClientDeals({ client, load, stage, doors = null }: Props) {
                 </svg>
               </button>
             </header>
-            {removed?.deal.id === deal.id && (
-              <p className="client-deal-undo" role="status">
-                {removed.problem ?? `Removed ${removed.vendor.name} from ${deal.name}.`}{" "}
-                <button type="button" onClick={() => void undo()}>
-                  Undo
-                </button>
-              </p>
-            )}
+            {removed
+              .filter((r) => r.deal.id === deal.id)
+              .map((r) => (
+                <Undo key={r.vendor.id} removed={r} expire={forget} undo={undo} />
+              ))}
             <DealDiagram client={client} deal={deal} menu={menuFor(deal)} />
           </article>
         ))}
