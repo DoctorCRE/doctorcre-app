@@ -99,6 +99,7 @@ a.row-lead { font-weight: var(--font-weight-strong); }
 }
 
 @media (max-width: 760px) {
+  .panel-head { flex-wrap: wrap; }
   .update-row { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "title title meta" "chip detail detail" "act act act" "more more more"; }
   .row-act:empty { display: none; }
   .panel-head .btn, .row-act .btn, .note-link a, .fold-list a { display: inline-flex; align-items: center; min-height: var(--touch); }

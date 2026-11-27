@@ -351,6 +351,20 @@ for (const theme of themes)
     await capture(page, "updates-fit-phone", 390, theme);
   });
 
+test("Updates header shows both buttons whole on a phone with unread updates", async (t) => {
+  const { page } = await open(t, 390, "light", fullFeed);
+  await page.goto(updatesPath);
+  await page.getByRole("heading", { name: `${unread.title} 1`, exact: true }).waitFor({ timeout: 2500 });
+  for (const name of ["Unread only", "Mark all read"]) {
+    const button = page.getByRole("button", { name, exact: true });
+    const fits = await button.evaluate((node) => {
+      const box = node.getBoundingClientRect();
+      return node.scrollWidth <= node.clientWidth && box.left >= 0 && box.right < innerWidth;
+    });
+    assert.equal(fits, true, `${name} shows its whole label inside the screen`);
+  }
+});
+
 test("an update row opens on click and with the keyboard, and marks read from the row", async (t) => {
   const { page, sent } = await open(
     t,
