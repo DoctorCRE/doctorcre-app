@@ -1,4 +1,16 @@
 check: npm run check
+# The image's Node, Chromium and WebKit match the locked @playwright/test version; bump them together.
+image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:2f05f8a734509a7b3f26a912639488ee08f58a7b292d14d62271bcff9038768f
 setup:
+  # The build stamps the checkout's commit, and the checkout's owner is not the container's user.
+  - git config --global --add safe.directory "$PWD"
+  # The action-pin check parses YAML with /usr/bin/ruby.
+  - apt-get update && apt-get install -y --no-install-recommends ruby
   - npm ci
+start:
+  command: PORT=8787 npm run serve
+  health: curl -fsS http://127.0.0.1:8787/app-release
+  timeout_seconds: 60
+# The fixture preview starts with no secrets.
+secrets: []
 verify_skill: .claude/skills/verify-doctorcre-app/SKILL.md
