@@ -720,20 +720,23 @@ async function loadTiles() {
   view.tiles.status = view.tiles.payload ? "refreshing" : "loading";
   renderList();
   let payload = null;
+  let facets = null;
   try {
     const response = await fetchRead(tilesRequestUrl(query), { headers: { accept: "application/json" }, cache: "no-store" });
     if (response.status === 401) return expireNow();
     const body = await response.json().catch(() => null);
     if (!response.ok && isSessionExpiry(response.status, body?.error)) return expireNow();
     if (response.ok) payload = tilesFrom(dataset, body);
+    if (payload && dataset === "clients") facets = body.facets;
   } catch {
     payload = null;
   }
   if (sequence !== view.tiles.sequence) return;
   view.tiles.payload = payload;
   view.tiles.status = payload ? "ready" : "error";
-  // The new-vendor and edit forms list these categories; the tiles view never reads the list that usually carries them.
-  if (payload && dataset === "vendors") view.facets = { ...view.facets, categories: payload.categories.map(({ slug, label }) => ({ slug, label })) };
+  // The new and edit forms list these choices; the tiles view never reads the list that usually carries them.
+  if (facets) view.facets = facets;
+  else if (payload && dataset === "vendors") view.facets = { ...view.facets, categories: payload.categories.map(({ slug, label }) => ({ slug, label })) };
   renderList();
 }
 
