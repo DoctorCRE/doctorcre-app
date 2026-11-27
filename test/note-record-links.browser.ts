@@ -95,7 +95,7 @@ for (const width of [1440, 390])
         Object.assign(json.record, { notes: note, record_links: recordLinks });
       return route.fulfill({ json });
     });
-    await page.goto(`${server?.origin}/clients?mode=live`);
+    await page.goto(`${server?.origin}/clients?all=true&mode=live`);
     await page.locator(".record-row").first().click();
     const section = page.getByRole("dialog", { name: /Demo Practice 01/ }).locator(".client-note");
     await assertLinked(section);

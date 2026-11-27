@@ -1,4 +1,11 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
+
+// Clients opens on tiles; All clients is the tile that opens the whole list.
+async function openAllClients(page: Page) {
+  await page.goto("/clients");
+  await page.locator("a.directory-tile", { hasText: "All clients" }).click();
+  await expect(page.locator(".record-row").first()).toBeVisible();
+}
 
 test.beforeEach(async ({ page }) => {
   await page.addLocatorHandler(page.getByRole("button", { name: "Dismiss morning brief" }), async (dismiss) => {
@@ -7,8 +14,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("Clients search, reset, sort and refresh preserve URL filters", async ({ page }) => {
-  await page.goto("/clients");
-  await expect(page.locator(".record-row").first()).toBeVisible();
+  await openAllClients(page);
   await page.locator("#searchInput").fill("V2 no matching client 35f9009c");
   await expect(page.locator(".record-row")).toHaveCount(0);
   await page.locator("#resetFilters").click();
@@ -20,7 +26,7 @@ test("Clients search, reset, sort and refresh preserve URL filters", async ({ pa
 });
 
 test("Clients open a complete record and return to results", async ({ page }) => {
-  await page.goto("/clients");
+  await openAllClients(page);
   await page.locator(".record-row").first().click();
   await expect(page.locator("#recordPanel")).toBeVisible();
   await expect(page.locator("#recordTitle")).not.toHaveText("Opening…");
@@ -31,8 +37,7 @@ test("Clients open a complete record and return to results", async ({ page }) =>
 });
 
 test("Clients apply owner and business filters, then return to all records", async ({ page }) => {
-  await page.goto("/clients");
-  await expect(page.locator(".record-row").first()).toBeVisible();
+  await openAllClients(page);
   const scope = page.getByRole("group", { name: "Record scope", exact: true });
   await scope.getByRole("button", { name: "Joe", exact: true }).click();
   await expect(scope.getByRole("button", { name: "Joe", exact: true })).toHaveAttribute("aria-pressed", "true");

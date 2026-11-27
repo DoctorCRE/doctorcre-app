@@ -307,7 +307,7 @@ test("the Categories tab restores the tiles and People worth meeting keeps its s
   await section.getByText("A verified office is needed", { exact: true }).waitFor();
   await page.getByRole("button", { name: "Categories", exact: true }).click();
   assert.equal(await section.isVisible(), false);
-  await page.locator(".vendor-tile[href]").first().waitFor();
+  await page.locator(".directory-tile[href]").first().waitFor();
   await page.getByRole("button", { name: "People worth meeting", exact: true }).focus();
   await page.keyboard.press("Enter");
   await section.getByText("A verified office is needed", { exact: true }).waitFor();

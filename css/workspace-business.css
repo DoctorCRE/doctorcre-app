@@ -255,7 +255,7 @@ body.record-open { overflow: hidden; }
   .record-field { grid-template-columns: 7.5rem minmax(0, 1fr); gap: var(--space-2); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .record-row, .activity-row, .chip, .refresh-icon, .panel-close, .field input, .field select { transition: none; }
+  .record-row, .activity-row, .directory-tile, .chip, .refresh-icon, .panel-close, .field input, .field select { transition: none; }
 }
 
 @media (max-width: 767px) {
@@ -365,8 +365,8 @@ dialog.party-editor::backdrop { background: var(--scrim); }
   .filter-row { display: contents; }
   /* Filters and search apply as they change, so Apply adds nothing here. */
   #applyFilters { display: none; }
-  /* Each Clients filter shows its value in the toolbar, and Clear undoes them all. */
-  body[data-directory="clients"] #chipBar { display: none; }
+  /* Each Clients filter shows its value in the toolbar, and Clear undoes them all; only the tile the list came from keeps a chip. */
+  body[data-directory="clients"] #chipBar .chip:not([data-tile-chip]) { display: none; }
   /* Each select is as wide as its current choice; the territory box takes what is left. */
   body[data-directory="vendors"] .filter-form .field:has(> select) { flex: none; }
   /* Tighter select sides and narrower search and territory starts keep Reset on the row with the longest sort choice at 1200. */
@@ -465,23 +465,24 @@ body:not([data-directory-view="meetings"]) .vendor-meetings-host { display: none
 .deal-diagram-count { flex: none; padding: 0 var(--space-2); border-radius: var(--radius-round); background: var(--surface-3); color: var(--fg-muted); font-variant-numeric: tabular-nums; }
 .deal-diagram-restack button { min-height: var(--touch); padding: 0 var(--space-1); border: 0; border-radius: var(--radius-2); background: none; color: var(--fg-quiet); font: inherit; cursor: pointer; }
 .deal-diagram-restack button:hover { background: var(--surface-2); color: var(--fg); }
-/* Vendors opens on a tile per category; the list's filters and chips return inside one. */
+/* A directory opens on tiles; the list's filters and chips return inside one. */
 body[data-tiles] :is(#filterForm .filter-row:not(.filter-row-actions), #territoryField, .filter-actions, #quietVendors, #chipBar, #secondaryFilters > summary) { display: none; }
-.vendor-tile-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(12.5rem, 1fr)); gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
-.vendor-tile { display: flex; flex-direction: column; gap: var(--space-2); height: 100%; min-height: 9rem; padding: var(--space-3) var(--space-4); border-radius: var(--radius-3); background: var(--surface-1); color: var(--fg); text-decoration: none; transition: background var(--duration-hover) var(--ease-out); }
-a.vendor-tile:hover { background: var(--surface-2); }
-a.vendor-tile:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 2px; }
+.directory-tile-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(12.5rem, 1fr)); gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.directory-tile { display: flex; flex-direction: column; gap: var(--space-2); height: 100%; min-height: 9rem; padding: var(--space-3) var(--space-4); border-radius: var(--radius-3); background: var(--surface-1); color: var(--fg); text-decoration: none; transition: background var(--duration-hover) var(--ease-out); }
+a.directory-tile:hover { background: var(--surface-2); }
+a.directory-tile:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 2px; }
 .tile-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
 .tile-name { font-weight: var(--font-weight-strong); line-height: var(--line-height-heading); }
 .tile-count { flex: none; font-size: var(--font-size-3); font-weight: var(--font-weight-strong); font-variant-numeric: tabular-nums; }
 .tile-mix { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; color: var(--fg-muted); font-size: var(--font-size-1); }
 .tile-mix li { display: flex; align-items: center; gap: var(--space-2); }
-.tile-n { min-width: 2ch; color: var(--fg); font-variant-numeric: tabular-nums; }
-.tile-quiet { margin-top: auto; color: var(--status-warn-ink); font-size: var(--font-size-1); }
+.tile-n { min-width: 3ch; text-align: right; color: var(--fg); font-variant-numeric: tabular-nums; }
+.tile-foot { margin-top: auto; color: var(--fg-muted); font-size: var(--font-size-1); }
+.tile-quiet { color: var(--status-warn-ink); }
 @media (max-width: 767px) {
-  .vendor-tile-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .vendor-tile { min-height: 0; }
-  .vendor-tile .tile-mix { display: none; }
+  .directory-tile-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .directory-tile { min-height: 0; }
+  .directory-tile :is(.tile-mix, .tile-foot:not(.tile-quiet)) { display: none; }
   /* New vendor, Categories, People worth meeting and the owner chips wrap onto a second row rather than scroll Dell out of sight. */
   body[data-directory="vendors"] .app-layout-tabs { flex-wrap: wrap; overflow: visible; gap: 0; }
   body[data-directory="vendors"] .app-layout-tabs :is(button, a) { padding-inline: var(--space-1); }
