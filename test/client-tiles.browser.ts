@@ -30,7 +30,15 @@ const tilesFor = (owner: string | null) => {
   };
 };
 
-async function openClients(t: TestContext, width: number, height: number, theme = "dark") {
+type TilesAnswer = ReturnType<typeof tilesFor> | "refused";
+
+async function openClients(
+  t: TestContext,
+  width: number,
+  height: number,
+  theme = "dark",
+  tiles: (owner: string | null) => TilesAnswer = tilesFor,
+) {
   const server = await startFixtureServer();
   t.after(() => server.stop());
   const browser = await chromium.launch();
@@ -45,13 +53,15 @@ async function openClients(t: TestContext, width: number, height: number, theme 
     // The fixture is declared as a loose record; the tiles ride beside its list answer.
     const payload = directoryFixture(url.href) as Record<string, unknown>;
     if (url.searchParams.get("tiles") === "true") {
-      payload.tiles = tilesFor(url.searchParams.get("owner"));
+      const answer = tiles(url.searchParams.get("owner"));
+      if (answer === "refused") return r.fulfill({ status: 503, json: { error: { code: "DEPENDENCY_UNAVAILABLE" } } });
+      payload.tiles = answer;
     }
     return r.fulfill({ json: payload });
   });
   await page.route("**/mcp", (r) => r.fulfill({ json: { jsonrpc: "2.0", id: 1, result: { content: [] } } }));
   await page.goto(`${server.url}/clients`);
-  await page.locator("a.directory-tile").first().waitFor();
+  await page.locator("a.directory-tile, #directoryTiles [role=alert]").first().waitFor();
   return { page, asked };
 }
 
@@ -124,6 +134,60 @@ test("Clients opens on tiles in the approved order, and a tile opens its clients
   await page.waitForURL(/all=true/);
   await page.locator(".record-row").first().waitFor();
   assert.equal(asked.at(-1)?.searchParams.has("all"), false, "All clients is the plain list read");
+});
+
+test("An opened tile stays marked at every width and its chip goes back to the tiles", async (t) => {
+  for (const [width, height] of [
+    [1440, 772],
+    [390, 844],
+  ] as const) {
+    const { page } = await openClients(t, width, height, "light");
+    await page.screenshot({ path: `${shots}/dk-fix1675-tiles-${width}-light.png`, fullPage: width === 390 });
+    await page.locator("a.directory-tile", { hasText: "Dental" }).click();
+    await page.waitForURL(/practice_type=Dental/);
+    await page.locator(".record-row").first().waitFor();
+    const chip = page.locator("#chipBar [data-tile-chip]");
+    assert.equal(await chip.isVisible(), true, `tile chip at ${width}`);
+    assert.match((await chip.textContent()) ?? "", /Dental/);
+    await page.screenshot({ path: `${shots}/dk-fix1675-open-${width}-light.png`, fullPage: width === 390 });
+    await chip.click();
+    await page.waitForURL((url) => !url.searchParams.has("practice_type"));
+    await page.locator("a.directory-tile").first().waitFor();
+    assert.equal(await page.locator("#listRegion").isHidden(), true);
+  }
+  const { page } = await openClients(t, 1440, 772);
+  await page.locator("a.directory-tile", { hasText: "All clients" }).click();
+  await page.locator(".record-row").first().waitFor();
+  assert.match((await page.locator("#chipBar [data-tile-chip]").textContent()) ?? "", /All clients/);
+});
+
+test("No clients still shows the tiles, and a failed read shows the tile error", async (t) => {
+  const zero = (): TilesAnswer => ({
+    all: mix(0, 0, 0),
+    national_accounts: { accounts: 0, ...mix(0, 0, 0) },
+    practice_types: [],
+    not_set: mix(0, 0, 0),
+  });
+  const empty = await openClients(t, 1440, 772, "dark", zero);
+  assert.equal(await countOf(empty.page, "All clients"), "0");
+  assert.equal(await empty.page.locator("#directoryTiles").isVisible(), true);
+  assert.equal(await empty.page.locator("#filterForm .filter-row:not(.filter-row-actions)").first().isHidden(), true, "no list dropdowns");
+
+  const failed = await openClients(t, 1440, 772, "dark", () => "refused");
+  assert.equal(await failed.page.locator("#directoryTiles [role=alert]").isVisible(), true);
+  assert.equal(await failed.page.locator("body").getAttribute("data-tiles"), "");
+  assert.equal(await failed.page.locator("#filterForm .filter-row:not(.filter-row-actions)").first().isHidden(), true, "no list dropdowns");
+});
+
+test("A tile click opens in the app without reloading the page", async (t) => {
+  const { page } = await openClients(t, 1440, 772);
+  await page.evaluate(() => {
+    (window as unknown as { kept: boolean }).kept = true;
+  });
+  await page.locator("a.directory-tile", { hasText: "Dental" }).click();
+  await page.waitForURL(/practice_type=Dental/);
+  await page.locator(".record-row").first().waitFor();
+  assert.equal(await page.evaluate(() => (window as unknown as { kept?: boolean }).kept), true, "same page, no reload");
 });
 
 test("Find a client searches every tile and clearing it brings the tiles back", async (t) => {

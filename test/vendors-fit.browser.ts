@@ -69,7 +69,7 @@ async function openVendors(
       json: { jsonrpc: "2.0", id: request.id, result: { content: [{ type: "text", text: JSON.stringify(payload) }] } },
     });
   });
-  await page.goto(`${server.url}/vendors`);
+  await page.goto(`${server.url}/vendors?all=true`);
   await page.locator(".record-row").first().waitFor();
   await page.getByRole("button", { name: "Show quiet vendors" }).waitFor();
   return page;
@@ -270,6 +270,6 @@ test("People worth meeting is a tab beside the list", async (t) => {
   const panel = await meetings.boundingBox();
   assert.ok(panel && panel.y <= 112, `the panel starts near the top, not at ${panel?.y}px`);
   await page.screenshot({ path: `${shots}/meetings-1280.png` });
-  await page.getByRole("button", { name: "List", exact: true }).click();
-  await page.locator(".record-row").first().waitFor();
+  await page.getByRole("button", { name: "Categories", exact: true }).click();
+  await page.locator(".directory-tile[href]").first().waitFor();
 });

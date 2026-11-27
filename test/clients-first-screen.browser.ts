@@ -68,7 +68,8 @@ for (const [width, height] of [
     const fit = await firstScreen(page);
     assert.equal(fit.pageScrolls, false, "the page itself does not scroll");
     assert.equal(fit.sideways, false, "nothing scrolls sideways");
-    assert.ok(fit.listTop <= 112, `the list starts near the top, not at ${fit.listTop}px`);
+    // The toolbar, then one chip row saying All clients is open.
+    assert.ok(fit.listTop <= 160, `the list starts near the top, not at ${fit.listTop}px`);
     assert.ok(fit.listWidth >= fit.mainWidth - 48, `the list is ${fit.listWidth}px of a ${fit.mainWidth}px page`);
     assert.ok(fit.wholeRows >= 8, `at least eight clients show whole, not ${fit.wholeRows}`);
     const before = {

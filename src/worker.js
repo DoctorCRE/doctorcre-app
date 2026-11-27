@@ -357,9 +357,10 @@ const ENGINE_READS = new Map([
   ['read-vendor-meetings', { key: CLIENTS_VENDORS, path: '/api/engine/vendor-meetings', args: { view: isString, q: isString, limit: Number.isFinite, cursor: isString } }],
   ['/api/v1/business/clients', { key: CLIENTS_VENDORS, path: '/api/engine/clients' }],
   ['/api/v1/business/vendors', { key: CLIENTS_VENDORS, path: '/api/engine/vendors' }],
+  ['/api/v1/business/vendors/summary', { key: CLIENTS_VENDORS, path: '/api/engine/vendors/summary', listOnly: true }],
   ['/api/v1/business/relationships', { key: RELATIONSHIPS, path: '/api/engine/relationships', listOnly: true }],
 ]);
-const BUSINESS_GET = /^(\/api\/v1\/business\/[a-z]+)(\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$/i;
+const BUSINESS_GET = /^(\/api\/v1\/business\/(?:vendors\/summary|[a-z]+))(\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$/i;
 
 const isCalendarAnswer = (verb, args) => verb === 'answer-board-question' && args?.board_id === 'calendar-agenda';
 

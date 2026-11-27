@@ -32,8 +32,8 @@ import {
   displayedFreshness, echoesQuery, emptyCopy, expireSession, filterChips, freshnessSignature, hasActiveFilters,
   isSessionExpiry, listPhase, listRequestUrl, ownerPresentation, pageSummary, panelModality, panelTabTarget,
   parseViewState, partyKindText, recordRequestUrl, recordSections, recordedCode, recordedValue, refusalCopy,
-  rememberPayload, restoreSession, sameQuery, scrollIntent, searchBoxValue, showsTiles, sourceIsFresh,
-  validListPayload, validRecordPayload, vendorRelationship, viewHref,
+  RELATIONSHIP_WORDS, rememberPayload, restoreSession, sameQuery, scrollIntent, searchBoxValue, showsTiles, sourceIsFresh,
+  tilesFrom, tilesRequestUrl, validListPayload, validRecordPayload, vendorRelationship, viewHref,
 } from "./workspace-business-model.js";
 import { resolveDealroomBoot } from "./boot-mode.js";
 import { mountNotificationBadge } from "./shell.js";
@@ -113,6 +113,7 @@ const view = Object.assign(createBusinessState(), { freshnessKey: null, returnFo
 // that has since been closed or replaced never paints.
 view.activity = { id: null, sequence: 0, result: null };
 view.sessionGeneration = 0;
+view.tiles = { sequence: 0, key: null, status: "idle", payload: null };
 view.panelState = null;
 let vendorMeetings = null;
 let vendorMeetingsHost = null;
@@ -299,7 +300,7 @@ function renderControls({ syncSearch = false } = {}) {
       dom.search.value = next;
     }
   }
-  if (dom.search) dom.search.placeholder = dataset === "clients" ? "Find a client" : "Search by name";
+  if (dom.search) dom.search.placeholder = dataset === "clients" ? "Find a client" : "Find a vendor";
   document.querySelector('#territoryField').hidden = dataset !== 'vendors';
   dom.quiet.hidden = dataset !== 'vendors';
   dom.quiet.setAttribute('aria-pressed', String(query.quiet === 'true'));
@@ -381,7 +382,7 @@ function renderChips() {
     return;
   }
   dom.chips.innerHTML = `${chips.map((chip) =>
-    `<button type="button" class="chip" data-chip="${escapeHtml(chip.key)}" data-chip-reset="${escapeHtml(chip.reset)}"><span class="chip-label">${escapeHtml(chip.label)}</span><span class="chip-value">${escapeHtml(chip.value)}</span><span class="chip-remove" aria-hidden="true">×</span><span class="visually-hidden">Remove this filter</span></button>`).join("")}<button type="button" class="chip chip-reset" data-chip="all">Clear all</button>`;
+    `<button type="button" class="chip" data-chip="${escapeHtml(chip.key)}"${chip.tile ? " data-tile-chip" : ""} data-chip-reset="${escapeHtml(chip.reset)}"><span class="chip-label">${escapeHtml(chip.label)}</span><span class="chip-value">${escapeHtml(chip.value)}</span><span class="chip-remove" aria-hidden="true">×</span><span class="visually-hidden">Remove this filter</span></button>`).join("")}<button type="button" class="chip chip-reset" data-chip="all">Clear all</button>`;
 }
 
 function renderNotices(notices) {
@@ -582,14 +583,13 @@ async function loadMore() {
 
 function renderList() {
   const { dataset, list, query } = view;
-  const phase = listPhase({ status: list.status, payload: list.payload, query, dataset, signedOut: view.signedOut });
-  view.freshnessKey = list.payload ? freshnessSignature(list.payload, dataset) : null;
-  // An answer without tiles comes from an engine that has none yet, so the list stands in.
-  const tiles = showsTiles(query) && (phase === "loading" || Boolean(list.payload?.tiles) && ["ready", "refreshing", "stale", "empty-no-records"].includes(phase));
+  const tiles = showsTiles(query) && !view.signedOut;
   document.body.toggleAttribute("data-tiles", tiles);
   dom.tiles.hidden = !tiles;
   dom.listRegion.hidden = tiles;
-  if (tiles) return renderTiles(phase, list.payload);
+  if (tiles) return renderTiles();
+  const phase = listPhase({ status: list.status, payload: list.payload, query, dataset, signedOut: view.signedOut });
+  view.freshnessKey = list.payload ? freshnessSignature(list.payload, dataset) : null;
 
   if (phase === "loading") {
     setHealth("loading");
@@ -639,50 +639,102 @@ function renderList() {
 // -------------------------------------------------------------- the tiles
 
 /** One tile: a name, its number, a few smaller counts and an optional footnote. Shared by Clients and Vendors. */
-function tileHtml({ label, count, href, mix, foot = "" }) {
-  const counts = mix.filter(({ n }) => n > 0).map(({ n, word }) => `<li><span class="tile-n">${n}</span> ${escapeHtml(word)}</li>`).join("");
-  return `<li><a class="directory-tile" href="${escapeHtml(href)}"><span class="tile-head"><span class="tile-name">${escapeHtml(label)}</span><span class="tile-count">${count}</span></span><ul class="tile-mix">${counts}</ul>${foot ? `<span class="tile-foot">${escapeHtml(foot)}</span>` : ""}</a></li>`;
+function tileHtml({ label, count, query, mix, foot = "" }) {
+  return `<li><a class="directory-tile" href="${escapeHtml(viewHref(query))}"><span class="tile-head"><span class="tile-name">${escapeHtml(label)}</span><span class="tile-count">${count}</span></span><ul class="tile-mix">${mix.join("")}</ul>${foot}</a></li>`;
 }
 
-const tileGridHtml = (tiles) => `<ul class="directory-tile-grid">${tiles.join("")}</ul>`;
+const mixItem = (n, word, { lead = "", attrs = "" } = {}) => n > 0 ? `<li${attrs}>${lead}<span class="tile-n">${n}</span> ${word}</li>` : "";
 const TILE_SKELETON = '<li><span class="directory-tile"><span class="skeleton-line"></span><span class="skeleton-line short"></span></span></li>';
 
-const clientMix = (counts) => [
-  { n: counts.open_deal, word: "Open deal" },
-  { n: counts.past_client, word: "Past client" },
-  { n: counts.no_deal_yet, word: "No deal yet" },
-];
+function vendorTiles(payload, base) {
+  const tile = (label, counts, changes) => tileHtml({
+    label, count: counts.count, query: { ...base, ...changes },
+    mix: Object.entries(RELATIONSHIP_WORDS).map(([key, word]) => mixItem(counts.relationship[key], word, { lead: relationshipShape(key), attrs: ` data-relationship="${key}"` })),
+    foot: counts.quiet ? `<span class="tile-foot tile-quiet">${counts.quiet} quiet</span>` : "",
+  });
+  // A vendor with two categories counts under both, so the tiles add up to more than All vendors.
+  return [
+    tile("All vendors", payload.all, { all: "true" }),
+    ...payload.categories.filter((counts) => counts.count > 0).map((counts) => tile(counts.label, counts, { category: counts.slug })),
+    ...(payload.no_category.count > 0 ? [tile("No category", payload.no_category, { no_category: "true" })] : []),
+  ];
+}
 
-function clientTiles({ all, national_accounts: accounts, practice_types: types, not_set: notSet }) {
-  const base = { ...defaultQuery("clients"), owner: view.query.owner };
-  const tile = (label, counts, changes, extra = {}) =>
-    tileHtml({ label, count: counts.total, mix: clientMix(counts), href: viewHref({ ...base, ...changes }), ...extra });
+function clientTiles({ all, national_accounts: accounts, practice_types: types, not_set: notSet }, base) {
+  const tile = (label, counts, changes, extra = {}) => tileHtml({
+    label, count: counts.total, query: { ...base, ...changes },
+    mix: [mixItem(counts.open_deal, "Open deal"), mixItem(counts.past_client, "Past client"), mixItem(counts.no_deal_yet, "No deal yet")],
+    ...extra,
+  });
   // Other waits for the practice type list that says which types are healthcare.
   return [
     tile("All clients", all, { all: "true" }),
     ...(accounts.total > 0 ? [tile("National Accounts", accounts, { national_account: "any" },
-      { count: accounts.accounts, foot: `${accounts.total} ${accounts.total === 1 ? "location" : "locations"}` })] : []),
+      { count: accounts.accounts, foot: `<span class="tile-foot">${accounts.total} ${accounts.total === 1 ? "location" : "locations"}</span>` })] : []),
     ...types.map((type) => tile(type.practice_type, type, { practice_type: type.practice_type })),
     ...(notSet.total > 0 ? [tile("Not set", notSet, { not_set: "true" })] : []),
   ];
 }
 
-function renderTiles(phase, payload) {
+// A repaint keeps the reader's place: the same tile when it survives, else the results summary.
+function paintTiles(html) {
+  const focused = dom.tiles.contains(document.activeElement) ? document.activeElement : null;
+  const href = focused?.getAttribute("href");
+  dom.tiles.innerHTML = html;
+  if (!focused) return;
+  focusWithoutScrolling((href && [...dom.tiles.querySelectorAll("a.directory-tile")].find((tile) => tile.getAttribute("href") === href)) || dom.summary);
+}
+
+function renderTiles() {
+  const { status, payload } = view.tiles;
+  const vendors = view.dataset === "vendors";
   document.querySelector("#scrollSentinel").hidden = true;
   if (dom.pager) dom.pager.hidden = true;
   renderNotices([]);
-  dom.tiles.setAttribute("aria-busy", String(phase === "loading"));
-  if (phase === "loading") {
-    setHealth("loading");
-    dom.summary.textContent = "Checking…";
-    dom.tiles.innerHTML = tileGridHtml(Array(8).fill(TILE_SKELETON));
+  dom.tiles.setAttribute("aria-busy", String(status === "loading"));
+  if (!payload) {
+    const failed = status === "error";
+    setHealth(failed ? "unavailable" : "loading");
+    dom.summary.textContent = failed ? "Nothing loaded" : "Checking…";
+    paintTiles(failed
+      ? `<div class="record-empty" role="alert"><p class="empty-title">This did not load</p><p class="empty-copy">${escapeHtml(refusalCopy("DEPENDENCY_UNAVAILABLE"))}</p><button type="button" class="action secondary-action" data-retry="tiles" aria-label="Refresh" title="Refresh"><span aria-hidden="true">↻</span></button></div>`
+      : `<ul class="directory-tile-grid">${TILE_SKELETON.repeat(vendors ? 12 : 8)}</ul>`);
     return;
   }
-  setHealth(phase === "refreshing" ? "refreshing" : phase === "stale" ? "stale" : "available");
-  if (dom.observedAt) dom.observedAt.textContent = updatedLabel(payload.source.observed_at, BUSINESS_TIME_ZONE);
-  const { total } = payload.tiles.all;
-  dom.summary.textContent = `${total} ${total === 1 ? "client" : "clients"}`;
-  dom.tiles.innerHTML = tileGridHtml(clientTiles(payload.tiles));
+  setHealth(status === "refreshing" ? "refreshing" : "available");
+  const total = vendors ? payload.all.count : payload.all.total;
+  dom.summary.textContent = `${total} ${(total === 1 ? DATASET_SINGULAR : DATASET_LABEL)[view.dataset].toLowerCase()}`;
+  const base = { ...defaultQuery(view.dataset), owner: view.query.owner };
+  paintTiles(`<ul class="directory-tile-grid">${(vendors ? vendorTiles : clientTiles)(payload, base).join("")}</ul>`);
+}
+
+async function loadTiles() {
+  if (view.signedOut) return;
+  const { dataset, query } = view;
+  const key = `${dataset}:${query.owner}`;
+  const sequence = ++view.tiles.sequence;
+  // A list read still in flight must not paint over the tiles.
+  view.list.sequence++;
+  if (view.tiles.key !== key) view.tiles.payload = null;
+  view.tiles.key = key;
+  view.tiles.status = view.tiles.payload ? "refreshing" : "loading";
+  renderList();
+  let payload = null;
+  try {
+    const response = await fetchRead(tilesRequestUrl(query), { headers: { accept: "application/json" }, cache: "no-store" });
+    if (response.status === 401) return expireNow();
+    const body = await response.json().catch(() => null);
+    if (!response.ok && isSessionExpiry(response.status, body?.error)) return expireNow();
+    if (response.ok) payload = tilesFrom(dataset, body);
+  } catch {
+    payload = null;
+  }
+  if (sequence !== view.tiles.sequence) return;
+  view.tiles.payload = payload;
+  view.tiles.status = payload ? "ready" : "error";
+  // The new-vendor and edit forms list these categories; the tiles view never reads the list that usually carries them.
+  if (payload && dataset === "vendors") view.facets = { ...view.facets, categories: payload.categories.map(({ slug, label }) => ({ slug, label })) };
+  renderList();
 }
 
 // ------------------------------------------------------------- the record
@@ -951,6 +1003,7 @@ function expireNow() {
   delete dom.panelBody.dataset.recordId;
   view.loadingMore = null; view.failedPage = null;
   view.loadedRows = []; view.loadedPageCount = 0;
+  view.tiles = { sequence: view.tiles.sequence + 1, key: null, status: "idle", payload: null };
   view.activity = { id: null, sequence: view.activity.sequence + 1, result: null };
   Object.assign(view, expireSession(view));
   renderControls();
@@ -961,6 +1014,7 @@ function expireNow() {
 
 async function loadList(reason = "initial") {
   if (view.signedOut) return;
+  if (showsTiles(view.query)) return loadTiles();
   const query = { ...view.query, page: 1 };
   const targetPages = reason === 'background' ? Math.max(1, view.loadedPageCount || 1, view.failedPage || 1) : 1;
   view.loadingMore = null;
@@ -1163,15 +1217,17 @@ function applyLocation({ reason = "initial", restoreScroll = null } = {}) {
   if (typeof restoreScroll === "number") pageScroller().scrollTo({ top: restoreScroll, behavior: "instant" });
 }
 
-// Clearing filters inside All clients stays in All clients.
-const clearedQuery = () => ({ ...defaultQuery(view.dataset), ...(view.query.all && { all: view.query.all }) });
-
 function updateQuery(changes, { replace = false } = {}) {
   const next = { ...view.query, ...changes };
   // Any narrowing returns to the first page; a page number carried over from
   // the previous filter would silently point at a different set of records.
   if (!("page" in changes)) next.page = 1;
   navigate(viewHref(next, view.recordId), { replace });
+}
+
+// Clearing filters on All vendors stays on All vendors; inside a category it returns to the tiles.
+function clearedQuery() {
+  return { ...defaultQuery(view.dataset), ...(view.query.all && { all: "true" }) };
 }
 
 function closeRecord() {
@@ -1217,7 +1273,10 @@ function wireControls() {
   }
   dom.reset?.addEventListener("click", () => navigate(viewHref(clearedQuery(), view.recordId)));
   dom.quiet?.addEventListener("click", () => updateQuery({ quiet: view.query.quiet ? "" : "true" }));
-  directoryViews.forEach(button => button.addEventListener("click", () => showDirectoryView(button.dataset.directoryView)));
+  directoryViews.forEach(button => button.addEventListener("click", () => {
+    showDirectoryView(button.dataset.directoryView);
+    if (button.dataset.directoryView === "list") navigate(viewHref({ ...defaultQuery("vendors"), owner: view.query.owner }));
+  }));
 
   scopeButtons.forEach((button) => {
     button.addEventListener("click", () => updateQuery({ owner: button.dataset.owner, scope: "team" }));
@@ -1236,7 +1295,7 @@ function wireControls() {
   dom.chips?.addEventListener("click", (event) => {
     const chip = event.target.closest("[data-chip]");
     if (!chip) return;
-    if (chip.dataset.chip === "all") return navigate(viewHref(clearedQuery(), view.recordId));
+    if (chip.classList.contains("chip-reset")) return navigate(viewHref(clearedQuery(), view.recordId));
     updateQuery({ [chip.dataset.chip]: chip.dataset.chipReset ?? "" });
   });
 
@@ -1256,6 +1315,14 @@ function wireControls() {
     event.preventDefault();
     view.returnFocusId = row.id;
     navigate(row.getAttribute("href"));
+  });
+
+  dom.tiles.addEventListener("click", (event) => {
+    if (event.target.closest("[data-retry='tiles']")) return void loadTiles();
+    const tile = event.target.closest("a.directory-tile");
+    if (!tile || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    navigate(tile.getAttribute("href"));
   });
 
   dom.notices?.addEventListener("click", (event) => {

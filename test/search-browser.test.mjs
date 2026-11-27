@@ -522,3 +522,56 @@ for (const [width, height] of [[390, 844], [900, 700]]) {
     assert.ok(fit.linkRight <= fit.inner, 'the second linked deal sits inside the window');
   });
 }
+
+test('Five long recent searches at 1280x640 never show a cut-off chip and leave the result count whole', async t => {
+  const server = await fixtureServer();
+  t.after(() => server.close());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1280, height: 640 } });
+  const recents = ['a long clinic name search', 'another quite long practice name', 'third long made up search text', 'fourth long made up search text', 'fifth long made up search text'];
+  const id = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  const parties = [
+    { id: id(1), name: 'Demo Dental Person', kind: 'person', roles: [], city: null, lead_id: null, deals: [] },
+    ...Array.from({ length: 3 }, (_, n) => ({ id: id(n + 2), name: `Demo Dental Practice ${n}`, kind: 'company', roles: ['client'], city: null, lead_id: null, deals: [] })),
+    { id: id(9), name: 'Demo Dental Vendor', kind: 'company', roles: ['vendor'], city: null, lead_id: null, deals: [] },
+  ];
+  await page.route('**/mcp', route => {
+    const { id: rid, params } = route.request().postDataJSON();
+    const payload = params.name === 'find' ? { schema_version: 'search.v1', parties, deals: [{ id: 'd01', name: 'Demo Dental Deal', phase: 'site_selection', owner: 'joe' }] } : {};
+    return route.fulfill({ json: { jsonrpc: '2.0', id: rid, result: { content: [{ type: 'text', text: JSON.stringify(payload) }] } } });
+  });
+  await page.route('**/{auth/session,api/system-work/session}', route => route.fulfill({ json: { actor: { slug: 'joe' }, csrf_token: 'synthetic' } }));
+  await page.goto(`${server.origin}/search?mode=live`);
+  // The first visit binds the session and clears private storage, so the recents are stored after it.
+  await page.evaluate(list => localStorage.setItem('doctorcre.recent-searches.v1:joe', JSON.stringify(list)), recents);
+  await page.goto(`${server.origin}/search?mode=live&q=Demo%20Dental`);
+  await page.locator('#searchCount').filter({ hasText: /^\d+ results$/ }).waitFor();
+  await page.locator('#recentSearches .chip').first().waitFor();
+  const fit = await page.evaluate(() => {
+    const box = node => node.getBoundingClientRect();
+    const bar = box(document.querySelector('#recentSearches'));
+    const count = document.querySelector('#searchCount');
+    const chips = [...document.querySelectorAll('#recentSearches .chip')].map(chip => ({ chip, rect: box(chip) }));
+    return {
+      count: { overflow: count.scrollWidth - count.clientWidth, left: box(count).left, right: box(count).right },
+      bar: { left: bar.left, right: bar.right, bottom: bar.bottom },
+      chips: chips.map(({ chip, rect }) => ({
+        text: chip.dataset.recent, title: chip.title, rect: { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom },
+        ellipsis: getComputedStyle(chip.firstElementChild).textOverflow,
+      })),
+    };
+  });
+  const shown = fit.chips.filter(chip => chip.rect.top < fit.bar.bottom);
+  assert.ok(shown.length > 0, 'at least the newest chip shows');
+  assert.deepEqual(shown.map(chip => chip.text), recents.slice(0, shown.length), 'the newest chips stay');
+  for (const chip of fit.chips) {
+    assert.equal(chip.title, chip.text, 'the full text is the title');
+    assert.equal(chip.ellipsis, 'ellipsis');
+  }
+  for (const chip of shown) {
+    assert.ok(chip.rect.left >= fit.bar.left - 0.5 && chip.rect.right <= fit.bar.right + 0.5 && chip.rect.bottom <= fit.bar.bottom + 0.5, `${chip.text} is whole inside the row`);
+  }
+  assert.equal(fit.count.overflow, 0, 'the results count is not cut');
+  assert.ok(fit.count.left >= fit.bar.right - 0.5 && fit.count.right <= 1280, 'the results count sits whole beside the chips');
+});

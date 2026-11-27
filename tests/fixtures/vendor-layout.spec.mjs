@@ -13,7 +13,7 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) {
     await page.addInitScript(theme => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ theme })), theme);
     await page.route('**/api/v1/business/**', route => route.fulfill({ json: directoryFixture(route.request().url()) }));
     await page.addLocatorHandler(page.getByRole('button', { name: 'Dismiss morning brief' }), dismiss => dismiss.click());
-    await page.goto('/vendors');
+    await page.goto('/vendors?all=true');
     await expect(page.locator('.record-row').first()).toBeVisible();
     await expect(page.getByRole('button', { name: 'Show quiet vendors', exact: true })).toBeVisible();
     await expect(page.locator('.result-heading').getByRole('button', { name: 'Market', exact: true })).toHaveCount(0);
@@ -43,7 +43,7 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) {
       await page.getByRole('button', { name: 'Dell', exact: true }).click();
       await expect(page).toHaveURL(/owner=dell/);
       await page.getByRole('button', { name: 'Reset', exact: true }).click();
-      await expect(page).toHaveURL('/vendors');
+      await expect(page).toHaveURL('/vendors?all=true');
       await page.setViewportSize({ width: 1440, height: 844 });
       await expect(page.getByLabel('Category', { exact: true })).toBeVisible();
     }

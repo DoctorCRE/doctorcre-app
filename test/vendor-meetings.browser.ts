@@ -54,7 +54,7 @@ test("Unavailable calendar keeps Research rows and retries in place", async (t) 
       },
     });
   });
-  await page.goto(`${server.url}/vendors`);
+  await page.goto(`${server.url}/vendors?all=true`);
   await page.getByRole("button", { name: "People worth meeting", exact: true }).click();
   const section = page.getByRole("region", { name: "People worth meeting" });
   await section.getByText("Ada Synthetic", { exact: true }).waitFor({ timeout: 5000 });
@@ -300,15 +300,14 @@ test("possible meetings show Central times and a short partial-calendar warning"
     assert.equal(await section.getByText(note, { exact: true }).count(), 0);
 });
 
-test("the List tab restores the directory and People worth meeting keeps its search", async (t) => {
+test("the Categories tab restores the tiles and People worth meeting keeps its search", async (t) => {
   const { page, section } = await setup(t, 390);
   const search = section.getByRole("searchbox");
   await search.fill("Ada");
   await section.getByText("A verified office is needed", { exact: true }).waitFor();
-  await page.getByRole("button", { name: "List", exact: true }).click();
+  await page.getByRole("button", { name: "Categories", exact: true }).click();
   assert.equal(await section.isVisible(), false);
-  await page.locator(".record-row").first().waitFor();
-  assert.equal(await page.locator(".record-row").first().isVisible(), true);
+  await page.locator(".directory-tile[href]").first().waitFor();
   await page.getByRole("button", { name: "People worth meeting", exact: true }).focus();
   await page.keyboard.press("Enter");
   await section.getByText("A verified office is needed", { exact: true }).waitFor();
