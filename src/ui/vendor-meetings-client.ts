@@ -33,7 +33,7 @@ const missingLabels: Record<string, string> = {
   named_contact: "A named contact is needed",
   company: "Company is not recorded",
   category: "Vendor category is not recorded",
-  workable_vendor: "Vendor is parked or avoided",
+  workable_vendor: "Vendor is marked Parked or Avoid",
   in_market: "Vendor is outside the market",
   meeting_reason: "A meeting reason is needed",
   verified_office: "A verified office is needed",

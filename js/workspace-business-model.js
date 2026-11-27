@@ -48,8 +48,6 @@ export const LIST_ROW_KEYS = {
     "is_target", "out_of_market", "last_touch", "owner_label", "owned_by_viewer", "updated_at"],
 };
 
-// The engine still sends these until it drops them; nothing here reads them.
-const RETIRED_VENDOR_KEYS = ["recorded_disposition_workable"];
 // The engine adds these to vendor rows; an engine without them still answers a valid list.
 const NEW_VENDOR_ROW_KEYS = ["categories", "quiet", "quiet_days"];
 
@@ -480,7 +478,7 @@ function activeDealsValid(deals) {
 }
 
 function rowValid(row, dataset) {
-  return extendedKeys(row, LIST_ROW_KEYS[dataset], dataset === "vendors" ? ["relationship", "vertical", "deal_type", "last_deal_at", "territory", ...RETIRED_VENDOR_KEYS, ...NEW_VENDOR_ROW_KEYS] : ["deal_type", "last_deal_at", "active_deals"]) && typeof row.id === "string" && UUID.test(row.id) &&
+  return extendedKeys(row, LIST_ROW_KEYS[dataset], dataset === "vendors" ? ["relationship", "vertical", "deal_type", "last_deal_at", "territory", ...NEW_VENDOR_ROW_KEYS] : ["deal_type", "last_deal_at", "active_deals"]) && typeof row.id === "string" && UUID.test(row.id) &&
     typeof row.name === "string" && row.name.length > 0 && relationshipValid(row.relationship) && activeDealsValid(row.active_deals);
 }
 
@@ -580,7 +578,7 @@ export function validRecordPayload(payload, dataset, id = null, { people = false
   if (payload.partial && payload.partial.count > 1) return false;
   const record = payload.record;
   const withPeople = dataset === 'vendors' && people;
-  if (!extendedKeys(record, [...RECORD_KEYS[dataset], ...(withPeople ? ['people'] : [])], ["party_id", ...(dataset === "vendors" ? ["relationship", "loan_programs", ...RETIRED_VENDOR_KEYS] : ["deal_type", "last_deal_at", "active_deals", "record_links"])]) || typeof record.id !== "string" || !UUID.test(record.id)) return false;
+  if (!extendedKeys(record, [...RECORD_KEYS[dataset], ...(withPeople ? ['people'] : [])], ["party_id", ...(dataset === "vendors" ? ["relationship", "loan_programs"] : ["deal_type", "last_deal_at", "active_deals", "record_links"])]) || typeof record.id !== "string" || !UUID.test(record.id)) return false;
   if (record.party_id !== undefined && (typeof record.party_id !== "string" || !UUID.test(record.party_id))) return false;
   if (!activeDealsValid(record.active_deals)) return false;
   if (withPeople && !peopleValid(record.people)) return false;
