@@ -971,6 +971,8 @@ for (const scenario of ["note", "next step", "reply", "unavailable"] as const) {
     await save("Save note");
     await expect(page.getByRole("alert")).toHaveText("Doc couldn’t tell if this saved. Try again.");
     await expect(field).toHaveValue("An edited note");
+    await expect(field).toBeDisabled();
+    await expect(field).toHaveCSS("opacity", "0.55");
     assert.equal(saves, 1);
     await save("Retry save");
     const savedLine = page.locator(".doc-chat__saved");
