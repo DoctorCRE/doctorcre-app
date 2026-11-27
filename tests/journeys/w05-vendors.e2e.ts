@@ -15,7 +15,7 @@ test("W5 Vendors filters by owner and opens a vendor with its original entries",
   await browser.locator('[data-owner="dell"]').tap();
   await expect(browser.locator("#resultSummary")).toHaveText(/^31 /);
   await browser.waitForURL(/owner=dell/);
-  await browser.locator("#resetFilters").tap();
+  await browser.locator('[data-owner="all"]').tap();
   await expect(browser.locator("#resultSummary")).toHaveText(/^62 /);
 
   await browser.locator(".record-row").first().tap();
