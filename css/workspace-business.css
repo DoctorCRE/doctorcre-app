@@ -214,11 +214,6 @@ body.record-open { overflow: hidden; }
 .activity-when { color: var(--fg-muted); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; }
 .activity-note { font-size: var(--font-size-2); }
 .client-activity .activity-what summary { cursor: pointer; }
-.client-activity .activity-row { grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; }
-.client-activity .activity-when { white-space: nowrap; }
-@media (max-width: 767px) {
-  .client-activity .activity-row { grid-template-columns: minmax(0, 1fr); }
-}
 
 /* --- responsive ------------------------------------------------------------ */
 @media (max-width: 1100px) {
@@ -391,19 +386,32 @@ body[data-directory="clients"] #applyFilters { display: none; }
 .app-layout-tabs .scope-switch { flex: none; padding: 0; border: 0; background: none; }
 .app-layout-tabs .scope-option { min-width: 0; }
 .app-layout-main:has(.business-shell) { padding-top: var(--space-2); }
-/* Vendor rows share the list's columns, and each fact has its own, so facts line up row to row. */
-@container (min-width: 52rem) {
-  body[data-directory="vendors"] .record-list { grid-template-columns: minmax(11rem, 1.5fr) minmax(0, 3fr) max-content max-content; column-gap: var(--space-5); }
+/* Vendor rows share the list's columns, and each fact has its own, so facts line up row to row. Beside an open card or in a narrower window the table drops Category and Location (the card names them) and clips a long Territory on one line, so every row stays one line in either layout; the phone's stacked rows are for phone widths only. */
+@container (min-width: 36rem) {
+  body[data-directory="vendors"] .record-list { grid-template-columns: minmax(10rem, 2fr) minmax(0, 2fr) max-content max-content; column-gap: var(--space-5); }
   body[data-directory="vendors"] :is(.record-list > *, .record-row) { grid-column: 1 / -1; }
   body[data-directory="vendors"] :is(.record-item, .record-row) { display: grid; grid-template-columns: subgrid; }
   body[data-directory="vendors"] :is(.record-row, .record-row:has(.contact-note), .list-head) { grid-template-areas: "head facts note owner"; }
-  /* Category is a column only outside a category; a missing fact leaves its column empty. */
-  body[data-directory="vendors"] .row-facts { display: grid; grid-template-columns: 7.5rem repeat(3, minmax(0, 1fr)); --territory: 3; --location: 4; }
-  body[data-directory="vendors"] #recordList[data-in-category] .row-facts { grid-template-columns: 7.5rem repeat(2, minmax(0, 1fr)); --territory: 2; --location: 3; }
+  body[data-directory="vendors"] .row-facts { display: grid; grid-template-columns: 7.5rem minmax(0, 1fr); --territory: 2; }
   body[data-directory="vendors"] [data-fact="Relationship"] { grid-column: 1; }
-  body[data-directory="vendors"] [data-fact="Category"] { grid-column: 2; }
   body[data-directory="vendors"] [data-fact="Territory"] { grid-column: var(--territory); }
-  body[data-directory="vendors"] [data-fact="Location"] { grid-column: var(--location); }
+  body[data-directory="vendors"] :is([data-fact="Category"], [data-fact="Location"]) { display: none; }
+  body[data-directory="vendors"] [data-fact="Territory"] .fact-value { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  body[data-directory="vendors"] [data-fact="Territory"] wbr { display: none; }
+}
+/* Narrower still, as at 1024 with a card open, Territory goes too: Name, Relationship, Last contacted and Owner stay. */
+@container (min-width: 36rem) and (max-width: 43.99rem) {
+  body[data-directory="vendors"] .record-list { grid-template-columns: minmax(10rem, 1fr) 7.5rem max-content max-content; }
+  body[data-directory="vendors"] [data-fact="Territory"] { display: none; }
+}
+/* With room and no card open, Category (outside a category) and Location are columns too; a missing fact leaves its column empty. */
+@container (min-width: 52rem) {
+  body[data-directory="vendors"]:not([data-card-open]) .record-list { grid-template-columns: minmax(11rem, 1.5fr) minmax(0, 3fr) max-content max-content; }
+  body[data-directory="vendors"]:not([data-card-open]) .row-facts { grid-template-columns: 7.5rem repeat(3, minmax(0, 1fr)); --territory: 3; --location: 4; }
+  body[data-directory="vendors"]:not([data-card-open]) #recordList[data-in-category] .row-facts { grid-template-columns: 7.5rem repeat(2, minmax(0, 1fr)); --territory: 2; --location: 3; }
+  body[data-directory="vendors"]:not([data-card-open]) :is([data-fact="Category"], [data-fact="Location"]) { display: inline-flex; }
+  body[data-directory="vendors"]:not([data-card-open]) [data-fact="Category"] { grid-column: 2; }
+  body[data-directory="vendors"]:not([data-card-open]) [data-fact="Location"] { grid-column: var(--location); }
 }
 body[data-directory="vendors"] .row-updated { display: none; }
 body:not([data-directory="vendors"]) #directoryViews { display: none; }
@@ -427,7 +435,7 @@ body:not([data-directory-view="meetings"]) .vendor-meetings-host { display: none
   .record-empty { padding-inline: var(--space-3); }
 }
 /* One line per record under one header row that names the columns and stays put while the list scrolls. */
-@container (min-width: 52rem) {
+@container (min-width: 36rem) {
   .list-head { position: sticky; top: var(--search-dock-height, 0px); z-index: 1; display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center; height: var(--space-6); padding-inline: var(--space-3); border-bottom: var(--hairline-width) solid var(--hairline); background: var(--ground); color: var(--fg-muted); font-size: var(--font-size-1); }
   /* A row reached by keyboard scrolls clear of the header row as well as the toolbar. */
   .record-row { align-items: center; min-height: 0; padding-block: var(--space-2); scroll-margin-top: calc(var(--space-6) + var(--hairline-width)); }
@@ -439,9 +447,7 @@ body:not([data-directory-view="meetings"]) .vendor-meetings-host { display: none
   .record-skeleton { grid-template-columns: minmax(0, 1fr) minmax(0, 3fr); align-items: center; padding: var(--space-3); }
   .record-skeleton .skeleton-line { margin: 0; }
   /* Every client column is a list column, so the open deal's own link can sit in its cell over the row. */
-  body[data-directory="clients"] .record-list { grid-template-columns: minmax(11rem, 1.4fr) 7rem minmax(0, 1fr) minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr) max-content max-content; column-gap: var(--space-5); --deal: 4; }
-  /* Inside a practice type the Practice type column leaves. */
-  body[data-directory="clients"] #recordList[data-in-category] { grid-template-columns: minmax(11rem, 1.4fr) 7rem minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr) max-content max-content; --deal: 3; }
+  body[data-directory="clients"] .record-list { column-gap: var(--space-5); }
   body[data-directory="clients"] :is(.record-list > *, .record-row) { grid-column: 1 / -1; }
   body[data-directory="clients"] :is(.record-item, .record-row) { display: grid; grid-template-columns: subgrid; }
   body[data-directory="clients"] .record-item > :is(.record-row, .client-deals) { grid-row: 1; }
@@ -588,7 +594,11 @@ body[data-card-open] .app-layout-main { padding-inline-end: calc(clamp(340px, 28
 .record-card .record-panel-head h2 { display: flex; gap: var(--space-2); align-items: center; font-size: var(--font-size-3); white-space: normal; overflow-wrap: anywhere; }
 .record-card .record-panel-head .record-tone { flex-wrap: wrap; white-space: normal; }
 .record-card .record-panel-head .record-tone > #recordMeta { display: contents; }
-.record-card #recordMeta > * + *::before { content: "·"; margin-inline-end: var(--space-2); }
+/* The firm and the category share one line, joined by a dot that cannot start a line; Owner has its own line and no dot. */
+.record-card #recordMeta > :not(.row-fact) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.record-card #recordMeta > :not(.row-fact) + :not(.row-fact) { flex: 1 1 0; }
+.record-card #recordMeta > :not(.row-fact) + :not(.row-fact)::before { content: "·"; margin-inline-end: var(--space-2); }
+.record-card #recordMeta > .row-fact { flex-basis: 100%; }
 .record-card :is(.detail-columns, .network-grid) { grid-template-columns: minmax(0, 1fr); }
 .record-card .record-field { grid-template-columns: 7.5rem minmax(0, 1fr); gap: var(--space-2); }
 .record-relationship { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
@@ -622,17 +632,19 @@ body[data-card-open] .app-layout-main { padding-inline-end: calc(clamp(340px, 28
   .record-card .panel-more { grid-row: 2; grid-column: 2; align-self: start; }
   .record-card .panel-close { grid-column: 3; }
 }
-/* With a card open the table drops Category and Location, as the card names them, and clips a long Territory on one line (its <wbr> hints would still break it), so every row stays one line. */
+/* A client table keeps Name, Status, Territory and Owner beside an open card or in a narrower window; the open deal and the rest show when there is room. */
+@container (min-width: 36rem) {
+  body[data-directory="clients"] #recordList { grid-template-columns: minmax(11rem, 1.4fr) 7rem minmax(0, 1fr) max-content; }
+  body[data-directory="clients"] :is([data-fact="Practice type"], [data-fact="Open deal"], [data-fact="Client type"], .client-deals, .row-updated) { display: none; }
+  body[data-directory="clients"] [data-fact="Territory"] { grid-column: 3; }
+  body[data-directory="clients"] :is(.record-row, .list-head) .row-owner { grid-area: 1 / 4; }
+}
 @container (min-width: 52rem) {
-  body[data-card-open][data-directory="vendors"] .record-list { grid-template-columns: minmax(16rem, 2fr) minmax(0, 2fr) max-content max-content; }
-  body[data-card-open][data-directory="vendors"] .row-facts { grid-template-columns: 7.5rem minmax(0, 1fr); --territory: 2; }
-  body[data-card-open][data-directory="vendors"] #recordList[data-in-category] .row-facts { grid-template-columns: 7.5rem minmax(0, 1fr); }
-  body[data-card-open][data-directory="vendors"] :is([data-fact="Category"], [data-fact="Location"]) { display: none; }
-  body[data-card-open][data-directory="vendors"] [data-fact="Territory"] .fact-value { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-  body[data-card-open][data-directory="vendors"] [data-fact="Territory"] wbr { display: none; }
-  /* A client table keeps Name, Status, Territory and Owner; the card names the open deal and the rest. */
-  body[data-card-open][data-directory="clients"] #recordList { grid-template-columns: minmax(11rem, 1.4fr) 7rem minmax(0, 1fr) max-content; }
-  body[data-card-open][data-directory="clients"] :is([data-fact="Practice type"], [data-fact="Open deal"], [data-fact="Client type"], .client-deals, .row-updated) { display: none; }
-  body[data-card-open][data-directory="clients"] [data-fact="Territory"] { grid-column: 3; }
-  body[data-card-open][data-directory="clients"] :is(.record-row, .list-head) .row-owner { grid-area: 1 / 4; }
+  body[data-directory="clients"]:not([data-card-open]) #recordList { grid-template-columns: minmax(11rem, 1.4fr) 7rem minmax(0, 1fr) minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr) max-content max-content; --deal: 4; }
+  /* Inside a practice type the Practice type column leaves. */
+  body[data-directory="clients"]:not([data-card-open]) #recordList[data-in-category] { grid-template-columns: minmax(11rem, 1.4fr) 7rem minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr) max-content max-content; --deal: 3; }
+  body[data-directory="clients"]:not([data-card-open]) :is([data-fact="Practice type"], [data-fact="Open deal"], [data-fact="Client type"], .row-updated) { display: inline-flex; }
+  body[data-directory="clients"]:not([data-card-open]) .client-deals { display: flex; }
+  body[data-directory="clients"]:not([data-card-open]) [data-fact="Territory"] { grid-column: calc(var(--deal) + 2); }
+  body[data-directory="clients"]:not([data-card-open]) :is(.record-row, .list-head) .row-owner { grid-area: 1 / calc(var(--deal) + 3); }
 }
