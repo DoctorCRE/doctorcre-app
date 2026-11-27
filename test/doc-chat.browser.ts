@@ -1465,7 +1465,10 @@ test("On a phone Older chats keeps focus when the page it loads holds the curren
   await page.getByRole("button", { name: "Recent chats", exact: true }).click();
   const list = page.getByRole("complementary", { name: "Chats" });
   const older = list.getByRole("button", { name: "Older chats" });
-  // The partner presses Older chats while the current chat is still loading.
+  // Older chats waits while the current chat is still loading.
+  await expect(older).toBeDisabled();
+  chatArrives();
+  await expect(older).toBeEnabled();
   await older.focus();
   await page.keyboard.press("Enter");
   await expect(list.getByRole("link", { name: new RegExp(`^${question}`) })).toBeVisible();
