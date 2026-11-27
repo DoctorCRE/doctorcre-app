@@ -1444,9 +1444,14 @@ test("On a phone the open chats keep Tab inside them and close on Escape whereve
 
 test("On a phone Older chats keeps focus when the page it loads holds the current chat", async (t) => {
   const newer = { ...conversation, id: "00000000-0000-4000-8000-000000000003", title: "A newer question" };
-  const { page, origin } = await docChatFixture(t, (request) => {
+  let chatArrives!: () => void;
+  const chatSent = new Promise<void>((resolve) => {
+    chatArrives = resolve;
+  });
+  const { page, origin } = await docChatFixture(t, async (request) => {
     const url = new URL(request.url);
     if (url.pathname !== "/api/engine/doc/conversations") {
+      await chatSent;
       return Response.json({ conversation, turns: [{ ...answeredTurn, idempotency_key: id }] });
     }
     return Response.json(
@@ -1460,6 +1465,10 @@ test("On a phone Older chats keeps focus when the page it loads holds the curren
   await page.getByRole("button", { name: "Recent chats", exact: true }).click();
   const list = page.getByRole("complementary", { name: "Chats" });
   const older = list.getByRole("button", { name: "Older chats" });
+  // Older chats waits while the current chat is still loading.
+  await expect(older).toBeDisabled();
+  chatArrives();
+  await expect(older).toBeEnabled();
   await older.focus();
   await page.keyboard.press("Enter");
   await expect(list.getByRole("link", { name: new RegExp(`^${question}`) })).toBeVisible();
