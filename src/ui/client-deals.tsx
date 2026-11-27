@@ -60,7 +60,7 @@ function ClientDeals({ client, load, stage }: Props) {
     );
     return () => controller.abort();
   }, [load, loading]);
-  if (deals.state === "ready" && deals.deals.length === 0) return null;
+  if (deals.state === "loading" || (deals.state === "ready" && deals.deals.length === 0)) return null;
   const openedDeal = deals.state === "ready" ? deals.deals.find((deal) => deal.id === opened) : undefined;
   const close = () => {
     setOpened(null);
@@ -69,7 +69,6 @@ function ClientDeals({ client, load, stage }: Props) {
   return (
     <>
       <h3>Deals</h3>
-      {deals.state === "loading" && <p className="record-note">Loading deals…</p>}
       {deals.state === "failed" && (
         <p className="record-note">
           Couldn't load deals.{" "}
@@ -109,6 +108,10 @@ function ClientDeals({ client, load, stage }: Props) {
 
 export function mountClientDeals(host: HTMLElement, props: Props) {
   const root = createRoot(host);
-  flushSync(() => root.render(<ClientDeals {...props} />));
-  return { dispose: () => flushSync(() => root.unmount()) };
+  const render = (next: Props) => flushSync(() => root.render(<ClientDeals {...next} />));
+  render(props);
+  return {
+    update: (client: DiagramClient) => render({ ...props, client }),
+    dispose: () => flushSync(() => root.unmount()),
+  };
 }

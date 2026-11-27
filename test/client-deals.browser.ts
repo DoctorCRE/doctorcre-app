@@ -117,11 +117,35 @@ test("opening a deal shows it large in place of the table, and the x brings the 
   assert.equal(await opener.evaluate((node) => node === document.activeElement), true, "focus returns to the opener");
 });
 
-test("a client with no deals has no Deals section", async (t) => {
-  const { panel } = await openCard(t, answer([]));
+test("a client's card shows no Deals heading until the read answers with a deal", async (t) => {
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const { panel } = await openCard(t, async (route) => {
+    await held;
+    return answer(deals)(route);
+  });
   await panel.locator(".client-deals-section").waitFor({ state: "attached" });
-  await panel.locator(".client-deals-section > *").first().waitFor({ state: "detached" });
-  assert.equal(await panel.locator(".client-deals-section").isVisible(), false);
+  assert.equal(await panel.locator(".client-deals-section").textContent(), "", "nothing while the read is out");
+  release();
+  await panel.locator(".client-deal").first().waitFor();
+  assert.equal(await panel.locator(".client-deals-section > h3").textContent(), "Deals");
+});
+
+test("a client with no deals never shows a Deals section", async (t) => {
+  let answered = () => {};
+  const read = new Promise<void>((resolve) => {
+    answered = resolve;
+  });
+  const { page, panel } = await openCard(t, async (route) => {
+    await answer([])(route);
+    answered();
+  });
+  await panel.locator(".client-deals-section").waitFor({ state: "attached" });
+  await read;
+  await page.evaluate(() => new Promise((frame) => requestAnimationFrame(() => requestAnimationFrame(frame))));
+  assert.equal(await panel.locator(".client-deals-section").textContent(), "");
   assert.doesNotMatch((await panel.locator("#recordBody").textContent()) ?? "", /Deals/);
 });
 
@@ -158,6 +182,21 @@ for (const [width, height, scheme] of [
       await panel.locator(".client-deal-open").first().isVisible(),
       width > 767,
       "large view is for a computer",
+    );
+    const [name, phase] = await panel
+      .locator(".client-deal-head")
+      .first()
+      .evaluate((head) =>
+        [...head.querySelectorAll("a, span")].map((node) => {
+          const range = document.createRange();
+          range.selectNodeContents(node);
+          const { top, height } = range.getBoundingClientRect();
+          return top + height / 2;
+        }),
+      );
+    assert.ok(
+      Math.abs((name ?? 0) - (phase ?? 0)) <= 1,
+      `the phase sits level with the deal name (${name} vs ${phase})`,
     );
     await page.screenshot({ path: `${shots}/card-${width}-${scheme}.png` });
     if (width > 767) {

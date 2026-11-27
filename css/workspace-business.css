@@ -517,7 +517,7 @@ body:not([data-directory-view="meetings"]) .vendor-meetings-host { display: none
 .result-column:has(> .client-deal-stage:not(:empty)) > :not(.client-deal-stage) { display: none; }
 .client-deal-opened { box-sizing: border-box; height: calc(100dvh - var(--topbar-height, 0px) - var(--space-4)); overflow: auto; padding: var(--space-3) var(--space-4); border-radius: var(--radius-3); background: var(--surface-1); }
 .client-deal-opened .client-deal-head { position: sticky; top: 0; left: 0; }
-@media (max-width: 767px) { .client-deal-open { display: none; } }
+@media (max-width: 767px) { .client-deal-open { display: none; } .client-deal-head a { line-height: var(--touch); } }
 /* A directory opens on tiles; the list's filters and chips return inside one. */
 body[data-tiles] :is(.filter-actions, #chipBar, #secondaryFilters > summary) { display: none; }
 /* A directory names its place in the title and its filters on the toolbar, so it needs no chips. */

@@ -150,16 +150,21 @@ async function readClientDeals(id, signal) {
 
 function clientDealsHost(record) {
   const id = record.party_id ?? record.id;
-  if (clientDeals?.id === id) return clientDeals.host;
+  const client = { id, name: record.name };
+  if (clientDeals?.id === id) {
+    clientDeals.client = client;
+    clientDeals.handle?.update(client);
+    return clientDeals.host;
+  }
   clearClientDeals();
-  const deals = { id, host: document.createElement("section"), stage: document.createElement("div"), handle: null };
+  const deals = { id, client, host: document.createElement("section"), stage: document.createElement("div"), handle: null };
   clientDeals = deals;
   deals.host.className = "record-section client-deals-section";
   deals.stage.className = "client-deal-stage";
   dom.listRegion.closest(".result-column").append(deals.stage);
   import("./ui-client-deals.generated.js").then(({ mountClientDeals }) => {
     if (clientDeals !== deals) return;
-    deals.handle = mountClientDeals(deals.host, { client: { id, name: record.name }, stage: deals.stage, load: signal => readClientDeals(id, signal) });
+    deals.handle = mountClientDeals(deals.host, { client: deals.client, stage: deals.stage, load: signal => readClientDeals(id, signal) });
   }, () => { deals.host.textContent = "Couldn't load deals."; });
   return deals.host;
 }

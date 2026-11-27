@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { Page, Route } from "playwright";
+import type { Locator, Page, Route } from "playwright";
 import { inspectPhoneAccessibility } from "../scripts/phone-accessibility.ts";
 import { chromium } from "./browser-harness.mjs";
 import { ownedServer as startFixtureServer } from "./fixture-probe.ts";
@@ -26,6 +26,7 @@ async function setup(
     facets = {},
     activity,
     reread,
+    rereadRecord = {},
   }: {
     width?: number;
     theme?: "dark" | "light";
@@ -40,6 +41,8 @@ async function setup(
     activity?: Promise<void>;
     // A second read of the record answers once this settles.
     reread?: Promise<void>;
+    // Fields the record's second read changes, as the engine answers after a save.
+    rereadRecord?: Record<string, unknown>;
   } = {},
 ) {
   const server = await startFixtureServer();
@@ -66,7 +69,7 @@ async function setup(
       return route.fulfill({
         json: isList
           ? { ...json, facets: Object.assign({}, json.facets, facets) }
-          : { ...json, record: Object.assign({}, json.record, record) },
+          : { ...json, record: Object.assign({}, json.record, record, recordReads > 1 ? rereadRecord : {}) },
       });
     } catch {
       return route.fulfill({ status: 404, json: { error: "RECORD_NOT_FOUND" } });
@@ -327,6 +330,49 @@ test("Edit on a client opened by its old id edits the party the record names", a
     [`/api/engine/parties/${party}`, `/api/engine/clients/${party}`],
   );
   assert.deepEqual(withoutKey(posts(sent)[0]?.body ?? {}), { vertical: { from: "Dental", to: "Orthodontics" } });
+});
+
+test("Renaming a client redraws its deal diagrams and opened deal with the new name", async (t) => {
+  const fake = engine({ ...vendorParty, name: "Demo Practice 01" }, "client", {
+    party_id: firstClient,
+    status: "roster",
+    client_type: "group_practice",
+    how_found: "not_recorded",
+    vertical: "Dental",
+  });
+  const deal = {
+    id: "d1",
+    name: "Demo office",
+    phase: "negotiation",
+    phase_label: "Negotiation",
+    open: true,
+    closed_on: null,
+    owner: "dell",
+    vendors: [],
+    introductions: [],
+  };
+  const { page } = await setup(
+    t,
+    `/clients?record=${firstClient}`,
+    (call) => (call.path.endsWith("/deals") ? { status: 200, json: { deals: [deal] } } : fake.answer(call)),
+    { rereadRecord: { name: "Demo Renamed Practice" } },
+  );
+  const panel = page.locator("#recordPanel");
+  const clientBox = (where: Locator) => where.locator(".deal-diagram").getByText("Demo Practice 01", { exact: true });
+  await panel.getByRole("button", { name: "Open Demo office large" }).click();
+  const opened = page.locator(".client-deal-opened");
+  await clientBox(opened).waitFor();
+  await panel.getByRole("button", { name: "Edit" }).click();
+  const dialog = page.getByRole("dialog", { name: "Edit Demo Practice 01" });
+  await dialog.getByLabel("Name").fill("Demo Renamed Practice");
+  await dialog.getByRole("button", { name: "Save changes" }).click();
+  await dialog.waitFor({ state: "hidden" });
+  const renamed = (where: Locator) =>
+    where.locator(".deal-diagram").getByText("Demo Renamed Practice", { exact: true }).first();
+  await renamed(panel).waitFor();
+  await renamed(opened).waitFor();
+  assert.equal(await clientBox(panel).count(), 0, "the card's diagram has no old name");
+  assert.equal(await clientBox(opened).count(), 0, "the opened view has no old name");
 });
 
 test("Edit says it is opening and opens once however often it is pressed", async (t) => {
