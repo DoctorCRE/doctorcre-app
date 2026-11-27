@@ -7,7 +7,7 @@ test("QA-028 default Pipeline option names its pipeline scope", {
   requires: ["browser"],
   retries: 0,
 }, async ({ app, browser, screen }) => {
-  await app.open("/clients?mode=live");
+  await app.open("/clients?all=true&mode=live");
   await expect(browser.locator("#resultSummary")).toContainText(/\d+ clients/);
   const filters = browser.locator("#secondaryFilters > summary");
   if (await filters.isVisible()) await filters.tap();
