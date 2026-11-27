@@ -1,3 +1,4 @@
+import { deviceTextDraft } from "../device-text";
 import type { DocLinkRequest } from "../doc-link";
 import type { PrivateReplyDraft } from "./draft-edits.ts";
 import { fixtureInboxRpc } from "./fixture.tsx";
@@ -50,8 +51,9 @@ export async function bootInbox(host: HTMLElement) {
         sibling("./mcp-requests.mjs"),
       ]);
       const session = privateSession();
-      await session.verify();
-      privateDraft = (id) => session.textDraft("home-reply", id);
+      const verified = await session.verify();
+      const actor = typeof verified?.actor?.slug === "string" ? verified.actor.slug : "";
+      privateDraft = (id) => deviceTextDraft(session.revoked ? "" : actor, "home-reply", id);
       if (session.engineSignIn) docLinkRequest = session.fetch;
       const request = createMcpRequests();
       rpc = async (name, args, signal) => {

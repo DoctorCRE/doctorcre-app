@@ -759,6 +759,20 @@ export function ReviewCard<Item extends ReviewItem>({
                         required
                       />
                     </label>
+                    {editingDraft && (
+                      <div>
+                        <p role="status">Unsaved edits</p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            updateDraftEdits(null);
+                            host.current?.focus();
+                          }}
+                        >
+                          Discard
+                        </button>
+                      </div>
+                    )}
                   </>
                 ) : (
                   <div className={staleEdit ? "home-draft-comparison" : undefined}>
@@ -779,7 +793,7 @@ export function ReviewCard<Item extends ReviewItem>({
                         <div className="inbox-actions">
                           {canSaveDraft && (
                             <button type="button" onClick={() => beginDraftEdit(staleEdit)}>
-                              Use my edit
+                              Use my edits
                             </button>
                           )}
                           <button
