@@ -429,3 +429,36 @@ body:not([data-directory-view="meetings"]) .vendor-meetings-host { display: none
   body[data-directory="clients"] [data-fact="Client type"] { grid-column: 4; }
   body[data-directory="clients"] [data-fact="Territory"] { grid-column: 5; }
 }
+
+/* A deal's diagram: who brought each vendor in and who was chosen. Lines are each box's own elbow, so they never need measuring. */
+.deal-diagram { --line: color-mix(in srgb, var(--fg-quiet) 60%, transparent); --line-chosen: color-mix(in srgb, var(--status-ok-ink) 75%, transparent); --box: max(44px, var(--touch)); display: flex; flex-direction: column; font-size: var(--font-size-1); }
+.deal-diagram ul { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-2) 0 0 26px; padding: 0; list-style: none; }
+.deal-diagram li { --mid: calc(var(--box) / 2); position: relative; min-width: 0; }
+.deal-diagram li::before, .deal-diagram li:not(:last-child)::after { content: ""; position: absolute; left: -12px; border: 0 solid var(--line); }
+.deal-diagram li::before { top: calc(var(--space-2) * -1); width: 10px; height: calc(var(--mid) + var(--space-2)); border-bottom-width: 1.5px; border-left-width: 1.5px; border-bottom-left-radius: var(--radius-2); }
+.deal-diagram li:not(:last-child)::after { top: var(--mid); bottom: calc(var(--space-2) * -1); border-left-width: 1.5px; }
+.deal-diagram li[data-line="chosen"]::before { border-color: var(--line-chosen); }
+.deal-diagram li[data-line="dashed"]::before, .deal-diagram ul[data-line="dashed"] > li::after { border-style: dashed; }
+.deal-diagram .deal-diagram-junction { --mid: 11px; }
+.deal-diagram .deal-diagram-restack { --mid: calc(var(--touch) / 2); }
+.deal-diagram-junction > span { display: flex; align-items: center; min-height: 22px; color: var(--fg-quiet); font-weight: var(--font-weight-strong); }
+.deal-diagram-box { display: flex; align-items: center; gap: var(--space-2); box-sizing: border-box; min-height: var(--box); padding: var(--space-1) var(--space-3); border-radius: var(--radius-3); background: var(--surface-2); }
+.deal-diagram-box[data-tone="client"] { background: var(--surface-3); }
+.deal-diagram-box[data-tone="client"] b { font-weight: var(--font-weight-strong); }
+.deal-diagram-box:is([data-tone="chosen"], [data-tone="onDeal"]) { --mark: var(--status-ok-ink); background: color-mix(in srgb, var(--status-ok-ink) 11%, var(--surface-2)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status-ok-ink) 45%, transparent); }
+.deal-diagram-box[data-tone="introduced"] { --mark: var(--fg-quiet); background: var(--surface-1); box-shadow: inset 0 0 0 1px var(--hairline); }
+.deal-diagram-box[data-tone="introduced"] b { color: var(--fg-muted); }
+.deal-diagram-text { display: flex; flex: 1; flex-direction: column; min-width: 0; color: var(--fg-quiet); line-height: 1.3; }
+.deal-diagram-text b { overflow: hidden; color: var(--fg); font-size: var(--font-size-2); font-weight: var(--font-weight-regular); text-overflow: ellipsis; white-space: nowrap; }
+.deal-diagram-word { color: var(--mark); font-weight: var(--font-weight-strong); }
+.deal-diagram-glyph { flex: none; width: 14px; height: 14px; fill: none; stroke: var(--mark, var(--fg-quiet)); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.deal-diagram-glyph .deal-diagram-fill { fill: var(--mark); stroke: none; }
+.deal-diagram-box:is([data-tone="chosen"], [data-tone="onDeal"]) .deal-diagram-glyph path { stroke: var(--surface-1); stroke-width: 2; }
+.deal-diagram-initial { display: grid; flex: none; place-items: center; width: 20px; height: 20px; border-radius: var(--radius-round); background: var(--surface-3); color: var(--fg); font-weight: var(--font-weight-strong); }
+.deal-diagram-pile { display: block; width: 100%; margin-bottom: var(--space-2); padding: 0; border: 0; border-radius: var(--radius-3); background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.deal-diagram-pile[data-depth="1"] { box-shadow: 0 6px 0 -3px var(--surface-2), 0 6px 0 -2px var(--hairline-strong); }
+.deal-diagram-pile[data-depth="2"] { margin-bottom: var(--space-3); box-shadow: 0 6px 0 -3px var(--surface-2), 0 6px 0 -2px var(--hairline-strong), 0 12px 0 -7px var(--surface-2), 0 12px 0 -6px var(--hairline-strong); }
+.deal-diagram-pile:hover .deal-diagram-box { background: var(--surface-2); }
+.deal-diagram-count { flex: none; padding: 0 var(--space-2); border-radius: var(--radius-round); background: var(--surface-3); color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+.deal-diagram-restack button { min-height: var(--touch); padding: 0 var(--space-1); border: 0; border-radius: var(--radius-2); background: none; color: var(--fg-quiet); font: inherit; cursor: pointer; }
+.deal-diagram-restack button:hover { background: var(--surface-2); color: var(--fg); }
