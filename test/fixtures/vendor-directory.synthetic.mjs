@@ -37,7 +37,7 @@ export function directoryFixture(url, { now = Date.now(), overrides = new Map() 
     return {viewer:'joe',dataset,record,partial:null,not_in_this_read:[],recorded_field_note:'Synthetic',source};
   }
   const parsed=parseViewState('/'+dataset,u.search), {all,no_category,relationship:_,...asked}=parsed.query, query={...asked,...(no_category&&{no_category:true}),...(asked.quiet&&{quiet:true}),q:parsed.query.q||null,page_size:PAGE_SIZE};
-  for(const key of ['category','stage','disposition','status','type','territory']) if(key in query && !query[key]) query[key]=null;
+  for(const key of ['category','stage','disposition','status','territory']) if(key in query && !query[key]) query[key]=null;
   // Like the engine, the tile filters echo only when sent, and the app's own key never travels.
   for(const key of ['practice_type','national_account']) if(u.searchParams.has(key)) query[key]=u.searchParams.get(key); else delete query[key];
   delete query.not_set;
