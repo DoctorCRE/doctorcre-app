@@ -29,6 +29,9 @@ export function directoryFixture(url, { now = Date.now(), overrides = new Map() 
   }
   const parsed=parseViewState('/'+dataset,u.search), query={...parsed.query,q:parsed.query.q||null,page_size:PAGE_SIZE};
   for(const key of ['category','stage','disposition','status','type','territory']) if(key in query && !query[key]) query[key]=null;
+  // Like the engine, the tile filters echo only when sent, and the app's own keys never travel.
+  for(const key of ['practice_type','national_account']) if(u.searchParams.has(key)) query[key]=u.searchParams.get(key); else delete query[key];
+  delete query.not_set; delete query.all;
   let filtered=records.filter(row=>(!query.q||row.name.toLowerCase().includes(query.q.toLowerCase()))&&(query.owner==='all'||row.owner_label.toLowerCase()===query.owner)&&(!query.territory||row.territory===query.territory));
   filtered.sort((a,b)=>query.sort==='last_deal_desc'?b.last_deal_at.localeCompare(a.last_deal_at):query.sort==='last_deal_asc'?a.last_deal_at.localeCompare(b.last_deal_at):['vertical','deal_type','territory'].includes(query.sort)?a[query.sort].localeCompare(b[query.sort])||a.name.localeCompare(b.name):a.name.localeCompare(b.name));
   return {viewer:'joe',dataset,query,total:filtered.length,page:query.page,page_size:PAGE_SIZE,page_count:Math.max(1,Math.ceil(filtered.length/PAGE_SIZE)),out_of_range:query.page>Math.max(1,Math.ceil(filtered.length/PAGE_SIZE)),rows:filtered.slice((query.page-1)*PAGE_SIZE,query.page*PAGE_SIZE).map(row=>allowed(row,LIST_ROW_KEYS[dataset],optional)),facets:dataset==='vendors'?{categories:[{slug:'banker',label:'Banking'}],stages:[],dispositions:[],territories:[{slug:'Demo North',label:'Demo North'},{slug:'Demo South',label:'Demo South'}]}:{statuses:[{slug:'active',label:'Active'}],types:[]},partial:null,recorded_field_note:'Synthetic',source};

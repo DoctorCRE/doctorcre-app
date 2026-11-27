@@ -13,7 +13,11 @@ async function openClients(
   t: TestContext,
   width: number,
   height: number,
-  { path = "/clients", ready = ".record-row", held }: { path?: string; ready?: string; held?: Promise<void> } = {},
+  {
+    path = "/clients?all=true",
+    ready = ".record-row",
+    held,
+  }: { path?: string; ready?: string; held?: Promise<void> } = {},
 ) {
   const server = await startFixtureServer();
   t.after(() => server.stop());

@@ -40,7 +40,7 @@ const SIGNED_OUT_CODE = "AUTHENTICATION_REQUIRED";
 const VIEWERS = new Set(["joe", "dell"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SLUG = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
-const FILTER_KEYS = { clients: ["status", "type", "pipeline"], vendors: ["category", "stage", "disposition", "quiet"] };
+const FILTER_KEYS = { clients: ["status", "type", "pipeline", "practice_type", "not_set", "national_account"], vendors: ["category", "stage", "disposition", "quiet"] };
 const SOURCE_FOR = { clients: "client", vendors: "vendor" };
 
 export const LIST_ROW_KEYS = {
@@ -81,7 +81,7 @@ export function datasetForPath(pathname) {
 export function defaultQuery(dataset) {
   const base = { dataset, scope: DEFAULT_SCOPE, owner: "all", territory: "", q: "", sort: DEFAULT_SORT, page: 1 };
   return dataset === "clients"
-    ? { ...base, status: "", type: "", pipeline: "any" }
+    ? { ...base, all: "", status: "", type: "", pipeline: "any", practice_type: "", not_set: "", national_account: "" }
     : { ...base, category: "", stage: "", disposition: "", quiet: "" };
 }
 
@@ -115,6 +115,10 @@ export function parseViewState(pathname, search) {
     query.status = readSlug(params, "status");
     query.type = readSlug(params, "type");
     query.pipeline = PIPELINE_FILTERS.includes(params.get("pipeline")) ? params.get("pipeline") : "any";
+    query.practice_type = (params.get("practice_type") || "").trim().slice(0, MAX_QUERY_LENGTH);
+    query.not_set = params.get("not_set") === "true" && !query.practice_type ? "true" : "";
+    query.national_account = params.get("national_account") === "any" ? "any" : "";
+    query.all = params.get("all") === "true" ? "true" : "";
   } else {
     query.category = readSlug(params, "category");
     query.stage = readSlug(params, "stage");
@@ -145,6 +149,7 @@ function queryPairs(query) {
 /** The address a partner keeps. Defaults are omitted so the common URL stays short. */
 export function viewHref(query, recordId = null) {
   const params = new URLSearchParams(queryPairs(query));
+  if (query.all) params.set("all", "true");
   if (recordId) params.set("record", recordId);
   const search = params.toString();
   return `${DATASET_ROUTE[query.dataset]}${search ? `?${search}` : ""}`;
@@ -153,6 +158,12 @@ export function viewHref(query, recordId = null) {
 /** The read the server answers. `record` is a UI concern and never travels here. */
 export function listRequestUrl(query) {
   const params = new URLSearchParams(queryPairs(query));
+  // The engine names Not set as an empty practice type.
+  if (params.has("not_set")) {
+    params.delete("not_set");
+    params.set("practice_type", "");
+  }
+  if (showsTiles(query)) params.set("tiles", "true");
   params.set("contract", query.dataset === "clients" ? "vendor-directory.v2" : "vendor-directory.v1");
   const search = params.toString();
   return `${API_PREFIX}${query.dataset}${search ? `?${search}` : ""}`;
@@ -164,8 +175,30 @@ export function recordRequestUrl(dataset, id, { people = false } = {}) {
 
 export function sameQuery(left, right) {
   if (!left || !right || left.dataset !== right.dataset) return false;
-  const keys = ["scope", "owner", "territory", "q", "sort", "page", ...FILTER_KEYS[left.dataset]];
+  const keys = ["scope", "owner", "territory", "q", "sort", "page", "all", ...FILTER_KEYS[left.dataset]];
   return keys.every((key) => left[key] === right[key]);
+}
+
+/**
+ * Clients opens on tiles. A search, any filter, or All clients shows the list
+ * instead; Joe and Dell recount the tiles.
+ */
+export function showsTiles(query) {
+  const base = defaultQuery(query.dataset);
+  return query.dataset === "clients" && !query.all
+    && ["scope", "q", "sort", ...FILTER_KEYS.clients].every((key) => query[key] === base[key]);
+}
+
+const TILE_COUNTS = ["total", "open_deal", "past_client", "no_deal_yet"];
+const tileCounts = (tile, extra = []) => exactKeys(tile, [...TILE_COUNTS, ...extra])
+  && TILE_COUNTS.every((key) => counted(tile[key])) && tile.total === tile.open_deal + tile.past_client + tile.no_deal_yet;
+
+function tilesValid(tiles) {
+  return exactKeys(tiles, ["all", "national_accounts", "practice_types", "not_set"])
+    && tileCounts(tiles.all) && tileCounts(tiles.not_set)
+    && tileCounts(tiles.national_accounts, ["accounts"]) && counted(tiles.national_accounts.accounts)
+    && Array.isArray(tiles.practice_types)
+    && tiles.practice_types.every((tile) => tileCounts(tile, ["practice_type"]) && typeof tile.practice_type === "string" && tile.practice_type.trim() !== "");
 }
 
 export function hasActiveFilters(query) {
@@ -185,6 +218,9 @@ export function filterChips(query, facets = {}) {
     if (query.status) chips.push({ key: "status", label: "Status", value: labelFor(facets.statuses, query.status), reset: "" });
     if (query.type) chips.push({ key: "type", label: "Client type", value: labelFor(facets.types, query.type), reset: "" });
     if (query.pipeline !== "any") chips.push({ key: "pipeline", label: "Pipeline", value: PIPELINE_LABEL[query.pipeline], reset: "any" });
+    if (query.practice_type) chips.push({ key: "practice_type", label: "Practice type", value: query.practice_type, reset: "" });
+    if (query.not_set) chips.push({ key: "not_set", label: "Practice type", value: "Not set", reset: "" });
+    if (query.national_account) chips.push({ key: "national_account", label: "Showing", value: "National account locations", reset: "" });
   } else {
     if (query.category) chips.push({ key: "category", label: "Category", value: labelFor(facets.categories, query.category), reset: "" });
     if (query.stage) chips.push({ key: "stage", label: "Stage", value: labelFor(facets.stages, query.stage), reset: "" });
@@ -408,14 +444,17 @@ export function echoesQuery(payload, query) {
   return FILTER_KEYS[query.dataset].every((key) => {
     const wanted = query[key];
     if (key === "pipeline") return echo.pipeline === wanted;
+    if (key === "practice_type") return (echo.practice_type ?? null) === (query.not_set ? "" : wanted || null);
+    if (key === "not_set") return true;
     if (key === "quiet") return (echo.quiet === true) === (wanted === "true");
     return (echo[key] ?? null) === (wanted || null);
   });
 }
 
 export function validListPayload(payload, dataset) {
-  if (!exactKeys(payload, ["viewer", "dataset", "query", "total", "page", "page_size", "page_count", "out_of_range",
-    "rows", "facets", "partial", "recorded_field_note", "source"])) return false;
+  if (!extendedKeys(payload, ["viewer", "dataset", "query", "total", "page", "page_size", "page_count", "out_of_range",
+    "rows", "facets", "partial", "recorded_field_note", "source"], dataset === "clients" ? ["tiles"] : [])) return false;
+  if ("tiles" in payload && !tilesValid(payload.tiles)) return false;
   if (!VIEWERS.has(payload.viewer) || payload.dataset !== dataset || !sourceValid(payload.source, dataset)) return false;
   if (!counted(payload.total) || !Number.isInteger(payload.page) || payload.page < 1) return false;
   if (payload.page_size !== PAGE_SIZE || !Number.isInteger(payload.page_count) || payload.page_count < 1) return false;

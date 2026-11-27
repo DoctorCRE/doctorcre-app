@@ -32,7 +32,7 @@ import {
   displayedFreshness, echoesQuery, emptyCopy, expireSession, filterChips, freshnessSignature, hasActiveFilters,
   isSessionExpiry, listPhase, listRequestUrl, ownerPresentation, pageSummary, panelModality, panelTabTarget,
   parseViewState, partyKindText, recordRequestUrl, recordSections, recordedCode, recordedValue, refusalCopy,
-  rememberPayload, restoreSession, sameQuery, scrollIntent, searchBoxValue, sourceIsFresh,
+  rememberPayload, restoreSession, sameQuery, scrollIntent, searchBoxValue, showsTiles, sourceIsFresh,
   validListPayload, validRecordPayload, vendorRelationship, viewHref,
 } from "./workspace-business-model.js";
 import { resolveDealroomBoot } from "./boot-mode.js";
@@ -67,6 +67,7 @@ const dom = {
   notices: document.querySelector("#noticeRegion"),
   summary: document.querySelector("#resultSummary"),
   listRegion: document.querySelector("#listRegion"),
+  tiles: document.querySelector("#directoryTiles"),
   list: document.querySelector("#recordList"),
   pager: document.querySelector("#pager"),
   source: document.querySelector("#listSource"),
@@ -298,6 +299,7 @@ function renderControls({ syncSearch = false } = {}) {
       dom.search.value = next;
     }
   }
+  if (dom.search) dom.search.placeholder = dataset === "clients" ? "Find a client" : "Search by name";
   document.querySelector('#territoryField').hidden = dataset !== 'vendors';
   dom.quiet.hidden = dataset !== 'vendors';
   dom.quiet.setAttribute('aria-pressed', String(query.quiet === 'true'));
@@ -552,7 +554,7 @@ function renderPager(payload) {
 }
 
 async function loadMore() {
-  if (view.loadingMore || view.failedPage || view.list.status !== 'ready' || view.loadedPageCount >= view.list.payload?.page_count) return;
+  if (showsTiles(view.query) || view.loadingMore || view.failedPage || view.list.status !== 'ready' || view.loadedPageCount >= view.list.payload?.page_count) return;
   const operation = {};
   view.loadingMore = operation;
   const epoch = view.list.sequence;
@@ -582,6 +584,12 @@ function renderList() {
   const { dataset, list, query } = view;
   const phase = listPhase({ status: list.status, payload: list.payload, query, dataset, signedOut: view.signedOut });
   view.freshnessKey = list.payload ? freshnessSignature(list.payload, dataset) : null;
+  // An answer without tiles comes from an engine that has none yet, so the list stands in.
+  const tiles = showsTiles(query) && (phase === "loading" || Boolean(list.payload?.tiles) && ["ready", "refreshing", "stale", "empty-no-records"].includes(phase));
+  document.body.toggleAttribute("data-tiles", tiles);
+  dom.tiles.hidden = !tiles;
+  dom.listRegion.hidden = tiles;
+  if (tiles) return renderTiles(phase, list.payload);
 
   if (phase === "loading") {
     setHealth("loading");
@@ -626,6 +634,55 @@ function renderList() {
     paintList(headHtml(dataset) + (view.loadedRows || payload.rows).map((row) => rowHtml(dataset, row, view.recordId)).join(""));
   }
   renderPager(payload);
+}
+
+// -------------------------------------------------------------- the tiles
+
+/** One tile: a name, its number, a few smaller counts and an optional footnote. Shared by Clients and Vendors. */
+function tileHtml({ label, count, href, mix, foot = "" }) {
+  const counts = mix.filter(({ n }) => n > 0).map(({ n, word }) => `<li><span class="tile-n">${n}</span> ${escapeHtml(word)}</li>`).join("");
+  return `<li><a class="directory-tile" href="${escapeHtml(href)}"><span class="tile-head"><span class="tile-name">${escapeHtml(label)}</span><span class="tile-count">${count}</span></span><ul class="tile-mix">${counts}</ul>${foot ? `<span class="tile-foot">${escapeHtml(foot)}</span>` : ""}</a></li>`;
+}
+
+const tileGridHtml = (tiles) => `<ul class="directory-tile-grid">${tiles.join("")}</ul>`;
+const TILE_SKELETON = '<li><span class="directory-tile"><span class="skeleton-line"></span><span class="skeleton-line short"></span></span></li>';
+
+const clientMix = (counts) => [
+  { n: counts.open_deal, word: "Open deal" },
+  { n: counts.past_client, word: "Past client" },
+  { n: counts.no_deal_yet, word: "No deal yet" },
+];
+
+function clientTiles({ all, national_accounts: accounts, practice_types: types, not_set: notSet }) {
+  const base = { ...defaultQuery("clients"), owner: view.query.owner };
+  const tile = (label, counts, changes, extra = {}) =>
+    tileHtml({ label, count: counts.total, mix: clientMix(counts), href: viewHref({ ...base, ...changes }), ...extra });
+  // Other waits for the practice type list that says which types are healthcare.
+  return [
+    tile("All clients", all, { all: "true" }),
+    ...(accounts.total > 0 ? [tile("National Accounts", accounts, { national_account: "any" },
+      { count: accounts.accounts, foot: `${accounts.total} ${accounts.total === 1 ? "location" : "locations"}` })] : []),
+    ...types.map((type) => tile(type.practice_type, type, { practice_type: type.practice_type })),
+    ...(notSet.total > 0 ? [tile("Not set", notSet, { not_set: "true" })] : []),
+  ];
+}
+
+function renderTiles(phase, payload) {
+  document.querySelector("#scrollSentinel").hidden = true;
+  if (dom.pager) dom.pager.hidden = true;
+  renderNotices([]);
+  dom.tiles.setAttribute("aria-busy", String(phase === "loading"));
+  if (phase === "loading") {
+    setHealth("loading");
+    dom.summary.textContent = "Checking…";
+    dom.tiles.innerHTML = tileGridHtml(Array(8).fill(TILE_SKELETON));
+    return;
+  }
+  setHealth(phase === "refreshing" ? "refreshing" : phase === "stale" ? "stale" : "available");
+  if (dom.observedAt) dom.observedAt.textContent = updatedLabel(payload.source.observed_at, BUSINESS_TIME_ZONE);
+  const { total } = payload.tiles.all;
+  dom.summary.textContent = `${total} ${total === 1 ? "client" : "clients"}`;
+  dom.tiles.innerHTML = tileGridHtml(clientTiles(payload.tiles));
 }
 
 // ------------------------------------------------------------- the record
@@ -1106,6 +1163,9 @@ function applyLocation({ reason = "initial", restoreScroll = null } = {}) {
   if (typeof restoreScroll === "number") pageScroller().scrollTo({ top: restoreScroll, behavior: "instant" });
 }
 
+// Clearing filters inside All clients stays in All clients.
+const clearedQuery = () => ({ ...defaultQuery(view.dataset), ...(view.query.all && { all: view.query.all }) });
+
 function updateQuery(changes, { replace = false } = {}) {
   const next = { ...view.query, ...changes };
   // Any narrowing returns to the first page; a page number carried over from
@@ -1155,7 +1215,7 @@ function wireControls() {
       if (field) updateQuery({ [field.key]: dom[key].value });
     });
   }
-  dom.reset?.addEventListener("click", () => navigate(viewHref(defaultQuery(view.dataset), view.recordId)));
+  dom.reset?.addEventListener("click", () => navigate(viewHref(clearedQuery(), view.recordId)));
   dom.quiet?.addEventListener("click", () => updateQuery({ quiet: view.query.quiet ? "" : "true" }));
   directoryViews.forEach(button => button.addEventListener("click", () => showDirectoryView(button.dataset.directoryView)));
 
@@ -1176,14 +1236,14 @@ function wireControls() {
   dom.chips?.addEventListener("click", (event) => {
     const chip = event.target.closest("[data-chip]");
     if (!chip) return;
-    if (chip.dataset.chip === "all") return navigate(viewHref(defaultQuery(view.dataset), view.recordId));
+    if (chip.dataset.chip === "all") return navigate(viewHref(clearedQuery(), view.recordId));
     updateQuery({ [chip.dataset.chip]: chip.dataset.chipReset ?? "" });
   });
 
   dom.list?.addEventListener("click", (event) => {
     if (event.target.closest("[data-chip='all']")) {
       event.preventDefault();
-      return navigate(viewHref(defaultQuery(view.dataset), view.recordId));
+      return navigate(viewHref(clearedQuery(), view.recordId));
     }
     if (event.target.closest("[data-retry='list']")) {
       event.preventDefault();
