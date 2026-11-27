@@ -163,8 +163,7 @@
 /* Under the typing box, one quiet line says whether Doc on the partner's Mac can answer now. */
 .doc-chat__mac {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
+  align-items: flex-start;
   gap: var(--space-2);
   max-inline-size: 728px;
   box-sizing: border-box;
@@ -178,11 +177,21 @@
   flex: none;
   inline-size: 8px;
   block-size: 8px;
+  margin-block-start: calc((1lh - 8px) / 2);
   border-radius: var(--radius-round);
   background: var(--fg-quiet);
 }
 .doc-chat__mac[data-ready]::before { background: var(--status-ok); }
-.doc-chat__mac a { display: inline-flex; align-items: center; min-block-size: var(--touch); color: var(--fg-muted); }
+.doc-chat__mac a {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: var(--touch);
+  margin-block: calc((1lh - var(--touch)) / 2);
+  color: var(--fg-muted);
+  transition: color var(--duration-hover) var(--ease-out);
+}
+.doc-chat__mac a:hover { color: var(--fg); }
+@media (prefers-reduced-motion: reduce) { .doc-chat__mac a { transition: none; } }
 /* A new empty chat centers its one line and the typing box; after the first question the box sits at the bottom. */
 .doc-chat-page:has(.doc-chat__empty) { grid-template-rows: minmax(0, 1fr) auto minmax(0, 1fr); }
 .doc-chat-page:has(.doc-chat__empty) .doc-chat__chats { grid-row: 1 / -1; }

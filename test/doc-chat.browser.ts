@@ -1704,7 +1704,7 @@ for (const [status, line] of [
     );
     await page.goto(`${origin}/doc-chats?mode=live`);
     const mac = page.locator(".doc-chat__dock > p");
-    await expect(mac).toHaveText(status === "not_set_up" ? `${line}Set up in Settings` : line);
+    await expect(mac).toHaveText(status === "not_set_up" ? `${line} Set up in Settings` : line);
     const [box, under] = await Promise.all([page.locator(".doc-chat__composer").boundingBox(), mac.boundingBox()]);
     assert.ok(box && under && under.y >= box.y + box.height, "the line sits under the typing box");
     const dot = await mac.evaluate((element) => ({
@@ -1753,6 +1753,44 @@ test("The Mac status line shows nothing when its read fails and reads again when
   answer = true;
   await page.clock.runFor(5_000);
   await expect(page.getByText(answered.answer.text)).toBeVisible();
+  await expect(mac).toHaveText("Doc is ready on your Mac.");
+  assert.equal(linkReads, 2);
+});
+
+test("The Mac status line reads again when a follow-up comes back already answered", async (t) => {
+  const followUp = {
+    ...answeredTurn,
+    id: "00000000-0000-4000-8000-000000000003",
+    idempotency_key: "00000000-0000-4000-8000-000000000004",
+    position: 2,
+    question: "Any follow-ups?",
+  };
+  let asked = false;
+  let linkReads = 0;
+  const { page, origin } = await docChatFixture(
+    t,
+    (request) => {
+      switch (new URL(request.url).pathname) {
+        case "/api/engine/doc/link":
+          linkReads++;
+          return Response.json({ status: asked ? "ready" : "mac_off" });
+        case "/api/engine/doc/conversations":
+          return Response.json({ conversations: [conversation], next_before: null });
+        case "/api/engine/doc/turns":
+          asked = true;
+          return Response.json({ conversation_id: id, turn: followUp }, { status: 202 });
+        default:
+          return Response.json({ conversation, turns: asked ? [answered, followUp] : [answered] });
+      }
+    },
+    undefined,
+    { viewport: { width: 1440, height: 772 } },
+  );
+  await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
+  const mac = page.locator(".doc-chat__dock > p");
+  await expect(mac).toHaveText("Doc answers when your Mac is on.");
+  await page.getByLabel("Question for Doc").fill(followUp.question);
+  await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(mac).toHaveText("Doc is ready on your Mac.");
   assert.equal(linkReads, 2);
 });

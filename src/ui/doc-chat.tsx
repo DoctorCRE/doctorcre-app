@@ -365,8 +365,15 @@ function TurnStatus({
 function MacStatus({ status }: { status: DocLinkStatus }) {
   return (
     <p className="doc-chat__mac" data-ready={status === "ready" || undefined}>
-      {docLinkMessages[status]}
-      {status === "not_set_up" && <a href="/settings">Set up in Settings</a>}
+      <span>
+        {docLinkMessages[status]}
+        {status === "not_set_up" && (
+          <>
+            {" "}
+            <a href="/settings">Set up in Settings</a>
+          </>
+        )}
+      </span>
     </p>
   );
 }
@@ -655,8 +662,8 @@ function DocChat() {
   const now = useNow(waiting && !latest.waiting_reason);
   const getWaitingReason = useEffectEvent(() => latest?.waiting_reason);
   const [macStatus, setMacStatus] = useState<DocLinkStatus | null>(null);
-  // The Mac can come on, sign out or hit its plan limit while a question waits, so its status is read again when the latest question changes.
-  const macCheck = ready && `${latest?.state}:${latest?.waiting_reason}`;
+  // The Mac can come on, sign out or hit its plan limit while a question waits, so its status is read again when the latest question changes. A replayed ask keeps its state but gets a new id.
+  const macCheck = ready && `${latest?.id}:${latest?.state}:${latest?.waiting_reason}`;
   const retry =
     pendingAsk ??
     (latest?.state === "failed"
