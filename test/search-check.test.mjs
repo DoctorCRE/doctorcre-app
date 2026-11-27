@@ -8,6 +8,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { JSDOM } from "jsdom";
 import { fileURLToPath } from "node:url";
 
 import { createFixtureClient } from "../js/fixture-client.js";
@@ -16,9 +17,10 @@ import {
   AUTHORIZATION_SENTENCE, NOT_SEARCHED_SENTENCE, SAVED_VIEWS_KEY, SAVED_VIEW_SENTENCE,
   SCOPE_CHIP_SENTENCE, SEARCH_STATE_COPY, SEARCH_STATES, applyScope,
   buildFindAndCatchUpArguments, buildFindArguments, classifySearchFailure, deepLinkFor,
-  groupSearchResults, parseSearchAddress, readSavedViews, refusalDetail, renameView,
-  retiredSummary, saveView, scopeChips, searchAddress, searchPhase, truncationNotes,
-  validSearchPayload, visibleCount, writeSavedViews, toggleSearchScope, SEARCH_GROUP_IDS,
+  groupSearchResults, highlightParts, parseSearchAddress, readRecentSearches,
+  readSavedViews, recordRecentSearch, refusalDetail, renameView, retiredSummary,
+  saveView, scopeChips, searchAddress, searchPhase, truncationNotes, validSearchPayload,
+  visibleCount, writeRecentSearches, writeSavedViews, toggleSearchScope, SEARCH_GROUP_IDS,
   displaySearchGroups,
 } from "../js/search-model.js";
 import { carrInterface } from "./carr-contract.mjs";
@@ -441,4 +443,193 @@ test('a deal result names its partner owner by first name', () => {
     invoiced_on: null, closed_on: null, lane: null, outcome: null };
   const group = groupSearchResults({ ...emptyPayload, deals: [deal] }).find(one => one.id === 'deals');
   assert.equal(group.rows[0].facts.find(fact => fact.label === 'Owner').value, 'Joe');
+});
+
+test("recording six searches keeps the five newest unique entries newest first", () => {
+  const map = new Map();
+  const storage = {
+    getItem: (key) => (map.has(key) ? map.get(key) : null),
+    setItem: (key, value) => { map.set(key, value); },
+    removeItem: (key) => map.delete(key),
+  };
+  let recent = Object.freeze([]);
+  for (const query of ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot"]) {
+    recent = recordRecentSearch(storage, query, "joe");
+  }
+  assert.deepEqual([...recent], ["foxtrot", "echo", "delta", "charlie", "bravo"]);
+  assert.deepEqual([...readRecentSearches(storage, "joe")], ["foxtrot", "echo", "delta", "charlie", "bravo"]);
+  recent = recordRecentSearch(storage, "ECHO", "joe");
+  assert.deepEqual([...recent], ["ECHO", "foxtrot", "delta", "charlie", "bravo"]);
+  recent = recordRecentSearch(storage, "   ", "joe");
+  assert.deepEqual([...recent], ["ECHO", "foxtrot", "delta", "charlie", "bravo"]);
+  assert.deepEqual([...readRecentSearches(storage, "dell")], []);
+  assert.deepEqual([...writeRecentSearches(null, ["alpha"], "joe")], ["alpha"]);
+  assert.deepEqual([...writeRecentSearches(storage, ["alpha"], "")], []);
+});
+
+test("highlightParts splits matched words and escapes HTML", () => {
+  assert.deepEqual([...highlightParts("Pensacola Dental Group", "dental")], [
+    { text: "Pensacola ", match: false },
+    { text: "Dental", match: true },
+    { text: " Group", match: false },
+  ]);
+  assert.deepEqual([...highlightParts("Pensacola Dental Group", "group pensacola")], [
+    { text: "Pensacola", match: true },
+    { text: " Dental ", match: false },
+    { text: "Group", match: true },
+  ]);
+  assert.deepEqual([...highlightParts('<script>alert("x")</script>', "script")], [
+    { text: "&lt;", match: false },
+    { text: "script", match: true },
+    { text: "&gt;alert(&quot;x&quot;)&lt;/", match: false },
+    { text: "script", match: true },
+    { text: "&gt;", match: false },
+  ]);
+  const parts = highlightParts("A & B < C", "& <");
+  const html = parts.map((part) => part.match ? `<mark>${part.text}</mark>` : part.text).join("");
+  assert.equal(html, "A <mark>&amp;</mark> B <mark>&lt;</mark> C");
+});
+
+
+test("highlightParts treats regex characters as plain text", () => {
+  const html = (text, query) => highlightParts(text, query).map((part) => part.match ? `[${part.text}]` : part.text).join("");
+  assert.equal(html("a.c abc a.c", "a.c"), "[a.c] abc [a.c]");
+  assert.equal(html("f(x) [y] $5 a|b", "( [ $ |"), "f[(]x) [[]y] [$]5 a[|]b");
+  assert.equal(html("plain", "\\"), "plain");
+});
+
+test("highlightParts marks repeated and overlapping matches without losing text", () => {
+  const html = (text, query) => highlightParts(text, query).map((part) => part.match ? `[${part.text}]` : part.text).join("");
+  assert.equal(html("banana", "ana na"), "b[ana][na]");
+  assert.equal(html("aaaa", "aa"), "[aa][aa]");
+  assert.equal(html("Dental dental DENTAL", "dental dent"), "[Dental] [dental] [DENTAL]");
+  assert.equal(html("abc", "ab abc"), "[abc]");
+});
+
+test("highlightParts leaves text unmarked for an empty or blank query", () => {
+  for (const query of ["", "   ", null, undefined]) {
+    assert.deepEqual([...highlightParts("Demo <Dental>", query)], [{ text: "Demo &lt;Dental&gt;", match: false }]);
+  }
+  assert.deepEqual([...highlightParts("", "dental")], [{ text: "", match: false }]);
+});
+
+const blockedStorage = () => ({
+  getItem() { throw new Error("storage blocked"); },
+  setItem() { throw new Error("storage blocked"); },
+  removeItem() { throw new Error("storage blocked"); },
+});
+
+const mapStorage = () => {
+  const map = new Map();
+  return { map, getItem: (key) => (map.has(key) ? map.get(key) : null), setItem: (key, value) => { map.set(key, value); }, removeItem: (key) => map.delete(key) };
+};
+
+const answers = (query) => ({
+  schema_version: "search.v1",
+  parties: [{ id: "demo-party", kind: "company", name: `Demo ${query} Group`, city: null, lead_id: null, roles: ["client"], deals: [] }],
+  deals: [],
+});
+
+const idle = () => new Promise((resolve) => setImmediate(resolve));
+
+/** Mount the real Search page markup in jsdom with a stub client. */
+async function mountSearchPage(t, { storage = mapStorage(), localStorageThrows = false } = {}) {
+  const html = await readFile(new URL("../search.html", import.meta.url), "utf8");
+  const dom = new JSDOM(html, { url: "https://app.doctorcre.com/search" });
+  const keys = ["document", "window", "history", "location"];
+  const saved = Object.fromEntries(keys.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  for (const key of keys) Object.defineProperty(globalThis, key, { value: dom.window[key], configurable: true, writable: true });
+  if (localStorageThrows) Object.defineProperty(globalThis, "localStorage", { get() { throw new Error("storage blocked"); }, configurable: true });
+  t.after(() => {
+    for (const key of keys) saved[key] ? Object.defineProperty(globalThis, key, saved[key]) : delete globalThis[key];
+    if (localStorageThrows) delete globalThis.localStorage;
+    dom.window.close();
+  });
+  const sent = [];
+  const client = { selfActor: "joe", find: async (args) => { sent.push(args.query ?? args); return answers(String(args.query ?? "")); } };
+  const { mountSearch } = await import("../js/search.js");
+  const mounted = mountSearch(localStorageThrows ? { client } : { client, storage });
+  await idle();
+  const document = dom.window.document;
+  const search = async (query) => {
+    document.getElementById("searchQuery").value = query;
+    document.getElementById("searchForm").dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
+    await idle(); await idle();
+  };
+  const chips = () => [...document.querySelectorAll("#recentSearches [data-recent]")].map((node) => node.textContent);
+  return { document, dom, search, chips, sent, storage, mounted };
+}
+
+test("each search adds a chip, newest first, and shows at most five", async (t) => {
+  const page = await mountSearchPage(t);
+  assert.equal(page.document.getElementById("recentSearches").hidden, true);
+  for (const query of ["one", "two", "three", "four", "five", "six"]) await page.search(query);
+  assert.deepEqual(page.chips(), ["six", "five", "four", "three", "two"]);
+  assert.equal(page.document.getElementById("recentSearches").hidden, false);
+  await page.search("THREE");
+  assert.deepEqual(page.chips(), ["THREE", "six", "five", "four", "two"]);
+});
+
+test("clicking a chip runs that search again and keeps focus in the search box", async (t) => {
+  const page = await mountSearchPage(t);
+  await page.search("alpha");
+  await page.search("bravo");
+  page.sent.length = 0;
+  const chip = [...page.document.querySelectorAll("[data-recent]")].find((node) => node.dataset.recent === "alpha");
+  chip.focus();
+  chip.click();
+  await idle(); await idle();
+  assert.deepEqual(page.sent, ["alpha"]);
+  assert.equal(page.document.getElementById("searchQuery").value, "alpha");
+  assert.deepEqual(page.chips(), ["alpha", "bravo"]);
+  assert.equal(page.document.activeElement, page.document.getElementById("searchQuery"));
+});
+
+test("results mark the matched words and escape the rest", async (t) => {
+  const page = await mountSearchPage(t);
+  await page.search("dental");
+  const marks = [...page.document.querySelectorAll(".search-row mark")].map((node) => node.textContent);
+  assert.deepEqual(marks, ["dental"]);
+  assert.equal(page.document.querySelector(".search-row h3").textContent, "Demo dental Group");
+});
+
+test("an empty search records no chip and sends nothing", async (t) => {
+  const page = await mountSearchPage(t);
+  await page.search("   ");
+  assert.deepEqual(page.chips(), []);
+  assert.deepEqual(page.sent, []);
+  assert.equal(page.document.getElementById("recentSearches").hidden, true);
+});
+
+test("chips still work for the session when storage throws on every call", async (t) => {
+  const page = await mountSearchPage(t, { storage: blockedStorage() });
+  await page.search("alpha");
+  await page.search("bravo");
+  assert.deepEqual(page.chips(), ["bravo", "alpha"]);
+  page.sent.length = 0;
+  page.document.querySelector('[data-recent="alpha"]').click();
+  await idle(); await idle();
+  assert.deepEqual(page.sent, ["alpha"]);
+});
+
+test("chips still work when reading localStorage itself throws", async (t) => {
+  const page = await mountSearchPage(t, { localStorageThrows: true });
+  await page.search("alpha");
+  assert.deepEqual(page.chips(), ["alpha"]);
+});
+
+test("chips still work when storage silently drops what was written", async (t) => {
+  const dropping = { getItem: () => null, setItem() {}, removeItem() {} };
+  const page = await mountSearchPage(t, { storage: dropping });
+  await page.search("alpha");
+  await page.search("bravo");
+  assert.deepEqual(page.chips(), ["bravo", "alpha"]);
+});
+
+test("chips return from storage on the next visit", async (t) => {
+  const storage = mapStorage();
+  const first = await mountSearchPage(t, { storage });
+  await first.search("alpha");
+  const second = await mountSearchPage(t, { storage });
+  assert.deepEqual(second.chips(), ["alpha"]);
 });

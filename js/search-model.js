@@ -625,3 +625,104 @@ export function renameView(views, from, to) {
   if (label === "") return Object.freeze([...(views || [])]);
   return Object.freeze((views || []).map((view) => (view.name === from ? Object.freeze({ ...view, name: label }) : view)));
 }
+
+/* ---------------------------------------------------------- recent searches */
+
+const RECENT_SEARCHES_KEY = "doctorcre.recent-searches.v1";
+const RECENT_SEARCHES_MAX = 5;
+
+function normalizeRecentSearches(queries) {
+  const seen = new Set();
+  const next = [];
+  for (const entry of Array.isArray(queries) ? queries : []) {
+    if (typeof entry !== "string") continue;
+    const query = entry.trim();
+    if (!query) continue;
+    const key = query.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    next.push(query);
+    if (next.length === RECENT_SEARCHES_MAX) break;
+  }
+  return Object.freeze(next);
+}
+
+export function readRecentSearches(storage, actor) {
+  try { storage?.removeItem(RECENT_SEARCHES_KEY); } catch {}
+  if (typeof actor !== "string" || !actor) return Object.freeze([]);
+  if (!storage) return Object.freeze([]);
+  let raw = null;
+  try { raw = storage.getItem(`${RECENT_SEARCHES_KEY}:${encodeURIComponent(actor)}`); } catch { return Object.freeze([]); }
+  let parsed = null;
+  try { parsed = JSON.parse(raw || "[]"); } catch { return Object.freeze([]); }
+  if (!Array.isArray(parsed)) return Object.freeze([]);
+  return normalizeRecentSearches(parsed);
+}
+
+export function writeRecentSearches(storage, queries, actor) {
+  if (typeof actor !== "string" || !actor) return Object.freeze([]);
+  const next = normalizeRecentSearches(queries);
+  assertNotPreferences(RECENT_SEARCHES_KEY);
+  // The caller keeps the returned list, so chips survive storage that is blocked or full.
+  try { storage?.setItem(`${RECENT_SEARCHES_KEY}:${encodeURIComponent(actor)}`, JSON.stringify(next)); } catch { /* a convenience, never a requirement */ }
+  return next;
+}
+
+/** Prepend a query to `recents`, drop a case-insensitive duplicate, keep five, and store the result. */
+export function recordRecentSearch(storage, query, actor, recents = readRecentSearches(storage, actor)) {
+  return writeRecentSearches(storage, [query, ...recents], actor);
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[char]));
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function longerTermsFirst(terms) {
+  const ordered = [];
+  for (const term of terms) {
+    let insertAt = ordered.length;
+    let index = 0;
+    for (const existing of ordered) {
+      if (term.length > existing.length) {
+        insertAt = index;
+        break;
+      }
+      index += 1;
+    }
+    ordered.splice(insertAt, 0, term);
+  }
+  return ordered;
+}
+
+/**
+ * Split `text` into escaped parts, marking case-insensitive matches of the
+ * whitespace-separated terms in `query`. At a shared starting index the
+ * longer term wins.
+ */
+export function highlightParts(text, query) {
+  const source = String(text ?? "");
+  const terms = String(query ?? "").trim().split(/\s+/).filter(Boolean);
+  if (!source || terms.length === 0) {
+    return Object.freeze([Object.freeze({ text: escapeHtml(source), match: false })]);
+  }
+  const pattern = new RegExp(longerTermsFirst(terms).map(escapeRegExp).join("|"), "gi");
+  const parts = [];
+  let last = 0;
+  for (const match of source.matchAll(pattern)) {
+    if (match.index > last) {
+      parts.push(Object.freeze({ text: escapeHtml(source.slice(last, match.index)), match: false }));
+    }
+    parts.push(Object.freeze({ text: escapeHtml(match[0]), match: true }));
+    last = match.index + match[0].length;
+  }
+  if (last < source.length) {
+    parts.push(Object.freeze({ text: escapeHtml(source.slice(last)), match: false }));
+  }
+  return Object.freeze(parts);
+}
