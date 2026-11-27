@@ -11,6 +11,9 @@ const recordId = "00000000-0000-4000-8000-000000000001";
 const longName =
   "Demo Partner With A Very Long Practice Name That Runs Well Past The Edge Of The Header On Every Screen Size";
 
+const longActivity =
+  "Walked the practice through the lease terms, the tenant improvement allowance and the proposed commencement date, and agreed to send a revised proposal once the landlord confirms parking and signage.";
+
 type Fixture = { record?: { name: string; people?: { contact: object }[] } };
 
 /** A full record: a long name and every contact reachable, the way a busy record reads. */
@@ -54,6 +57,15 @@ async function openDrawer(t: TestContext, dataset: "clients" | "vendors", width:
       },
     }),
   );
+  await page.route("**/mcp", async (route) => {
+    const { name, arguments: args } = route.request().postDataJSON().params;
+    if (name !== "find-and-catch-up") return route.fallback();
+    const timeline = [
+      { entry_kind: "activity", verb: "note", summary: longActivity, occurred_at: "2026-09-20T15:00:00Z" },
+    ];
+    const text = JSON.stringify({ state: "completed", match: { target: args.ref }, catch_up: { timeline } });
+    return route.fulfill({ json: { jsonrpc: "2.0", id: 1, result: { content: [{ type: "text", text }] } } });
+  });
   // The record actions show once the Clients and Vendors switch reads from the engine.
   await page.route(
     (url) => url.pathname === `/${dataset}`,
@@ -66,7 +78,7 @@ async function openDrawer(t: TestContext, dataset: "clients" | "vendors", width:
   await page.goto(`${server.url}/${dataset}?all=true&record=${recordId}&mode=live`);
   const panel = page.locator("#recordPanel");
   await panel.locator("#recordActions button", { hasText: "Edit" }).waitFor({ state: "attached" });
-  if (dataset === "clients") await panel.locator("#recordActivity [data-retry='activity']").waitFor();
+  await panel.locator("#recordActivity .activity-row").waitFor();
   return { page, panel };
 }
 
@@ -85,6 +97,8 @@ for (const dataset of ["clients", "vendors"] as const)
       const card = await panel.evaluate((node) => {
         const box = (selector: string) => node.querySelector(selector)?.getBoundingClientRect() ?? new DOMRect();
         const title = node.querySelector<HTMLElement>("#recordTitle");
+        const head = node.querySelector(".record-panel-head");
+        const headBox = head?.getBoundingClientRect() ?? new DOMRect();
         const style = (selector: string) => {
           const el = node.querySelector(selector);
           return el ? getComputedStyle(el) : null;
@@ -94,6 +108,7 @@ for (const dataset of ["clients", "vendors"] as const)
         ].filter((el) => el.getClientRects().length > 0);
         return {
           width: node.getBoundingClientRect().width,
+          activityWidth: node.querySelector("#recordActivity .activity-what")?.getBoundingClientRect().width ?? 0,
           figureSize: style(".relationship-metric strong")?.fontSize,
           valueSize: style(".record-field dd")?.fontSize,
           tinted: [".vendor-contacts > li", ".relationship-metrics", ".relationship-metric + .relationship-metric"]
@@ -101,6 +116,15 @@ for (const dataset of ["clients", "vendors"] as const)
             .filter(([, css]) => css && (css.backgroundColor !== "rgba(0, 0, 0, 0)" || css.borderLeftStyle !== "none"))
             .map(([selector]) => selector),
           titleCut: (title?.scrollWidth ?? 0) > (title?.clientWidth ?? 0),
+          titleTip: title?.title,
+          outsideHead: shown
+            .filter((el) => head?.contains(el))
+            .filter(
+              (el) =>
+                el.getBoundingClientRect().top < headBox.top || el.getBoundingClientRect().bottom > headBox.bottom,
+            )
+            .map((el) => el.textContent),
+          closeBesideTitle: box(".panel-close").top < box("#recordTitle").bottom,
           back: box(".panel-back").height,
           close: box(".panel-close").height,
           relationship: box(".rel-button").height,
@@ -113,13 +137,26 @@ for (const dataset of ["clients", "vendors"] as const)
         };
       });
       assert.equal(card.titleCut, false, "the whole name shows");
+      assert.equal(card.titleTip, longName, "the full name shows on hover");
+      assert.deepEqual(card.outsideHead, [], "every header control sits inside the header");
+      assert.ok(card.closeBesideTitle, "the x sits on the name's row");
       assert.doesNotMatch(card.body, /Edit|Link to someone/, "the body does not repeat the actions");
       assert.equal(card.sideways, false, "nothing in the card scrolls sideways");
       if (vendor) {
         assert.equal(card.figureSize, card.valueSize, "figures read at body size");
         assert.deepEqual(card.tinted, [], "contacts and figures sit on the card, not in boxes");
       }
+      assert.ok(
+        card.activityWidth > card.width * 0.6,
+        `activity text wraps at the card's width: ${card.activityWidth}px of ${card.width}px`,
+      );
       if (phone) {
+        await panel.getByRole("button", { name: "Record actions" }).click();
+        const menu = await panel
+          .locator("#recordActions button")
+          .evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().height));
+        assert.ok(menu.length > 0 && menu.every((h) => h >= 44), `menu items are 44px touch targets: ${menu}`);
+        await page.keyboard.press("Escape");
         assert.ok(card.width >= width - 1, `the card takes the screen: ${card.width}px`);
         assert.ok(card.back >= 44, `the back link is a 44px touch target: ${card.back}px`);
         assert.ok(card.close >= 44, `the x stays at the top: ${card.close}px`);
