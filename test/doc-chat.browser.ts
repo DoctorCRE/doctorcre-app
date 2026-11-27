@@ -1030,9 +1030,57 @@ for (const existing of [true, false]) {
     const saved = page.locator(".doc-chat__turns li").filter({ hasText: "Opened your saved draft." });
     await expect(saved.getByText("Opened your saved draft. Doc’s new wording wasn’t used.")).toBeVisible();
     await expect(saved.getByRole("link", { name: "Open reply review" })).toHaveAttribute("href", draftHref);
+    await expect(saved.locator("svg")).toHaveCount(0);
     await expect(page).toHaveURL(chatUrl);
   });
 }
+
+test("Doc shows a reply revision as a revision and confirms it with one saved line", async (t) => {
+  const target = { ref: { kind: "reply_draft", id: savedId }, version: 7, href: draftHref, label: "Reply draft" };
+  const proposal = { kind: "reply_revision", target, body: "A revised reply" };
+  const turn = {
+    ...answeredTurn,
+    idempotency_key: "00000000-0000-4000-8000-000000000003",
+    answer: { ...answeredTurn.answer, proposal },
+  };
+  const result = { kind: "reply_revision", id: savedId, href: draftHref, version: 8 };
+  let saved = false;
+  const { page, origin } = await docChatFixture(t, async (request) => {
+    switch (new URL(request.url).pathname) {
+      case "/api/engine/doc/conversations":
+        return Response.json({ conversations: [conversation], next_before: null });
+      case detailPath:
+        return Response.json({ conversation, turns: [{ ...turn, confirmation: saved ? result : null }] });
+      case confirmationPath:
+        saved = true;
+        return Response.json({ result });
+      default:
+        return Response.json({}, { status: 404 });
+    }
+  });
+  page.setDefaultTimeout(5000);
+  await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
+  const card = page.locator(".doc-chat__proposal");
+  await expect(card.locator(".doc-chat__proposal-for")).toHaveText("Revision of Reply draft");
+  const save = card.getByRole("button", { name: "Save revision", exact: true });
+  const accent = await page.evaluate(() => {
+    const probe = document.body.appendChild(document.createElement("i"));
+    probe.style.background = "var(--accent)";
+    const color = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return color;
+  });
+  await expect(save).toHaveCSS("background-color", accent);
+  await page.route(`${origin}${draftHref}`, (route) => route.fulfill({ body: "Example reply review" }));
+  await save.click();
+  await expect(page).toHaveURL(`${origin}${draftHref}`);
+  await page.goBack();
+  const savedLine = page.locator(".doc-chat__saved");
+  await expect(savedLine).toHaveText("Saved revision of Reply draft");
+  await expect(savedLine.locator("svg")).toBeVisible();
+  await expect(savedLine.getByRole("link", { name: "Reply draft", exact: true })).toHaveAttribute("href", draftHref);
+  await expect(card).toHaveCount(0);
+});
 
 test("Doc identifies refused reply fields and keeps edits", async (t) => {
   const proposal = {

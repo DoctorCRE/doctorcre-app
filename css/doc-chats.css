@@ -236,6 +236,7 @@
   border: 0;
   border-radius: var(--radius-2);
 }
+.doc-chat__proposal :is(textarea, input):disabled { opacity: 0.55; cursor: not-allowed; }
 .doc-chat__proposal textarea { field-sizing: content; min-block-size: calc(var(--touch) + var(--space-3)); max-block-size: 40dvh; resize: none; }
 .doc-chat__proposal-foot { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); }
 .doc-chat__proposal-foot input[type="date"] { inline-size: auto; color: var(--fg-muted); padding-block: 0; }
@@ -243,5 +244,6 @@
 .doc-chat__proposal-foot .btn { margin-inline-start: auto; }
 /* Once saved, the card is one line; a green check marks a new save. */
 .doc-chat__saved { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin: 0; color: var(--fg-muted); }
+.doc-chat__saved > span { flex: 1; min-inline-size: 0; }
 .doc-chat__saved[data-tone="ok"] .app-shell-icon { color: var(--status-ok); }
 .doc-chat__saved a:not(.doc-chat__action) { color: inherit; }
