@@ -21,21 +21,49 @@ function withUncategorized(url: string) {
   return summary;
 }
 
-async function openVendors(t: TestContext, width: number, height: number) {
+async function openVendors(
+  t: TestContext,
+  width: number,
+  height: number,
+  { path = "/vendors", live = false, light = false, ready = ".vendor-tile[href]" } = {},
+) {
   const server = await startFixtureServer();
   t.after(() => server.stop());
   const browser = await chromium.launch();
   t.after(() => browser.close());
-  const page = await browser.newPage({ viewport: { width, height } });
+  const page = await browser.newPage({ viewport: { width, height }, colorScheme: light ? "light" : "dark" });
+  if (light)
+    await page.addInitScript(() =>
+      localStorage.setItem("doctorcre.visual-preferences", JSON.stringify({ theme: "light" })),
+    );
   const asked: URL[] = [];
   await page.route("https://**", (r) => r.abort());
   await page.route("**/api/v1/business/**", (r) => {
     asked.push(new URL(r.request().url()));
     return r.fulfill({ json: withUncategorized(r.request().url()) });
   });
-  await page.route("**/mcp", (r) => r.fulfill({ json: { jsonrpc: "2.0", id: 1, result: { content: [] } } }));
-  await page.goto(`${server.url}/vendors`);
-  await page.locator(".vendor-tile[href]").first().waitFor();
+  await page.route("**/mcp", (r) =>
+    r.fulfill({
+      json: { jsonrpc: "2.0", id: r.request().postDataJSON()?.id, result: { content: [{ type: "text", text: "{}" }] } },
+    }),
+  );
+  if (live) {
+    await page.route("**/auth/session", (r) =>
+      r.fulfill({ json: { actor: { slug: "joe" }, csrf_token: "synthetic" } }),
+    );
+    await page.route(
+      (url) => url.pathname === "/vendors",
+      async (r) => {
+        const response = await r.fetch();
+        return r.fulfill({
+          response,
+          body: (await response.text()).replace("<html ", "<html data-clients-vendors-from-engine "),
+        });
+      },
+    );
+  }
+  await page.goto(`${server.url}${path}${live ? `${path.includes("?") ? "&" : "?"}mode=live` : ""}`);
+  await page.locator(ready).first().waitFor();
   return { page, asked };
 }
 
@@ -108,3 +136,42 @@ test("on a phone the tiles are two across", async (t) => {
   assert.ok(dell && dell.x + dell.width <= 390, "the owner chips fit beside Categories");
   await page.screenshot({ path: `${shots}/tiles-390.png`, fullPage: true });
 });
+
+test("New vendor offers every category while the tiles are showing (Edit reads the same list)", async (t) => {
+  const { page } = await openVendors(t, 1440, 900, { live: true });
+  await page.getByRole("button", { name: "New vendor" }).click();
+  const dialog = page.getByRole("dialog", { name: "New vendor" });
+  const choices = await dialog.locator('input[name="categories"]').count();
+  assert.ok(choices >= 3, `the form lists the categories (${choices})`);
+  assert.equal(await dialog.getByText("No categories yet.").count(), 0);
+});
+
+test("a saved link to My work keeps showing the vendors recorded as yours", async (t) => {
+  const { page, asked } = await openVendors(t, 1440, 900, { path: "/vendors?scope=mine", ready: ".record-row" });
+  assert.equal(await page.locator("#vendorTiles").isHidden(), true);
+  assert.equal(asked.at(-1)?.searchParams.get("scope"), "mine");
+});
+
+test("a refresh keeps keyboard focus on the same tile", async (t) => {
+  const { page, asked } = await openVendors(t, 1440, 900);
+  const tile = page.locator("a.vendor-tile", { hasText: "Banking" });
+  const href = await tile.getAttribute("href");
+  await tile.focus();
+  const reads = asked.length;
+  await page.evaluate(() => document.querySelector<HTMLButtonElement>("#refreshList")?.click());
+  await page.waitForFunction((n) => n > 0, reads);
+  await page.waitForFunction(() => document.querySelector("#vendorTiles")?.getAttribute("aria-busy") === "false");
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("href")), href);
+});
+
+for (const width of [390, 320])
+  test(`the top row keeps Joe, Dell and New vendor on screen at ${width}`, async (t) => {
+    const { page } = await openVendors(t, width, 844, { live: true, light: true });
+    await page.getByRole("button", { name: "New vendor" }).waitFor();
+    await page.screenshot({ path: `${shots}/tiles-new-${width}.png`, fullPage: true });
+    for (const name of ["New vendor", "Joe", "Dell"]) {
+      const box = await page.getByRole("button", { name, exact: true }).boundingBox();
+      assert.ok(box && box.x >= 0 && box.x + box.width <= width, `${name} sits inside ${width} wide`);
+    }
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  });

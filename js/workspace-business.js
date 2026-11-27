@@ -645,6 +645,15 @@ function tileHtml(label, counts, query) {
   return `<li><a class="vendor-tile" href="${escapeHtml(viewHref(query))}"><span class="tile-head"><span class="tile-name">${escapeHtml(label)}</span><span class="tile-count">${counts.count}</span></span><ul class="tile-mix">${mix}</ul>${quiet}</a></li>`;
 }
 
+// A repaint keeps the reader's place: the same tile when it survives, else the results summary.
+function paintTiles(html) {
+  const focused = dom.tiles.contains(document.activeElement) ? document.activeElement : null;
+  const href = focused?.getAttribute("href");
+  dom.tiles.innerHTML = html;
+  if (!focused) return;
+  focusWithoutScrolling((href && [...dom.tiles.querySelectorAll("a.vendor-tile")].find((tile) => tile.getAttribute("href") === href)) || dom.summary);
+}
+
 function renderTiles() {
   const { status, payload } = view.tiles;
   document.querySelector("#scrollSentinel").hidden = true;
@@ -654,9 +663,9 @@ function renderTiles() {
     const failed = status === "error";
     setHealth(failed ? "unavailable" : "loading");
     dom.summary.textContent = failed ? "Nothing loaded" : "Checking…";
-    dom.tiles.innerHTML = failed
+    paintTiles(failed
       ? `<div class="record-empty" role="alert"><p class="empty-title">This did not load</p><p class="empty-copy">${escapeHtml(refusalCopy("DEPENDENCY_UNAVAILABLE"))}</p><button type="button" class="action secondary-action" data-retry="tiles" aria-label="Refresh" title="Refresh"><span aria-hidden="true">↻</span></button></div>`
-      : `<ul class="vendor-tile-grid">${'<li><span class="vendor-tile"><span class="skeleton-line"></span><span class="skeleton-line short"></span></span></li>'.repeat(12)}</ul>`;
+      : `<ul class="vendor-tile-grid">${'<li><span class="vendor-tile"><span class="skeleton-line"></span><span class="skeleton-line short"></span></span></li>'.repeat(12)}</ul>`);
     return;
   }
   setHealth(status === "refreshing" ? "refreshing" : "available");
@@ -668,7 +677,7 @@ function renderTiles() {
     ...payload.categories.filter((tile) => tile.count > 0).map((tile) => tileHtml(tile.label, tile, { ...base, category: tile.slug })),
     ...(payload.no_category.count > 0 ? [tileHtml("No category", payload.no_category, { ...base, no_category: "true" })] : []),
   ];
-  dom.tiles.innerHTML = `<ul class="vendor-tile-grid">${tiles.join("")}</ul>`;
+  paintTiles(`<ul class="vendor-tile-grid">${tiles.join("")}</ul>`);
 }
 
 async function loadTiles() {
@@ -694,6 +703,8 @@ async function loadTiles() {
   if (sequence !== view.tiles.sequence) return;
   view.tiles.payload = payload;
   view.tiles.status = payload ? "ready" : "error";
+  // The new-vendor and edit forms list these categories; the tiles view never reads the list that usually carries them.
+  if (payload) view.facets = { ...view.facets, categories: payload.categories.map(({ slug, label }) => ({ slug, label })) };
   renderList();
 }
 

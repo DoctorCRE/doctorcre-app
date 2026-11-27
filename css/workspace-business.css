@@ -482,6 +482,7 @@ a.vendor-tile:focus-visible { outline: var(--focus-width) solid var(--focus-ring
   .vendor-tile-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .vendor-tile { min-height: 0; }
   .vendor-tile .tile-mix { display: none; }
-  /* Categories, People worth meeting and the owner chips share one row at 390 wide. */
+  /* New vendor, Categories, People worth meeting and the owner chips wrap onto a second row rather than scroll Dell out of sight. */
+  body[data-directory="vendors"] .app-layout-tabs { flex-wrap: wrap; overflow: visible; gap: 0; }
   body[data-directory="vendors"] .app-layout-tabs :is(button, a) { padding-inline: var(--space-1); }
 }

@@ -162,11 +162,11 @@ export function listRequestUrl(query) {
 }
 
 /**
- * Vendors opens on a tile per category. Any narrowing, a search, or All vendors
- * shows the list instead.
+ * Vendors opens on a tile per category. Any narrowing, a search, All vendors or
+ * My work shows the list instead: the summary counts by owner chip, not by the signed-in partner.
  */
 export function showsTiles(query) {
-  return query.dataset === "vendors" && !query.all && !query.q && !query.territory
+  return query.dataset === "vendors" && !query.all && !query.q && !query.territory && query.scope === DEFAULT_SCOPE
     && FILTER_KEYS.vendors.every((key) => !query[key]);
 }
 
