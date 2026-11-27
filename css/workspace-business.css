@@ -524,3 +524,59 @@ a.directory-tile:focus-visible { outline: var(--focus-width) solid var(--focus-r
   body[data-directory="vendors"] .app-layout-tabs { flex-wrap: wrap; overflow: visible; gap: 0; }
   body[data-directory="vendors"] .app-layout-tabs :is(button, a) { padding-inline: var(--space-1); }
 }
+
+/* --- a record as a card beside the table: vendors today ------------------- */
+.panel-back { display: none; }
+.has-app-layout aside#recordPanel.record-card { --card-width: clamp(340px, 28vw, 420px); inset: calc(var(--topbar-height) + var(--space-2)) var(--space-2) var(--space-2) auto; width: var(--card-width); max-height: none; padding: 0 var(--space-4) var(--space-4); border-color: var(--hairline); box-shadow: none; }
+body[data-card-open] .app-layout-main { padding-inline-end: calc(clamp(340px, 28vw, 420px) + var(--space-3)); }
+.record-card .record-panel-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); margin: 0 calc(var(--space-4) * -1) var(--space-4); padding: var(--space-3) var(--space-2) var(--space-3) var(--space-4); }
+.record-card :is(.panel-back, .record-relationship, .record-panel-actions, .record-panel-status) { grid-column: 1 / -1; }
+.record-card .record-relationship { grid-row: 3; }
+.record-card .record-panel-actions { grid-row: 4; }
+.record-card .record-panel-status { grid-row: 5; }
+.record-card .record-panel-title { grid-row: 2; grid-column: 1; flex-direction: column; align-items: stretch; gap: var(--space-1); }
+.record-card .panel-close { grid-row: 2; grid-column: 2; align-self: start; }
+.record-card .record-panel-head h2 { display: flex; gap: var(--space-2); align-items: center; font-size: var(--font-size-3); white-space: normal; overflow-wrap: anywhere; }
+.record-card .record-panel-head .record-tone { flex-wrap: wrap; white-space: normal; }
+.record-card .record-panel-head .record-tone > #recordMeta { display: contents; }
+.record-card #recordMeta > * + *::before { content: "·"; margin-inline-end: var(--space-2); }
+.record-card :is(.detail-columns, .network-grid) { grid-template-columns: minmax(0, 1fr); }
+.record-card .record-field { grid-template-columns: 7.5rem minmax(0, 1fr); gap: var(--space-2); }
+.record-relationship { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.record-relationship[hidden] { display: none; }
+.rel-button { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 32px; padding: 0 var(--space-3); border: var(--hairline-width) solid var(--hairline); border-radius: var(--radius-2); background: var(--surface-2); color: var(--rel); font: inherit; font-size: var(--font-size-2); cursor: pointer; anchor-name: --rel-button; }
+.rel-button:hover:not(:disabled) { background: var(--surface-3); }
+.rel-button:disabled { cursor: progress; }
+.rel-caret { color: var(--fg-muted); font-size: var(--font-size-1); }
+.rel-reason { color: var(--fg-muted); font-size: var(--font-size-1); overflow-wrap: anywhere; }
+.rel-menu { position-anchor: --rel-button; inset: anchor(bottom) auto auto anchor(left); min-width: 13rem; margin: var(--space-1) 0 0; padding: var(--space-1); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-3); background: var(--surface-1); color: var(--fg); box-shadow: var(--shadow-overlay); }
+.rel-choices { display: grid; }
+.rel-choices hr { width: 100%; margin: var(--space-1) 0; border: 0; border-top: var(--hairline-width) solid var(--hairline); }
+.rel-choice { display: flex; align-items: center; gap: var(--space-2); min-height: 32px; padding: 0 var(--space-3); border: 0; border-radius: var(--radius-2); background: none; color: var(--rel, var(--fg)); font: inherit; font-size: var(--font-size-2); text-align: left; cursor: pointer; }
+.rel-choice:hover, .rel-choice[aria-current="true"] { background: var(--surface-2); }
+.rel-choice[aria-pressed="true"]::after { content: "✓" / ""; margin-inline-start: auto; color: var(--fg-muted); }
+.rel-reason-form { display: grid; gap: var(--space-2); width: min(20rem, calc(100vw - 2 * var(--space-4))); padding: var(--space-2); }
+.rel-reason-form[hidden], .rel-choices[hidden] { display: none; }
+.rel-reason-form label { font-size: var(--font-size-2); }
+.rel-reason-form textarea { box-sizing: border-box; width: 100%; padding: var(--space-2); border: var(--hairline-width) solid var(--hairline-strong); border-radius: var(--radius-2); background: var(--surface-2); color: var(--fg); font: inherit; font-size: var(--font-size-2); resize: vertical; }
+.rel-reason-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
+:is(.rel-button, .rel-choice):focus-visible, .rel-reason-form textarea:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 2px; }
+@media (hover: none) and (pointer: coarse) {
+  .rel-button, .rel-choice { min-height: var(--touch); }
+}
+/* On a phone the card takes the screen, with a link back to the list above its name and the x beside it. */
+@media (max-width: 767px) {
+  .has-app-layout aside#recordPanel.record-card { inset: 0; width: auto; padding-inline: var(--space-4); border: 0; border-radius: 0; }
+  .record-card .panel-back { display: inline-flex; grid-row: 1; align-items: center; justify-self: start; min-height: var(--touch); color: var(--fg-muted); font-size: var(--font-size-2); text-decoration: none; }
+  .record-card .panel-back::before { content: "‹" / ""; margin-inline-end: var(--space-2); font-size: var(--font-size-3); }
+  .record-card .record-panel-head { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .record-card .panel-more { grid-row: 2; grid-column: 2; align-self: start; }
+  .record-card .panel-close { grid-column: 3; }
+}
+/* With a card open the table drops Location, as the card names it, so every row stays one line. */
+@container (min-width: 52rem) {
+  body[data-card-open][data-directory="vendors"] .record-list { grid-template-columns: minmax(16rem, 2fr) minmax(0, 2fr) max-content max-content; }
+  body[data-card-open][data-directory="vendors"] .row-facts { grid-template-columns: 7.5rem repeat(2, minmax(0, 1fr)); }
+  body[data-card-open][data-directory="vendors"] #recordList[data-in-category] .row-facts { grid-template-columns: 7.5rem minmax(0, 1fr); }
+  body[data-card-open][data-directory="vendors"] [data-fact="Location"] { display: none; }
+}

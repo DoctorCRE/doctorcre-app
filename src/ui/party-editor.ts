@@ -1,6 +1,7 @@
 // Add, edit and link clients and vendors through the engine's party doors.
 
 import { showToast } from "../../js/toast.js";
+import { type RelationshipChoice, relationshipChange, type VendorRole, vendorRole } from "./vendor-relationship.ts";
 
 type Dataset = "clients" | "vendors";
 type Facet = { slug: string; label: string };
@@ -630,6 +631,26 @@ export function mountPartyEditor({ document, client, dataset, facets, saved, rec
     link(name: string) {
       const partyId = recordParty();
       if (partyId && !opening && !dialog.open) openLink(partyId, name);
+    },
+    // The open vendor's relationship as stored, its ruling reason included, which the card read does not answer.
+    async vendorRole(): Promise<VendorRole | null> {
+      const partyId = recordParty();
+      return partyId ? vendorRole(await read(partyId)) : null;
+    },
+    // Saves one relationship choice and reopens the vendor; answers what to tell the partner when it was not saved.
+    async setRelationship(role: VendorRole, choice: RelationshipChoice): Promise<string | null> {
+      const partyId = recordParty();
+      const changes = relationshipChange(role, choice);
+      if (!partyId || !Object.keys(changes).length) return null;
+      session = crypto.randomUUID();
+      const answer = await save(`vendors/${partyId}`, "relationship", "party_id", changes);
+      // A conflict reopens the vendor too, so the card shows what someone else saved.
+      const conflict = !answer.ok && problemOf(answer.problem).error === "version_conflict";
+      if (answer.ok || conflict) saved(partyId, "vendors");
+      if (answer.ok) return null;
+      return conflict
+        ? "Someone changed this since you opened it. Check it and choose again."
+        : "This was not saved. Try again.";
     },
   };
 }

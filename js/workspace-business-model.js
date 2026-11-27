@@ -309,15 +309,8 @@ export function searchBoxValue({ current, query, editing = false, fromLocation =
   return editing ? null : wanted;
 }
 
-/**
- * The same panel is a side panel on a desktop and a full-screen cover on a
- * phone. Only the second one is a dialog, and only the second one may take the
- * background out of the keyboard and screen-reader order.
- */
-export function panelModality({ recordId, phoneWidth = false }) {
-  if (!recordId) return "closed";
-  return phoneWidth ? "modal" : "inline";
-}
+/** A vendor opens as a card beside its table, and on a phone the card takes the screen. Clients keep the dialog. */
+export const opensBeside = (dataset) => dataset === "vendors";
 
 /**
  * Where a Tab inside the phone dialog must land, or null to let the browser
@@ -745,10 +738,8 @@ const CLIENT_SECTIONS = [
 ];
 
 const VENDOR_SECTIONS = [
-  { title: "Category and relationship", fields: [
+  { title: "Category", fields: [
     ["recorded_category", "Category", "recorded_category_label"],
-    ["recorded_stage", "Stage", "recorded_stage_label"],
-    ["recorded_disposition", "Disposition", "recorded_disposition_label"],
     ["verticals", "Verticals"],
   ] },
   { title: "Who they are", fields: [
@@ -818,7 +809,9 @@ export function recordSections(dataset, record) {
   return groups.map((group) => ({
     title: group.title,
     fields: group.fields.map(([key, label, labelKey]) => {
-      const value = key === "contact_state" ? CONTACT_STATES.get(record?.[key]) ?? record?.[key]
+      // A vendor's card says Contact status only when it is not Active, so it never reads "Active" beside its relationship.
+      const value = key === "contact_state" && dataset === "vendors" && record?.[key] === "active" ? null
+        : key === "contact_state" ? CONTACT_STATES.get(record?.[key]) ?? record?.[key]
         : key === "owner_label" ? partnerName(record?.[key])
         : dataset === "clients" ? clientField(key, record?.[key]) : record?.[key];
       const presented = labelKey ? recordedCode(value, record?.[labelKey]) : recordedValue(value);

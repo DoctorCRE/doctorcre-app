@@ -199,8 +199,8 @@ test('A vendor shows one relationship by shape, word and name color, the same on
     app.view.record = { status: 'ready', payload };
     app.renderRecordPanel();
     assert.equal(document.querySelector('#recordTitle').dataset.relationship, key);
-    assert.equal(document.querySelector('#recordMeta .rel-word').textContent, word);
-    assert.equal(Boolean(document.querySelector('#recordMeta .want-tag')), wantToMeet);
+    assert.equal(document.querySelector('#recordRelationship .rel-word').textContent, word);
+    assert.equal(Boolean(document.querySelector('#recordRelationship .want-tag')), wantToMeet);
     assert.doesNotMatch(document.querySelector('#recordPanel').textContent, /workable/i);
   }
   app.view.record = { status: 'loading' };

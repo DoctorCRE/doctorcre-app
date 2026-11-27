@@ -55,11 +55,11 @@ test("Quiet narrows the same list in place and a second press shows every vendor
 
   const relationship = await rows.first().locator('[data-fact="Relationship"] .fact-value').textContent();
   await rows.first().click();
-  await page.locator("#recordMeta .rel-word").waitFor();
+  await page.locator("#recordRelationship .rel-word").waitFor();
   assert.equal(
-    await page.locator("#recordMeta .rel-word").textContent(),
+    await page.locator("#recordRelationship .rel-word").textContent(),
     relationship,
-    "the drawer says the relationship the list says",
+    "the card says the relationship the list says",
   );
-  await page.screenshot({ path: `${shots}/drawer-1440.png` });
+  await page.screenshot({ path: `${shots}/card-1440.png` });
 });

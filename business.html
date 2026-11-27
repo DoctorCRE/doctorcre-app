@@ -20,8 +20,8 @@
 </head>
 <body>
   <div id="appShell"></div><script type="module" src="/js/app-shell.js"></script>
-  <!-- The open record is a dialog at every width. Its covered background is
-       inert so keyboard and screen-reader focus remain inside the dialog. -->
+  <!-- A client opens as a dialog and a vendor as a card beside the table. A
+       dialog's covered background is inert so focus remains inside it. -->
   <a class="skip" href="#main" data-panel-background>Skip to records</a>
 
 
@@ -84,6 +84,7 @@
       <div class="record-backdrop" id="recordBackdrop" hidden></div>
       <aside class="record-panel glass" id="recordPanel" role="dialog" aria-modal="true" aria-labelledby="recordTitle" hidden>
         <div class="record-panel-head">
+          <a class="panel-back" id="recordBack" href="/vendors">Vendors</a>
           <div class="record-panel-title">
             <h2 id="recordTitle" tabindex="-1">Opening…</h2>
             <p class="record-tone"><span class="eyebrow" id="recordEyebrow">Record</span><span id="recordMeta"></span></p>
@@ -91,6 +92,7 @@
           <button type="button" class="panel-more" id="recordMore" popovertarget="recordActions" aria-controls="recordActions" aria-expanded="false" aria-label="Record actions">⋯</button>
           <div class="record-panel-actions" id="recordActions" popover></div>
           <button type="button" class="panel-close" id="recordClose" aria-label="Close record">×</button>
+          <div class="record-relationship" id="recordRelationship" hidden></div>
           <p class="record-panel-status" id="recordStatus" role="status" aria-live="polite"></p>
         </div>
         <div class="record-panel-body" id="recordBody">
