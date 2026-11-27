@@ -1,5 +1,5 @@
 import { BUSINESS_TIME_ZONE } from './business-date.js';
-import { phoneLabel, withoutRecordCodes } from './visual-system.js';
+import { partnerName, phoneLabel, withoutRecordCodes } from './visual-system.js';
 import { mountLocalTicker } from './visibility-poll.mjs';
 import { createPageBudget } from './read-budget.mjs';
 import { compareInstants } from './change-receipts.mjs';
@@ -32,7 +32,7 @@ import {
   displayedFreshness, echoesQuery, emptyCopy, expireSession, filterChips, freshnessSignature, hasActiveFilters,
   isSessionExpiry, listPhase, listRequestUrl, opensBeside, ownerPresentation, pageSummary, panelTabTarget,
   parseViewState, partyKindText, recordRequestUrl, recordSections, recordedCode, recordedValue, refusalCopy,
-  CLIENT_STATUS_CHIPS, RELATIONSHIP_LEVELS, RELATIONSHIP_WORDS, clientPlace, defaultSort, placeCounts, holdsWholeList, relationshipCounts, rememberPayload, restoreSession, sameQuery, scrollIntent, searchBoxValue, showsTiles, sourceIsFresh,
+  ACCOUNTS_REQUEST_URL, CLIENT_STATUS_CHIPS, accountCountsUrl, accountsFrom, clientStatusWord, RELATIONSHIP_LEVELS, RELATIONSHIP_WORDS, clientPlace, defaultSort, placeCounts, holdsWholeList, relationshipCounts, rememberPayload, restoreSession, sameQuery, scrollIntent, searchBoxValue, showsTiles, sourceIsFresh,
   tilesFrom, tilesRequestUrl, validListPayload, validRecordPayload, vendorRelationship, viewHref,
 } from "./workspace-business-model.js";
 import { resolveDealroomBoot } from "./boot-mode.js";
@@ -62,6 +62,7 @@ const dom = {
   listRegion: document.querySelector("#listRegion"),
   tiles: document.querySelector("#directoryTiles"),
   placeBack: document.querySelector("#placeBack"),
+  accountsBack: document.querySelector("#accountsBack"),
   list: document.querySelector("#recordList"),
   pager: document.querySelector("#pager"),
   source: document.querySelector("#listSource"),
@@ -111,6 +112,8 @@ const view = Object.assign(createBusinessState(), { freshnessKey: null, returnFo
 view.activity = { id: null, sequence: 0, result: null };
 view.sessionGeneration = 0;
 view.tiles = { sequence: 0, key: null, status: "idle", payload: null };
+// The national accounts with their locations counted for one owner chip.
+view.accounts = { sequence: 0, key: null, status: "idle", list: null };
 view.panelState = null;
 // The open vendor's stored relationship, read beside the card for its ruling reason and the values a save names.
 view.role = { id: null, value: null };
@@ -283,13 +286,17 @@ function renderControls({ syncSearch = false } = {}) {
     }
   }
   // Inside a category the title names it, so the place reads without a filter chip.
-  view.place = dataset === "clients" ? clientPlace(query)
+  view.place = dataset === "clients" ? clientPlace(query, view.accounts.list)
     : query.no_category ? "No category" : query.category && ((facets.categories || []).find((option) => option.slug === query.category)?.label ?? query.category);
-  if (dom.search) dom.search.placeholder = view.place ? `Find in ${view.place}` : dataset === "clients" ? "Find a client" : "Find a vendor";
+  // The account tiles hold no list of their own, so Find searches every client.
+  if (dom.search) dom.search.placeholder = view.place && !query.accounts ? `Find in ${view.place}` : dataset === "clients" ? "Find a client" : "Find a vendor";
   dom.placeBack.hidden = !view.place;
   dom.placeBack.textContent = DATASET_LABEL[dataset];
   dom.placeBack.href = viewHref({ ...defaultQuery(dataset), owner: query.owner });
-  if (dom.resultsTitle) dom.resultsTitle.textContent = view.place ? `${DATASET_LABEL[dataset]} / ${view.place}` : DATASET_LABEL[dataset];
+  dom.accountsBack.hidden = !query.national_account;
+  dom.accountsBack.href = viewHref({ ...defaultQuery(dataset), owner: query.owner, accounts: "true" });
+  const trail = [DATASET_LABEL[dataset], ...(query.national_account ? ["National Accounts"] : []), ...(view.place ? [view.place] : [])];
+  if (dom.resultsTitle) dom.resultsTitle.textContent = trail.join(" / ");
   scopeButtons.forEach((button) => {
     const selected = button.dataset.owner === query.owner;
     button.setAttribute("aria-pressed", selected ? "true" : "false");
@@ -437,9 +444,9 @@ function restorePanelState() {
 function rowFacts(dataset, row) {
   const facts = [];
   if (dataset === "clients") {
-    const status = recordedCode(row.recorded_status, row.recorded_status_label);
-    // The tiles and chips call an active deal an open deal, so the column does too.
-    facts.push({ label: "Status", value: row.recorded_status === "active_deal" ? "Open deal" : status.text, known: status.known, unresolved: status.known && !status.resolved });
+    // The tiles and chips name each state, so the column uses the same words.
+    const status = clientStatusWord(row.recorded_status);
+    facts.push({ label: "Status", value: status ?? "Not recorded", known: Boolean(status) });
     // Inside a practice type every row would repeat the tile's own name.
     if (!view.query.practice_type && !view.query.not_set) facts.push({ label: "Practice type", value: row.vertical || "Not recorded", known: Boolean(row.vertical) });
     // The deal's own link fills this column (see dealLinks), since a link cannot sit inside the row's.
@@ -534,7 +541,7 @@ function clientFiltersHtml(counts) {
 function renderTableFilters(payload) {
   const clients = view.dataset === "clients";
   dom.list.toggleAttribute("data-in-category", clients ? Boolean(view.query.practice_type || view.query.not_set) : Boolean(view.query.category || view.query.no_category));
-  const counts = clients && payload && view.place ? placeCounts(clientTileCounts(), view.query) : null;
+  const counts = clients && payload && view.place ? placeCounts(clientTileCounts(), view.query, view.accounts.list) : null;
   dom.tableFilters.hidden = !payload || (clients && !counts);
   if (!dom.tableFilters.hidden) dom.tableFilters.innerHTML = clients ? clientFiltersHtml(counts) : vendorFiltersHtml(payload);
 }
@@ -702,10 +709,23 @@ function clientTiles({ all, national_accounts: accounts, practice_types: types, 
   // Other waits for the practice type list that says which types are healthcare.
   return [
     tile("All clients", all, { all: "true" }),
-    ...(accounts.total > 0 ? [tile("National Accounts", accounts, { national_account: "any" },
+    ...(accounts.total > 0 ? [tile("National Accounts", accounts, { accounts: "true" },
       { count: accounts.accounts, foot: `<span class="tile-foot">${accounts.total} ${accounts.total === 1 ? "location" : "locations"}</span>` })] : []),
     ...types.map((type) => tile(type.practice_type, type, { practice_type: type.practice_type })),
     ...(notSet.total > 0 ? [tile("Not set", notSet, { not_set: "true" })] : []),
+  ];
+}
+
+// An account's tile counts the locations that match the owner chip, so an account with none has no tile.
+function accountTiles(tiles, accounts, base) {
+  const tile = (label, counts, changes, foot = "") => tileHtml({
+    label, count: counts.total, query: { ...base, ...changes }, foot,
+    mix: [mixItem(counts.open_deal, "Open deal"), mixItem(counts.past_client, "Past client"), mixItem(counts.no_deal_yet, "No deal yet")],
+  });
+  return [
+    tile("All locations", tiles.national_accounts, { national_account: "any" }),
+    ...accounts.filter((account) => account.counts.total > 0).map((account) => tile(account.name, account.counts, { national_account: account.id },
+      account.owner ? `<span class="tile-foot">Owner ${escapeHtml(partnerName(account.owner))}</span>` : "")),
   ];
 }
 
@@ -719,7 +739,9 @@ function paintTiles(html) {
 }
 
 function renderTiles() {
-  const { status, payload } = view.tiles;
+  const accounts = Boolean(view.query.accounts);
+  const status = accounts && view.tiles.payload ? view.accounts.status : view.tiles.status;
+  const payload = accounts ? view.accounts.list && view.tiles.payload : view.tiles.payload;
   const vendors = view.dataset === "vendors";
   document.querySelector("#scrollSentinel").hidden = true;
   if (dom.pager) dom.pager.hidden = true;
@@ -735,10 +757,43 @@ function renderTiles() {
     return;
   }
   setHealth(status === "refreshing" ? "refreshing" : "available");
+  const base = { ...defaultQuery(view.dataset), owner: view.query.owner };
+  if (accounts) {
+    const count = payload.national_accounts.accounts;
+    dom.summary.textContent = `National Accounts · ${count} ${count === 1 ? "account" : "accounts"}`;
+    return paintTiles(`<ul class="directory-tile-grid">${accountTiles(payload, view.accounts.list, base).join("")}</ul>`);
+  }
   const total = vendors ? payload.all.count : payload.all.total;
   dom.summary.textContent = `${total} ${(total === 1 ? DATASET_SINGULAR : DATASET_LABEL)[view.dataset].toLowerCase()}`;
-  const base = { ...defaultQuery(view.dataset), owner: view.query.owner };
   paintTiles(`<ul class="directory-tile-grid">${(vendors ? vendorTiles : clientTiles)(payload, base).join("")}</ul>`);
+}
+
+/** The deals board names each national account and its owner; each account's own read counts its locations. */
+async function loadAccounts() {
+  const { owner } = view.query;
+  const sequence = ++view.accounts.sequence;
+  if (view.accounts.key !== owner) view.accounts.list = null;
+  Object.assign(view.accounts, { key: owner, status: view.accounts.list ? "refreshing" : "loading" });
+  let list = null;
+  try {
+    const read = async (url) => {
+      const response = await fetchRead(url, { headers: { accept: "application/json" }, cache: "no-store" });
+      if (!response.ok) throw new Error("Accounts unavailable");
+      return response.json();
+    };
+    const accounts = accountsFrom(await read(ACCOUNTS_REQUEST_URL));
+    if (accounts) list = await Promise.all(accounts.map(async (account) => {
+      const counts = tilesFrom("clients", await read(accountCountsUrl(owner, account.id)))?.national_accounts;
+      if (!counts) throw new Error("Account counts unavailable");
+      return { ...account, counts };
+    }));
+  } catch {
+    list = null;
+  }
+  if (sequence !== view.accounts.sequence) return;
+  Object.assign(view.accounts, { status: list ? "ready" : "error", list });
+  renderControls();
+  renderList();
 }
 
 async function loadTiles() {
@@ -1126,6 +1181,8 @@ function expireNow() {
 
 async function loadList(reason = "initial") {
   if (view.signedOut) return;
+  const { accounts, national_account: account, owner } = view.query;
+  if ((accounts || (account && account !== "any")) && (view.accounts.key !== owner || view.accounts.status === "error")) void loadAccounts();
   if (showsTiles(view.query)) return loadTiles();
   const query = { ...view.query, page: 1 };
   const targetPages = reason === 'background' ? Math.max(1, view.loadedPageCount || 1, view.failedPage || 1) : 1;
@@ -1434,7 +1491,7 @@ function wireControls() {
   });
 
   dom.tiles.addEventListener("click", (event) => {
-    if (event.target.closest("[data-retry='tiles']")) return void loadTiles();
+    if (event.target.closest("[data-retry='tiles']")) return void loadList();
     const tile = event.target.closest("a.directory-tile");
     if (!tile || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();

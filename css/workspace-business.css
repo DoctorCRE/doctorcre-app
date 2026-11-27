@@ -63,6 +63,7 @@
 .place-back::before { content: "‹"; margin-inline-end: var(--space-1); }
 .place-back::after { content: "/"; margin-inline: var(--space-2); color: var(--fg-quiet); }
 .place-back:hover { color: var(--fg); }
+.place-back + .place-back::before { content: none; }
 .place-back[hidden] { display: none; }
 /* The link names the page, so the top bar does not name it twice. */
 body:has(#placeBack:not([hidden])) .app-layout-topbar .app-layout-title { display: none; }
@@ -398,6 +399,9 @@ body:not([data-directory-view="meetings"]) .vendor-meetings-host { display: none
 /* The phone's one tab row has no room for the count beside the vendor views and owner chips. */
 @media (max-width: 760px), (hover: none) and (pointer: coarse) and (max-width: 1023px) {
   body[data-directory="vendors"] .app-layout-tabs .result-summary { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  /* An account's name can be long, so on a phone the trail skips National Accounts and the name shortens to keep the owner chips in view. */
+  #accountsBack { display: none; }
+  body[data-directory="clients"] .app-layout-tabs .result-summary { max-width: 8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
 
 /* A computer's toolbar and list share one left edge and draw no box (design rules 3 and 5). */
