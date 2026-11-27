@@ -683,8 +683,64 @@ function clientNote({ notes, record_links }) {
   return `<section class="record-section client-note"><h3>Notes</h3><p class="entry-detail">${linkRecordNames(note, record_links)}</p><details class="record-details" data-details-key="notes"><summary><span>More</span><span>Less</span></summary></details></section>`;
 }
 
+const COPY_LINK_LABEL = "Copy link";
+const COPY_LINK_FAILED = "Could not copy link. Copy the address from your browser.";
+
+let copyLinkTimer = null;
+
+function stopCopyLinkTimer() {
+  if (copyLinkTimer === null) return;
+  clearTimeout(copyLinkTimer);
+  copyLinkTimer = null;
+}
+
+function resetCopyLinkButton() {
+  stopCopyLinkTimer();
+  const button = dom.panelActions?.querySelector("[data-copy-record-link]");
+  if (button) button.textContent = COPY_LINK_LABEL;
+}
+
+function recordActionsHtml() {
+  const copy = `<button type="button" class="action secondary-action" data-copy-record-link>${COPY_LINK_LABEL}</button>`;
+  const party = partyEditor?.actionsHtml() ?? "";
+  const inner = party.replace(/^<div class="party-record-actions">/, "").replace(/<\/div>$/, "");
+  return `<div class="party-record-actions">${inner}${copy}</div>`;
+}
+
+function announceCopyLinkFailure() {
+  if (dom.notices) dom.notices.textContent = COPY_LINK_FAILED;
+}
+
+async function copyRecordLink(button) {
+  const dataset = view.dataset;
+  const recordId = view.recordId;
+  if (!dataset || !recordId) return;
+  resetCopyLinkButton();
+  const url = `${location.origin}/${dataset}?record=${encodeURIComponent(recordId)}`;
+  const write = navigator.clipboard?.writeText;
+  if (typeof write !== "function") {
+    announceCopyLinkFailure();
+    return;
+  }
+  try {
+    await write.call(navigator.clipboard, url);
+    if (view.dataset !== dataset || view.recordId !== recordId || !button.isConnected) return;
+    button.textContent = "Copied";
+    // eslint-disable-next-line no-restricted-syntax -- Single 2 s Copied label, cleared on record change or close.
+    copyLinkTimer = setTimeout(() => {
+      copyLinkTimer = null;
+      if (button.isConnected) button.textContent = COPY_LINK_LABEL;
+    }, 2000);
+  } catch {
+    if (view.dataset !== dataset || view.recordId !== recordId || !button.isConnected) return;
+    button.textContent = COPY_LINK_LABEL;
+    announceCopyLinkFailure();
+  }
+}
+
 /** The header's status, owner and record actions; empty while nothing has loaded. */
 function paintPanelHead(meta = "", actions = "") {
+  stopCopyLinkTimer();
   if (dom.panelMeta) dom.panelMeta.innerHTML = meta;
   if (dom.panelActions) dom.panelActions.innerHTML = actions;
   dom.panelTitle?.removeAttribute("title");
@@ -702,6 +758,7 @@ function renderRecordPanel() {
   if (!view.signedOut) capturePanelState();
   if (!view.recordId) {
     closePanelMenu();
+    resetCopyLinkButton();
     dom.panelTitle?.classList.remove("full");
     dom.panel.hidden = true;
     dom.panel.classList.remove("open");
@@ -740,7 +797,7 @@ function renderRecordPanel() {
   const kind = partyKindText(payload.record.party_kind);
   const vendor = dataset === "vendors";
   const relationship = vendor ? vendorRelationship(payload.record) : null;
-  paintPanelHead(`${relationship ? `<span class="rel-word" data-relationship="${relationship.key}">${relationshipShape(relationship.key)}${relationship.word}</span>${wantToMeetHtml(relationship)}` : ""}${owner.known ? `<span class="row-fact"><span class="fact-label">Owner</span><span class="fact-value">${escapeHtml(owner.text)}</span></span>` : ""}`, partyEditor?.actionsHtml() ?? "");
+  paintPanelHead(`${relationship ? `<span class="rel-word" data-relationship="${relationship.key}">${relationshipShape(relationship.key)}${relationship.word}</span>${wantToMeetHtml(relationship)}` : ""}${owner.known ? `<span class="row-fact"><span class="fact-label">Owner</span><span class="fact-value">${escapeHtml(owner.text)}</span></span>` : ""}`, recordActionsHtml());
   if (action >= 0) focusWithoutScrolling(actions()[action]);
   if (dom.panelTitle) dom.panelTitle.textContent = dom.panelTitle.title = vendor ? withoutRecordCodes(payload.record.name) : payload.record.name;
   if (relationship && dom.panelTitle) dom.panelTitle.dataset.relationship = relationship.key;
@@ -1179,6 +1236,8 @@ function wireControls() {
     // A long name is cut to one line; a tap shows all of it.
     if (event.target.closest("#recordTitle")) dom.panelTitle.classList.toggle("full");
     if (event.target.closest("#recordActions button")) closePanelMenu();
+    const copy = event.target.closest("[data-copy-record-link]");
+    if (copy) return void copyRecordLink(copy);
     const edit = event.target.closest("[data-party-edit]");
     if (edit) return partyEditor?.edit();
     if (event.target.closest("[data-party-link]")) return partyEditor?.link(view.record.payload?.record?.name ?? "");
