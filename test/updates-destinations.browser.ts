@@ -405,9 +405,8 @@ test("an update row opens on click and with the keyboard, and marks read from th
 
 test("Who did what leads with the record and folds a run of one change; an empty feed is one line", async (t) => {
   const notes = Array.from({ length: 24 }, (_, n) => ({
-    ...change("", "added a note"),
+    ...change("Dell", "added a note"),
     id: `${n}`,
-    job: "agent",
     record: `Clinic ${n + 1}`,
   }));
   const { page } = await open(t, 1280, "dark", {
@@ -430,7 +429,7 @@ test("Who did what leads with the record and folds a run of one change; an empty
     "the time sits at the row's end, as in the feed",
   );
   assert.equal(await rows.count(), 2, "the 24 notes read as one row");
-  assert.equal(await rows.nth(1).locator(".note-subject").textContent(), "Written by the assistant");
+  assert.equal(await rows.nth(1).locator(".note-subject").textContent(), "Dell");
   await rows.nth(1).getByRole("button", { name: "24 records · added a note", exact: true }).click();
   const records = rows.nth(1).locator(".fold-list a");
   assert.equal(await records.count(), 24, "it opens to every record");
@@ -440,6 +439,63 @@ test("Who did what leads with the record and folds a run of one change; an empty
   );
   await capture(page, "updates-fold", 1280, "dark");
 });
+
+const byAssistant = (id: string, what: string, record: string) => ({
+  ...change("", what),
+  id,
+  who: null,
+  job: "agent",
+  record,
+});
+for (const width of viewports)
+  for (const theme of themes)
+    test(`a run of the assistant's work is one line that opens in place at ${width}px in ${theme} mode`, async (t) => {
+      const { page } = await open(
+        t,
+        width,
+        theme,
+        {
+          "GET /api/engine/updates/changes": () => ({
+            json: {
+              changes: [
+                byAssistant("a1", "added a next step: Call the clinic", "Example Dental"),
+                byAssistant("a2", "moved the deal to LOI", "Example Vision"),
+                byAssistant("a3", "added a next step: Send the tour list", "Example Dental"),
+                change("Joe", "moved the deal to Legal"),
+                byAssistant("a4", "added a note", "Example Ortho"),
+              ],
+              next_before: null,
+            },
+          }),
+        },
+        true,
+        width === 390 ? 844 : 900,
+      );
+      await page.goto(updatesPath);
+      const rows = page.locator("#activityList > .update-row");
+      const run = rows.nth(0);
+      const line = run.getByRole("button", { name: "The assistant added 2 next steps and moved 1 deal", exact: true });
+      await line.waitFor({ timeout: 2500 });
+      assert.equal(await rows.count(), 3, "Joe's row splits the run and the lone assistant row stays a normal row");
+      assert.equal(await run.locator(":scope > .note-subject").textContent(), "Example Dental and Example Vision");
+      assert.equal(await run.locator(":scope > .row-meta").textContent(), "9:00 AM", "the time of the newest");
+      assert.equal(await rows.nth(1).locator(".note-subject").textContent(), "Joe");
+      assert.equal(await rows.nth(2).getByRole("heading").textContent(), "Example Ortho · added a note");
+      const inside = run.locator(".run-list > .update-row");
+      assert.equal(await inside.first().isVisible(), false, "the run starts closed");
+      await capture(page, "dl-1679-closed", width, theme);
+      await line.focus();
+      await page.keyboard.press("Enter");
+      assert.equal(await inside.count(), 3);
+      assert.equal(await inside.nth(2).isVisible(), true, "Enter opens every row the run covers");
+      assert.equal(await inside.nth(1).getByRole("heading").textContent(), "Example Vision · moved the deal to LOI");
+      await inside.nth(1).getByRole("button", { name: "moved the deal to LOI" }).click();
+      assert.equal(await inside.nth(1).locator(".row-more").isVisible(), true, "a row inside opens as it does today");
+      assert.equal(await line.getAttribute("aria-expanded"), "true", "opening a row inside keeps the run open");
+      await capture(page, "dl-1679-open", width, theme);
+      await line.click();
+      assert.equal(await inside.first().isVisible(), false, "a second click closes the run");
+    });
 
 test("Updates groups rows by day, marks unread with a dot and keeps row controls quiet", async (t) => {
   const at = (iso: string, n: number) => ({

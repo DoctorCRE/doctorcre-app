@@ -9,7 +9,7 @@ import { mountNotificationBadge, mountPrefs, renderNotificationBadge } from "./s
 import { BUSINESS_TIME_ZONE, meetingTime } from "./business-date.js";
 import {
   PREFERENCE_OPERATION_KEY, QUIET_SUPPRESSED_MARK,
-  acknowledgeArgs, acknowledgeOperationKey, activityRows, changeRows, classifyPreferenceFailure, foldChanges, groupByDay,
+  acknowledgeArgs, acknowledgeOperationKey, activityRows, assistantRunLine, changeRows, classifyPreferenceFailure, foldChanges, groupByDay, groupRecords,
   classifyPreferenceReadFailure, classifyReadFailure, enginePreferenceArgs, feedState, updateFailure,
   notificationCards, unreadCards, preferenceState, preferenceSummary, preferenceView,
   quietNowBanner, setPreferenceArgs, unreadLine, validFeedPayload,
@@ -164,8 +164,8 @@ function toggleRow(row) {
   const open = !openRows.delete(key);
   if (open) openRows.add(key);
   row.toggleAttribute("data-open", open);
-  row.querySelector(".row-toggle").setAttribute("aria-expanded", String(open));
-  row.querySelector(".row-more").hidden = !open;
+  row.querySelector(":scope > .row-title .row-toggle").setAttribute("aria-expanded", String(open));
+  row.querySelector(":scope > .row-more").hidden = !open;
 }
 
 /**
@@ -173,7 +173,7 @@ function toggleRow(row) {
  * that took its place when that row left the list.
  */
 function paintList(list, html) {
-  const rowsOf = () => [...list.querySelectorAll(":scope > .update-row[data-row]")];
+  const rowsOf = () => [...list.querySelectorAll(".update-row[data-row]")];
   const row = document.activeElement?.closest(".update-row[data-row]");
   const index = row ? rowsOf().indexOf(row) : -1;
   list.innerHTML = html;
@@ -187,7 +187,8 @@ function paintList(list, html) {
 function onRowClick(event) {
   const target = event.target instanceof Element ? event.target : null;
   const row = target?.closest(".update-row[data-row]");
-  if (!row || target.closest(".row-more") || (target.closest("a, button") && !target.closest(".row-toggle"))) return false;
+  // A row inside an open run sits in the run's panel, so only the row's own panel is off limits.
+  if (!row || row.contains(target.closest(".row-more")) || (target.closest("a, button") && !target.closest(".row-toggle"))) return false;
   toggleRow(row);
   return true;
 }
@@ -291,6 +292,20 @@ function changeHtml(group) {
   });
 }
 
+/** A run of the assistant's work is one line that opens, in place, to each of its changes as its own row. */
+function activityGroupHtml(group) {
+  const line = assistantRunLine(group);
+  if (!line) return changeHtml(group);
+  return rowHtml({
+    key: `activity:run:${group.at(-1).id}`,
+    attrs: 'data-priority="ordinary"',
+    title: line,
+    detail: groupRecords(group),
+    meta: `<span class="row-clock">${escapeHtml(group[0].clock ?? "")}</span>`,
+    more: `<ul class="run-list">${group.map((row) => changeHtml([row])).join("")}</ul>`,
+  });
+}
+
 const activityRowsOf = (payload) => payload?.changes ? changeRows(payload.changes, savedZone()) : activityRows(payload?.events, savedZone());
 
 const NOTHING_YET = "No updates yet";
@@ -317,7 +332,7 @@ function renderActivity() {
   more.disabled = read.loadingMore === true;
   more.textContent = read.moreFailed === "invalid_fields" ? "Reload activity" : read.moreFailed ? "Retry" : "Show more";
   $("activityMoreState").textContent = read.moreFailed ? "Couldn't load more" : "";
-  paintList($("activityList"), byDayHtml(rows, (dayRows) => foldChanges(dayRows).map(changeHtml).join(""))
+  paintList($("activityList"), byDayHtml(rows, (dayRows) => foldChanges(dayRows).map(activityGroupHtml).join(""))
     || (payload ? `<li class="update-row empty-row"><h3 class="row-title">No recent activity</h3></li>` : ""));
   renderEmpty();
 }

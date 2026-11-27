@@ -68,12 +68,14 @@
 a.row-lead { font-weight: var(--font-weight-strong); }
 .row-more { grid-area: more; display: grid; gap: var(--space-1); padding-top: var(--space-1); cursor: auto; }
 .row-more > * { margin: 0; }
-.update-row[data-open] .row-toggle, .update-row[data-open] .note-subject { white-space: normal; overflow-wrap: anywhere; }
+.update-row[data-open] > .row-title .row-toggle, .update-row[data-open] > .note-subject { white-space: normal; overflow-wrap: anywhere; }
 /* A change reads "record · action" on one line; opening the row shows all of it. */
 #activityList .row-title { display: flex; align-items: baseline; }
 .row-lead { flex: 0 1 auto; max-width: 50%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .row-sep { flex: none; white-space: pre; }
 #activityList .row-toggle { flex: 1 1 0; min-width: 0; }
+.run-list { margin: 0; padding: 0; list-style: none; }
+.run-list > .update-row { padding-inline: 0; }
 .fold-list { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; font-size: var(--font-size-1); }
 .fold-list > li { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0 var(--space-2); }
 .fold-list .row-clock { color: var(--fg-quiet); font-variant-numeric: tabular-nums; }
