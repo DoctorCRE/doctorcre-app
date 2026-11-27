@@ -17,7 +17,7 @@ import {
   QUIET_SUPPRESSED_MARK, SEVERITIES, SEVERITY_LABELS, TIME_REFUSAL,
   acknowledgeArgs, acknowledgeOperationKey, activityRows, dayHeading, foldChanges, groupByDay, preferenceTimeLabel, classifyPreferenceFailure,
   classifyPreferenceReadFailure, classifyReadFailure, changeRows, parseChangesPage, deepLinkView, deliveryPhrases, feedState,
-  notificationCards, preferenceState, preferenceSummary,
+  notificationCards, unreadCards, preferenceState, preferenceSummary,
   preferenceView, quietNowBanner, setPreferenceArgs, toInputTime, unreadLine,
   validFeedPayload, validPreferencePayload,
 } from "../js/notifications-model.js";
@@ -843,4 +843,71 @@ test('rows group into runs that share a Central day, newest first', () => {
   assert.deepEqual(groups.map(({ day, rows: dayRows }) => [day, dayRows.map(row => row.id)]),
     [['Today', ['0', '1']], ['Yesterday', ['2', '3']], ['Dec 31, 2025', ['4']]]);
   assert.deepEqual(groupByDay([], 'America/Chicago'), []);
+});
+
+test("Unread only hides already-read rows and keeps the payload unread count", () => {
+  const mixed = {
+    ok: true,
+    unread_count: 7,
+    notifications: [
+      { id: "n-unread", reason: "Call the clinic", created_at: "2026-11-26T16:00:00Z", subject_type: "deal", subject_ref: "deal-1" },
+      { id: "n-read", reason: "Note added", created_at: "2026-11-26T15:00:00Z", read_at: "2026-11-26T15:30:00Z", subject_type: "deal", subject_ref: "deal-2" },
+    ],
+  };
+  const cards = notificationCards(mixed);
+  assert.deepEqual(unreadCards(cards, false).map((card) => card.id), ["n-unread", "n-read"]);
+  const unread = unreadCards(cards, true);
+  assert.deepEqual(unread.map((card) => card.id), ["n-unread"]);
+  assert.equal(unreadLine(mixed), "7 unread");
+
+  const engine = {
+    ok: true,
+    unread_count: 7,
+    updates: [
+      {
+        id: "u-unread", title: "Proposal sent", why: "Example deal", label: "Update",
+        at: "2026-11-26T16:00:00Z", reading: { kind: "unread" },
+        link: { href: "/deals?deal=example", path: "/deals", label: "Open deal", routed: true },
+      },
+      {
+        id: "u-read", title: "Note added", why: "Example deal", label: "Update",
+        at: "2026-11-26T15:00:00Z", reading: { kind: "read", at: "2026-11-26T15:30:00Z" },
+        link: { href: "/deals?deal=example", path: "/deals", label: "Open deal", routed: true },
+      },
+    ],
+  };
+  assert.deepEqual(unreadCards(notificationCards(engine), true).map((card) => card.id), ["u-unread"]);
+  assert.equal(unreadLine(engine), "7 unread");
+
+  const allRead = {
+    ok: true,
+    unread_count: 3,
+    notifications: [
+      { id: "r1", reason: "Old note", created_at: "2026-11-25T16:00:00Z", read_at: "2026-11-25T17:00:00Z", subject_type: "deal", subject_ref: "deal-3" },
+      { id: "r2", reason: "Older note", created_at: "2026-11-24T16:00:00Z", read_at: "2026-11-24T17:00:00Z", subject_type: "deal", subject_ref: "deal-4" },
+    ],
+  };
+  assert.deepEqual(unreadCards(notificationCards(allRead), true), []);
+  assert.equal(unreadLine(allRead), "3 unread");
+  const filteredEmpty = feedState({ state: "read", payload: allRead }, { unreadOnly: true });
+  assert.equal(filteredEmpty.state, "empty");
+  assert.equal(filteredEmpty.sentence, "No unread updates");
+  assert.equal(feedState({ state: "read", payload: allRead }).state, "ready");
+  assert.equal(
+    feedState({ state: "read", payload: { ok: true, unread_count: 0, notifications: [] } }, { unreadOnly: true }).sentence,
+    FEED_STATES.empty,
+  );
+
+  const dom = new JSDOM(html);
+  try {
+    const button = dom.window.document.getElementById("unreadOnly");
+    assert.equal(button?.tagName, "BUTTON");
+    assert.equal(button.getAttribute("type"), "button");
+    assert.equal(button.className, "btn");
+    assert.equal(button.getAttribute("aria-pressed"), "false");
+    assert.equal(button.textContent, "Unread only");
+    assert.equal(button.nextElementSibling?.id, "markAllRead");
+  } finally {
+    dom.window.close();
+  }
 });

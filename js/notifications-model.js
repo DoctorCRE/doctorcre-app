@@ -162,6 +162,12 @@ export function notificationCards(payload, routes = APP_ROUTE_PATHS, zone = BUSI
     }));
 }
 
+/** Cards shown when Unread only is on. Engine rows use reading.kind; the old feed uses read. */
+export function unreadCards(cards, unreadOnly = false) {
+  if (!unreadOnly) return cards;
+  return cards.filter((card) => (card.reading ? card.reading.kind === "unread" : !card.read));
+}
+
 function updateCard(row, zone) {
   return {
     id: row.id,
@@ -259,7 +265,7 @@ export const FEED_STATES = Object.freeze({
  * refusal outranks an empty list, because an empty list drawn over a refusal
  * would read as "you have nothing" when the truth is "we were not told".
  */
-export function feedState(read = {}, { after = null, limit = null } = {}) {
+export function feedState(read = {}, { after = null, limit = null, unreadOnly = false } = {}) {
   const has = read.state === "read" && validFeedPayload(read.payload);
   if (read.state === "refused") return { state: "refused", sentence: FEED_STATES.refused };
   if (read.state === "unavailable") return { state: "unavailable", sentence: FEED_STATES.unavailable };
@@ -274,6 +280,9 @@ export function feedState(read = {}, { after = null, limit = null } = {}) {
     return isText(after)
       ? { state: "no_match", sentence: FEED_STATES.no_match }
       : { state: "empty", sentence: FEED_STATES.empty };
+  }
+  if (unreadOnly && unreadCards(notificationCards(read.payload), true).length === 0) {
+    return { state: "empty", sentence: "No unread updates" };
   }
   if (Number.isInteger(limit) && rows >= limit && read.payload.unread_count > rows) {
     return {
