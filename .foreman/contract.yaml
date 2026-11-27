@@ -1,4 +1,7 @@
-check: npm run check
+# The package.json check, with each `node --test` run also writing JUnit to its own file (out/junit-1.xml, out/junit-2.xml, ...), so the script stays the only definition of the check.
+check: >-
+  mkdir -p out && PATH="$PWD/node_modules/.bin:$PATH" sh -c "$(node -p "let n = 0; require('./package.json').scripts.check.replace(/node --test /g, () => 'node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=out/junit-' + (++n) + '.xml ')")"
+test_report: [out/junit-1.xml, out/junit-2.xml]
 # The image's Node, Chromium and WebKit match the locked @playwright/test version; bump them together.
 image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:2f05f8a734509a7b3f26a912639488ee08f58a7b292d14d62271bcff9038768f
 setup:
