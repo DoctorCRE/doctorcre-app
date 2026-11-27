@@ -59,12 +59,36 @@ function renderChips(groups) {
   if (focusKey) [...bar.querySelectorAll("[data-chip]")].find(node => node.dataset.chip === focusKey)?.focus();
 }
 
+let recentSearchesObserver = null;
+
+function syncRecentSearchChipReach() {
+  const bar = $("recentSearches");
+  if (!bar) return;
+  const row = bar.getBoundingClientRect();
+  for (const chip of bar.querySelectorAll("[data-recent]")) {
+    const box = chip.getBoundingClientRect();
+    const fits = box.left >= row.left - 0.5
+      && box.right <= row.right + 0.5
+      && box.top >= row.top - 0.5
+      && box.bottom <= row.bottom + 0.5;
+    chip.toggleAttribute("inert", !fits);
+  }
+}
+
+function watchRecentSearchChips(bar) {
+  if (recentSearchesObserver || typeof ResizeObserver !== "function") return;
+  recentSearchesObserver = new ResizeObserver(syncRecentSearchChipReach);
+  recentSearchesObserver.observe(bar);
+}
+
 function renderRecentSearches() {
   const bar = $("recentSearches");
   if (!bar) return;
   const recents = view.recents;
   bar.hidden = recents.length === 0;
   bar.innerHTML = recents.map((query) => `<button class="chip" type="button" data-recent="${escapeHtml(query)}" title="${escapeHtml(query)}"><span>${escapeHtml(query)}</span></button>`).join("");
+  syncRecentSearchChipReach();
+  watchRecentSearchChips(bar);
 }
 
 function renderSavedViews() {
@@ -275,6 +299,8 @@ function browserStorage() {
  * one of them.
  */
 export function mountSearch({ client: searchClient, storage: storageImpl } = {}) {
+  recentSearchesObserver?.disconnect();
+  recentSearchesObserver = null;
   client = searchClient;
   storage = storageImpl === undefined ? browserStorage() : storageImpl;
   view.views = [];

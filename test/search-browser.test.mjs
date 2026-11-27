@@ -575,3 +575,107 @@ test('Five long recent searches at 1280x640 never show a cut-off chip and leave 
   assert.equal(fit.count.overflow, 0, 'the results count is not cut');
   assert.ok(fit.count.left >= fit.bar.right - 0.5 && fit.count.right <= 1280, 'the results count sits whole beside the chips');
 });
+
+test('Tab from the search box never lands on a recent chip outside the visible row', async t => {
+  const server = await fixtureServer();
+  t.after(() => server.close());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1280, height: 640 } });
+  const recents = [
+    'a long clinic name search for downtown dental',
+    'another quite long practice name in midtown',
+    'third long made up search text for a vendor',
+    'fourth long made up search text for a lead',
+    'fifth long made up search text for a deal',
+  ];
+  const id = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  const parties = [
+    { id: id(1), name: 'Demo Dental Person', kind: 'person', roles: [], city: null, lead_id: null, deals: [] },
+    ...Array.from({ length: 3 }, (_, n) => ({ id: id(n + 2), name: `Demo Dental Practice ${n}`, kind: 'company', roles: ['client'], city: null, lead_id: null, deals: [] })),
+    { id: id(9), name: 'Demo Dental Vendor', kind: 'company', roles: ['vendor'], city: null, lead_id: null, deals: [] },
+  ];
+  await page.route('**/mcp', route => {
+    const { id: rid, params } = route.request().postDataJSON();
+    const payload = params.name === 'find' ? { schema_version: 'search.v1', parties, deals: [{ id: 'd01', name: 'Demo Dental Deal', phase: 'site_selection', owner: 'joe' }] } : {};
+    return route.fulfill({ json: { jsonrpc: '2.0', id: rid, result: { content: [{ type: 'text', text: JSON.stringify(payload) }] } } });
+  });
+  await page.route('**/{auth/session,api/system-work/session}', route => route.fulfill({ json: { actor: { slug: 'joe' }, csrf_token: 'synthetic' } }));
+  await page.goto(`${server.origin}/search?mode=live`);
+  // The first visit binds the session and clears private storage, so the recents are stored after it.
+  await page.evaluate(list => localStorage.setItem('doctorcre.recent-searches.v1:joe', JSON.stringify(list)), recents);
+  await page.goto(`${server.origin}/search?mode=live&q=Demo%20Dental`);
+  await page.locator('#searchCount').filter({ hasText: /^\d+ results$/ }).waitFor();
+  await page.locator('#recentSearches .chip').first().waitFor();
+  assert.equal(await page.locator('#recentSearches .chip').count(), 5);
+
+  const measure = () => page.evaluate(() => {
+    const rowBox = node => node.getBoundingClientRect();
+    const row = rowBox(document.querySelector('#recentSearches'));
+    const fits = box => box.left >= row.left - 0.5 && box.right <= row.right + 0.5 && box.top >= row.top - 0.5 && box.bottom <= row.bottom + 0.5;
+    const chips = [...document.querySelectorAll('#recentSearches [data-recent]')].map(chip => {
+      const box = rowBox(chip);
+      return { text: chip.dataset.recent, inside: fits(box) };
+    });
+    return { chips, hidden: chips.filter(chip => !chip.inside).map(chip => chip.text) };
+  });
+
+  const tabFromSearch = async () => {
+    await page.locator('#searchQuery').focus();
+    const landed = [];
+    const seen = new Set();
+    for (let i = 0; i < 40; i++) {
+      await page.keyboard.press('Tab');
+      const focus = await page.evaluate(() => {
+        const chip = document.activeElement;
+        const bar = document.querySelector('#recentSearches');
+        if (!chip || !bar?.contains(chip) || !chip.dataset.recent) return null;
+        const box = chip.getBoundingClientRect();
+        const row = bar.getBoundingClientRect();
+        return {
+          text: chip.dataset.recent,
+          chip: { left: box.left, right: box.right, top: box.top, bottom: box.bottom },
+          row: { left: row.left, right: row.right, top: row.top, bottom: row.bottom },
+        };
+      });
+      if (!focus) {
+        if (landed.length) break;
+        continue;
+      }
+      if (seen.has(focus.text)) break;
+      seen.add(focus.text);
+      landed.push(focus);
+    }
+    return landed;
+  };
+
+  const inside = (chip, row) => chip.left >= row.left - 0.5 && chip.right <= row.right + 0.5 && chip.top >= row.top - 0.5 && chip.bottom <= row.bottom + 0.5;
+
+  const narrow = await measure();
+  assert.ok(narrow.hidden.length > 0, 'at least one chip sits outside the row at 1280');
+
+  const visible = narrow.chips.filter(chip => chip.inside).map(chip => chip.text);
+  const firstPass = await tabFromSearch();
+  assert.ok(firstPass.length > 0, 'Tab from the search box reaches a visible recent chip');
+  for (const focus of firstPass) {
+    assert.ok(!narrow.hidden.includes(focus.text), `Tab did not land on ${focus.text}, which sits outside the row`);
+    assert.ok(inside(focus.chip, focus.row), `${focus.text} is inside the row when focused`);
+  }
+  assert.deepEqual(firstPass.map(focus => focus.text), visible, 'every visible chip is still reachable');
+
+  const hidden = narrow.hidden[0];
+  await page.setViewportSize({ width: 1920, height: 640 });
+  await page.waitForFunction(text => {
+    const chip = [...document.querySelectorAll('#recentSearches [data-recent]')].find(node => node.dataset.recent === text);
+    const bar = document.querySelector('#recentSearches');
+    if (!chip || !bar) return false;
+    const box = chip.getBoundingClientRect();
+    const row = bar.getBoundingClientRect();
+    return !chip.hasAttribute('inert') && box.left >= row.left - 0.5 && box.right <= row.right + 0.5 && box.top >= row.top - 0.5 && box.bottom <= row.bottom + 0.5;
+  }, hidden);
+
+  const secondPass = await tabFromSearch();
+  const revealed = secondPass.find(focus => focus.text === hidden);
+  assert.ok(revealed, `${hidden} is reachable with Tab after the window widens`);
+  assert.ok(inside(revealed.chip, revealed.row), `${hidden} is inside the row when focused after the window widens`);
+});
