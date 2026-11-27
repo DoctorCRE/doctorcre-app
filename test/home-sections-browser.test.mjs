@@ -1963,7 +1963,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
     return;
   }
 
-  await unsaved.getByRole('button', { name: 'Use my edit' }).click();
+  await unsaved.getByRole('button', { name: 'Use my edits' }).click();
   assert.equal(await subject.inputValue(), 'My sample subject');
   assert.equal(await message.inputValue(), 'Keep this local edit.');
   assert.equal(await send.isEnabled(), true);
@@ -2382,7 +2382,7 @@ test('Home restores reply edits after Back and reload and compares a newer revis
 });
 
 function sessionHasReplyEdit(page, text) {
-  return page.evaluate(value => Object.values(sessionStorage).some(entry => entry.includes(value)), text);
+  return page.evaluate(value => [...Object.values(sessionStorage), ...Object.values(localStorage)].some(entry => entry.includes(value)), text);
 }
 
 for (const event of ['sign-out', 'partner change', 'drop']) test(`Home clears reply edits on ${event}`, async t => {
@@ -2466,7 +2466,7 @@ test('Home skips edits from a retired session when the same partner signs back i
     const { privateSession } = await import('/js/private-session.js');
     await privateSession().verify();
   });
-  assert.equal(await sessionHasReplyEdit(page, edit), true, 'The inactive tab missed the storage event');
+  assert.equal(await sessionHasReplyEdit(page, edit), false, 'Sign-out in the other tab clears the shared device draft');
 
   await page.goto(home);
   await page.getByRole('link', { name: draft.title }).click();
@@ -2490,7 +2490,7 @@ test('Home evicts the old reply edit when browser storage rejects its replacemen
   await page.evaluate(() => {
     const setItem = Storage.prototype.setItem;
     Storage.prototype.setItem = function (key, value) {
-      if (this === sessionStorage && value.includes('Latest local edit.')) throw new DOMException('Full', 'QuotaExceededError');
+      if (this === localStorage && value.includes('Latest local edit.')) throw new DOMException('Full', 'QuotaExceededError');
       return setItem.call(this, key, value);
     };
   });
@@ -2503,6 +2503,104 @@ test('Home evicts the old reply edit when browser storage rejects its replacemen
   await review.getByRole('button', { name: 'Send reply', exact: true }).waitFor();
   assert.equal(await message.count(), 0, 'A failed write must not restore older text after reload');
   assert.equal(await review.getByText('First draft.', { exact: true }).count(), 1);
+});
+
+async function openHomeReplyEditor(t) {
+  const { page, open, state } = await dashboard(t, 1440, 'light');
+  const draft = draftCard();
+  state.items = [draft];
+  await open('/?mode=live');
+  const title = page.getByRole('link', { name: draft.title });
+  const review = page.getByRole('region', { name: `Details for ${draft.title}` });
+  await title.click();
+  await review.getByRole('button', { name: 'Edit', exact: true }).click();
+  return {
+    page, state, draft, title, review,
+    subject: review.getByRole('textbox', { name: 'Subject', exact: true }),
+    message: review.getByRole('textbox', { name: 'Message', exact: true }),
+  };
+}
+
+test('Home reply draft edits come back after a reload', async t => {
+  const { page, title, review, message } = await openHomeReplyEditor(t);
+  await message.fill('Kept after I came back.');
+  await review.getByText('Unsaved edits', { exact: true }).waitFor();
+  await review.getByRole('button', { name: 'Discard', exact: true }).waitFor();
+  await page.reload();
+  await title.click();
+  await review.getByRole('button', { name: 'Send reply', exact: true }).waitFor();
+  assert.equal(await message.inputValue(), 'Kept after I came back.');
+  assert.equal(await review.getByText('Unsaved edits', { exact: true }).count(), 1);
+  await page.evaluate(() => sessionStorage.clear());
+  await page.reload();
+  await title.click();
+  await review.getByRole('button', { name: 'Send reply', exact: true }).waitFor();
+  assert.equal(await message.inputValue(), 'Kept after I came back.', 'edits must survive a closed tab');
+  assert.equal(await review.getByText('Unsaved edits', { exact: true }).count(), 1);
+});
+
+test('Home reply draft Save clears the kept edits', async t => {
+  const { page, state, title, review, message } = await openHomeReplyEditor(t);
+  await message.fill('This edit should be saved.');
+  await review.getByText('Unsaved edits', { exact: true }).waitFor();
+  await review.getByRole('button', { name: 'Save draft', exact: true }).click();
+  await review.getByText('Saved as a draft. Nothing was sent.', { exact: true }).waitFor();
+  assert.equal(state.draft.body, 'This edit should be saved.');
+  assert.equal(await review.getByText('Unsaved edits', { exact: true }).count(), 0);
+  await page.reload();
+  await title.click();
+  await review.getByRole('button', { name: 'Edit', exact: true }).waitFor();
+  assert.equal(await review.getByRole('textbox', { name: 'Message', exact: true }).count(), 0);
+  assert.equal(await review.getByText('This edit should be saved.', { exact: true }).count(), 1);
+  assert.equal(await review.getByText('Unsaved edits', { exact: true }).count(), 0);
+});
+
+test('Home reply draft Discard restores the saved text', async t => {
+  const { page, title, review, message } = await openHomeReplyEditor(t);
+  await message.fill('A half-finished local edit.');
+  await page.reload();
+  await title.click();
+  await review.getByRole('button', { name: 'Send reply', exact: true }).waitFor();
+  assert.equal(await message.inputValue(), 'A half-finished local edit.');
+  await review.getByRole('button', { name: 'Discard', exact: true }).click();
+  await review.getByRole('button', { name: 'Edit', exact: true }).waitFor();
+  assert.equal(await review.getByRole('textbox', { name: 'Message', exact: true }).count(), 0);
+  assert.equal(await review.getByText('First draft.', { exact: true }).count(), 1);
+  assert.equal(await review.getByText('Unsaved edits', { exact: true }).count(), 0);
+  assert.equal(await review.getByText('A half-finished local edit.', { exact: true }).count(), 0);
+});
+
+test('Home reply draft shows a newer server draft with Use my edits', async t => {
+  const { page, state, draft, title, review, subject, message } = await openHomeReplyEditor(t);
+  await subject.fill('My kept subject');
+  await message.fill('My kept body.');
+  Object.assign(state.draft, { version: 2, subject: 'Newer saved subject', body: 'Newer saved body.' });
+  state.items = [{ ...draft, source_version: '2' }];
+  await page.reload();
+  await title.click();
+  await review.getByRole('button', { name: 'Send reply', exact: true }).waitFor();
+  await review.getByText('Newer saved subject', { exact: true }).waitFor();
+  await review.getByText('Newer saved body.', { exact: true }).waitFor();
+  assert.equal(await message.count(), 0);
+  const unsaved = review.getByRole('region', { name: 'Your unsaved edit' });
+  await unsaved.getByText('My kept subject', { exact: true }).waitFor();
+  await unsaved.getByText('My kept body.', { exact: true }).waitFor();
+  await unsaved.getByRole('button', { name: 'Use my edits', exact: true }).click();
+  assert.equal(await subject.inputValue(), 'My kept subject');
+  assert.equal(await message.inputValue(), 'My kept body.');
+});
+
+test('Home reply draft still lets the partner edit and save when storage throws', async t => {
+  const { page, state, review, message } = await openHomeReplyEditor(t);
+  await page.evaluate(() => {
+    Storage.prototype.getItem = () => { throw new Error('denied'); };
+    Storage.prototype.setItem = () => { throw new Error('denied'); };
+  });
+  await message.fill('Typed while storage was blocked.');
+  await review.getByRole('button', { name: 'Save draft', exact: true }).click();
+  await review.getByText('Saved as a draft. Nothing was sent.', { exact: true }).waitFor();
+  assert.equal(state.draft.body, 'Typed while storage was blocked.');
+  assert.deepEqual(state.draftWrites.map(write => write.body), ['Typed while storage was blocked.']);
 });
 
 for (const width of [390, 1440]) test(`Home links open exact mailbox reviews without loading the inbox at ${width}px`, async t => {

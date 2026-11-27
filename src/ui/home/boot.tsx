@@ -51,7 +51,7 @@ export async function bootInbox(host: HTMLElement) {
       ]);
       const session = privateSession();
       await session.verify();
-      privateDraft = (id) => session.textDraft("home-reply", id);
+      privateDraft = (id) => session.deviceText("home-reply", id);
       if (session.engineSignIn) docLinkRequest = session.fetch;
       const request = createMcpRequests();
       rpc = async (name, args, signal) => {
