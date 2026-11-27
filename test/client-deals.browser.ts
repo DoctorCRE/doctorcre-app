@@ -205,3 +205,34 @@ for (const [width, height, scheme] of [
       await page.screenshot({ path: `${shots}/opened-${width}-${scheme}.png` });
     }
   });
+
+const longName = "Example Brand - Example Deal 2 - EXAMPLE CITY ST";
+for (const [width, height, scheme] of [
+  [1280, 599, "dark"],
+  [1280, 599, "light"],
+  [1440, 900, "dark"],
+  [1440, 900, "light"],
+  [390, 844, "dark"],
+  [390, 844, "light"],
+] as const)
+  test(`a long deal name never widens the card at ${width}x${height} ${scheme}`, async (t) => {
+    const long = [deal("d1", longName, { phase_label: "Letter of intent" })];
+    const { page, panel } = await openCard(t, answer(long), { width, height, scheme });
+    await panel.locator(".client-deal").first().waitFor();
+    const inside = await panel.evaluate((node, wide) => {
+      const card = node.getBoundingClientRect();
+      const fits = (selector: string) => {
+        const box = node.querySelector(selector)?.getBoundingClientRect();
+        return !!box && box.width > 0 && box.left >= card.left && box.right <= card.right;
+      };
+      return {
+        sideways: node.scrollWidth > node.clientWidth,
+        phase: fits(".client-deal-head > span"),
+        diagram: fits(".client-deal .deal-diagram"),
+        open: !wide || fits(".client-deal-open"),
+      };
+    }, width > 767);
+    assert.deepEqual(inside, { sideways: false, phase: true, diagram: true, open: true });
+    assert.equal(await panel.locator(".client-deal-head a").first().getAttribute("title"), longName);
+    await page.screenshot({ path: `${shots}/long-name-${width}-${scheme}.png` });
+  });
