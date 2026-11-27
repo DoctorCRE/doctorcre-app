@@ -275,19 +275,18 @@ for (const width of [1280, 1440]) {
     assert.ok(Math.abs(tops.prospects - tops.phase) <= 1, `Prospects at ${tops.prospects}, phases at ${tops.phase}`);
   });
 
-  test(`Ask Doc's question box shares the conversation's left edge, right of the chats at ${width}px`, async (t) => {
+  test(`Ask Doc's question box shares the conversation column, right of the chats at ${width}px`, async (t) => {
     const { page } = await open(t, "/doc-chats", width, { "doctorcre:today:/doc-chats": "open" });
-    const question = page.getByLabel("Question for Doc");
-    await question.waitFor();
+    await page.getByLabel("Question for Doc").waitFor();
     const [box, conversation, chats] = await Promise.all([
-      question.boundingBox(),
-      page.getByRole("region", { name: "Conversation" }).boundingBox(),
+      page.locator(".doc-chat__composer").boundingBox(),
+      page.locator(".doc-chat__turns").boundingBox(),
       page.getByRole("complementary", { name: "Chats" }).boundingBox(),
     ]);
     assert.ok(box && conversation && chats);
     assert.ok(
-      Math.abs(box.x - conversation.x) <= 1,
-      `question box starts at ${box.x}, conversation at ${conversation.x}`,
+      Math.abs(box.x - conversation.x) <= 1 && Math.abs(box.width - conversation.width) <= 1,
+      `question box spans ${box.x}+${box.width}, conversation ${conversation.x}+${conversation.width}`,
     );
     assert.ok(chats.x + chats.width <= box.x, `chats end at ${chats.x + chats.width}, question box starts at ${box.x}`);
     await mkdir(shots, { recursive: true });
