@@ -149,7 +149,16 @@ test("opening relationships shows sides in place of the table, with who introduc
 });
 
 test("a vendor with nothing recorded has no Relationships section", async (t) => {
-  const { page, section, panel } = await openCard(t, answer(nothing));
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const { page, section, panel } = await openCard(t, async (route) => {
+    await held;
+    return answer(nothing)(route);
+  });
+  await section.locator(".record-note").waitFor();
+  release();
   await section.locator(".record-note").waitFor({ state: "detached" });
   await settle(page);
   assert.equal(await section.textContent(), "");
