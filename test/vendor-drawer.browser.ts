@@ -84,3 +84,34 @@ for (const [width, height, read, contactId] of [
     assert.equal(drawer.emptySections, 0, "no empty section draws its dividers");
     assert.equal(drawer.closingLine, "0px", "no second divider under the last contact");
   });
+
+test("a vendor card's subtitle joins firm and category on one line and puts Owner on its own", async (t) => {
+  const server = await startFixtureServer();
+  t.after(() => server.stop());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1280, height: 640 } });
+  await page.route("https://**", (r) => r.abort());
+  await page.route("**/api/v1/business/**", (r) => r.fulfill({ json: personVendor(r.request().url(), vendorId) }));
+  await page.goto(`${server.url}/vendors?all=true&record=${vendorId}`);
+  await page.locator("#recordPanel").getByRole("region", { name: "Vendor contacts" }).waitFor();
+  const meta = await page.evaluate(() =>
+    [...document.querySelectorAll("#recordMeta > *")].map((item) => ({
+      text: item.textContent?.trim(),
+      top: Math.round(item.getBoundingClientRect().top),
+      dot: getComputedStyle(item, "::before").content !== "none",
+    })),
+  );
+  assert.deepEqual(
+    meta.map(({ text }) => text),
+    ["Demo Equities", "Banking", "OwnerJoe"],
+  );
+  const [firm, category, owner] = meta;
+  assert.equal(category?.top, firm?.top, "firm and category share a line");
+  assert.deepEqual(
+    meta.map(({ dot }) => dot),
+    [false, true, false],
+    "the dot sits between firm and category only",
+  );
+  assert.ok(owner && category && owner.top > category.top, "Owner is on its own line");
+});

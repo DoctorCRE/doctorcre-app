@@ -253,6 +253,34 @@ test("every vendor fact reads on one line at 1280x640 with the card open", async
   assert.deepEqual(wrapped, [], "no fact wraps with the card open");
 });
 
+// A 1280 window with a mouse loses 15px to its scrollbar, which tipped the table into stacked rows; the headless browser draws none, so those two are 1265 wide.
+for (const [name, width, height] of [
+  ["1280x599 with a scrollbar", 1265, 599],
+  ["1280x640 with a scrollbar", 1265, 640],
+  ["1280x640", 1280, 640],
+  ["1440x900", 1440, 900],
+  ["1024x700", 1024, 700],
+] as const)
+  test(`the Vendors table keeps its columns with the card open at ${name}`, async (t) => {
+    const page = await openVendors(t, width, height);
+    await page.locator(".record-row .row-head").first().click();
+    await page.locator("body[data-card-open]").waitFor();
+    await page.screenshot({ path: `${shots}/vendors-card-${width}x${height}.png` });
+    const table = await page.evaluate(() => ({
+      header: document.querySelector(".list-head")?.checkVisibility() ?? false,
+      rowHeights: [...document.querySelectorAll(".record-row")].map((row) =>
+        Math.round(row.getBoundingClientRect().height),
+      ),
+      sideways: document.documentElement.scrollWidth > innerWidth,
+    }));
+    assert.equal(table.header, true, "the header row that names the columns shows");
+    assert.ok(
+      Math.max(...table.rowHeights) <= 52,
+      `every vendor takes one line, not ${Math.max(...table.rowHeights)}px`,
+    );
+    assert.equal(table.sideways, false, "nothing scrolls sideways");
+  });
+
 test("Vendors stays usable on a phone", async (t) => {
   const page = await openVendors(t, 390, 844);
   await page.screenshot({ path: `${shots}/vendors-390.png` });
