@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
-import { parseMeetingPage } from "../src/ui/vendor-meetings-client.ts";
+import { parseMeetingPage, researchReason } from "../src/ui/vendor-meetings-client.ts";
 
 const recordings = JSON.parse(
   await readFile(new URL("./fixtures/vendor-meetings/recordings.json", import.meta.url), "utf8"),
@@ -48,4 +48,10 @@ test("parser refuses malformed identity, membership, calendar, cursor and view",
     { items: [{ ...recordings.research.items[0], possible_meetings: [{ title: "Wrong" }] }] },
   ])
     assert.throws(() => parseMeetingPage({ ...recordings.research, ...patch }, 5));
+});
+
+test("researchReason maps workable_vendor to parked or avoided", () => {
+  const reason = researchReason("workable_vendor");
+  assert.equal(reason, "Vendor is parked or avoided");
+  assert.equal(reason.includes("workable"), false);
 });
