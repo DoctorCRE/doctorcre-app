@@ -9,52 +9,37 @@ export const SESSION_TRUST_MS = 2 * 60_000;
 const PARTNER_SIGN_IN_HEADER = 'x-doctorcre-partner-sign-in';
 const PRIVATE_DRAFT_PREFIX = 'doctorcre:draft:';
 
-function storageOf(win, name) {
-  try { return win[name]; }
-  catch { return null; }
-}
-
-function textDraftStore(storage, actor, ...scope) {
+export function privateTextDraft(win, actor, ...scope) {
   const key = actor ? PRIVATE_DRAFT_PREFIX + JSON.stringify([actor, ...scope]) : null;
   return {
     read() {
-      try { return key ? storage?.getItem(key) ?? '' : ''; }
+      try { return key ? win.sessionStorage.getItem(key) ?? '' : ''; }
       catch { return ''; }
     },
     write(text, { evictOnFailure = false } = {}) {
-      if (!key || !storage) return;
+      if (!key) return;
       try {
-        if (text) storage.setItem(key, text);
-        else storage.removeItem(key);
+        if (text) win.sessionStorage.setItem(key, text);
+        else win.sessionStorage.removeItem(key);
       } catch {
         if (!evictOnFailure) return;
-        try { storage.removeItem(key); }
+        try { win.sessionStorage.removeItem(key); }
         catch { /* Storage may be blocked even for deletion. */ }
       }
     },
   };
 }
 
-export function privateTextDraft(win, actor, ...scope) {
-  return textDraftStore(storageOf(win, 'sessionStorage'), actor, ...scope);
-}
-
-export function privateDeviceTextDraft(win, actor, ...scope) {
-  return textDraftStore(storageOf(win, 'localStorage'), actor, ...scope);
-}
-
 export function clearPrivateTextDrafts(win, actor) {
   if (!actor) return;
   const actorKey = PRIVATE_DRAFT_PREFIX + JSON.stringify([actor]);
   const prefix = actorKey.slice(0, -1) + ',';
-  for (const name of ['sessionStorage', 'localStorage']) {
-    try {
-      const storage = win[name];
-      for (const key of Object.keys(storage)) {
-        if (key === actorKey || key.startsWith(prefix)) storage.removeItem(key);
-      }
-    } catch { /* Private storage may be blocked. */ }
-  }
+  try {
+    const storage = win.sessionStorage;
+    for (const key of Object.keys(storage)) {
+      if (key === actorKey || key.startsWith(prefix)) storage.removeItem(key);
+    }
+  } catch { /* Private storage may be blocked. */ }
 }
 
 export function createSessionBoundary({ fetchImpl, invalidate, epoch = () => '', acceptSession = async () => true, anonymousDiagnostics = false, now = () => performance.now() }) {
@@ -232,10 +217,6 @@ export function privateSession() {
     textDraft(...scope) {
       const active = !browserBoundary.revoked && initialEpoch !== null && sessionEpoch(win) === initialEpoch;
       return privateTextDraft(win, active ? draftSession?.actor : null, draftSession?.digest, initialEpoch, ...scope);
-    },
-    deviceText(...scope) {
-      const active = !browserBoundary.revoked && initialEpoch !== null && sessionEpoch(win) === initialEpoch;
-      return privateDeviceTextDraft(win, active ? draftSession?.actor : null, draftSession?.digest, initialEpoch, ...scope);
     },
   });
   win.addEventListener('storage', event => {
