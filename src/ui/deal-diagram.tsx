@@ -92,21 +92,27 @@ const Menu = createContext<VendorMenu | null>(null);
 const roleOf = (vendor: Vendor) => vendor.roles.map((r) => r.label).join(", ") || null;
 
 type Mark = "chosen" | "introduced" | "onDeal";
-const WORD: Record<Mark, string> = { chosen: "Chosen", introduced: "Introduced", onDeal: "On the deal" };
-type Line = "chosen" | "plain" | "dashed";
+export const WORD: Record<Mark, string> = { chosen: "Chosen", introduced: "Introduced", onDeal: "On the deal" };
+export type Line = "chosen" | "plain" | "dashed";
 const INTRODUCER_NAME: Record<Introducer, string> = { joe: "Joe", dell: "Dell", unrecorded: "Not recorded" };
-const withRole = (role: string | null, word: ReactNode) => (
+export const withRole = (role: string | null, word: ReactNode) => (
   <>
     {role && `${role} · `}
     {word}
   </>
 );
 
-function Glyph({ mark }: { mark: Mark | "referred" }) {
+export type GlyphMark = Mark | "referred" | "knows" | "offered";
+
+export function Glyph({ mark }: { mark: GlyphMark }) {
   return (
     <svg className="deal-diagram-glyph" viewBox="0 0 16 16" aria-hidden="true">
       {mark === "introduced" ? (
         <circle cx="8" cy="8" r="6" />
+      ) : mark === "offered" ? (
+        <circle cx="8" cy="8" r="6" strokeDasharray="2.4 2.3" />
+      ) : mark === "knows" ? (
+        <path d="M8 2.5 13.5 8 8 13.5 2.5 8Z" />
       ) : mark === "referred" ? (
         <path d="M2.5 8h10M9 4.5 12.5 8 9 11.5" />
       ) : (
@@ -131,7 +137,7 @@ interface BoxProps {
   toggle?: { open: boolean; flip: () => void } | undefined;
 }
 
-function Box({ tone, lead, name, caption, detail, trail, boxRef, toggle }: BoxProps) {
+export function Box({ tone, lead, name, caption, detail, trail, boxRef, toggle }: BoxProps) {
   const button = toggle && {
     role: "button",
     tabIndex: 0,
@@ -210,7 +216,7 @@ function VendorBox({
   );
 }
 
-function Branch({ line, children }: { line: Line; children: ReactNode }) {
+export function Branch({ line, children }: { line: Line; children: ReactNode }) {
   return <li data-line={line}>{children}</li>;
 }
 

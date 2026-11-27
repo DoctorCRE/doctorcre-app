@@ -531,7 +531,7 @@ body:not([data-directory-view="meetings"]) .vendor-meetings-host { display: none
 .deal-diagram[data-size="large"] li:last-child::after { bottom: 50%; }
 .deal-diagram[data-size="large"] li:only-child::after { display: none; }
 /* A client's card: one diagram per deal, and the opened deal in place of the table. */
-.client-deals-section:empty { display: none; }
+.client-deals-section:empty, .vendor-relationships-section:empty { display: none; }
 .client-deal + .client-deal { padding-top: var(--space-4); border-top: 1px solid var(--hairline); }
 .client-deal-head { display: flex; align-items: center; min-width: 0; gap: var(--space-2); min-height: 32px; margin-bottom: var(--space-2); }
 .client-deal-head a { display: -webkit-box; min-width: 0; overflow: hidden; color: var(--fg); font-weight: var(--font-weight-strong); overflow-wrap: anywhere; text-decoration: none; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
@@ -543,6 +543,25 @@ body:not([data-directory-view="meetings"]) .vendor-meetings-host { display: none
 .result-column:has(> .client-deal-stage:not(:empty)) > :not(.client-deal-stage) { display: none; }
 .client-deal-opened { box-sizing: border-box; height: calc(100dvh - var(--topbar-height, 0px) - var(--space-4)); overflow: auto; padding: var(--space-3) var(--space-4); border-radius: var(--radius-3); background: var(--surface-1); }
 .client-deal-opened .client-deal-head { position: sticky; top: 0; left: 0; }
+.client-deal-head > h3 { margin: 0; }
+.client-deal-opened .client-deal-head > b { font-weight: var(--font-weight-strong); }
+.vendor-diagram-counts { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); margin: 0 0 var(--space-2); color: var(--fg-quiet); font-size: var(--font-size-1); }
+.vendor-diagram-counts b { color: var(--fg); font-weight: var(--font-weight-strong); font-variant-numeric: tabular-nums; }
+.vendor-diagram .deal-diagram-junction > span { gap: var(--space-1); }
+.vendor-diagram-count { color: var(--fg-quiet); font-weight: var(--font-weight-regular); font-variant-numeric: tabular-nums; }
+.deal-diagram-box[data-tone="offered"] { background: none; box-shadow: none; outline: 1px dashed var(--hairline-strong); outline-offset: -1px; }
+.vendor-diagram[data-size="sides"] { position: relative; display: grid; grid-template-columns: 220px 240px 220px; align-items: center; column-gap: 56px; width: max-content; margin: auto; padding: var(--space-4) 0; }
+.vendor-diagram-links { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.vendor-diagram-links path { fill: none; stroke: var(--line); stroke-width: 1.5; }
+.vendor-diagram-links path[data-line="chosen"] { stroke: var(--line-chosen); }
+.vendor-diagram-links path[data-line="dashed"] { stroke-dasharray: 4 3; }
+.vendor-diagram[data-size="sides"] ul[data-side] { gap: var(--space-4); margin: 0; }
+.vendor-diagram[data-size="sides"] [data-side] ul { margin: var(--space-2) 0 0; }
+.vendor-diagram[data-size="sides"] [data-side] li::before, .vendor-diagram[data-size="sides"] [data-side] li::after { display: none; }
+.vendor-diagram-middle { display: flex; flex-direction: column; gap: 28px; }
+.vendor-diagram-middle > ul { margin-top: calc(var(--space-2) - 28px); }
+.vendor-diagram-partner { position: relative; }
+.vendor-diagram-partner::after { content: ""; position: absolute; top: 100%; left: 50%; height: 28px; border-left: 1.5px solid var(--line); }
 @media (max-width: 767px) { .client-deal-open { display: none; } .client-deal-head a { line-height: var(--touch); } }
 /* A directory opens on tiles; the list's filters and chips return inside one. */
 body[data-tiles] :is(.filter-actions, #chipBar, #secondaryFilters > summary) { display: none; }
