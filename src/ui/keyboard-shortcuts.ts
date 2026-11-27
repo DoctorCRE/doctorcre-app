@@ -41,6 +41,7 @@ const CARD_STEP = new Map<string, 1 | -1>([
   ["k", -1],
   ["ArrowUp", -1],
 ]);
+const ARROWS = new Set(["ArrowDown", "ArrowUp"]);
 const shown = (element: HTMLElement): boolean =>
   element.getClientRects().length > 0 && !element.closest("details:not([open])");
 
@@ -63,6 +64,16 @@ function stepCard(root: Document, step: 1 | -1): boolean {
   if (!target || target === root.activeElement) return false;
   target.focus();
   return root.activeElement === target;
+}
+
+// Arrows scroll drawers and menus and belong to an open item or a lifted
+// board card, so they step cards only from the page body or from a card's own
+// open control. j and k are letters and keep working wherever focus is.
+function arrowsStepCards(root: Document): boolean {
+  const active = root.activeElement;
+  if (!active || active === root.body) return true;
+  const onCard = active.matches(CARD) || (active.matches("[data-shortcut-open]") && active.closest(CARD) !== null);
+  return onCard && active.closest("[data-lifted]") === null;
 }
 
 function renderHelp(root: Document): HTMLDialogElement {
@@ -160,7 +171,8 @@ export function mountKeyboardShortcuts({ root, openSearch }: { root: Document; o
       showHelp();
     } else {
       const step = CARD_STEP.get(event.key);
-      if (step && stepCard(root, step)) event.preventDefault();
+      if (!step || (ARROWS.has(event.key) && !arrowsStepCards(root))) return;
+      if (stepCard(root, step)) event.preventDefault();
     }
   };
 

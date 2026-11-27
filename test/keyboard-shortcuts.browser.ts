@@ -480,6 +480,70 @@ test("a lifted card keeps its lift and focus when j or k is pressed", async (t) 
   assert.equal(await page.locator('#kanban [data-lifted="true"]').count(), 0);
 });
 
+test("ArrowDown and ArrowUp leave a lifted card's own open control alone", async (t) => {
+  const page = await openBoard(t);
+  const [column = []] = await boardColumns(page);
+  const card = page.locator(`#kanban [data-column] .kanban-card[data-id="${column[0] ?? ""}"]`);
+  await card.focus();
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => /lifted from/.test(document.getElementById("dragLive")?.textContent ?? ""));
+  const openControl = card.locator("[data-shortcut-open]");
+  await openControl.focus();
+  for (const key of ["ArrowDown", "ArrowUp"]) {
+    await page.keyboard.press(key);
+    assert.equal(await isFocused(openControl), true, `${key} leaves focus on the lifted card's open control`);
+    assert.equal(await card.getAttribute("data-lifted"), "true");
+  }
+});
+
+// A key press that bubbles from the focused control; true means something handled it.
+const arrowsHandled = (control: Locator) =>
+  control.evaluate((node) =>
+    ["ArrowDown", "ArrowUp"].map((key) => {
+      const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+      node.dispatchEvent(event);
+      return event.defaultPrevented;
+    }),
+  );
+
+async function keepsArrows(control: Locator, name: string) {
+  await control.waitFor();
+  await control.focus();
+  assert.equal(await isFocused(control), true, `${name} takes focus`);
+  assert.deepEqual(await arrowsHandled(control), [false, false], `${name} keeps its arrow keys`);
+  assert.equal(await isFocused(control), true, `${name} keeps focus`);
+}
+
+test("ArrowDown and ArrowUp stay with the More list, the account menu and an open Home item", async (t) => {
+  const page = await open(t, "/");
+  await page.locator("[data-inbox-row] h3 a:visible").first().waitFor();
+  await page.evaluate(() => {
+    const review = document.createElement("div");
+    review.className = "home-inline-review";
+    review.innerHTML = '<button id="shortcutReviewButton" type="button">Send</button>';
+    document.querySelector("[data-inbox-row]")?.append(review);
+  });
+  await page.locator(".app-shell-more-toggle").click();
+  await keepsArrows(page.locator(".app-shell-more-list a").locator("visible=true").first(), "the More list");
+  await page.locator("#selfAvatar").click();
+  await keepsArrows(
+    page.locator("#accountMenu button, #accountMenu a").locator("visible=true").first(),
+    "the account menu",
+  );
+  await keepsArrows(page.locator("#shortcutReviewButton"), "an open Home item");
+});
+
+test("ArrowDown and ArrowUp stay with the Today drawer on the Deals board", async (t) => {
+  const page = await open(t, "/deals?mode=live", {
+    before: async (page) => {
+      await withProspects(page);
+      await page.addInitScript(() => localStorage.setItem("doctorcre:today:/deals", "open"));
+    },
+  });
+  await page.locator("#kanban [data-column] .kanban-card").first().waitFor();
+  await keepsArrows(page.locator("#appToday button, #appToday a").locator("visible=true").first(), "the Today drawer");
+});
+
 test("j and k do nothing on a page without cards", async (t) => {
   const page = await open(t, "/leads");
   const home = page.getByRole("navigation", { name: "Primary navigation" }).locator(":scope > a").first();
