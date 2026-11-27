@@ -328,6 +328,7 @@ test("Drop renders up to five chips from the stubbed read, saves on one tap, and
 
   // Reminders row 1: chips appear (capped at 5), fine-pointer height is 28-32px, one tap saves.
   const firstStep = reminders.locator("[data-inbox-row]").filter({ hasText: "Call the sample landlord" });
+  await firstStep.hover();
   await firstStep.getByRole("button", { name: "Drop", exact: true }).click();
   const chips = dialog.getByRole("group", { name: "Common reasons" }).getByRole("button");
   await chips.first().waitFor();
@@ -348,6 +349,7 @@ test("Drop renders up to five chips from the stubbed read, saves on one tap, and
 
   // Reminders row 2 (same category): no second fetch, typing still works.
   const secondStep = reminders.locator("[data-inbox-row]").filter({ hasText: "Send the sample floor plan" });
+  await secondStep.hover();
   await secondStep.getByRole("button", { name: "Drop", exact: true }).click();
   await chips.first().waitFor();
   assert.equal(
@@ -392,6 +394,7 @@ test("When the drop-reasons read fails, Drop shows only the text box with no err
   const reminders = page.getByRole("region", { name: "Reminders", exact: true });
   const row = reminders.locator("[data-inbox-row]").filter({ hasText: "Call the sample landlord" });
   const failedRead = page.waitForResponse((response) => response.url().includes("/api/engine/home/drop-reasons"));
+  await row.hover();
   await row.getByRole("button", { name: "Drop", exact: true }).click();
   assert.equal((await failedRead).status(), 500);
   const dialog = page.getByRole("dialog", { name: "Drop with a reason" });
@@ -417,6 +420,7 @@ test("Drop leaves next_step_done suggestion rows without a category or chips", a
 
   // Prime the next_step cache first so a wrong next_step_done -> next_step mapping would render chips immediately.
   const stepRow = reminders.locator("[data-inbox-row]").filter({ hasText: "Call the sample landlord" });
+  await stepRow.hover();
   await stepRow.getByRole("button", { name: "Drop", exact: true }).click();
   await dialog.getByRole("group", { name: "Common reasons" }).getByRole("button").first().waitFor();
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
@@ -449,6 +453,7 @@ test("Drop reserves the chip row height while reading and keeps no space on an e
 
   // While next_step is pending, the chip row height is reserved so the textarea does not jump when chips arrive.
   const stepRow = reminders.locator("[data-inbox-row]").filter({ hasText: "Call the sample landlord" });
+  await stepRow.hover();
   await stepRow.getByRole("button", { name: "Drop", exact: true }).click();
   await dialog.waitFor();
   const slot = dialog.locator(".drop-chips");

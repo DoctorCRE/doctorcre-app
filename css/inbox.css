@@ -60,9 +60,23 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
 .home-edge { flex: none; color: var(--fg-muted); font-size: var(--font-size-1); }
 .home-group { margin: var(--space-3) 0 var(--space-1); color: var(--fg-muted); font-size: var(--font-size-1); font-weight: 600; }
 .inbox-shell .home-fold { min-height: var(--touch); padding: 0; border: 0; background: transparent; color: var(--fg-muted); font-size: var(--font-size-1); }
-/* With a pointer, Snooze and Drop keep their own space at the row's end and show on hover or focus; the title shortens instead of sitting under them. */
+/* With a pointer, Inbox Snooze and Drop keep their own space at the row's end and show on hover or focus; the title shortens instead of sitting under them. */
+/* Reminders titles use the full row width. Hidden Snooze and Drop take no width; on hover or focus they overlay the right end without moving the title. The row stays at most two lines: the title and its instruction. */
 @media (hover: hover) {
-  .home-slice:is([aria-label="Reminders"], [aria-label="Inbox"]) .inbox-row:not(:hover, :focus-within) > .inbox-actions { opacity: 0; }
+  .home-slice[aria-label="Inbox"] .inbox-row:not(:hover, :focus-within) > .inbox-actions { opacity: 0; }
+  .home-slice[aria-label="Reminders"] .inbox-row { position: relative; }
+  .home-slice[aria-label="Reminders"] .inbox-row:focus-within { background: var(--surface-2); }
+  .home-slice[aria-label="Reminders"] .inbox-row > .inbox-actions {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-end: 0;
+    align-items: center;
+    padding-inline: var(--space-2);
+    border-radius: var(--radius-2);
+    background: var(--surface-2);
+    box-shadow: calc(-1 * var(--space-3)) 0 var(--space-2) calc(-1 * var(--space-1)) var(--surface-2);
+  }
+  .home-slice[aria-label="Reminders"] .inbox-row:not(:hover, :focus-within) > .inbox-actions { opacity: 0; pointer-events: none; }
 }
 /* By touch, Snooze and Drop sit under the row's text. */
 @media (max-width: 999px), (hover: none) {
