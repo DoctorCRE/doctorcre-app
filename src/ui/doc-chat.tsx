@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useEffectEvent, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { z } from "zod";
@@ -113,6 +113,7 @@ function sessionModule(): Promise<{
 
 const api = "/api/engine/doc";
 const questionLimit = 4000;
+const questionCountFrom = 3500;
 const params = new URLSearchParams(location.search);
 const legacyPath = /^\/doc\/conversations\/([^/]+)\/turns\/([^/]+)$/.exec(location.pathname);
 const legacyLink = params.has("id") || Boolean(legacyPath);
@@ -225,6 +226,7 @@ const icons = {
   person: "M13 8a4 4 0 1 1-8 0 4 4 0 0 1 8 0M2 21a7 7 0 0 1 14 0",
   mail: "M3 5h18v14H3zM3 7l9 6 9-6",
   spinner: "M12 3a9 9 0 1 0 9 9",
+  send: "M12 19V5M5 12l7-7 7 7",
 };
 const sourceIcon = {
   deal: icons.deal,
@@ -631,6 +633,7 @@ function DocChat() {
   const conversationPane = useRef<HTMLDivElement>(null);
   const chatsPanel = useRef<HTMLElement>(null);
   const chatsToggle = useRef<HTMLButtonElement>(null);
+  const questionBox = useRef<HTMLTextAreaElement>(null);
   const latest = turns.at(-1);
   const review = latest?.draft_review;
   const draftId = review?.draft_id ?? initialDraft?.id;
@@ -657,6 +660,7 @@ function DocChat() {
   const canRetry = retry && !reviewReason && status !== "loadFailed";
   const inlineResend = canRetry && !pendingAsk ? () => send(retry) : undefined;
   const questionLength = [...question].length;
+  const showCount = questionLength >= questionCountFrom;
   const canSend =
     ready &&
     !busy &&
@@ -889,6 +893,14 @@ function DocChat() {
   }
 
   const noChats = ready && recent.length === 0;
+  const newEmptyChat = ready && !id && !pendingAsk;
+
+  useLayoutEffect(() => {
+    const box = questionBox.current;
+    if (!box) return;
+    box.style.height = "auto";
+    if (question) box.style.height = `${box.scrollHeight}px`;
+  }, [question]);
   const today = new Date();
   const newChat = (className: string) => (
     <a
@@ -977,7 +989,7 @@ function DocChat() {
             </p>
           )}
           <div className="doc-chat__scroll" ref={conversationPane}>
-            {ready && !id && !pendingAsk && <p className="doc-chat__empty">What do you need?</p>}
+            {newEmptyChat && <p className="doc-chat__empty">What do you need?</p>}
             <ol className="doc-chat__turns" aria-live="polite">
               {turns.map((turn) => {
                 const suggestion = turn.state === "answered" && turn.answer?.kind === "answer" && turn.answer.proposal;
@@ -1056,11 +1068,15 @@ function DocChat() {
               });
           }}
         >
-          <label htmlFor="docQuestion">Question for Doc</label>
+          <label className="sr-only" htmlFor="docQuestion">
+            Question for Doc
+          </label>
           <textarea
+            ref={questionBox}
             id="docQuestion"
-            aria-describedby="docQuestionLength"
-            rows={3}
+            aria-describedby={showCount ? "docQuestionLength" : undefined}
+            rows={1}
+            placeholder={newEmptyChat ? "Ask about a deal, a lead, a client or your mail" : "Ask Doc"}
             value={question}
             disabled={(!ready && status !== "unavailable" && status !== "older") || !!pendingAsk}
             readOnly={status === "unavailable" || status === "older"}
@@ -1071,12 +1087,14 @@ function DocChat() {
             }}
             onKeyDown={(event) => submitOnEnter(event.nativeEvent, () => event.currentTarget.form?.requestSubmit())}
           />
-          <div className="doc-chat__actions">
-            <small id="docQuestionLength">
-              {questionLength.toLocaleString("en-US")} / {questionLimit.toLocaleString("en-US")}
-            </small>
-            <button className="btn btn-primary" type="submit" disabled={!canSend}>
-              Send
+          <div className="doc-chat__tools">
+            {showCount && (
+              <small id="docQuestionLength" data-over={questionLength > questionLimit || undefined}>
+                {questionLength.toLocaleString("en-US")} / {questionLimit.toLocaleString("en-US")}
+              </small>
+            )}
+            <button className="doc-chat__send" type="submit" disabled={!canSend} aria-label="Send" title="Send">
+              <Icon path={icons.send} />
             </button>
           </div>
         </form>

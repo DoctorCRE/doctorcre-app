@@ -11,7 +11,7 @@ import {
   PREFERENCE_OPERATION_KEY, QUIET_SUPPRESSED_MARK,
   acknowledgeArgs, acknowledgeOperationKey, activityRows, changeRows, classifyPreferenceFailure, foldChanges, groupByDay,
   classifyPreferenceReadFailure, classifyReadFailure, enginePreferenceArgs, feedState, updateFailure,
-  notificationCards, preferenceState, preferenceSummary, preferenceView,
+  notificationCards, unreadCards, preferenceState, preferenceSummary, preferenceView,
   quietNowBanner, setPreferenceArgs, unreadLine, validFeedPayload,
   preferenceSaveView, preferenceTimeLabel,
 } from "./notifications-model.js";
@@ -40,6 +40,7 @@ const view = {
   feed: { state: "pending" },
   activity: { state: "pending" },
   preference: { state: "pending" },
+  unreadOnly: false,
 };
 
 let client = null;
@@ -191,7 +192,10 @@ function onRowClick(event) {
   return true;
 }
 
-const currentFeedState = () => feedState(view.feed, source === sources.old ? { after: view.after, limit: LIMIT } : undefined);
+const currentFeedState = () => feedState(view.feed, {
+  ...(source === sources.old ? { after: view.after, limit: LIMIT } : {}),
+  unreadOnly: view.unreadOnly,
+});
 
 function renderFeed() {
   const read = view.feed;
@@ -218,7 +222,10 @@ function renderFeed() {
   const unread = unreadLine(payload);
   $("unreadLine").textContent = unread;
   announceFeed(state.sentence || unread);
-  paintList($("feedList"), byDayHtml(notificationCards(payload, undefined, savedZone()), (cards) => cards.map(cardHtml).join("")));
+  const cards = unreadCards(notificationCards(payload, undefined, savedZone()), view.unreadOnly);
+  paintList($("feedList"), byDayHtml(cards, (dayCards) => dayCards.map(cardHtml).join("")));
+  const unreadOnly = $("unreadOnly");
+  if (unreadOnly) unreadOnly.setAttribute("aria-pressed", String(view.unreadOnly));
   const banner = $("quietNowBanner");
   const sentence = quietNowBanner(payload, view.preference.payload);
   banner.textContent = sentence || "";
@@ -292,7 +299,7 @@ const NOTHING_YET = "No updates yet";
 function renderEmpty() {
   const feed = currentFeedState();
   const activity = view.activity;
-  const both = feed.state === "empty" && activity.state === "read" && !activity.refreshFailed && !activityRowsOf(activity.payload).length;
+  const both = !view.unreadOnly && feed.state === "empty" && activity.state === "read" && !activity.refreshFailed && !activityRowsOf(activity.payload).length;
   $("feedStateTitle").textContent = both ? NOTHING_YET : feed.sentence || "";
   if (both) announceFeed(NOTHING_YET);
   // The old change feed retires when Deals reads move to the engine before its saves do.
@@ -706,6 +713,10 @@ async function boot() {
   $("retryRead")?.addEventListener("click", () => load());
   $("retryPreference")?.addEventListener("click", () => takePreference());
   $("retryActivity")?.addEventListener("click", () => takeActivity());
+  $("unreadOnly")?.addEventListener("click", () => {
+    view.unreadOnly = !view.unreadOnly;
+    renderFeed();
+  });
   $("markAllRead")?.addEventListener("click", () => markUpdates(unreadUpdateIds()));
   $("activityMore")?.addEventListener("click", () => takeMoreChanges());
   $("prefForm")?.addEventListener("submit", (event) => {

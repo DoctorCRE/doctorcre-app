@@ -1444,9 +1444,14 @@ test("On a phone the open chats keep Tab inside them and close on Escape whereve
 
 test("On a phone Older chats keeps focus when the page it loads holds the current chat", async (t) => {
   const newer = { ...conversation, id: "00000000-0000-4000-8000-000000000003", title: "A newer question" };
-  const { page, origin } = await docChatFixture(t, (request) => {
+  let chatArrives!: () => void;
+  const chatSent = new Promise<void>((resolve) => {
+    chatArrives = resolve;
+  });
+  const { page, origin } = await docChatFixture(t, async (request) => {
     const url = new URL(request.url);
     if (url.pathname !== "/api/engine/doc/conversations") {
+      await chatSent;
       return Response.json({ conversation, turns: [{ ...answeredTurn, idempotency_key: id }] });
     }
     return Response.json(
@@ -1460,6 +1465,10 @@ test("On a phone Older chats keeps focus when the page it loads holds the curren
   await page.getByRole("button", { name: "Recent chats", exact: true }).click();
   const list = page.getByRole("complementary", { name: "Chats" });
   const older = list.getByRole("button", { name: "Older chats" });
+  // Older chats waits while the current chat is still loading.
+  await expect(older).toBeDisabled();
+  chatArrives();
+  await expect(older).toBeEnabled();
   await older.focus();
   await page.keyboard.press("Enter");
   await expect(list.getByRole("link", { name: new RegExp(`^${question}`) })).toBeVisible();
@@ -1542,6 +1551,120 @@ test("Enter sends a Doc question once and Shift+Enter starts a new line", async 
     asks.map((ask) => ask.question),
     ["First line\nsecond line"],
   );
+});
+
+test("The typing box is centered on a new chat, grows with the text, and counts only from 3,500 characters", async (t) => {
+  const { page, origin } = await docChatFixture(
+    t,
+    async (request) =>
+      new URL(request.url).pathname === "/api/engine/doc/turns"
+        ? Response.json({
+            conversation_id: id,
+            turn: { ...answeredTurn, idempotency_key: (await request.json()).idempotency_key },
+          })
+        : Response.json({ conversations: [], next_before: null }),
+    undefined,
+    { viewport: { width: 1440, height: 772 } },
+  );
+  await page.goto(`${origin}/doc-chats?mode=live`);
+  const box = page.getByLabel("Question for Doc");
+  const card = page.locator(".doc-chat__composer");
+  const send = page.getByRole("button", { name: "Send", exact: true });
+  await expect(box).toHaveAttribute("placeholder", "Ask about a deal, a lead, a client or your mail");
+  const [hello, centered] = await Promise.all([page.getByText("What do you need?").boundingBox(), card.boundingBox()]);
+  assert.ok(hello && centered, "the new chat shows its line and the typing box");
+  assert.ok(Math.abs(centered.y + centered.height / 2 - 772 / 2) < 80, `the box sits mid-screen at ${centered.y}`);
+  assert.ok(centered.y - (hello.y + hello.height) < 48, "What do you need? sits just above the box");
+  const sendBox = await send.boundingBox();
+  assert.ok(sendBox && sendBox.width === sendBox.height, "Send is a round icon button");
+  assert.ok(
+    await send.evaluate(
+      (button) => parseFloat(getComputedStyle(button).borderRadius) >= button.getBoundingClientRect().width / 2,
+    ),
+    "Send is a circle",
+  );
+
+  const height = async () => (await box.boundingBox())?.height ?? 0;
+  await box.fill("One line");
+  const oneLine = await height();
+  await box.fill("Line one\nLine two\nLine three\nLine four");
+  assert.ok((await height()) > oneLine * 3, "the box grows as lines are added");
+
+  const count = page.getByText("/ 4,000");
+  await box.fill("a".repeat(3499));
+  await expect(count).toHaveCount(0);
+  await expect(box).not.toHaveAttribute("aria-describedby");
+  await box.fill("a".repeat(3500));
+  await expect(count).toHaveText("3,500 / 4,000");
+  await expect(box).toHaveAccessibleDescription("3,500 / 4,000");
+  await expect(send).toBeEnabled();
+  await box.fill("a".repeat(4001));
+  await expect(count).toHaveText("4,001 / 4,000");
+  await expect(send).toBeDisabled();
+  const colorOf = (locator: typeof count) => locator.evaluate((node) => getComputedStyle(node).color);
+  await box.fill("a".repeat(3500));
+  const quiet = await colorOf(count);
+  await box.fill("a".repeat(4001));
+  assert.notEqual(await colorOf(count), quiet, "past 4,000 characters the count turns red");
+
+  await box.fill(Array.from({ length: 60 }, (_, line) => `Line ${line}`).join("\n"));
+  const cap = 0.4 * 772;
+  const capped = await box.evaluate((node) => ({ client: node.clientHeight, scroll: node.scrollHeight }));
+  assert.ok(capped.client <= cap + 1, `the box stops growing at 40% of the screen, at ${capped.client}`);
+  assert.ok(capped.scroll > capped.client, "past the cap the text scrolls inside the box");
+
+  await box.fill("a");
+  const idleSend = await send.evaluate((button) => getComputedStyle(button).backgroundColor);
+  await send.hover();
+  await expect.poll(() => send.evaluate((button) => getComputedStyle(button).backgroundColor)).not.toBe(idleSend);
+
+  await box.fill(question);
+  await send.click();
+  await expect(page.getByText(answeredTurn.answer.text)).toBeVisible();
+  await expect(box).toHaveAttribute("placeholder", "Ask Doc");
+  const docked = await card.boundingBox();
+  assert.ok(
+    docked && 772 - (docked.y + docked.height) < 40,
+    `after the first question the box sits at the bottom, at ${docked?.y}`,
+  );
+});
+
+test("On a phone the typing box stays just above the bottom menu in a long chat", async (t) => {
+  const turns = Array.from({ length: 8 }, (_, index) => ({
+    ...answeredTurn,
+    id: `00000000-0000-4000-8000-${String(400 + index).padStart(12, "0")}`,
+    position: index + 1,
+    idempotency_key: id,
+    answer: { ...answeredTurn.answer, text: `Example answer ${index + 1}.\nIt has a second line.\nAnd a third.` },
+  }));
+  const { page, origin } = await docChatFixture(t, (request) =>
+    new URL(request.url).pathname === "/api/engine/doc/conversations"
+      ? Response.json({ conversations: [conversation], next_before: null })
+      : Response.json({ conversation, turns }),
+  );
+  await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
+  await expect(page.getByText("Example answer 8.", { exact: false })).toBeAttached();
+  const menu = page.getByRole("navigation", { name: "Primary navigation" });
+  for (const top of [0, 1e6]) {
+    await page.evaluate((y) => scrollTo(0, y), top);
+    const [card, bar] = await Promise.all([page.locator(".doc-chat__composer").boundingBox(), menu.boundingBox()]);
+    assert.ok(
+      card && bar && card.y + card.height <= bar.y && bar.y - (card.y + card.height) <= 24,
+      `the box ends at ${card && card.y + card.height}, the menu starts at ${bar?.y}`,
+    );
+  }
+  const field = page.getByLabel("Question for Doc");
+  for (const focused of [false, true]) {
+    if (focused) await field.focus();
+    await page.evaluate((y) => scrollTo(0, y), 1e6);
+    const card = await page.locator(".doc-chat__composer").boundingBox();
+    assert.ok(card, "the typing box is on screen");
+    const gap = await page.evaluate(
+      ({ x, y }) => document.elementFromPoint(x, y)?.closest(".doc-chat__composer") !== null,
+      { x: card.x + 2, y: card.y + card.height + 6 },
+    );
+    assert.ok(gap, `nothing scrolls into view below the box${focused ? " while it is focused" : ""}`);
+  }
 });
 
 for (const path of [`/doc-chats?id=${id}`, `/doc/conversations/${id}/turns/${id}`]) {
