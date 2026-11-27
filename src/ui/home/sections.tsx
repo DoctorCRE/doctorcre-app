@@ -74,16 +74,19 @@ function reminderGroup(item: InboxItem): ReminderGroup {
 const byGroup = (a: InboxItem, b: InboxItem) =>
   groups.indexOf(reminderGroup(a)) - groups.indexOf(reminderGroup(b)) || (b.days_late ?? 0) - (a.days_late ?? 0);
 
-const stacked = "(max-width: 999px)";
-/** Below three columns Home is one scrolling page. */
+/** Below three columns Home is one scrolling page. The stylesheet decides by Home's own width, which the walkthrough can narrow. */
 export function useStacked() {
   return useSyncExternalStore(
     (change) => {
-      const media = matchMedia(stacked);
-      media.addEventListener("change", change);
-      return () => media.removeEventListener("change", change);
+      const observer = new ResizeObserver(change);
+      observer.observe(document.body);
+      return () => observer.disconnect();
     },
-    () => matchMedia(stacked).matches,
+    () => {
+      const grid = document.querySelector(".home-sections");
+      // Before the grid is drawn, the window is the best guess: without the walkthrough the two agree.
+      return grid ? getComputedStyle(grid).flexDirection === "column" : matchMedia("(max-width: 999px)").matches;
+    },
   );
 }
 

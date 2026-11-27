@@ -2252,7 +2252,7 @@ for (const [width, height] of [[1280, 800], [1440, 779]]) test(`Home shows a gro
     'Retry resends each step under the key it was first sent with');
 });
 
-for (const [width, height] of [[1280, 720], [1440, 779], [1440, 900]]) test(`the first-visit walkthrough sits beside the rail and covers none of Home at ${width}x${height}`, async t => {
+for (const [width, height] of [[1024, 768], [1280, 720], [1440, 779], [1440, 900]]) test(`the first-visit walkthrough sits beside the rail and covers none of Home at ${width}x${height}`, async t => {
   const { page, open, state } = await dashboard(t, width, 'light');
   await page.addInitScript(() => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ theme: 'light' })));
   await page.setViewportSize({ width, height });
@@ -2281,6 +2281,38 @@ for (const [width, height] of [[1280, 720], [1440, 779], [1440, 900]]) test(`the
   await page.keyboard.press('Escape');
   await guide.waitFor({ state: 'detached' });
   assert.equal(await page.locator('.app-layout-main').evaluate(node => node.getBoundingClientRect().left), 64, 'the page takes its room back');
+});
+
+for (const [width, height] of [[390, 844], [390, 600]]) test(`on a phone the first-visit walkthrough makes room so it covers neither the top bar nor the first tile at ${width}x${height}`, async t => {
+  const { page, open, state } = await dashboard(t, width, 'light');
+  await page.addInitScript(() => localStorage.setItem('doctorcre.visual-preferences', JSON.stringify({ theme: 'light' })));
+  await page.setViewportSize({ width, height });
+  state.items = Array.from({ length: 8 }, (_, index) => step(90 + index, `Send the sample lease summary ${index + 1}`, { card_id: `step:${id(90 + index)}` }));
+  await page.clock.install({ time: now });
+  await open('/?mode=live');
+  const guide = page.getByRole('dialog', { name: 'How DoctorCRE works', exact: true });
+  await guide.waitFor();
+  await page.getByRole('region', { name: 'Reminders', exact: true }).locator('[data-inbox-row]').first().waitFor();
+  const placement = () => page.evaluate(() => {
+    scrollTo(0, 0);
+    const box = document.querySelector('[data-walkthrough]').getBoundingClientRect();
+    const covered = ['.app-layout-topbar', '.app-layout-main h2'].filter(selector => {
+      const edge = document.querySelector(selector).getBoundingClientRect();
+      return edge.left < box.right && edge.right > box.left && edge.top < box.bottom && edge.bottom > box.top;
+    });
+    return { covered, position: document.querySelector('[data-walkthrough]').dataset.position };
+  });
+  for (let step = 0; ; step++) {
+    const { covered, position } = await placement();
+    assert.deepEqual(covered, [], `step ${step + 1} covers no part of Home's first view`);
+    assert.ok(['top', 'bottom'].includes(position), `step ${step + 1} sits at the top or bottom`);
+    const next = guide.getByRole('button', { name: 'Next', exact: true });
+    if (!await next.count()) break;
+    await next.click();
+  }
+  await page.keyboard.press('Escape');
+  await guide.waitFor({ state: 'detached' });
+  assert.deepEqual(await page.evaluate(() => [getComputedStyle(document.body).paddingTop, document.querySelector('.app-layout-topbar').getBoundingClientRect().top]), ['0px', 0], 'the page takes its room back');
 });
 
 const draftCard = () => ({
