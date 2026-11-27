@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { type ClientDeal, DAY, type Introduction, type Role, type Vendor } from "./deal-diagram.tsx";
+import { type ClientDeal, dated, type Role, type Vendor } from "./deal-diagram.tsx";
 
-export type Saved = { ok: true } | { ok: false; problem?: unknown };
+export type Saved = { ok: true } | { ok: false; problem?: { error?: string } };
 // The engine's deal party doors and the vendor card, as the page reaches them.
 export interface VendorDoors {
   add(deal: string, party: string, role: string): Promise<Saved>;
@@ -20,14 +20,10 @@ const PARTNER = { joe: "Joe", dell: "Dell" } as const;
 const REFUSALS: Record<string, string> = {
   not_found: "That vendor isn't on this deal anymore.",
   database_refused_the_statement: "The database turned this down. They may already be on the deal in that role.",
-  database_unavailable: "The database isn't answering. Try again in a minute.",
-  engine_unavailable: "The app couldn't reach the engine. Try again in a minute.",
 };
 
-export function refusal(saved: Saved) {
-  const { problem } = saved as { problem?: { error?: unknown } };
-  const code = typeof problem?.error === "string" ? problem.error : "";
-  return REFUSALS[code] ?? "This wasn't saved. Try again.";
+export function refusal(problem: { error?: string } = {}) {
+  return REFUSALS[problem.error ?? ""] ?? "This wasn't saved. Try again.";
 }
 
 // Sends one save per role, stopping at the first refusal.
@@ -39,11 +35,10 @@ export async function eachRole(roles: Role[], save: (role: string) => Promise<Sa
   return { ok: true };
 }
 
-function introduced(introduction: Introduction | null) {
+function introduced({ introduction }: Vendor) {
   if (!introduction) return "Brought in by: not recorded";
-  const who = introduction.introduced_by ? PARTNER[introduction.introduced_by] : "The team";
-  const on = introduction.introduced_on ? ` ${DAY.format(new Date(introduction.introduced_on))}` : "";
-  return `${who} introduced them${on}.`;
+  const who = introduction.introduced_by ? PARTNER[introduction.introduced_by] : "the team";
+  return `${dated("Introduced", introduction.introduced_on) || "Introduced"} by ${who}.`;
 }
 
 type Step = { at: "menu" } | { at: "role"; roles: Role[] | null; role: string } | { at: "confirm" };
@@ -82,7 +77,7 @@ export function DealVendorMenu({ deal, vendor, doors, close, saved }: Props) {
     setProblem("");
     const answer = await save().catch((): Saved => ({ ok: false }));
     setBusy(false);
-    if (!answer.ok) return setProblem(refusal(answer));
+    if (!answer.ok) return setProblem(refusal(answer.problem));
     close();
     saved(removal);
   }
@@ -103,7 +98,7 @@ export function DealVendorMenu({ deal, vendor, doors, close, saved }: Props) {
       <p className="deal-vendor-menu-who">
         {vendor.name}
         {role && ` · ${role}`}
-        <span>{introduced(vendor.introduction)}</span>
+        <span>{introduced(vendor)}</span>
         {vendor.introduction?.note && <q>{vendor.introduction.note}</q>}
       </p>
       {step.at === "menu" && (

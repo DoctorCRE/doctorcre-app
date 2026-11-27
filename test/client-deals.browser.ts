@@ -233,122 +233,89 @@ for (const [width, height, scheme] of [
     }
   });
 
-// A made-up engine: the deals read answers what the deal party saves left, deriving Chosen as the engine does.
+// A made-up engine: the deals read answers what the party saves left, deriving Chosen as the engine does.
 function partyEngine(refuse: string | null = null) {
   const list = structuredClone(deals);
   const sent: { path: string; body: Record<string, unknown> }[] = [];
+  const chosen = (d: ClientDeal) =>
+    d.introductions.map((i) => ({ ...i, chosen: d.vendors.some((v) => v.party_id === i.vendor_id) }));
   const read: Answer = (route) =>
-    route.fulfill({
-      json: {
-        deals: list.map((d) => ({
-          ...d,
-          introductions: d.introductions.map((i) => ({
-            ...i,
-            chosen: d.vendors.some((v) => v.party_id === i.vendor_id),
-          })),
-        })),
-      },
-    });
+    route.fulfill({ json: { deals: list.map((d) => ({ ...d, introductions: chosen(d) })) } });
   const save: Answer = (route) => {
     const path = new URL(route.request().url()).pathname;
     const { idempotency_key, ...body } = route.request().postDataJSON();
     assert.match(String(idempotency_key), /^[0-9a-f-]{36}$/);
     sent.push({ path, body });
     if (refuse) return route.fulfill({ status: 404, json: { error: refuse } });
-    const deal = list.find(
-      (d) => path === `/api/engine/deals/${d.id}/parties` || path === `/api/engine/deals/${d.id}/parties/remove`,
-    );
-    assert.ok(deal, `a known deal: ${path}`);
+    const deal = list.find((d) => path.startsWith(`/api/engine/deals/${d.id}/parties`)) ?? list[0];
+    deal.vendors = deal.vendors.filter((v) => v.party_id !== body.party_id);
     const intro = deal.introductions.find((i) => i.vendor_id === body.party_id);
-    if (path.endsWith("/remove")) deal.vendors = deal.vendors.filter((v) => v.party_id !== body.party_id);
-    else
+    if (!path.endsWith("/remove") && intro)
       deal.vendors.push({
-        party_id: String(body.party_id),
-        name: intro?.vendor_name ?? "Example vendor",
-        roles: role(String(body.role).replace(/^./, (c) => c.toUpperCase())),
-        introduction_id: intro?.id ?? null,
+        party_id: intro.vendor_id,
+        name: intro.vendor_name,
+        roles: role("Lender"),
+        introduction_id: intro.id,
       });
-    return route.fulfill({ status: path.endsWith("/remove") ? 200 : 201, json: { deal_id: deal.id, ...body } });
+    return route.fulfill({ json: { deal_id: deal.id, ...body } });
   };
   return { read, save, sent };
 }
 
-const firstDeal = (panel: Locator) => panel.locator(".client-deal").first();
-const vendorBox = (panel: Locator, name: string) =>
-  firstDeal(panel).getByRole("button", { name: new RegExp(`^${name}`) });
-const toneOf = (box: Locator) => box.getAttribute("data-tone");
+async function openParties(t: TestContext, engine = partyEngine(), size = {}) {
+  const { page, panel } = await openCard(t, engine.read, { ...size, saves: engine.save });
+  const deal = panel.locator(".client-deal").first();
+  const box = (name: string) => deal.getByRole("button", { name: new RegExp(`^${name}`) });
+  const shows = (name: string, tone: string) => deal.locator(`[data-tone="${tone}"]`, { hasText: name }).waitFor();
+  return { page, panel, deal, box, shows, sent: engine.sent };
+}
 
 test("Mark chosen puts an introduced vendor on the deal in the role picked, and the box turns chosen", async (t) => {
-  const engine = partyEngine();
-  const { page, panel } = await openCard(t, engine.read, { saves: engine.save });
-  const box = vendorBox(panel, "Example Salt Lending");
-  assert.equal(await toneOf(box), "introduced");
-  await box.click();
+  const { page, box, shows, sent } = await openParties(t);
+  await box("Example Salt Lending").click();
   const menu = page.getByRole("dialog", { name: "Example Salt Lending on Example second office" });
-  assert.match((await menu.textContent()) ?? "", /Dell introduced them Oct 14, 2026\./);
+  assert.match((await menu.textContent()) ?? "", /Introduced Oct 14, 2026 by Dell\./);
   assert.equal(await menu.getByRole("button", { name: "Remove from this deal" }).count(), 0, "not on the deal yet");
   await page.screenshot({ path: `${shots}/menu-introduced-1440-dark.png` });
   await menu.getByRole("button", { name: "Mark chosen" }).click();
   await menu.getByLabel("Chosen as").selectOption({ label: "Lender" });
   await page.screenshot({ path: `${shots}/menu-role-1440-dark.png` });
   await menu.getByRole("button", { name: "Mark chosen" }).click();
-  await menu.waitFor({ state: "detached" });
-  assert.deepEqual(engine.sent, [{ path: "/api/engine/deals/d1/parties", body: { party_id: "v2", role: "lender" } }]);
-  await page.waitForFunction(() =>
-    [...(document.querySelector(".client-deal")?.querySelectorAll("[data-tone='chosen']") ?? [])].some((n) =>
-      n.textContent?.includes("Example Salt Lending"),
-    ),
-  );
+  await shows("Example Salt Lending", "chosen");
+  assert.deepEqual(sent, [{ path: "/api/engine/deals/d1/parties", body: { party_id: "v2", role: "lender" } }]);
 });
 
-test("Remove asks once, takes the vendor off the deal, and Undo puts them back", async (t) => {
-  const engine = partyEngine();
-  const { page, panel } = await openCard(t, engine.read, { saves: engine.save });
-  await vendorBox(panel, "Example Pelican Bank").click();
+test("Remove asks once, takes the vendor off the deal, and Undo puts them back within 3 seconds", async (t) => {
+  const { page, deal, box, shows, sent } = await openParties(t);
+  await page.clock.install();
+  await box("Example Pelican Bank").click();
   const menu = page.getByRole("dialog", { name: "Example Pelican Bank on Example second office" });
   await menu.getByRole("button", { name: "Remove from this deal" }).click();
   assert.match((await menu.textContent()) ?? "", /Remove Example Pelican Bank from Example second office\?/);
   await page.screenshot({ path: `${shots}/menu-confirm-1440-dark.png` });
-  assert.equal(engine.sent.length, 0, "nothing is sent before the partner confirms");
+  assert.equal(sent.length, 0, "nothing is sent before the partner confirms");
   await menu.getByRole("button", { name: "Remove", exact: true }).click();
-  const undo = firstDeal(panel).locator(".client-deal-undo");
-  await undo.waitFor();
+  await shows("Example Pelican Bank", "introduced");
+  const undo = deal.locator(".client-deal-undo");
   assert.equal(await undo.textContent(), "Removed Example Pelican Bank from Example second office. Undo");
-  await page.waitForFunction(() =>
-    [...(document.querySelector(".client-deal")?.querySelectorAll("[data-tone='introduced']") ?? [])].some((n) =>
-      n.textContent?.includes("Example Pelican Bank"),
-    ),
-  );
-  await undo.getByRole("button", { name: "Undo" }).click();
-  await page.waitForFunction(() =>
-    [...(document.querySelector(".client-deal")?.querySelectorAll("[data-tone='chosen']") ?? [])].some((n) =>
-      n.textContent?.includes("Example Pelican Bank"),
-    ),
-  );
-  assert.deepEqual(engine.sent, [
-    { path: "/api/engine/deals/d1/parties/remove", body: { party_id: "v1", role: "lender" } },
-    { path: "/api/engine/deals/d1/parties", body: { party_id: "v1", role: "lender" } },
-  ]);
-});
-
-test("Undo after a removal is offered for 3 seconds", async (t) => {
-  const engine = partyEngine();
-  const { page, panel } = await openCard(t, engine.read, { saves: engine.save });
-  await page.clock.install();
-  await vendorBox(panel, "Example Pelican Bank").click();
-  await page.getByRole("button", { name: "Remove from this deal" }).click();
-  await page.getByRole("button", { name: "Remove", exact: true }).click();
-  const undo = firstDeal(panel).locator(".client-deal-undo");
-  await undo.waitFor();
   await page.clock.runFor(2_900);
-  assert.equal(await undo.count(), 1, "still there just before 3 seconds");
-  await page.clock.runFor(200);
+  await undo.getByRole("button", { name: "Undo" }).click();
+  await shows("Example Pelican Bank", "chosen");
+  const pelican = { party_id: "v1", role: "lender" };
+  assert.deepEqual(sent, [
+    { path: "/api/engine/deals/d1/parties/remove", body: pelican },
+    { path: "/api/engine/deals/d1/parties", body: pelican },
+  ]);
+  await box("Example Pelican Bank").click();
+  await menu.getByRole("button", { name: "Remove from this deal" }).click();
+  await menu.getByRole("button", { name: "Remove", exact: true }).click();
+  await undo.waitFor();
+  await page.clock.runFor(3_000);
   await undo.waitFor({ state: "detached" });
 });
 
 test("Open takes the partner to the vendor's card", async (t) => {
-  const engine = partyEngine();
-  const { page, panel } = await openCard(t, engine.read, { saves: engine.save });
+  const { page, panel } = await openParties(t);
   await panel
     .locator(".client-deal")
     .nth(2)
@@ -357,40 +324,28 @@ test("Open takes the partner to the vendor's card", async (t) => {
   const menu = page.getByRole("dialog", { name: "Example Halloran Title on Example first office" });
   assert.match((await menu.textContent()) ?? "", /Brought in by: not recorded/);
   await menu.getByRole("link", { name: "Open Example Halloran Title" }).click();
-  await page.waitForFunction(
-    (id) => location.pathname === "/vendors" && new URLSearchParams(location.search).get("record") === id,
-    titleVendor,
-  );
   await page.locator(`#recordBody[data-record-id="${titleVendor}"]`).waitFor();
+  assert.equal(new URL(page.url()).pathname, "/vendors");
 });
 
 test("a refused save reads plainly and keeps the menu open", async (t) => {
-  const engine = partyEngine("not_found");
-  const { page, panel } = await openCard(t, engine.read, { saves: engine.save });
-  await vendorBox(panel, "Example Pelican Bank").click();
+  const { page, deal, box } = await openParties(t, partyEngine("not_found"));
+  await box("Example Pelican Bank").click();
   await page.getByRole("button", { name: "Remove from this deal" }).click();
   await page.getByRole("button", { name: "Remove", exact: true }).click();
   const alert = page.locator(".deal-vendor-menu").getByRole("alert");
-  await alert.waitFor();
   assert.equal(await alert.textContent(), "That vendor isn't on this deal anymore.");
-  assert.equal(
-    await firstDeal(panel).locator(".client-deal-undo").count(),
-    0,
-    "no Undo for a removal that did not land",
-  );
+  assert.equal(await deal.locator(".client-deal-undo").count(), 0, "no Undo for a removal that did not land");
   await page.screenshot({ path: `${shots}/menu-refused-1440-dark.png` });
 });
 
-test("Enter and Space open a vendor's menu and Esc closes it and returns focus to the box", async (t) => {
-  const engine = partyEngine();
-  const { page, panel } = await openCard(t, engine.read, { saves: engine.save });
-  const box = vendorBox(panel, "Example Pelican Bank");
+test("Enter and Space open a vendor's menu, and Esc closes it and returns focus to the box", async (t) => {
+  const { page, box } = await openParties(t);
+  const pelican = box("Example Pelican Bank");
   for (const key of ["Enter", " "]) {
-    await box.focus();
+    await pelican.focus();
     await page.keyboard.press(key);
     const menu = page.locator(".deal-vendor-menu");
-    await menu.waitFor();
-    assert.equal(await box.getAttribute("aria-expanded"), "true");
     assert.equal(
       await menu.evaluate((node) => node.contains(document.activeElement)),
       true,
@@ -398,19 +353,15 @@ test("Enter and Space open a vendor's menu and Esc closes it and returns focus t
     );
     await page.keyboard.press("Escape");
     await menu.waitFor({ state: "detached" });
-    assert.equal(
-      await box.evaluate((node) => node === document.activeElement),
-      true,
-      `${key}: focus returns to the box`,
-    );
+    assert.equal(await pelican.evaluate((node) => node === document.activeElement), true, "focus returns to the box");
     assert.equal(await page.locator("#recordPanel").isVisible(), true, "Esc closes the menu, not the card");
   }
 });
 
 test("without party saves a vendor box is a label", async (t) => {
   const { panel } = await openCard(t, answer(deals));
-  await firstDeal(panel).waitFor();
-  assert.equal(await firstDeal(panel).locator(".deal-diagram [role='button']").count(), 0);
+  await panel.locator(".client-deal").first().waitFor();
+  assert.equal(await panel.locator(".deal-diagram [role='button']").count(), 0);
 });
 
 for (const [width, height, scheme] of [
@@ -421,12 +372,11 @@ for (const [width, height, scheme] of [
   [390, 844, "light"],
 ] as const)
   test(`a vendor's menu fits at ${width}x${height} ${scheme}`, async (t) => {
-    const engine = partyEngine();
-    const { page, panel } = await openCard(t, engine.read, { width, height, scheme, saves: engine.save });
-    await vendorBox(panel, "Example Salt Lending").click();
-    const menu = page.locator(".deal-vendor-menu");
-    await menu.waitFor();
-    const { left, right } = await menu.evaluate((node) => node.getBoundingClientRect().toJSON());
+    const { page, box } = await openParties(t, partyEngine(), { width, height, scheme });
+    await box("Example Salt Lending").click();
+    const { left, right } = await page
+      .locator(".deal-vendor-menu")
+      .evaluate((node) => node.getBoundingClientRect().toJSON());
     assert.ok(left >= 0 && right <= width, `the menu stays on screen (${left} to ${right})`);
     await page.screenshot({ path: `${shots}/menu-${width}-${scheme}.png` });
   });

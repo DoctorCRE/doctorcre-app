@@ -1,13 +1,5 @@
-import {
-  createContext,
-  type KeyboardEvent,
-  type ReactNode,
-  type Ref,
-  useContext,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import type { KeyboardEvent } from "react";
+import { createContext, type ReactNode, type Ref, useContext, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 
@@ -26,20 +18,20 @@ export interface ClientDeal {
   closed_on: string | null;
   owner: Partner;
   vendors: { party_id: string; name: string; roles: Role[]; introduction_id: string | null }[];
-  introductions: Introduction[];
+  introductions: {
+    id: string;
+    vendor_id: string;
+    vendor_name: string;
+    made_by: "vendor" | "team";
+    introduced_by: Partner | null;
+    introduced_party_id: string;
+    introduced_party_name: string;
+    introduced_on: string | null;
+    note: string | null;
+    chosen: boolean;
+  }[];
 }
-export interface Introduction {
-  id: string;
-  vendor_id: string;
-  vendor_name: string;
-  made_by: "vendor" | "team";
-  introduced_by: Partner | null;
-  introduced_party_id: string;
-  introduced_party_name: string;
-  introduced_on: string | null;
-  note: string | null;
-  chosen: boolean;
-}
+type Introduction = ClientDeal["introductions"][number];
 
 export interface Vendor {
   id: string;
@@ -89,13 +81,8 @@ function treeOf(client: DiagramClient, deal: ClientDeal) {
   };
 }
 
-export const DAY = new Intl.DateTimeFormat("en-US", {
-  month: "short",
-  day: "numeric",
-  year: "numeric",
-  timeZone: "UTC",
-});
-const dated = (verb: string, on: string | null) => on && `${verb} ${DAY.format(new Date(on))}`;
+const DAY = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+export const dated = (verb: string, on: string | null) => on && `${verb} ${DAY.format(new Date(on))}`;
 
 // The opened view: dates under each name, and every introduced vendor laid out.
 const Large = createContext(false);

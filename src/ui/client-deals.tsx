@@ -29,17 +29,8 @@ function DealTitle({ deal }: { deal: ClientDeal }) {
   );
 }
 
-function OpenedDeal({
-  client,
-  deal,
-  menu,
-  close,
-}: {
-  client: DiagramClient;
-  deal: ClientDeal;
-  menu: VendorMenu | null;
-  close: () => void;
-}) {
+type Opened = { client: DiagramClient; deal: ClientDeal; menu: VendorMenu | null; close: () => void };
+function OpenedDeal({ client, deal, menu, close }: Opened) {
   const closeButton = useRef<HTMLButtonElement>(null);
   useEffect(() => closeButton.current?.focus(), []);
   return (
@@ -58,17 +49,6 @@ function OpenedDeal({
       </header>
       <DealDiagram client={client} deal={deal} menu={menu} large />
     </section>
-  );
-}
-
-function UndoLine({ removed, undo }: { removed: Removal & { problem?: string }; undo: () => void }) {
-  return (
-    <p className="client-deal-undo" role="status">
-      {removed.problem ?? `Removed ${removed.vendor.name} from ${removed.deal.name}.`}{" "}
-      <button type="button" onClick={undo}>
-        Undo
-      </button>
-    </p>
   );
 }
 
@@ -112,7 +92,7 @@ function ClientDeals({ client, load, stage, doors = null }: Props) {
     const answer = await eachRole(vendor.roles, (role) => doors.add(deal.id, vendor.id, role)).catch(
       (): Saved => ({ ok: false }),
     );
-    if (!answer.ok) setRemoved({ ...removed, problem: `${vendor.name} wasn't put back. ${refusal(answer)}` });
+    if (!answer.ok) setRemoved({ ...removed, problem: `${vendor.name} wasn't put back. ${refusal(answer.problem)}` });
     refresh();
   }
   const menuFor = (deal: ClientDeal): VendorMenu | null =>
@@ -167,7 +147,14 @@ function ClientDeals({ client, load, stage, doors = null }: Props) {
                 </svg>
               </button>
             </header>
-            {removed?.deal.id === deal.id && <UndoLine removed={removed} undo={() => void undo()} />}
+            {removed?.deal.id === deal.id && (
+              <p className="client-deal-undo" role="status">
+                {removed.problem ?? `Removed ${removed.vendor.name} from ${deal.name}.`}{" "}
+                <button type="button" onClick={() => void undo()}>
+                  Undo
+                </button>
+              </p>
+            )}
             <DealDiagram client={client} deal={deal} menu={menuFor(deal)} />
           </article>
         ))}
