@@ -51,6 +51,7 @@ import {
 import { SnoozeMenu } from "./snooze-menu.tsx";
 import { snoozeUntil } from "./snooze-times.ts";
 import { sourceExcerptText } from "./source-excerpt.ts";
+import { useHomeTabBadge } from "./tab-badge.ts";
 import { TodayMeetings } from "./today-meetings.tsx";
 
 type SnoozePreview = Readonly<{ items: readonly InboxItem[]; error: string }>;
@@ -696,6 +697,8 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     inbox: useTileRows(tiles.inbox, pinnedTile === "inbox" ? reviewing : null),
     waiting: useTileRows(tiles.waiting, pinnedTile === "waiting" ? reviewing : null),
   };
+  const homeLoaded = query.data != null;
+  useHomeTabBadge(home, homeLoaded ? tiles.reminders.length + tiles.inbox.length : null);
   // The open item's tile as drawn, which Next and moving on after a save walk.
   const queue = pinnedTile ? drawn[pinnedTile] : [];
   function position(open: InboxItem) {
