@@ -9,7 +9,9 @@ Read [the feature index](features/README.md) and the changed feature's recipe. R
 
 ## Launch
 
-Use Git, Ruby (the existing action-pin check parses YAML with it), and Node `^22.22.3 || >=24.8.0`. Install the locked dependencies and both browser engines used by the suite:
+In Foreman's attempt container, the image and setup in `.foreman/contract.yaml` have already run: Node, Chromium, WebKit and Ruby are present and the locked dependencies are installed. The network is gone once setup ends. Skip to the preview.
+
+Elsewhere, use Git, Ruby (the existing action-pin check parses YAML with it), and Node `^22.22.3 || >=24.8.0`. Install the locked dependencies and both browser engines used by the suite:
 
 ```sh
 npm ci
@@ -18,13 +20,19 @@ npx playwright install chromium webkit
 
 Browser installation needs access to Playwright's download hosts. On Linux, missing system libraries require the existing Playwright install command's `--with-deps` option. On macOS 27+, follow the WebKit skip documented in `test/browser-harness.mjs`; Linux CI supplies that coverage.
 
-For manual inspection, start the existing synthetic preview in a separate terminal:
+For manual inspection, start the existing synthetic preview in a separate terminal. The contract's start command pins the port:
 
 ```sh
-PORT=0 npm run serve
+PORT=8787 npm run serve
 ```
 
-Open the printed loopback URL. The server selects a free port. No credentials, database or migrations are needed. Keep local pages in fixture mode; do not append `?mode=live`. Tests start or route their own fixtures and do not use this preview process.
+It is up when `curl -fsS http://127.0.0.1:8787/app-release` exits 0. Outside the container, `PORT=0` lets the server pick a free port; open the printed loopback URL. No credentials, database or migrations are needed. Keep local pages in fixture mode; do not append `?mode=live`. Tests start or route their own fixtures and do not use this preview process.
+
+## Sign in
+
+The preview is already signed in. Every page opens as the synthetic partner `joe`, with no account, password or cookie, and `/api/engine/home/today` answers `"viewer":"joe"`. The test account for a browser run is that fixture partner.
+
+Signing in to a running engine is the engine's verify skill. No app secret is needed to start the preview, so the contract names none.
 
 ## Doctor
 
@@ -54,6 +62,8 @@ When browsers are unavailable, run the repo's existing `node .githooks/pre-push 
 The Node suite uses `test/browser-harness.mjs`; fixture Playwright specs supply their own synthetic HTTP adapters. Some tests deliberately exercise writes against disposable synthetic state. These runs do not prove staging authentication or remote persistence. Inspect the changed feature in the preview using its map; record which entry points were actually driven.
 
 ## Evidence
+
+Captures are not redacted, so no screenshot, trace, video or log excerpt may show a secret: no environment variable, credential, auth state, cookie, token or request header. Capture the page, never a terminal or devtools panel that shows those.
 
 Keep command exit results, assertion failures, traces under `.e2e/verify-fixtures`, and screenshots written by existing tests under `out/test-artifacts` or `test-artifacts`. Inspect images before claiming visual proof. Copy relevant artifacts outside a checkout before retiring it. Report skipped tests and missing preconditions explicitly; a passing unrelated test is not coverage of the changed path.
 

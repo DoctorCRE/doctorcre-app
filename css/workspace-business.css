@@ -548,7 +548,7 @@ a.directory-tile:focus-visible { outline: var(--focus-width) solid var(--focus-r
   body[data-directory="vendors"] .app-layout-tabs :is(button, a) { padding-inline: var(--space-1); }
 }
 
-/* --- a record as a card beside the table: vendors today ------------------- */
+/* --- a record as a card beside the table --------------------------------- */
 .panel-back { display: none; }
 .has-app-layout aside#recordPanel.record-card { --card-width: clamp(340px, 28vw, 420px); inset: calc(var(--topbar-height) + var(--space-2)) var(--space-2) var(--space-2) auto; width: var(--card-width); max-height: none; padding: 0 var(--space-4) var(--space-4); border-color: var(--hairline); box-shadow: none; }
 body[data-card-open] .app-layout-main { padding-inline-end: calc(clamp(340px, 28vw, 420px) + var(--space-3)); }
@@ -604,4 +604,9 @@ body[data-card-open] .app-layout-main { padding-inline-end: calc(clamp(340px, 28
   body[data-card-open][data-directory="vendors"] :is([data-fact="Category"], [data-fact="Location"]) { display: none; }
   body[data-card-open][data-directory="vendors"] [data-fact="Territory"] .fact-value { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   body[data-card-open][data-directory="vendors"] [data-fact="Territory"] wbr { display: none; }
+  /* A client table keeps Name, Status, Territory and Owner; the card names the open deal and the rest. */
+  body[data-card-open][data-directory="clients"] #recordList { grid-template-columns: minmax(11rem, 1.4fr) 7rem minmax(0, 1fr) max-content; }
+  body[data-card-open][data-directory="clients"] :is([data-fact="Practice type"], [data-fact="Open deal"], [data-fact="Client type"], .client-deals, .row-updated) { display: none; }
+  body[data-card-open][data-directory="clients"] [data-fact="Territory"] { grid-column: 3; }
+  body[data-card-open][data-directory="clients"] :is(.record-row, .list-head) .row-owner { grid-area: 1 / 4; }
 }

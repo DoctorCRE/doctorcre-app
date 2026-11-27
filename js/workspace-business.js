@@ -30,7 +30,7 @@ import {
   DATASET_LABEL, DATASET_ROUTE, DATASET_SINGULAR, MAX_QUERY_LENGTH,
   SOURCE_LABEL, acceptsResponse, cachedPayload, clientNoteText, createBusinessState, datasetForPath, defaultQuery,
   displayedFreshness, echoesQuery, emptyCopy, expireSession, filterChips, freshnessSignature, hasActiveFilters,
-  isSessionExpiry, listPhase, listRequestUrl, opensBeside, ownerPresentation, pageSummary, panelTabTarget,
+  isSessionExpiry, listPhase, listRequestUrl, ownerPresentation, pageSummary, panelTabTarget,
   parseViewState, partyKindText, recordRequestUrl, recordSections, recordedCode, recordedValue, refusalCopy,
   ACCOUNTS_REQUEST_URL, CLIENT_STATUS_CHIPS, accountCountsUrl, accountsFrom, clientStatusWord, RELATIONSHIP_LEVELS, RELATIONSHIP_WORDS, clientPlace, defaultSort, placeCounts, holdsWholeList, relationshipCounts, rememberPayload, restoreSession, sameQuery, scrollIntent, searchBoxValue, showsTiles, sourceIsFresh,
   tilesFrom, tilesRequestUrl, validListPayload, validRecordPayload, vendorRelationship, viewHref,
@@ -68,7 +68,6 @@ const dom = {
   source: document.querySelector("#listSource"),
   panel: document.querySelector("#recordPanel"),
   panelTitle: document.querySelector("#recordTitle"),
-  panelEyebrow: document.querySelector("#recordEyebrow"),
   panelMeta: document.querySelector("#recordMeta"),
   panelRelationship: document.querySelector("#recordRelationship"),
   panelBack: document.querySelector("#recordBack"),
@@ -846,20 +845,19 @@ async function loadTiles() {
 
 // ------------------------------------------------------------- the record
 //
-// A client opens in a modal dialog at every width; a vendor opens as a card beside
-// the table, and only on a phone does the card cover the page. A dialog keeps
-// keyboard focus inside and restores the launching row on close.
+// A record opens as a card beside the table, and only on a phone does the card
+// cover the page as a dialog. The dialog keeps keyboard focus inside; closing
+// either restores the launching row.
 
 const FOCUSABLE = 'summary, a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-function panelIsModal() { return Boolean(view.recordId) && (!opensBeside(view.dataset) || phoneWidth.matches); }
+function panelIsModal() { return Boolean(view.recordId) && phoneWidth.matches; }
 
 function backgroundRegions() { return [...document.querySelectorAll("[data-panel-background], #appShell")]; }
 
 function applyPanelModality() {
   if (!dom.panel) return;
   const modal = panelIsModal();
-  dom.panel.classList.toggle("record-card", opensBeside(view.dataset));
   document.body.toggleAttribute("data-card-open", Boolean(view.recordId) && !modal);
   document.querySelector('#recordBackdrop').hidden = !modal;
   document.body.classList.toggle('record-open', modal);
@@ -1007,7 +1005,7 @@ async function chooseRelationship(choice) {
 }
 
 async function loadRole(id) {
-  if (!partyEditor || !opensBeside(view.dataset)) return;
+  if (!partyEditor || view.dataset !== "vendors") return;
   const value = await partyEditor.vendorRole();
   if (view.recordId !== id) return;
   view.role = { id, value };
@@ -1029,10 +1027,6 @@ function renderRecordPanel() {
   dom.panel.hidden = false;
   dom.panel.classList.add("open");
   applyPanelModality();
-  if (dom.panelEyebrow) {
-    dom.panelEyebrow.textContent = DATASET_SINGULAR[dataset];
-    dom.panelEyebrow.hidden = opensBeside(dataset);
-  }
   dom.panelBack.textContent = view.place || DATASET_LABEL[dataset];
   dom.panelBack.href = viewHref(view.query);
   // A redraw keeps focus on the record action that had it, such as Edit after a save.

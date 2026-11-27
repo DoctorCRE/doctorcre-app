@@ -339,9 +339,6 @@ export function searchBoxValue({ current, query, editing = false, fromLocation =
   return editing ? null : wanted;
 }
 
-/** A vendor opens as a card beside its table, and on a phone the card takes the screen. Clients keep the dialog. */
-export const opensBeside = (dataset) => dataset === "vendors";
-
 /**
  * Where a Tab inside the phone dialog must land, or null to let the browser
  * move focus itself. Total on purpose: the heading the panel opens on carries

@@ -20,7 +20,11 @@ function heavy(url: string) {
   if (!body.record) return body;
   body.record.name = longName;
   for (const person of body.record.people ?? [])
-    Object.assign(person.contact, { email: "demo.contact@example.test", phone: "+15555550100", cell: "+15555550101" });
+    Object.assign(person.contact, {
+      email: "demo.contact@example.test",
+      phone: "+15555550100",
+      cell: "+15555550101",
+    });
   return body;
 }
 
@@ -30,14 +34,24 @@ async function openDrawer(t: TestContext, dataset: "clients" | "vendors", width:
   t.after(() => server.stop());
   const browser = await chromium.launch();
   t.after(() => browser.close());
-  const page = await browser.newPage({ viewport: { width, height }, reducedMotion: "reduce" });
+  const page = await browser.newPage({
+    viewport: { width, height },
+    reducedMotion: "reduce",
+  });
   await page.route("https://**", (r) => r.abort());
   await page.route("**/api/v1/business/**", (r) => r.fulfill({ json: heavy(r.request().url()) }));
   await page.route("**/auth/session", (r) => r.fulfill({ json: { actor: { slug: "joe" }, csrf_token: "synthetic" } }));
   // The vendor card reads the stored relationship from the party.
   await page.route("**/api/engine/parties/*", (r) =>
     r.fulfill({
-      json: { vendor: { relationship_level: 3, disposition: null, disposition_reason: null, is_target: false } },
+      json: {
+        vendor: {
+          relationship_level: 3,
+          disposition: null,
+          disposition_reason: null,
+          is_target: false,
+        },
+      },
     }),
   );
   // The record actions show once the Clients and Vendors switch reads from the engine.
@@ -56,83 +70,112 @@ async function openDrawer(t: TestContext, dataset: "clients" | "vendors", width:
   return { page, panel };
 }
 
-for (const dataset of ["clients"] as const)
+for (const dataset of ["clients", "vendors"] as const)
   for (const [width, height] of [
     [1280, 640],
     [1440, 900],
     [390, 844],
   ] as const)
-    test(`the ${dataset} drawer keeps one header row, body-size text and compact controls at ${width}`, async (t) => {
+    test(`a ${dataset} card names the record in full beside the table, or over it with a back link on a phone, at ${width}`, async (t) => {
       const phone = width < 768;
+      const vendor = dataset === "vendors";
       const { page, panel } = await openDrawer(t, dataset, width, height);
-      await page.screenshot({ path: `${shots}/${dataset}-${width}.png` });
-
-      const drawer = await panel.evaluate((node) => {
-        const box = (el: Element | null) => el?.getBoundingClientRect() ?? new DOMRect();
-        const head = node.querySelector(".record-panel-head");
+      if (vendor) await panel.locator(".rel-button:not([disabled])").waitFor();
+      await page.screenshot({ path: `${shots}/${dataset}-card-${width}.png` });
+      const card = await panel.evaluate((node) => {
+        const box = (selector: string) => node.querySelector(selector)?.getBoundingClientRect() ?? new DOMRect();
         const title = node.querySelector<HTMLElement>("#recordTitle");
-        const shown = [
-          ...node.querySelectorAll(".record-panel-head button, #recordBody button, #recordBody summary"),
-        ].filter((el) => el.getClientRects().length > 0);
         const style = (selector: string) => {
           const el = node.querySelector(selector);
           return el ? getComputedStyle(el) : null;
         };
-        const fields = [...node.querySelectorAll(".detail-columns .record-field")].map(
-          (field) => box(field.querySelector("dd")).left - box(field.querySelector("dt")).left,
-        );
+        const shown = [
+          ...node.querySelectorAll(".record-panel-head button, #recordBody button, #recordBody summary"),
+        ].filter((el) => el.getClientRects().length > 0);
         return {
-          headHeight: box(head).height,
-          outsideHead: shown
-            .filter((el) => head?.contains(el))
-            .filter((el) => box(el).top < box(head).top || box(el).bottom > box(head).bottom)
-            .map((el) => el.textContent),
+          width: node.getBoundingClientRect().width,
+          figureSize: style(".relationship-metric strong")?.fontSize,
+          valueSize: style(".record-field dd")?.fontSize,
+          tinted: [".vendor-contacts > li", ".relationship-metrics", ".relationship-metric + .relationship-metric"]
+            .map((selector) => [selector, style(selector)] as const)
+            .filter(([, css]) => css && (css.backgroundColor !== "rgba(0, 0, 0, 0)" || css.borderLeftStyle !== "none"))
+            .map(([selector]) => selector),
           titleCut: (title?.scrollWidth ?? 0) > (title?.clientWidth ?? 0),
-          titleTip: title?.title,
+          back: box(".panel-back").height,
+          close: box(".panel-close").height,
+          relationship: box(".rel-button").height,
           controls: shown.map((el) => ({
             name: el.getAttribute("aria-label") ?? el.textContent?.trim(),
-            height: box(el).height,
+            height: el.getBoundingClientRect().height,
           })),
-          bodySize: (() => {
-            const probe = node.appendChild(document.createElement("span"));
-            probe.style.fontSize = "var(--font-size-2)";
-            const size = getComputedStyle(probe).fontSize;
-            probe.remove();
-            return size;
-          })(),
-          valueSize: style(".record-field dd")?.fontSize,
-          sideways: node.scrollWidth > node.clientWidth,
-          scrolls: node.scrollHeight > node.clientHeight,
-          widestLabelGap: Math.max(...fields),
           body: node.querySelector("#recordBody")?.textContent ?? "",
+          sideways: node.scrollWidth > node.clientWidth,
         };
       });
-
-      assert.ok(drawer.headHeight <= (phone ? 56 : 48), `the header is one bar: ${drawer.headHeight}px`);
-      assert.deepEqual(drawer.outsideHead, [], "every header control sits in the one row");
-      assert.ok(drawer.titleCut, "a long name is cut to one line");
-      assert.equal(drawer.titleTip, longName, "the full name shows on hover");
-      // The body token's size per width belongs to the token itself (#1531); the drawer only uses it.
-      assert.equal(drawer.valueSize, drawer.bodySize, "values read at body size");
-      assert.doesNotMatch(drawer.body, /Edit|Link to someone/, "the body does not repeat the actions");
-      assert.equal(drawer.sideways, false, "nothing in the drawer scrolls sideways");
-
+      assert.equal(card.titleCut, false, "the whole name shows");
+      assert.doesNotMatch(card.body, /Edit|Link to someone/, "the body does not repeat the actions");
+      assert.equal(card.sideways, false, "nothing in the card scrolls sideways");
+      if (vendor) {
+        assert.equal(card.figureSize, card.valueSize, "figures read at body size");
+        assert.deepEqual(card.tinted, [], "contacts and figures sit on the card, not in boxes");
+      }
       if (phone) {
-        await panel.getByRole("button", { name: "Record actions" }).click();
-        const menu = await panel
-          .locator("#recordActions button")
-          .evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().height));
-        await page.screenshot({ path: `${shots}/${dataset}-${width}-menu.png` });
-        drawer.controls.push(...menu.map((menuHeight) => ({ name: "menu item", height: menuHeight })));
-        for (const control of drawer.controls)
-          assert.ok(control.height >= 44, `${control.name} is a 44px touch target: ${control.height}px`);
+        assert.ok(card.width >= width - 1, `the card takes the screen: ${card.width}px`);
+        assert.ok(card.back >= 44, `the back link is a 44px touch target: ${card.back}px`);
+        assert.ok(card.close >= 44, `the x stays at the top: ${card.close}px`);
+        await panel.locator(".panel-back").click();
+        await panel.waitFor({ state: "hidden" });
       } else {
-        for (const control of drawer.controls)
+        assert.ok(card.width <= 420, `the card sits beside the table: ${card.width}px`);
+        assert.equal(card.back, 0, "a computer closes the card with its close button");
+        for (const control of card.controls)
           assert.ok(control.height >= 28 && control.height <= 32, `${control.name} is 28 to 32px: ${control.height}px`);
-        assert.ok(drawer.widestLabelGap <= 190, `each value sits beside its label: ${drawer.widestLabelGap}`);
-        assert.equal(drawer.scrolls, false, "the client drawer fits one screen");
+        if (vendor)
+          assert.ok(
+            card.relationship >= 28 && card.relationship <= 32,
+            `the relationship button: ${card.relationship}px`,
+          );
+        const row = page.locator(".record-row").nth(1);
+        const next = await row.getAttribute("data-record-id");
+        await row.click();
+        await page.waitForURL(new RegExp(`record=${next}`));
       }
     });
+
+for (const dataset of ["clients", "vendors"] as const)
+  test(`a ${dataset} row opens its card beside the table, highlighted, and Escape or the x returns to the row`, async (t) => {
+    const { page, panel } = await openDrawer(t, dataset, 1280, 640);
+    const row = page.locator(".record-row").nth(1);
+    const rowId = await row.getAttribute("id");
+    await row.click();
+    await page.waitForURL(new RegExp(`record=${await row.getAttribute("data-record-id")}`));
+    await panel.locator("#recordActions button", { hasText: "Edit" }).waitFor({ state: "attached" });
+    const beside = await page.evaluate(() => {
+      const open = document.querySelector(".record-row[aria-current='true']");
+      const rowBox = open?.getBoundingClientRect() ?? new DOMRect();
+      const cardBox = document.querySelector("#recordPanel")?.getBoundingClientRect() ?? new DOMRect();
+      return {
+        highlighted: open?.id,
+        role: document.querySelector("#recordPanel")?.getAttribute("role"),
+        backdrop: !document.querySelector<HTMLElement>("#recordBackdrop")?.hidden,
+        rowClear: rowBox.width > 0 && rowBox.right <= cardBox.left,
+      };
+    });
+    assert.equal(beside.highlighted, rowId, "the open row is highlighted");
+    assert.equal(beside.role, "complementary", "the card is not a dialog on a computer");
+    assert.equal(beside.backdrop, false, "nothing covers the table");
+    assert.ok(beside.rowClear, "the open row shows whole beside the card");
+
+    await page.keyboard.press("Escape");
+    await panel.waitFor({ state: "hidden" });
+    assert.equal(await page.evaluate(() => document.activeElement?.id), rowId, "Escape returns focus to the row");
+
+    await row.click();
+    await panel.locator("#recordActions button", { hasText: "Edit" }).waitFor({ state: "attached" });
+    await panel.getByRole("button", { name: "Close record" }).click();
+    await panel.waitFor({ state: "hidden" });
+    assert.equal(await page.evaluate(() => document.activeElement?.id), rowId, "the x returns focus to the row");
+  });
 
 test("on a phone the record actions menu says whether it is open, and Escape closes only the menu", async (t) => {
   const { page, panel } = await openDrawer(t, "clients", 390, 844);
@@ -173,55 +216,3 @@ test("a second Escape after the menu closes leaves the record", async (t) => {
   await page.keyboard.press("Escape");
   await panel.waitFor({ state: "hidden" });
 });
-
-for (const [width, height] of [
-  [1280, 640],
-  [1440, 900],
-  [390, 844],
-] as const)
-  test(`a vendor card names the vendor in full beside the table, or over it with a back link on a phone, at ${width}`, async (t) => {
-    const phone = width < 768;
-    const { page, panel } = await openDrawer(t, "vendors", width, height);
-    await panel.locator(".rel-button:not([disabled])").waitFor();
-    await page.screenshot({ path: `${shots}/vendor-card-${width}.png` });
-    const card = await panel.evaluate((node) => {
-      const box = (selector: string) => node.querySelector(selector)?.getBoundingClientRect() ?? new DOMRect();
-      const title = node.querySelector<HTMLElement>("#recordTitle");
-      const style = (selector: string) => {
-        const el = node.querySelector(selector);
-        return el ? getComputedStyle(el) : null;
-      };
-      return {
-        width: node.getBoundingClientRect().width,
-        figureSize: style(".relationship-metric strong")?.fontSize,
-        valueSize: style(".record-field dd")?.fontSize,
-        tinted: [".vendor-contacts > li", ".relationship-metrics", ".relationship-metric + .relationship-metric"]
-          .map((selector) => [selector, style(selector)] as const)
-          .filter(([, css]) => css && (css.backgroundColor !== "rgba(0, 0, 0, 0)" || css.borderLeftStyle !== "none"))
-          .map(([selector]) => selector),
-        titleCut: (title?.scrollWidth ?? 0) > (title?.clientWidth ?? 0),
-        back: box(".panel-back").height,
-        close: box(".panel-close").height,
-        relationship: box(".rel-button").height,
-        sideways: node.scrollWidth > node.clientWidth,
-      };
-    });
-    assert.equal(card.titleCut, false, "the whole name shows");
-    assert.equal(card.figureSize, card.valueSize, "figures read at body size");
-    assert.deepEqual(card.tinted, [], "contacts and figures sit on the card, not in boxes");
-    assert.equal(card.sideways, false, "nothing in the card scrolls sideways");
-    if (phone) {
-      assert.ok(card.width >= width - 1, `the card takes the screen: ${card.width}px`);
-      assert.ok(card.back >= 44, `the back link is a 44px touch target: ${card.back}px`);
-      assert.ok(card.close >= 44, `the x stays at the top: ${card.close}px`);
-      await panel.locator(".panel-back").click();
-      await panel.waitFor({ state: "hidden" });
-    } else {
-      assert.ok(card.width <= 420, `the card sits beside the table: ${card.width}px`);
-      assert.equal(card.back, 0, "a computer closes the card with its close button");
-      assert.ok(card.relationship >= 28 && card.relationship <= 32, `the relationship button: ${card.relationship}px`);
-      const row = page.locator(".record-row").nth(1);
-      await row.click();
-      await page.waitForURL(/record=00000000-0000-4000-8000-000000000011/);
-    }
-  });
