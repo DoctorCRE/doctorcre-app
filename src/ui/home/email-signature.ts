@@ -145,7 +145,7 @@ function historyRow(rows: readonly string[]) {
   );
 }
 
-/** The app's one email cleanup: quoted history and then the signature fold under Show earlier text; a message that is all history stays visible. */
+/** Cleans a deal Activity row's email summary, which the engine does not split: quoted history and then the signature fold away; a message that is all history stays visible. */
 export function foldEmailBody(body: string, sender: string | null): { text: string; folded: string | null } {
   const rows = body.split("\n");
   const row = historyRow(rows);

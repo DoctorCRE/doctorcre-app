@@ -17,9 +17,10 @@ const session = { actor: { slug: "joe" }, csrf_token: "synthetic-csrf" };
 const body = [
   "Thanks for the two offers. Example Row is still our first choice.",
   "One thing before we answer. Our lender cannot fund until late February. Can the rent start move to March?",
-  "Best,\nMorgan Example\nExample Dental | 555-010-0199 | morgan@example.test",
-  "From: Joe <joe@example.test>\nSent: Monday\nSubject: Offers",
+  "Best,\nMorgan Example",
 ].join("\n\n");
+const folded =
+  "Example Dental | 555-010-0199 | morgan@example.test\n\nFrom: Joe <joe@example.test>\nSent: Monday\nSubject: Offers";
 
 async function openDeal(
   t: TestContext,
@@ -119,7 +120,9 @@ async function openDeal(
           emailReads.push(path);
           await emailHeld;
           return Response.json({
-            thread: [{ activity_id: emailId, happened_at: email.happened_at, sender_name: email.sender_name, body }],
+            thread: [
+              { activity_id: emailId, happened_at: email.happened_at, sender_name: email.sender_name, body, folded },
+            ],
             source_activity: { subject: email.subject },
           });
         }
@@ -160,7 +163,7 @@ for (const [width, height] of [
   [500, 900],
 ] as const)
   for (const scheme of ["light", "dark"] as const)
-    test(`Next steps lists open and suggested steps with the cleaned email at ${width} ${scheme}`, async (t) => {
+    test(`Next steps lists open and suggested steps with the stored email at ${width} ${scheme}`, async (t) => {
       const { page, tile } = await openDeal(t, { width, height }, scheme);
       await tile.evaluate((element) => element.scrollIntoView({ block: "center" }));
       await page.screenshot({ path: `${shots}/next-steps-${width}-${scheme}.png` });
