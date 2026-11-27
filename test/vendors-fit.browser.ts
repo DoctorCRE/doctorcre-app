@@ -71,7 +71,7 @@ async function openVendors(
   });
   await page.goto(`${server.url}/vendors?all=true`);
   await page.locator(".record-row").first().waitFor();
-  await page.getByRole("button", { name: "Quiet", exact: true }).waitFor();
+  await page.getByRole("button", { name: /^Quiet/ }).waitFor();
   return page;
 }
 
@@ -204,16 +204,9 @@ for (const [width, height, today] of [
 test("the vendor toolbar has no dropdowns, Reset or refresh", async (t) => {
   const page = await openVendors(t, 1200, 750);
   const shown = await page.evaluate(() =>
-    [
-      "#filterA",
-      "#filterB",
-      "#filterC",
-      "#sortSelect",
-      "#territoryInput",
-      "#resetFilters",
-      "#applyFilters",
-      "#refreshList",
-    ].filter((selector) => document.querySelector(selector)?.checkVisibility()),
+    ["#filterA", "#filterB", "#filterC", "#sortSelect", "#resetFilters", "#applyFilters", "#refreshList"].filter(
+      (selector) => document.querySelector(selector)?.checkVisibility(),
+    ),
   );
   assert.deepEqual(shown, []);
 });

@@ -262,11 +262,7 @@ const FILTER_FIELDS = {
     { select: "filterB", label: "filterBLabel", key: "type", text: "Client type", empty: "Any client type", facet: "types" },
     { select: "filterC", label: "filterCLabel", key: "pipeline", text: "Pipeline", empty: null, facet: null },
   ],
-  vendors: [
-    { select: "filterA", label: "filterALabel", key: "category", text: "Category", empty: "Any category", facet: "categories" },
-    { select: "filterB", label: "filterBLabel", key: "stage", text: "Stage", empty: "Any stage", facet: "stages" },
-    { select: "filterC", label: "filterCLabel", key: "disposition", text: "Disposition", empty: "Any disposition", facet: "dispositions" },
-  ],
+  vendors: [],
 };
 
 function optionsHtml(options, emptyLabel, selected) {
@@ -304,11 +300,6 @@ function renderControls({ syncSearch = false } = {}) {
   // Inside a category the title names it, so the place reads without a filter chip.
   view.place = query.no_category ? "No category" : query.category && ((facets.categories || []).find((option) => option.slug === query.category)?.label ?? query.category);
   if (dom.resultsTitle) dom.resultsTitle.textContent = view.place ? `${DATASET_LABEL[dataset]} / ${view.place}` : DATASET_LABEL[dataset];
-  document.querySelector('#territoryField').hidden = dataset !== 'vendors';
-  const territory = document.querySelector('#territoryInput');
-  if (document.activeElement !== territory) territory.value = query.territory || '';
-  document.querySelector('[data-vendor-sort]').hidden = dataset !== 'vendors';
-  document.querySelector('#territories').innerHTML = (facets.territories || []).map(option => `<option value="${escapeHtml(option.slug)}"></option>`).join('');
   dom.sort.querySelector('[value="deal_type"]').textContent = dataset === 'vendors' ? 'Service' : 'Deal type';
   if (dom.sort) dom.sort.value = SORTS.includes(query.sort) ? query.sort : "name";
   for (const field of FILTER_FIELDS[dataset]) {
@@ -547,13 +538,15 @@ function headHtml(dataset) {
   return `<li class="list-head"${dataset === "vendors" ? "" : ' aria-hidden="true"'}><span class="row-head">${columnHeading(dataset, "Name")}</span><span class="row-facts">${facts}</span>${dataset === "vendors" ? '<span class="contact-note">Last contacted</span>' : ""}<span class="row-foot"><span class="row-owner">Owner</span><span class="row-updated">Updated</span></span></li>`;
 }
 
-// The relationship counts are the colors' key and a filter; Quiet asks the engine for quiet vendors only.
+// Inside one category the counts are the colors' key and a filter; Quiet asks the engine for quiet vendors only.
 function vendorFiltersHtml(payload) {
-  const { relationship, quiet } = view.query;
-  const counts = holdsWholeList(payload) ? relationshipCounts(payload.rows) : null;
+  const { relationship, quiet, category, no_category: noCategory } = view.query;
+  const inCategory = Boolean(category || noCategory) && holdsWholeList(payload);
+  const counts = inCategory ? relationshipCounts(payload.rows) : null;
+  const quietCount = counts ? ` <span class="tile-n">${payload.rows.filter((row) => row.quiet).length}</span>` : "";
   const words = counts ? Object.entries(RELATIONSHIP_WORDS).filter(([key]) => counts[key] > 0 || key === relationship).map(([key, word]) =>
     `<button type="button" class="filter-count" data-relationship="${key}" data-relationship-filter="${key}" aria-pressed="${key === relationship}">${relationshipShape(key)}${word} <span class="tile-n">${counts[key]}</span></button>`).join("") : "";
-  return `${words}<button type="button" class="filter-count quiet-filter" data-quiet-filter aria-pressed="${quiet === "true"}">Quiet</button>`;
+  return `${words}<button type="button" class="filter-count quiet-filter" data-quiet-filter aria-pressed="${quiet === "true"}">Quiet${quietCount}</button>`;
 }
 
 function renderVendorFilters(payload) {
@@ -1285,7 +1278,6 @@ function wireControls() {
     if (event.target.closest("[data-quiet-filter]")) updateQuery({ quiet: view.query.quiet ? "" : "true" });
   });
   document.querySelector('#recordBackdrop').addEventListener('click', closeRecord);
-  document.querySelector('#territoryInput').addEventListener('change', event => updateQuery({ territory: event.target.value.trim() }));
   const sentinel = document.querySelector('#scrollSentinel');
   if (typeof IntersectionObserver === 'function') new IntersectionObserver(entries => { if (entries.some(e => e.isIntersecting)) loadMore(); }, { rootMargin: '400px' }).observe(sentinel);
   document.addEventListener('scroll', () => { if (sentinel.getBoundingClientRect().top < window.innerHeight + 400) loadMore(); }, { capture: true, passive: true });

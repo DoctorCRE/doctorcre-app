@@ -29,7 +29,6 @@
 .field input::placeholder { color: var(--fg-quiet); }
 .field input:hover, .field select:hover { border-color: var(--fg-quiet); }
 .field input:focus-visible, .field select:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 1px; }
-.territory-field[hidden] { display: none; }
 .filter-actions { display: flex; gap: var(--space-2); }
 .filter-actions .action { margin-top: 0; }
 
@@ -226,7 +225,6 @@ body.record-open { overflow: hidden; }
   .filter-form { gap: var(--space-2); padding: 0; }
   .filter-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
   .filter-row-actions { gap: var(--space-2); }
-  .filter-row-actions .territory-field { order: -1; flex-basis: 100%; max-width: none; }
   .filter-row-actions .scope-switch { flex: 1 1 auto; width: auto; }
   .filter-row-actions .scope-option { min-width: 0; padding-inline: var(--space-2); }
   .filter-actions { width: auto; }
@@ -365,12 +363,7 @@ dialog.party-editor::backdrop { background: var(--scrim); }
   #applyFilters { display: none; }
   /* Each Clients filter shows its value in the toolbar, and Clear undoes them all; only the tile the list came from keeps a chip. */
   body[data-directory="clients"] #chipBar .chip:not([data-tile-chip]) { display: none; }
-  /* Each select is as wide as its current choice; the territory box takes what is left. */
-  body[data-directory="vendors"] .filter-form .field:has(> select) { flex: none; }
-  /* Tighter select sides and narrower search and territory starts keep Reset on the row with the longest sort choice at 1200. */
-  body[data-directory="vendors"] .filter-form select { field-sizing: content; padding-inline: var(--space-2); }
   body[data-directory="vendors"] .field-search { flex-basis: 9rem; }
-  body[data-directory="vendors"] .territory-field { flex-basis: 6rem; }
 }
 body[data-directory="clients"] #applyFilters { display: none; }
 /* The count and owner chips sit in the top bar beside the page title. */
@@ -465,10 +458,10 @@ body:not([data-directory-view="meetings"]) .vendor-meetings-host { display: none
 .deal-diagram-restack button { min-height: var(--touch); padding: 0 var(--space-1); border: 0; border-radius: var(--radius-2); background: none; color: var(--fg-quiet); font: inherit; cursor: pointer; }
 .deal-diagram-restack button:hover { background: var(--surface-2); color: var(--fg); }
 /* A directory opens on tiles; the list's filters and chips return inside one. */
-body[data-tiles] :is(#filterForm .filter-row:not(.filter-row-actions), #territoryField, .filter-actions, #chipBar, #secondaryFilters > summary) { display: none; }
+body[data-tiles] :is(#filterForm .filter-row:not(.filter-row-actions), .filter-actions, #chipBar, #secondaryFilters > summary) { display: none; }
 /* Vendors name their category in the title and their filters on the toolbar, so they need no chips. */
 body[data-directory="vendors"] #chipBar,
-body[data-directory="vendors"] :is(#filterForm .filter-row:not(.filter-row-actions), #territoryField, .filter-actions, #refreshList, #secondaryFilters > summary) { display: none; }
+body[data-directory="vendors"] :is(#filterForm .filter-row:not(.filter-row-actions), .filter-actions, #refreshList, #secondaryFilters > summary) { display: none; }
 /* Without refresh, the vendor status holds only screen-reader text, so it takes no line of its own. */
 body[data-directory="vendors"] .search-dock .hero-meta { position: absolute; }
 /* The search sits on the page, not in a second box around its own field. */

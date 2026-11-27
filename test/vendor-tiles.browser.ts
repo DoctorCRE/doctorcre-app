@@ -195,7 +195,10 @@ test("inside a category the relationship counts and Quiet filter the one table, 
   await page.waitForURL((url) => !url.searchParams.has("relationship"));
   assert.equal(await page.locator(".record-row").count(), total);
 
-  const quiet = page.getByRole("button", { name: "Quiet", exact: true });
+  const quiet = page.getByRole("button", { name: /^Quiet/ });
+  const quietRows = await page.locator(".record-row .contact-note.quiet").count();
+  assert.ok(quietRows > 0, "the category holds quiet vendors");
+  assert.equal(await quiet.locator(".tile-n").textContent(), String(quietRows), "Quiet counts the quiet vendors");
   await quiet.click();
   await page.waitForURL(/quiet=true/);
   await page.waitForFunction(() => document.querySelectorAll(".record-row .contact-note.quiet").length > 0);
@@ -211,6 +214,12 @@ test("inside a category the relationship counts and Quiet filter the one table, 
   await page.locator('[data-column-sort="name"]').click();
   await page.waitForURL((url) => !url.searchParams.has("sort"));
   assert.equal(await page.locator(".list-head [data-fact=Category]").count(), 0, "no Category column inside one");
+});
+
+test("outside a category the relationship counts and the Quiet count stay away, however small the answer", async (t) => {
+  const { page } = await openVendors(t, 1440, 900, { path: "/vendors?all=true&q=Partner+0", ready: ".record-row" });
+  assert.equal(await page.locator("#vendorFilters [data-relationship-filter]").count(), 0);
+  assert.equal(await page.getByRole("button", { name: /^Quiet/ }).textContent(), "Quiet");
 });
 
 test("a filter that matches nothing says so and Clear filters brings the category back", async (t) => {

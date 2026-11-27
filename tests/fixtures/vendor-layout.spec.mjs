@@ -15,7 +15,7 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark']) {
     await page.addLocatorHandler(page.getByRole('button', { name: 'Dismiss morning brief' }), dismiss => dismiss.click());
     await page.goto('/vendors?all=true');
     await expect(page.locator('.record-row').first()).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Quiet', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Quiet/ })).toBeVisible();
     await expect(page.locator('.result-heading').getByRole('button', { name: 'Market', exact: true })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Vendors', exact: true })).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath(`directory-${width}-${theme}.png`) });

@@ -37,7 +37,7 @@ test("Quiet narrows the same list in place and a second press shows every vendor
   await rows.first().waitFor();
   const all = await rows.count();
 
-  const toggle = page.getByRole("button", { name: "Quiet", exact: true });
+  const toggle = page.getByRole("button", { name: /^Quiet/ });
   assert.equal(await toggle.getAttribute("aria-pressed"), "false");
   await toggle.click();
   await page.waitForURL(/quiet=true/);

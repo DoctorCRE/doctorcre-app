@@ -151,7 +151,7 @@ test('W5 reduced motion stops hover travel and pulse while keeping content visib
 });
 
 test('W5 Clients exposes every requested sort and owner without territory controls',async t=>{
- const {page,calls}=await open(t);await page.goto(origin+'/clients?all=true');await page.waitForSelector('.record-row');assert.equal(await page.locator('#territoryField').isVisible(),false);
+ const {page,calls}=await open(t);await page.goto(origin+'/clients?all=true');await page.waitForSelector('.record-row');assert.equal(await page.locator('#territoryField').count(),0);
  for(const sort of ['vertical','name','deal_type','last_deal_desc','last_deal_asc']){await page.locator('#sortSelect').selectOption(sort);await page.waitForFunction(s=>document.querySelector('#sortSelect').value===s,sort);await settles(()=>assert.ok(calls.some(url=>new URL(url).searchParams.get('sort')===sort)||sort==='name'));}
  await page.locator('[data-owner="joe"]').click();await page.waitForFunction(()=>document.querySelector('#resultSummary').textContent.startsWith('31 '));
 });
