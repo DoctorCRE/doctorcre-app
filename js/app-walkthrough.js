@@ -33,15 +33,16 @@ export function openWalkthrough(root) {
     account.hidden = !inAccount;
     avatar.setAttribute('aria-expanded', String(inAccount));
     target.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
-    const edge = target.getBoundingClientRect();
     const gap = 12;
     const railed = parseFloat(win.getComputedStyle(root.documentElement).getPropertyValue('--layout-rail')) > 0;
     for (const compact of [false, true]) {
       guide.toggleAttribute('data-compact', compact);
-      // Wherever it sits, the page moves over by the guide's size, so no step covers it.
+      // Wherever it sits, the page moves over by the guide's size, so no step covers it; the target is measured after that move.
       if (railed) {
         guide.dataset.position = 'beside';
+        root.body.style.removeProperty('--walkthrough-room');
         const { height } = guide.getBoundingClientRect();
+        const edge = target.getBoundingClientRect();
         const top = Math.max(gap, Math.min(edge.top, win.innerHeight - height - gap));
         if (top + height <= win.innerHeight - gap) {
           guide.style.setProperty('--walkthrough-top', `${top}px`);
@@ -52,6 +53,7 @@ export function openWalkthrough(root) {
         guide.dataset.position = position;
         const box = guide.getBoundingClientRect();
         root.body.style.setProperty('--walkthrough-room', `${box.height}px`);
+        const edge = target.getBoundingClientRect();
         const fits = box.left >= 0 && box.top >= 0 && box.right <= win.innerWidth && box.bottom <= win.innerHeight;
         const overlaps = edge.left < box.right && edge.right > box.left && edge.top < box.bottom && edge.bottom > box.top;
         if (fits && !overlaps) return;

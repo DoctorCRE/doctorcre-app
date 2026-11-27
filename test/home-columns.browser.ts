@@ -779,3 +779,34 @@ test("On a phone the Inbox previews its first rows with See all, like Reminders"
   await inbox.getByRole("button", { name: "See all 6" }).click();
   assert.equal(await inbox.getByRole("article").count(), 6);
 });
+
+for (const [width, height] of [
+  [1024, 768],
+  [1236, 772],
+] as const)
+  test(`At ${width}x${height} Home stacks while the walkthrough takes room beside the rail, and takes its three columns back after`, async (t) => {
+    const inboxRows = [1, 2, 3, 4, 5, 6].map((n) => reply(30 + n, `Send your reply to sample practice ${n}`));
+    const page = await openHome(t, width, height, [], comingUpDates, { ...dashboard, inbox: group(inboxRows) });
+    await page.getByRole("region", { name: "Deals", exact: true }).waitFor();
+    const layout = () =>
+      page.evaluate(() => {
+        const tiles = [...document.querySelectorAll(".home-slice")];
+        return {
+          lefts: new Set(tiles.map((tile) => Math.round(tile.getBoundingClientRect().left))).size,
+          overflowing: tiles.filter((tile) => tile.scrollWidth > tile.clientWidth).map((tile) => tile.ariaLabel),
+        };
+      });
+    const seeAll = page.getByRole("region", { name: "Inbox", exact: true }).getByRole("button", { name: "See all 6" });
+    assert.deepEqual(await layout(), { lefts: 3, overflowing: [] }, "three columns before the walkthrough");
+    await page.locator("#selfAvatar").click();
+    await page.getByRole("button", { name: "How DoctorCRE works", exact: true }).click();
+    await seeAll.waitFor();
+    assert.deepEqual(
+      await layout(),
+      { lefts: 1, overflowing: [] },
+      "one column with no tile cut off beside the walkthrough",
+    );
+    await page.keyboard.press("Escape");
+    await seeAll.waitFor({ state: "detached" });
+    assert.deepEqual(await layout(), { lefts: 3, overflowing: [] }, "three columns again after the walkthrough");
+  });

@@ -461,6 +461,28 @@ test('walkthrough stays static with reduced motion and follows Ask Doc across ph
   assert.equal(await page.locator('.app-walkthrough-target').count(), 0);
 });
 
+test('walkthrough measures Ask Doc after making room when the window turns between phone and computer', async t => {
+  const { page } = await open(t, { width: 390, live: true, minimal: true, engineSignIn: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator('#selfAvatar').click();
+  await page.getByRole('button', { name: 'How DoctorCRE works', exact: true }).click();
+  const guide = page.getByRole('dialog', { name: 'How DoctorCRE works', exact: true });
+  for (let index = 0; index < 4; index++) await guide.getByRole('button', { name: 'Next', exact: true }).click();
+  await guide.getByRole('heading', { name: 'Ask Doc', exact: true }).waitFor();
+  const placement = () => page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(() => {
+    const node = document.querySelector('[data-walkthrough]'), box = node.getBoundingClientRect();
+    const target = document.getElementById('askDocLink').getBoundingClientRect();
+    const overlaps = target.left < box.right && target.right > box.left && target.top < box.bottom && target.bottom > box.top;
+    done({ position: node.dataset.position, level: Math.round(box.top) === Math.round(Math.max(12, target.top)), overlaps });
+  }))));
+  const phone = await placement();
+  assert.equal(phone.overlaps, false, 'on a phone the guide leaves Ask Doc in view');
+  await page.setViewportSize({ width: 1024, height: 768 });
+  assert.deepEqual(await placement(), { position: 'beside', level: true, overlaps: false }, 'on a computer the guide sits level with Ask Doc');
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.deepEqual(await placement(), phone, 'back on a phone the guide sits where it first did');
+});
+
 for (const actor of ['joe', 'dell']) test(`first verified ${actor} sign-in opens the walkthrough once in this browser and Help replays it`, async t => {
   const { page, errors } = await open(t, { actor, live: true, minimal: true, firstSignIn: true, width: actor === 'joe' ? 390 : 1280 });
   const guide = page.getByRole('dialog', { name: 'How DoctorCRE works', exact: true });
