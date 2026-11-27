@@ -271,5 +271,5 @@ test("People worth meeting is a tab beside the list", async (t) => {
   assert.ok(panel && panel.y <= 112, `the panel starts near the top, not at ${panel?.y}px`);
   await page.screenshot({ path: `${shots}/meetings-1280.png` });
   await page.getByRole("button", { name: "Categories", exact: true }).click();
-  await page.locator(".vendor-tile[href]").first().waitFor();
+  await page.locator(".directory-tile[href]").first().waitFor();
 });

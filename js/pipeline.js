@@ -245,6 +245,19 @@ function syncDealCreation() {
   $('addDealCancel').disabled = creatingDeal;
   $('addDealSubmit').textContent = creatingDeal ? 'Saving…' : dealCreation ? 'Check creation outcome' : 'Create deal';
 }
+
+const ADD_DEAL_FLAG = 'doctorcre.quick-switcher.open-add-deal';
+let addDealRequested = false;
+
+function takeAddDealRequest() {
+  try {
+    const requested = sessionStorage.getItem(ADD_DEAL_FLAG) === '1';
+    sessionStorage.removeItem(ADD_DEAL_FLAG);
+    return requested;
+  } catch {
+    return false;
+  }
+}
 async function openAddDeal(client = null, conversion = null, phase = null) {
   const dialog = $('addDealDialog');
   if (dialog.open) return;
@@ -624,6 +637,10 @@ function applyBoardSnapshot(board) {
   if (state.panelDeal && !$('recordPanel')?.hidden && ((state.panelDetail && saveSwitchChanged)
     || (previousPanelRow && JSON.stringify(previousPanelRow) !== JSON.stringify(state.deals.get(state.panelDeal))))) {
     void refreshPanel({changed:true});
+  }
+  if (addDealRequested) {
+    addDealRequested = false;
+    void openAddDeal();
   }
 }
 
@@ -3353,6 +3370,8 @@ async function boot() {
   }
   if (incomingScope.get('mode') === 'live') $('mondayReviewLink').href = '/deals?view=review&mode=live';
 
+  addDealRequested = takeAddDealRequest();
+  window.addEventListener('doctorcre-session-invalidated', () => { addDealRequested = false; }, { once: true });
   mountDock();
   wire();
   renderChips();

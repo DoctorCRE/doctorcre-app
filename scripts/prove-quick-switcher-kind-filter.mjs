@@ -40,7 +40,7 @@ export async function observeKindFilter(page, payload) {
   }, payload);
   const input = page.getByRole('combobox', { name: 'Jump to', exact: true });
   const selector = page.getByRole('group', { name: 'Destination kind' });
-  await page.getByRole('status').filter({ hasText: '1 result' }).waitFor();
+  await page.getByRole('status').filter({ hasText: /result/ }).waitFor();
   for (const kind of ['Deal', 'Contact', 'Task', 'Page']) {
     await selector.getByRole('button', { name: `${kind}s`, exact: true }).click();
     await page.getByRole('option').first().waitFor();

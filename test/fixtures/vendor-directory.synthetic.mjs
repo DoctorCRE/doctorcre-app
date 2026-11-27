@@ -1,5 +1,9 @@
 import { LIST_ROW_KEYS, RECORD_KEYS, parseViewState, PAGE_SIZE } from '../../js/workspace-business-model.js';
 const id = n => `00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
+const tileMix=(total,open_deal,past_client)=>({total,open_deal,past_client,no_deal_yet:total-open_deal-past_client});
+// Made-up counts for the tiles Clients opens on.
+const CLIENT_TILES={all:tileMix(3,1,1),national_accounts:{accounts:0,...tileMix(0,0,0)},practice_types:[{practice_type:'Dental',...tileMix(2,1,1)}],not_set:tileMix(1,0,0)};
+
 export function directoryFixture(url, { now = Date.now(), overrides = new Map() } = {}) {
   const u = new URL(url), path = u.pathname.replace('/api/v1/business', '');
   const dataset = path.split('/')[1], recordId = path.split('/')[2];
@@ -30,9 +34,13 @@ export function directoryFixture(url, { now = Date.now(), overrides = new Map() 
   }
   const parsed=parseViewState('/'+dataset,u.search), {all,no_category,...asked}=parsed.query, query={...asked,...(no_category&&{no_category:true}),q:parsed.query.q||null,page_size:PAGE_SIZE};
   for(const key of ['category','stage','disposition','status','type','territory']) if(key in query && !query[key]) query[key]=null;
+  // Like the engine, the tile filters echo only when sent, and the app's own key never travels.
+  for(const key of ['practice_type','national_account']) if(u.searchParams.has(key)) query[key]=u.searchParams.get(key); else delete query[key];
+  delete query.not_set;
   let filtered=records.filter(row=>(!query.q||row.name.toLowerCase().includes(query.q.toLowerCase()))&&(query.owner==='all'||row.owner_label.toLowerCase()===query.owner)&&(!query.territory||row.territory===query.territory)&&(!query.category||row.recorded_category===query.category)&&(!query.no_category||row.recorded_category===null));
   filtered.sort((a,b)=>query.sort==='last_deal_desc'?b.last_deal_at.localeCompare(a.last_deal_at):query.sort==='last_deal_asc'?a.last_deal_at.localeCompare(b.last_deal_at):['vertical','deal_type','territory'].includes(query.sort)?a[query.sort].localeCompare(b[query.sort])||a.name.localeCompare(b.name):a.name.localeCompare(b.name));
-  return {viewer:'joe',dataset,query,total:filtered.length,page:query.page,page_size:PAGE_SIZE,page_count:Math.max(1,Math.ceil(filtered.length/PAGE_SIZE)),out_of_range:query.page>Math.max(1,Math.ceil(filtered.length/PAGE_SIZE)),rows:filtered.slice((query.page-1)*PAGE_SIZE,query.page*PAGE_SIZE).map(row=>allowed(row,LIST_ROW_KEYS[dataset],optional)),facets:dataset==='vendors'?{categories:[{slug:'banker',label:'Banking'}],stages:[],dispositions:[],territories:[{slug:'Demo North',label:'Demo North'},{slug:'Demo South',label:'Demo South'}]}:{statuses:[{slug:'active',label:'Active'}],types:[]},partial:null,recorded_field_note:'Synthetic',source};
+  const tiles=dataset==='clients'&&u.searchParams.get('tiles')==='true'?{tiles:CLIENT_TILES}:{};
+  return {...tiles,viewer:'joe',dataset,query,total:filtered.length,page:query.page,page_size:PAGE_SIZE,page_count:Math.max(1,Math.ceil(filtered.length/PAGE_SIZE)),out_of_range:query.page>Math.max(1,Math.ceil(filtered.length/PAGE_SIZE)),rows:filtered.slice((query.page-1)*PAGE_SIZE,query.page*PAGE_SIZE).map(row=>allowed(row,LIST_ROW_KEYS[dataset],optional)),facets:dataset==='vendors'?{categories:[{slug:'banker',label:'Banking'}],stages:[],dispositions:[],territories:[{slug:'Demo North',label:'Demo North'},{slug:'Demo South',label:'Demo South'}]}:{statuses:[{slug:'active',label:'Active'}],types:[]},partial:null,recorded_field_note:'Synthetic',source};
 }
 
 // The engine's category tiles over the same made-up vendors.

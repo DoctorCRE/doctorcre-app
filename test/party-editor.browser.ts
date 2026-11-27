@@ -482,7 +482,7 @@ test("Edit names each choice from its own list and offers Not recorded only to a
     how_found: "inbound",
     vertical: null,
   });
-  const { page } = await setup(t, `/clients?record=${firstClient}`, fake.answer, {
+  const { page } = await setup(t, `/clients?all=true&record=${firstClient}`, fake.answer, {
     record: { party_id: party },
     facets: { types: [{ slug: "referral", label: "Referral practice" }] },
   });

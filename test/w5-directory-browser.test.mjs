@@ -48,7 +48,7 @@ for (const width of [1440, 390]) test(`V01 vendor search destination keeps Vendo
   assert.equal(context.label, 'Vendors');
   await page.screenshot({ animations: 'disabled', path: `out/test-artifacts/w5/vendor-search-identity-${width}.png` });
 
-  await page.goto(`${origin}/clients`);
+  await page.goto(`${origin}/clients?all=true`);
   await page.waitForFunction(() => document.querySelector('#resultsTitle').textContent === 'Clients');
   assert.equal(await page.title(), 'Clients · DoctorCRE');
   assert.equal(await page.locator('#resultsTitle').innerText(), 'Clients');
@@ -74,7 +74,7 @@ for(const width of [1440,390])test(`W5 rendered directories and wide dialog at $
   await page.locator('[data-details-key="entry-demo-entry"] summary').click();assert.match(await page.locator('[data-details-key="entry-demo-entry"]').innerText(),/Original synthetic email/);
   await page.screenshot({animations:'disabled',path:`out/test-artifacts/w5/vendor-detail-${width}.png`});
   await page.keyboard.press('Escape');assert.equal(await page.locator('#recordPanel').isVisible(),false);assert.equal(await page.locator('#appShell').evaluate(el=>el.inert),false);
-  await page.goto(origin+'/clients', {waitUntil:'domcontentloaded'});await page.waitForSelector('.record-row');await page.screenshot({animations:'disabled',path:`out/test-artifacts/w5/clients-${width}.png`});assert.deepEqual(h.errors,[]);
+  await page.goto(origin+'/clients?all=true', {waitUntil:'domcontentloaded'});await page.waitForSelector('.record-row');await page.screenshot({animations:'disabled',path:`out/test-artifacts/w5/clients-${width}.png`});assert.deepEqual(h.errors,[]);
 });
 for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`vendor drawer shows deal-history metrics with no rating at ${width}px in ${theme}`, async t => {
   const h = await open(t, width), { page } = h;
@@ -98,7 +98,7 @@ test('an old market bookmark opens the vendor tiles, and a vendor from there ope
   await page.goto(`${origin}/vendors?vendorView=market&vendorMarket=example`);
   await page.waitForFunction(() => document.querySelector('#resultsTitle').textContent === 'Vendors');
   assert.equal(new URL(page.url()).search, '');
-  await page.locator('a.vendor-tile', { hasText: 'All vendors' }).click();
+  await page.locator('a.directory-tile', { hasText: 'All vendors' }).click();
   await page.locator('.record-row').first().click();
   await page.getByRole('dialog').waitFor();
   await page.keyboard.press('Escape');
@@ -151,7 +151,7 @@ test('W5 reduced motion stops hover travel and pulse while keeping content visib
 });
 
 test('W5 Clients exposes every requested sort and owner without territory controls',async t=>{
- const {page,calls}=await open(t);await page.goto(origin+'/clients');await page.waitForSelector('.record-row');assert.equal(await page.locator('#territoryField').isVisible(),false);
+ const {page,calls}=await open(t);await page.goto(origin+'/clients?all=true');await page.waitForSelector('.record-row');assert.equal(await page.locator('#territoryField').isVisible(),false);
  for(const sort of ['vertical','name','deal_type','last_deal_desc','last_deal_asc']){await page.locator('#sortSelect').selectOption(sort);await page.waitForFunction(s=>document.querySelector('#sortSelect').value===s,sort);await settles(()=>assert.ok(calls.some(url=>new URL(url).searchParams.get('sort')===sort)||sort==='name'));}
  await page.locator('[data-owner="joe"]').click();await page.waitForFunction(()=>document.querySelector('#resultSummary').textContent.startsWith('31 '));
 });
@@ -228,7 +228,7 @@ for(const kind of ['introduced','can_introduce']) test(`vendor ${kind} notes sho
  assert.deepEqual(h.errors,[]);
 });
 for(const dataset of ['clients','vendors']) test(`${dataset} record panel shows no deal evidence block`,async t=>{
- const {page,errors}=await open(t);await page.goto(`${origin}/${dataset}${dataset==='vendors'?'?all=true':''}`);await page.locator('.record-row').first().click();
+ const {page,errors}=await open(t);await page.goto(`${origin}/${dataset}?all=true`);await page.locator('.record-row').first().click();
  await page.waitForFunction(()=>{const text=document.querySelector('#recordBody')?.textContent.trim();return text&&!/loading/i.test(text);});
  assert.equal(await page.locator('#recordBody .correspondence-evidence').count(),0);
  assert.doesNotMatch(await page.locator('#recordBody').innerText(),/Email threads|Meetings unavailable|Refresh deal|Retry evidence/);
@@ -236,7 +236,7 @@ for(const dataset of ['clients','vendors']) test(`${dataset} record panel shows 
 });
 
 for(const dataset of ['clients','vendors']) test(`${dataset} record panel labels the owner`,async t=>{
- const {page,errors}=await open(t);await page.goto(`${origin}/${dataset}${dataset==='vendors'?'?all=true':''}`);await page.locator('.record-row').first().click();
+ const {page,errors}=await open(t);await page.goto(`${origin}/${dataset}?all=true`);await page.locator('.record-row').first().click();
  const tone=page.locator('#recordPanel .record-tone').filter({hasText:'Owner'});await tone.waitFor();
  assert.match(await tone.innerText(),/Owner\s+Joe/);
  const [owner,fact]=await page.evaluate(()=>['#recordPanel .record-tone .fact-label','#recordBody .record-field dt'].map(selector=>getComputedStyle(document.querySelector(selector)).color));
@@ -288,7 +288,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
         })) },
       }) }] } } });
     });
-    await page.goto(origin + '/clients?mode=live');
+    await page.goto(origin + '/clients?all=true&mode=live');
     await page.waitForSelector('.record-row');
     assert.equal(await page.locator('html').getAttribute('data-theme'), theme);
     assert.equal(await page.getByRole('link', { name: deal.name, exact: true }).getAttribute('href'), url);
@@ -435,7 +435,7 @@ test('Clients can retry unavailable activity and retain keyboard focus', async t
       state: 'completed', match: { target: args.ref }, catch_up: { timeline: [{ entry_kind: 'activity', verb: 'note', summary: 'Recovered history', occurred_at: '2026-09-20T15:00:00Z' }] },
     }) }] } } });
   });
-  await page.goto(origin + '/clients?mode=live');
+  await page.goto(origin + '/clients?all=true&mode=live');
   await page.locator('.record-row').first().click();
   const panel = page.getByRole('dialog', { name: /Demo Practice 01/ });
   const activity = panel.getByRole('region', { name: 'Recent activity' });
@@ -479,7 +479,7 @@ test('A late activity retry cannot paint another client', async t => {
       state: 'completed', match: { target: args.ref }, catch_up: { timeline: [{ entry_kind: 'activity', verb: 'note', summary: read === 2 ? 'Earlier client history' : 'Current client history', occurred_at: '2026-09-20T15:00:00Z' }] },
     }) }] } } });
   });
-  await page.goto(origin + '/clients?mode=live');
+  await page.goto(origin + '/clients?all=true&mode=live');
   await page.locator('.record-row').first().click();
   const activity = page.getByRole('dialog', { name: /Demo Practice 01/ }).getByRole('region', { name: 'Recent activity' });
   await activity.locator('[data-state="unavailable"]').waitFor();

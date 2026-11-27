@@ -10,6 +10,8 @@
 .quick-switcher button { min-height: var(--touch); padding: var(--space-1) var(--space-3); font: inherit; color: var(--fg); background: var(--surface-2); border: 1px solid var(--hairline-strong); border-radius: var(--radius-2); }
 .quick-switcher :focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 2px; }
 .quick-switcher [role="listbox"] { list-style: none; padding: 0; margin: var(--space-2) 0; max-height: 42dvh; overflow: auto; }
+.quick-switcher [role="listbox"] fieldset { min-width: 0; padding: 0; margin: 0; border: 0; }
+.quick-switcher [role="listbox"] h3, .quick-switcher [role="listbox"] legend { margin: var(--space-3) var(--space-3) var(--space-1); font-size: var(--font-size-1); font-weight: 600; color: var(--fg-muted); }
 .quick-switcher [role="option"] { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); padding: var(--space-1) var(--space-3); min-height: var(--touch); box-sizing: border-box; cursor: pointer; border-radius: var(--radius-2); }
 .quick-switcher [role="option"] span { overflow-wrap: anywhere; }
 .quick-switcher [aria-selected="true"] { background: var(--surface-3); outline: 1px solid var(--hairline-strong); outline-offset: -1px; }
