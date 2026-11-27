@@ -558,6 +558,35 @@ test("Two Doc conversations keep separate drafts", async (t) => {
   await expect(restored).toHaveValue(otherDraft);
 });
 
+test("New chat keeps a draft already typed on a new chat and drops it when leaving a conversation", async (t) => {
+  const { page, origin } = await questionDraftFixture(t);
+  const composer = page.getByLabel("Question for Doc");
+  const newChat = page.getByRole("link", { name: "New chat" }).first();
+  await page.goto(`${origin}/doc-chats?mode=live`);
+  await expect(composer).toBeEnabled();
+  await composer.fill(firstDraft);
+  await newChat.click();
+  await expect(composer).toBeEnabled();
+  await expect(composer).toHaveValue(firstDraft);
+  await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
+  await expect(composer).toBeEnabled();
+  await newChat.click();
+  await expect(composer).toBeEnabled();
+  await expect(composer).toHaveValue("");
+});
+
+test("Emptying the Doc question box clears its saved draft", async (t) => {
+  const { page, origin } = await questionDraftFixture(t);
+  const chat = `${origin}/doc-chats?mode=live&chat=${id}`;
+  const composer = page.getByLabel("Question for Doc");
+  await page.goto(chat);
+  await composer.fill(firstDraft);
+  await composer.fill("");
+  await page.reload();
+  await expect(composer).toBeEnabled();
+  await expect(composer).toHaveValue("");
+});
+
 test("Blocked device storage still lets the partner type and send a Doc question", async (t) => {
   const { page, origin } = await questionDraftFixture(t);
   await page.addInitScript(() => {

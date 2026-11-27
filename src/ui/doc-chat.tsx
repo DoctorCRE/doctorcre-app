@@ -954,7 +954,15 @@ function DocChat() {
   }, [question]);
   const today = new Date();
   const newChat = (className: string) => (
-    <a className={`doc-chat__icon ${className}`} href={chatHref(null)} aria-label="New chat" title="New chat">
+    <a
+      className={`doc-chat__icon ${className}`}
+      href={chatHref(null)}
+      aria-label="New chat"
+      title="New chat"
+      onClick={() => {
+        if (id || composerId) privateDraft.current?.("doc-question", null).write("");
+      }}
+    >
       <Icon path={icons.newChat} />
     </a>
   );
