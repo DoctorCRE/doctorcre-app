@@ -150,7 +150,7 @@ body.record-open { overflow: hidden; }
 :is(.panel-close, .panel-more) { flex: none; min-width: var(--touch); min-height: var(--touch); border: 0; border-radius: var(--radius-2); background: transparent; color: var(--fg-muted); font: inherit; font-size: var(--font-size-3); line-height: 1; cursor: pointer; transition: background-color var(--duration-hover) var(--ease-out), color var(--duration-hover) var(--ease-out); }
 :is(.panel-close, .panel-more):hover { background: var(--surface-2); color: var(--fg); }
 /* Sections part by whitespace, not rules. */
-.record-panel-body { display: grid; gap: var(--space-5); }
+.record-panel-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-5); }
 .record-section h4 { margin: 0 0 var(--space-1); color: var(--fg-muted); font-size: var(--font-size-1); font-weight: var(--font-weight-regular); }
 .record-section ul:not([class]) { margin: 0; padding-inline-start: var(--space-4); font-size: var(--font-size-2); line-height: var(--line-height-body); }
 .record-panel-body :is(.note-summary, .entry-detail, .client-deals) { font-size: var(--font-size-2); }
@@ -533,8 +533,8 @@ body:not([data-directory-view="meetings"]) .vendor-meetings-host { display: none
 /* A client's card: one diagram per deal, and the opened deal in place of the table. */
 .client-deals-section:empty { display: none; }
 .client-deal + .client-deal { padding-top: var(--space-4); border-top: 1px solid var(--hairline); }
-.client-deal-head { display: flex; align-items: center; gap: var(--space-2); min-height: 32px; margin-bottom: var(--space-2); }
-.client-deal-head a { overflow: hidden; color: var(--fg); font-weight: var(--font-weight-strong); text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
+.client-deal-head { display: flex; align-items: center; min-width: 0; gap: var(--space-2); min-height: 32px; margin-bottom: var(--space-2); }
+.client-deal-head a { display: -webkit-box; min-width: 0; overflow: hidden; color: var(--fg); font-weight: var(--font-weight-strong); overflow-wrap: anywhere; text-decoration: none; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .client-deal-head a:hover { text-decoration: underline; }
 .client-deal-head > span { flex: none; color: var(--fg-quiet); font-size: var(--font-size-1); }
 .client-deal-control { display: grid; flex: none; place-items: center; width: 28px; height: 28px; margin-left: auto; padding: 0; border: 0; border-radius: var(--radius-2); background: none; color: var(--fg-quiet); font: inherit; font-size: 18px; cursor: pointer; }

@@ -23,7 +23,9 @@ const dealState = (deal: ClientDeal) =>
 function DealTitle({ deal }: { deal: ClientDeal }) {
   return (
     <>
-      <a href={`/deals?deal=${encodeURIComponent(deal.id)}`}>{deal.name}</a>
+      <a href={`/deals?deal=${encodeURIComponent(deal.id)}`} title={deal.name}>
+        {deal.name}
+      </a>
       {dealState(deal) && <span>{dealState(deal)}</span>}
     </>
   );
