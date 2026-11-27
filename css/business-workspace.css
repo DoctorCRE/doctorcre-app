@@ -54,9 +54,11 @@ a.tab[aria-current="page"] { border-color: var(--hairline-strong); background: v
 #searchChips .chip[aria-pressed="false"] { color: var(--fg-quiet); text-decoration: line-through; }
 @media (hover: hover) { :is(#searchChips, #savedViewList) .chip:hover { background: var(--surface-2); color: var(--fg); } }
 #searchChips .chip:focus, #savedViewList .chip:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 1px; }
-#searchCount { margin-inline-start: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
-#recentSearches { flex: 1 1 0; min-width: 10rem; flex-wrap: nowrap; gap: var(--space-1); overflow-x: auto; scrollbar-width: none; }
-#recentSearches .chip { min-height: var(--touch); flex: none; max-width: 16ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-color: transparent; background: transparent; color: var(--fg-quiet); font-weight: var(--font-weight-regular); }
+#searchCount { flex: none; margin-inline-start: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* One row: a chip that does not fit wraps below and is clipped whole, so the newest (first) chips stay and none is cut mid-word. */
+#recentSearches { flex: 1 1 0; min-width: 10rem; flex-wrap: wrap; align-content: flex-start; gap: var(--space-2) var(--space-1); height: calc(var(--touch) + 4px); padding-block: 2px; overflow: hidden; }
+#recentSearches .chip { min-height: var(--touch); flex: 0 1 auto; min-width: 0; max-width: 16ch; border-color: transparent; background: transparent; color: var(--fg-quiet); font-weight: var(--font-weight-regular); }
+#recentSearches .chip span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (hover: hover) { #recentSearches .chip:hover { background: var(--surface-2); color: var(--fg); } }
 #recentSearches .chip:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: 1px; }
 .search-row mark { background: color-mix(in srgb, var(--accent) 38%, transparent); color: var(--fg); border-radius: var(--radius-1); font: inherit; padding: 0; }

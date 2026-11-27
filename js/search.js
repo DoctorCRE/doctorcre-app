@@ -64,7 +64,7 @@ function renderRecentSearches() {
   if (!bar) return;
   const recents = view.recents;
   bar.hidden = recents.length === 0;
-  bar.innerHTML = recents.map((query) => `<button class="chip" type="button" data-recent="${escapeHtml(query)}">${escapeHtml(query)}</button>`).join("");
+  bar.innerHTML = recents.map((query) => `<button class="chip" type="button" data-recent="${escapeHtml(query)}" title="${escapeHtml(query)}"><span>${escapeHtml(query)}</span></button>`).join("");
 }
 
 function renderSavedViews() {
