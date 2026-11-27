@@ -78,7 +78,7 @@ export function datasetForPath(pathname) {
 export function defaultQuery(dataset) {
   const base = { dataset, scope: DEFAULT_SCOPE, owner: "all", territory: "", q: "", sort: defaultSort(dataset), page: 1, all: "" };
   return dataset === "clients"
-    ? { ...base, status: "", practice_type: "", not_set: "", national_account: "" }
+    ? { ...base, status: "", practice_type: "", not_set: "", national_account: "", accounts: "" }
     : { ...base, category: "", no_category: "", stage: "", disposition: "", quiet: "", relationship: "" };
 }
 
@@ -112,7 +112,10 @@ export function parseViewState(pathname, search) {
     query.status = readSlug(params, "status");
     query.practice_type = (params.get("practice_type") || "").trim().slice(0, MAX_QUERY_LENGTH);
     query.not_set = params.get("not_set") === "true" && !query.practice_type ? "true" : "";
-    query.national_account = params.get("national_account") === "any" ? "any" : "";
+    const account = params.get("national_account") || "";
+    query.national_account = account === "any" || UUID.test(account) ? account.toLowerCase() : "";
+    // The tile per national account, before one is chosen.
+    query.accounts = params.get("accounts") === "true" && !query.q && !query.national_account && !query.practice_type && !query.not_set ? "true" : "";
   } else {
     query.category = readSlug(params, "category");
     query.stage = readSlug(params, "stage");
@@ -147,6 +150,7 @@ function queryPairs(query) {
 export function viewHref(query, recordId = null) {
   const params = new URLSearchParams(queryPairs(query));
   if (query.all) params.set("all", "true");
+  if (query.accounts) params.set("accounts", "true");
   // Filtered in the browser over the whole category, so it never reaches the read.
   if (query.relationship) params.set("relationship", query.relationship);
   if (recordId) params.set("record", recordId);
@@ -207,7 +211,7 @@ export function recordRequestUrl(dataset, id, { people = false } = {}) {
 
 export function sameQuery(left, right) {
   if (!left || !right || left.dataset !== right.dataset) return false;
-  const keys = ["scope", "owner", "territory", "q", "sort", "page", "all", ...FILTER_KEYS[left.dataset]];
+  const keys = ["scope", "owner", "territory", "q", "sort", "page", "all", "accounts", ...FILTER_KEYS[left.dataset]];
   return keys.every((key) => left[key] === right[key]);
 }
 
@@ -228,6 +232,28 @@ export function hasActiveFilters(query) {
   return ["scope", "owner", "territory", "q", "sort", "relationship", ...FILTER_KEYS[query.dataset]].some((key) => query[key] !== base[key]);
 }
 
+/** The national accounts the deals board lists, or null when the answer is not that list. */
+export function accountsFrom(board) {
+  const accounts = board?.accounts;
+  const valid = Array.isArray(accounts) && accounts.every((account) => isRecord(account)
+    && UUID.test(account.account_client_id) && typeof account.account_name === "string"
+    && (account.account_owner === null || typeof account.account_owner === "string"));
+  return valid ? accounts.map(({ account_client_id, account_name, account_owner }) =>
+    ({ id: account_client_id.toLowerCase(), name: account_name, owner: account_owner })) : null;
+}
+
+export const ACCOUNTS_REQUEST_URL = "/api/engine/deals?workspace=national_account";
+
+/** One account's locations counted the way the tiles count, for this owner chip. */
+export const accountCountsUrl = (owner, id) =>
+  `${listRequestUrl({ ...defaultQuery("clients"), owner, national_account: id })}&tiles=true`;
+
+/** The one word the Clients screen uses for a client's state, the same as its tiles and chips. */
+export function clientStatusWord(status) {
+  if (!status) return null;
+  return status === "active_deal" ? "Open deal" : status === "past_client" ? "Past client" : "No deal yet";
+}
+
 /** The status chips inside a Clients tile: the engine's status filter and the tile count each one shows. */
 export const CLIENT_STATUS_CHIPS = [
   { status: "active_deal", word: "Open deal", count: "open_deal" },
@@ -236,16 +262,20 @@ export const CLIENT_STATUS_CHIPS = [
 ];
 
 /** The Clients tile a list was opened from, or null for a search across every tile. */
-export function clientPlace(query) {
+export function clientPlace(query, accounts = null) {
   if (query.dataset !== "clients") return null;
   if (query.all) return "All clients";
-  if (query.national_account) return "National Accounts";
+  if (query.accounts) return "National Accounts";
+  if (query.national_account === "any") return "All locations";
+  if (query.national_account) return accounts?.find((account) => account.id === query.national_account)?.name ?? "National Accounts";
   if (query.not_set) return "Not set";
   return query.practice_type || null;
 }
 
 /** That tile's counts from the tiles answer, so the chips count what the tile counted. */
-export function placeCounts(tiles, query) {
+export function placeCounts(tiles, query, accounts = null) {
+  if (query.national_account && query.national_account !== "any")
+    return accounts?.find((account) => account.id === query.national_account)?.counts ?? null;
   if (!tiles) return null;
   if (query.all) return tiles.all;
   if (query.national_account) return tiles.national_accounts;
@@ -696,7 +726,7 @@ export function refusalCopy(code) {
 
 const CLIENT_SECTIONS = [
   { title: "Status and type", fields: [
-    ["recorded_status", "Status", "recorded_status_label"],
+    ["recorded_status", "Status"],
     ["recorded_status_note", "What this status means"],
     ["recorded_etl_status", "ETL status"],
     ["recorded_client_type", "Client type", "recorded_client_type_label"],
@@ -810,6 +840,7 @@ export function recordSections(dataset, record) {
       const value = key === "contact_state" && dataset === "vendors" && record?.[key] === "active" ? null
         : key === "contact_state" ? CONTACT_STATES.get(record?.[key]) ?? record?.[key]
         : key === "owner_label" ? partnerName(record?.[key])
+        : key === "recorded_status" && dataset === "clients" ? clientStatusWord(record?.[key])
         : dataset === "clients" ? clientField(key, record?.[key]) : record?.[key];
       const presented = labelKey ? recordedCode(value, record?.[labelKey]) : recordedValue(value);
       return {

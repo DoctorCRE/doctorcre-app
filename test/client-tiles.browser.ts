@@ -118,16 +118,11 @@ test("Clients opens on tiles in the approved order, and a tile opens its clients
   assert.equal(list?.searchParams.get("owner"), "dell");
   assert.equal(list?.searchParams.has("tiles"), false);
 
-  for (const [name, url, key, value] of [
-    ["Not set", /not_set=true/, "practice_type", ""],
-    ["National Accounts", /national_account=any/, "national_account", "any"],
-  ] as const) {
-    await page.goBack();
-    await page.locator("a.directory-tile", { hasText: name }).click();
-    await page.waitForURL(url);
-    await page.locator(".record-row").first().waitFor();
-    assert.equal(asked.at(-1)?.searchParams.get(key), value);
-  }
+  await page.goBack();
+  await page.locator("a.directory-tile", { hasText: "Not set" }).click();
+  await page.waitForURL(/not_set=true/);
+  await page.locator(".record-row").first().waitFor();
+  assert.equal(asked.at(-1)?.searchParams.get("practice_type"), "");
 
   await page.goBack();
   await page.locator("a.directory-tile", { hasText: "All clients" }).click();
