@@ -1344,9 +1344,20 @@ self.addEventListener('activate', event => event.waitUntil((async () => {
 }
 
 export async function handleDoctorcreRequest(request, env) {
+  let response;
   try {
-    return clearInactiveSignInCookies(request, await handleRequest(request, env), env);
-  } catch { return json({ error: 'internal_error' }, 500); }
+    response = clearInactiveSignInCookies(request, await handleRequest(request, env), env);
+  } catch { response = json({ error: 'internal_error' }, 500); }
+  return stampVersion(response, env);
+}
+
+// Open tabs read this through Resource Timing, so noticing a release costs no request.
+function stampVersion(response, env) {
+  const version = env?.CF_VERSION_METADATA?.id;
+  if (!version) return response;
+  const stamped = new Response(response.body, response);
+  stamped.headers.append('server-timing', `version;desc="${version}"`);
+  return stamped;
 }
 
 export default { fetch: handleDoctorcreRequest };

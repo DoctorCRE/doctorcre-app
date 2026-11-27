@@ -8,6 +8,7 @@ import { mountPrefs } from "./shell.js";
 import { resolveDealroomBoot } from "./boot-mode.js";
 import { mountAutoRefresh } from "./auto-refresh.mjs";
 import { mountNavigation } from "./navigation.js";
+import { mountNewVersionNotice } from "./ui-new-version.generated.js";
 
 export function mountAppShell(root = document, pathname = globalThis.location?.pathname || "/") {
   const location = globalThis.location;
@@ -87,6 +88,7 @@ export function mountAppShell(root = document, pathname = globalThis.location?.p
   mountAccount(root, host, pathname, reactWorkspace, ready);
   mountAppLayout(root, host, pathname);
   const topbar = root.getElementById("appTopbar");
+  mountNewVersionNotice(root, topbar);
   const workspace = root.getElementById("accountWorkspaceControls");
   workspace.hidden = false;
   const controls = host.querySelector(".app-shell-controls");

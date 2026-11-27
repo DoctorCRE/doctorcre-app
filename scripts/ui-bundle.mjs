@@ -33,6 +33,7 @@ export const UI_ENTRIES = {
   'ui-record-links': 'record-links',
   'ui-card-menu': 'card-quick-menu',
   'ui-scroll-thumb': 'scroll-thumb',
+  'ui-new-version': 'new-version',
   'ui-quick-switcher': 'quick-switcher',
   'ui-switcher-history': 'switcher-history',
   'ui-email-actions': 'email-followup-actions',
