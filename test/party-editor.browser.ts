@@ -322,7 +322,8 @@ test("Edit on a client opened by its old id edits the party the record names", a
   await dialog.getByRole("button", { name: "Save changes" }).click();
   await dialog.waitFor({ state: "hidden" });
   assert.deepEqual(
-    sent.filter((call) => /\/(parties|clients)\//.test(call.path)).map((call) => call.path),
+    // The card's own read of the client's deals is not part of the edit.
+    sent.filter((call) => /\/(parties|clients)\/[^/]+$/.test(call.path)).map((call) => call.path),
     [`/api/engine/parties/${party}`, `/api/engine/clients/${party}`],
   );
   assert.deepEqual(withoutKey(posts(sent)[0]?.body ?? {}), { vertical: { from: "Dental", to: "Orthodontics" } });
