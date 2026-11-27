@@ -48,6 +48,20 @@ class BrowserSetupTest(unittest.TestCase):
         self.assertEqual(calls[1][-3:], ['install', 'chromium', 'webkit'])
         self.assertNotIn('--with-deps', calls[1])
 
+    def test_apt_reads_ubuntu_sources_only(self):
+        with tempfile.TemporaryDirectory() as directory:
+            apt, out = Path(directory, 'apt'), Path(directory, 'out')
+            (apt / 'sources.list.d').mkdir(parents=True)
+            out.mkdir()
+            (apt / 'sources.list.d' / 'ubuntu.sources').write_text('URIs: http://archive.ubuntu.com/ubuntu\n')
+            (apt / 'sources.list.d' / 'microsoft-prod.list').write_text('deb https://packages.microsoft.com/ubuntu/24.04/prod noble main\n')
+            (apt / 'sources.list').write_text('deb http://archive.ubuntu.com/ubuntu noble main\ndeb https://packages.microsoft.com/x noble main\n')
+            config = self.module.ubuntu_sources(apt, out)
+            self.assertIn(f'Dir::Etc::SourceParts "{out / "sources.list.d"}";', config)
+            self.assertIn(f'Dir::Etc::SourceList "{out / "sources.list"}";', config)
+            self.assertEqual(sorted(path.name for path in (out / 'sources.list.d').iterdir()), ['ubuntu.sources'])
+            self.assertEqual((out / 'sources.list').read_text(), 'deb http://archive.ubuntu.com/ubuntu noble main\n')
+
     def test_mirror_deadline_and_errors_stop_before_browser_tests(self):
         for status in [100, 124, 137]:
             with self.subTest(status=status):

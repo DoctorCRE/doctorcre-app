@@ -19,6 +19,21 @@ def run_group(command, timeout):
             raise
 
 
+def ubuntu_sources(apt, directory):
+    # The runner's packages.microsoft.com source answers 403, which fails apt-get update; Playwright needs only Ubuntu packages.
+    parts = directory / 'sources.list.d'
+    parts.mkdir()
+    for source in (apt / 'sources.list.d').glob('*'):
+        text = source.read_text()
+        if 'packages.microsoft.com' not in text:
+            (parts / source.name).write_text(text)
+    main = directory / 'sources.list'
+    legacy = apt / 'sources.list'
+    lines = legacy.read_text().splitlines() if legacy.exists() else []
+    main.write_text(''.join(f'{line}\n' for line in lines if 'packages.microsoft.com' not in line))
+    return f'Dir::Etc::SourceParts "{parts}";\nDir::Etc::SourceList "{main}";\n'
+
+
 def setup(browsers):
     if sys.platform == 'linux':
         archives = Path.home() / '.cache' / 'playwright-apt'
@@ -31,6 +46,7 @@ def setup(browsers):
                 'Acquire::http::Timeout "10";\n'
                 'Acquire::https::Timeout "10";\n'
                 'APT::Update::Error-Mode "any";\n'
+                + ubuntu_sources(Path('/etc/apt'), Path(directory))
             )
             result = subprocess.run([
                 'sudo', '-n', 'timeout', '--kill-after=5s', '10m',
