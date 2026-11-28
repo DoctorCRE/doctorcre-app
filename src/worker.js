@@ -618,7 +618,7 @@ function nextDealSave(verb, args) {
     }
     case 'patch-deal-field':
       if (field === 'phase' && value !== 'closed' && (args.phase_from === null || isString(args.phase_from))) {
-        const reason = [args.change_reason, args.human_quote].filter(isString).join('\n\n') || undefined;
+        const reason = isString(args.change_reason) ? args.change_reason : undefined;
         return changes({ phase: { from: args.phase_from, to: value, reason } });
       }
       if (field === 'owner' && isString(value) && value) return changes({ fields: { owner: value } });
@@ -1265,7 +1265,7 @@ self.addEventListener('activate', event => event.waitUntil((async () => {
       return json({ error: 'not_found' }, 404);
     const nextDealsOnly = (pathname === '/api/engine/parties/search' && url.searchParams.has('role'))
       || /^\/api\/engine\/clients\/[^/]+\/leases$/.test(pathname)
-      || /^\/api\/engine\/deals\/[^/]+\/(?:star|unstar|parties|parties\/remove)$/.test(pathname);
+      || /^\/api\/engine\/deals\/[^/]+\/parties(?:\/remove)?$/.test(pathname);
     if (nextDealsOnly && (!await routeToEngine(env, DEALS) || !await routeToEngine(env, NEXT_DEAL_SAVES)))
       return json({ error: 'not_found' }, 404);
     // Party saves and their read land in the new database, so they follow the Clients and Vendors switch.

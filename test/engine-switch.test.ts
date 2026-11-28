@@ -1850,6 +1850,20 @@ const movedToEngine = [
   ],
   [
     "patch-deal-field",
+    {
+      field: "phase",
+      value: "negotiation",
+      phase_from: "research",
+      change_reason: "Synthetic reason",
+      human_quote: "Synthetic quote",
+    },
+    changesPath,
+    { seen_change_id: 23, phase: { from: "research", to: "negotiation", reason: "Synthetic reason" } },
+    { deal_id: dealId, change_id: 23 },
+    200,
+  ],
+  [
+    "patch-deal-field",
     { field: "owner", value: "dell" },
     changesPath,
     { seen_change_id: 23, fields: { owner: "dell" } },

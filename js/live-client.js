@@ -545,7 +545,7 @@ export function createLiveClient(opts = {}) {
       if (args.field === 'phase' && UI_TO_PHASE[args.value]) {
         args = { ...args, value: UI_TO_PHASE[args.value] };
       }
-      // `change_reason` and `human_quote` ride through untouched: the partner's
+      // `change_reason` rides through untouched: the partner's
       // own words are sent to CARR verbatim, never composed or reshaped here.
       // `event_id` / `event_recorded_at` ride through on the ok answer: the
       // record's own identity for the event this write committed, which is what

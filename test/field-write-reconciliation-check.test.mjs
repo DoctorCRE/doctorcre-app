@@ -777,16 +777,15 @@ test("extra arguments ride on the first attempt, and a replay re-sends the origi
     },
   });
 
-  const first = await write({ change_reason: "r", human_quote: "q" });
+  const first = await write({ change_reason: "r" });
   assert.equal(first.status, "unknown", "the answer was lost");
   assert.equal(sent.length, 1);
   assert.equal(sent[0].change_reason, "r");
-  assert.equal(sent[0].human_quote, "q");
   const key = sent[0].idempotency_key;
 
   // The retry supplies DIFFERENT words. The retained request wins: one key stays
   // bound to one set of arguments, whatever a later caller believes.
-  const retry = await write({ change_reason: "changed", human_quote: "changed" });
+  const retry = await write({ change_reason: "changed" });
   assert.equal(retry.status, "ok");
   assert.equal(sent.length, 2);
   assert.deepEqual(sent[1], sent[0], "the replay is the original request, byte for byte");

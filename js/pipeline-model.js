@@ -141,7 +141,7 @@ export function moveSummary(intent) {
 
 /** The title the completion dialog carries. */
 export function moveTitle(intent) {
-  return intent ? `Move ${intent.name} to ${intent.to_label}` : 'Move';
+  return intent ? `Move this deal to ${intent.to_label}?` : 'Move';
 }
 
 /**
@@ -179,19 +179,6 @@ export const CLOSED_SLUG = 'closed';
 export function isDealOutcome(value) {
   return DEAL_OUTCOMES.some((entry) => entry.value === value);
 }
-
-/** The captions the dialog prints. No sentence here promises a check. */
-export const COMPLETION_CAPTIONS = Object.freeze({
-  evidence: 'Filed as a note on the record. CARR does not require evidence to move a phase.',
-  change_reason: 'A short reason, saved with the phase change itself.',
-  human_quote: 'Your own sentence, saved word for word with the phase change.',
-  next: 'Recorded as the next step.',
-  effective_off: 'Not recorded anywhere; the move is dated by when it is saved.',
-  effective_on: 'Recorded as a critical date on the record.',
-  outcome: 'Outcome',
-  closed_on: 'The date the record closed, written alongside the outcome.',
-  won_value: 'Optional. Recorded only on a won outcome.',
-});
 
 /** The `kind` a critical date created by a phase move carries. */
 export const PHASE_DATE_KIND = 'phase_effective_date';
@@ -241,10 +228,8 @@ function closingPlan(intent, form) {
  * version this module captured would already be stale by then.
  *
  * @param {ReturnType<typeof moveIntent>} intent
- * @param {{evidence?:string, nextStep?:string, nextWhen?:string, replaceNextStep?:boolean,
- *          effectiveDate?:string, recordCriticalDate?:boolean, dateSource?:string,
- *          outcome?:string, closedOn?:string, wonValue?:string|number,
- *          changeReason?:string, humanQuote?:string, lostReason?:string}} [form]
+ * @param {{changeReason?:string, outcome?:string, closedOn?:string,
+ *          wonValue?:string|number, lostReason?:string}} [form]
  * @returns {{steps: Array<{verb:string, args:Object, summary:string}>, errors: string[]}}
  */
 export function completionPlan(intent, form = {}) {
@@ -252,64 +237,12 @@ export function completionPlan(intent, form = {}) {
   if (!intent) return { steps: [], errors: ['There is no move to make.'] };
   if (intent.to === CLOSED_SLUG && Number.isSafeInteger(intent.seen)) return closingPlan(intent, form);
 
-  // The reason and the partner's own sentence ride ON the phase patch rather
-  // than as follow-up verbs: they describe the change itself, so they belong to
-  // the same write and the same receipt. Blank stays blank — an untouched box
-  // sends no key at all, never an empty string.
+  // The reason rides on the phase patch, not a follow-up verb, so it shares the
+  // move's write and receipt. A blank box sends no key at all.
   const phaseArgs = { deal: intent.deal, field: 'phase', value: intent.value };
   const changeReason = text(form.changeReason);
-  const humanQuote = text(form.humanQuote);
   if (changeReason) phaseArgs.change_reason = changeReason;
-  if (humanQuote) phaseArgs.human_quote = humanQuote;
-
-  const steps = [{
-    verb: 'patch-deal-field',
-    args: phaseArgs,
-    summary: moveSummary(intent),
-  }];
-
-  const evidence = text(form.evidence);
-  if (evidence) {
-    steps.push({
-      verb: 'add-deal-note',
-      args: { deal: intent.deal, text: evidence },
-      summary: `Note on ${intent.name}`,
-    });
-  }
-
-  const nextStep = text(form.nextStep);
-  const nextWhen = text(form.nextWhen);
-  if (nextStep && form.replaceNextStep) {
-    steps.push({
-      verb: 'set-next-step',
-      args: { deal: intent.deal, text: nextStep, next_date: nextWhen || null },
-      summary: `Next step on ${intent.name}`,
-    });
-  } else if (nextStep) {
-    const words = nextStep.split(/\s+/u).length;
-    if (words < 2 || words > 4 || nextStep.length > 100) errors.push('Use 2–4 words for the next item title.');
-    else steps.push({
-      verb: 'record-deal-item',
-      args: { deal: intent.deal, title: nextStep, due_on: nextWhen || null, bullets: [{ date: null, kind: 'promised', text: nextStep }] },
-      summary: `Next item on ${intent.name}`,
-    });
-  } else if (nextWhen) {
-    errors.push('A date for what happens next needs the step itself; type what happens next, or clear the date.');
-  }
-
-  const effective = text(form.effectiveDate);
-  const source = text(form.dateSource);
-  if (form.recordCriticalDate === true) {
-    if (!effective) errors.push('Pick the effective date, or clear the critical-date box.');
-    if (!source) errors.push('Enter a date reference.');
-    if (effective && source) {
-      steps.push({
-        verb: 'add-critical-date',
-        args: { deal: intent.deal, kind: PHASE_DATE_KIND, due_on: effective, source },
-        summary: `Critical date on ${intent.name}`,
-      });
-    }
-  }
+  const steps = [{ verb: 'patch-deal-field', args: phaseArgs, summary: moveSummary(intent) }];
 
   if (intent.to === CLOSED_SLUG) {
     const outcome = text(form.outcome);

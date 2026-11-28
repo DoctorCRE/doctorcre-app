@@ -23,7 +23,7 @@ import { readFile } from "node:fs/promises";
 import { createFixtureClient } from "../js/fixture-client.js";
 import { PHASES, PHICON, phaseLabel } from "../js/client.js";
 import {
-  CLOSED_SLUG, COLUMNS, DEAL_OUTCOMES, PHASE_DATE_KIND, attachedParties, closedColumnCaption,
+  CLOSED_SLUG, COLUMNS, DEAL_OUTCOMES, attachedParties, closedColumnCaption,
   columnBySlug, columnByValue, columnLabel, completionPlan, contextDrawerSections,
   boardHeadline, groupByColumn, isDealOutcome, keyboardTarget, loadDealContext, moveIntent, moveSummary,
   moveTitle, partyRoleLabel, presenceChip,
@@ -134,19 +134,19 @@ test("a move intent names both ends, and a drop on the card's own column is not 
     from: "due_diligence", from_label: "Due Diligence", to: "closing", to_label: "Closing",
   });
   assert.equal(moveSummary(intent), "Demo Osteopathic Office → Closing");
-  assert.equal(moveTitle(intent), "Move Demo Osteopathic Office to Closing");
+  assert.equal(moveTitle(intent), "Move this deal to Closing?");
   assert.equal(moveIntent(deal, "due_diligence"), null, "the same column is not a move");
   assert.equal(moveIntent(deal, "not_a_phase"), null);
   assert.equal(moveIntent(null, "closing"), null);
   assert.equal(moveIntent({ ...deal, seen: 0 }, "closing").seen, 0);
 });
 
-test("the completion plan puts the phase patch first and carries only the follow-ups that were filled in", () => {
+test("a move plans one phase patch", () => {
   const intent = moveIntent({ id: "d01", name: "Demo Dental North", phase: "On Deck" }, "legal");
 
   const bare = completionPlan(intent, {});
   assert.deepEqual(bare.errors, []);
-  assert.equal(bare.steps.length, 1, "an empty dialog is still a move");
+  assert.equal(bare.steps.length, 1, "an empty question is still a move");
   assert.deepEqual(bare.steps[0], {
     verb: "patch-deal-field",
     args: { deal: "d01", field: "phase", value: "Legal" },
@@ -154,66 +154,26 @@ test("the completion plan puts the phase patch first and carries only the follow
   });
   // An untouched box sends nothing at all — not a key holding an empty string.
   assert.equal("change_reason" in bare.steps[0].args, false);
-  assert.equal("human_quote" in bare.steps[0].args, false);
 
-  const full = completionPlan(intent, {
-    evidence: "  Redline returned unchanged.  ",
-    nextStep: "Send the countersigned copy",
-    nextWhen: "2026-02-02",
-    effectiveDate: "2026-02-01",
-    recordCriticalDate: true,
-    dateSource: "Landlord email",
-  });
-  assert.deepEqual(full.errors, []);
-  assert.deepEqual(full.steps.map((step) => step.verb),
-    ["patch-deal-field", "add-deal-note", "record-deal-item", "add-critical-date"]);
-  assert.equal(full.steps[1].args.text, "Redline returned unchanged.");
-  assert.deepEqual(full.steps[2].args, { deal: "d01", title: "Send the countersigned copy", due_on: "2026-02-02", bullets: [{ date: null, kind: "promised", text: "Send the countersigned copy" }] });
-  assert.deepEqual(full.steps[3].args, { deal: "d01", kind: PHASE_DATE_KIND, due_on: "2026-02-01", source: "Landlord email" });
-
-  // Whitespace is not an answer, and an unticked box writes nothing at all.
-  const blank = completionPlan(intent, { evidence: "   ", effectiveDate: "2026-02-01", recordCriticalDate: false });
-  assert.deepEqual(blank.steps.map((step) => step.verb), ["patch-deal-field"]);
 });
 
-test("the phase patch carries the partner's reason and sentence when they were typed", () => {
+test("the phase patch carries the partner's reason when one was typed", () => {
   const intent = moveIntent({ id: "d01", name: "Demo Dental North", phase: "On Deck" }, "legal");
-  const plan = completionPlan(intent, {
-    changeReason: "  Countersigned  ",
-    humanQuote: "  They signed it this morning.  ",
-  });
+  const plan = completionPlan(intent, { changeReason: "  Countersigned  " });
   assert.deepEqual(plan.errors, []);
-  assert.equal(plan.steps.length, 1, "neither field spawns a second verb");
+  assert.equal(plan.steps.length, 1, "the reason spawns no second verb");
   assert.deepEqual(plan.steps[0].args, {
     deal: "d01",
     field: "phase",
     value: "Legal",
     change_reason: "Countersigned",
-    human_quote: "They signed it this morning.",
   });
 });
 
 test("whitespace is not a sentence", () => {
   const intent = moveIntent({ id: "d01", name: "Demo Dental North", phase: "On Deck" }, "legal");
-  const plan = completionPlan(intent, { changeReason: "   ", humanQuote: "   " });
+  const plan = completionPlan(intent, { changeReason: "   " });
   assert.equal("change_reason" in plan.steps[0].args, false);
-  assert.equal("human_quote" in plan.steps[0].args, false);
-});
-
-test("a critical date is refused without its source, and a date without a step is refused too", () => {
-  const intent = moveIntent({ id: "d01", name: "Demo Dental North", phase: "On Deck" }, "closing");
-
-  const noSource = completionPlan(intent, { effectiveDate: "2026-02-01", recordCriticalDate: true });
-  assert.equal(noSource.steps.length, 1, "nothing beyond the move is planned");
-  assert.ok(noSource.errors.some((line) => /date reference/.test(line)));
-
-  const noDate = completionPlan(intent, { recordCriticalDate: true, dateSource: "Landlord email" });
-  assert.ok(noDate.errors.some((line) => /Pick the effective date/.test(line)));
-
-  const whenOnly = completionPlan(intent, { nextWhen: "2026-02-02" });
-  assert.ok(whenOnly.errors.some((line) => /needs the step itself/.test(line)));
-  assert.deepEqual(whenOnly.steps.map((step) => step.verb), ["patch-deal-field"]);
-
   assert.deepEqual(completionPlan(null, {}).steps, []);
 });
 
@@ -221,7 +181,7 @@ test("no sentence the dialog prints claims a gate, and Closed says what it write
   assert.equal(closedColumnCaption(), "Records the outcome and the closing date on the deal.");
   const source = completionPlan(
     moveIntent({ id: "d01", name: "Demo", phase: "On Deck" }, "legal"),
-    { evidence: "x", nextStep: "y", effectiveDate: "2026-02-01", recordCriticalDate: true, dateSource: "z" },
+    { changeReason: "x" },
   );
   for (const step of source.steps) {
     assert.doesNotMatch(step.summary, /blocked|required|gate|approve|permission/i);
@@ -540,55 +500,6 @@ test("a lost response is reconciled by resending the SAME idempotency key, not b
   assert.equal(revertEvents.length, 1, "the reconciled retry replayed the stored answer instead of writing a second time");
 });
 
-test("the follow-ups run after the phase is accepted, each on its own key, and a failure does not un-move the card", async () => {
-  const client = await newClient();
-  const row = await boardRow(client, "d03");
-  const before = await client.getDeal("d03");
-  const intent = moveIntent(row, "legal");
-  const plan = completionPlan(intent, {
-    evidence: "Counterparty accepted the sample terms.",
-    nextStep: "Circulate the fictional draft",
-    nextWhen: "2026-02-10",
-    effectiveDate: "2026-02-05",
-    recordCriticalDate: true,
-    dateSource: "Demo counsel email",
-  });
-  assert.deepEqual(plan.errors, []);
-
-  const send = {
-    "patch-deal-field": (args) => client.patchDealField({ ...args, base_event_id: row.field_base?.phase?.id || null, idempotency_key: "k-phase" }),
-    "add-deal-note": (args) => client.addDealNote({ ...args, idempotency_key: "k-note" }),
-    "record-deal-item": (args) => client.recordDealItem({ ...args, idempotency_key: "k-step" }),
-
-    "add-critical-date": (args) => client.addCriticalDate({ ...args, idempotency_key: "k-date" }),
-  };
-  const [phaseStep, ...followUps] = plan.steps;
-  const phase = await send["patch-deal-field"](phaseStep.args);
-  assert.equal(phase.status, "ok");
-  for (const step of followUps) assert.equal((await send[step.verb](step.args)).status, "ok");
-
-  const detail = await client.getDeal("d03");
-  assert.equal(detail.deal.phase, "Legal");
-  assert.ok(detail.thread.some((entry) => entry.kind === "note" && entry.text === "Counterparty accepted the sample terms."));
-  assert.equal(detail.deal.next_step, before.deal.next_step);
-  assert.deepEqual(detail.deal.items.slice(0, -1), before.deal.items || []);
-  assert.equal(detail.deal.items.at(-1).title, "Circulate the fictional draft");
-  assert.equal(detail.deal.items.at(-1).due_on, "2026-02-10");
-  assert.equal(detail.deal.items.at(-1).status, "open");
-  const recorded = detail.critical_dates.find((entry) => entry.source === "Demo counsel email");
-  assert.ok(recorded, "the critical date is on the record");
-  assert.equal(recorded.due_on, "2026-02-05");
-  assert.equal(recorded.kind, PHASE_DATE_KIND);
-
-  // The record layer refuses a critical date with no source; the fixture must
-  // refuse it too, and the card stays exactly where the phase patch put it.
-  await assert.rejects(
-    client.addCriticalDate({ deal: "d03", kind: PHASE_DATE_KIND, due_on: "2026-02-06", source: "", idempotency_key: "k-bad" }),
-    /source required/,
-  );
-  assert.equal((await boardRow(client, "d03")).phase, "Legal");
-});
-
 /* ---------------------------- V5-UX-B04: the fixture round trip, three deals */
 
 test("a populated deal: the linked client's contact record and the attached parties both resolve", async () => {
@@ -788,14 +699,11 @@ test("the Closed dialog offers the three outcomes, a picker for the date, and bo
   assert.ok(contract.mcp_operations.includes("update-deal"), "the CARR contract exposes update-deal");
 });
 
-test("the fixture carries the reason and the sentence onto the phase event, word for word", async () => {
+test("the fixture carries the reason onto the phase event, word for word", async () => {
   const client = await newClient();
   const row = await boardRow(client, "d20");
   const intent = moveIntent(row, "closing");
-  const plan = completionPlan(intent, {
-    changeReason: "Countersigned",
-    humanQuote: "They signed it this morning.",
-  });
+  const plan = completionPlan(intent, { changeReason: "Countersigned" });
   const answer = await client.patchDealField({
     ...plan.steps[0].args,
     base_event_id: row.field_base?.phase?.id || null,
@@ -808,9 +716,8 @@ test("the fixture carries the reason and the sentence onto the phase event, word
   assert.ok(event, "the committed event is on the feed");
   assert.equal(event.field, "phase");
   assert.equal(event.change_reason, "Countersigned");
-  assert.equal(event.human_quote, "They signed it this morning.", "sent verbatim, never composed");
 
-  // A move with neither field is not refused; it simply records none.
+  // A move with no reason is not refused; it simply records none.
   const plain = await client.patchDealField({
     deal: "d01", field: "phase", value: "Research",
     base_event_id: (await boardRow(client, "d01")).field_base?.phase?.id || null,
@@ -819,7 +726,6 @@ test("the fixture carries the reason and the sentence onto the phase event, word
   assert.equal(plain.status, "ok");
   const plainEvent = (await client.getChanges(null)).events.find((entry) => entry.id === plain.event_id);
   assert.equal(plainEvent.change_reason, null);
-  assert.equal(plainEvent.human_quote, null);
 });
 
 // Run the page's status renderer against a DOM without booting its network or

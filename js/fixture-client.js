@@ -242,7 +242,6 @@ export async function createFixtureClient(opts = {}) {
       change_reason: partial.change_reason ?? null,
       automatic: partial.automatic ?? false,
       evidence_date: partial.evidence_date ?? null,
-      human_quote: partial.human_quote ?? null,
     };
     events.push(e);
     if (e.field) lastFieldEvent.set(`${e.subject_id}|${e.field}`, e.id);
@@ -305,7 +304,7 @@ export async function createFixtureClient(opts = {}) {
     return d;
   }
 
-  function applyFieldWrite({ deal, field, value, base_event_id, actor, verb, change_reason, human_quote }) {
+  function applyFieldWrite({ deal, field, value, base_event_id, actor, verb, change_reason }) {
     const d = getDealOrThrow(deal);
     const key = `${deal}|${field}`;
     const last = lastFieldEvent.get(key) || null;
@@ -353,7 +352,6 @@ export async function createFixtureClient(opts = {}) {
       old_value: old ?? null,
       new_value: value ?? null,
       change_reason: change_reason ?? null,
-      human_quote: human_quote ?? null,
     });
     pushHistory(deal, actor, `${field} ${old ?? '(empty)'} to ${value ?? '(empty)'}`, e.recorded_at, 'field_edit');
     return { status: 'ok', event: e, event_id: e.id, event_recorded_at: e.recorded_at };
@@ -1339,7 +1337,7 @@ export async function createFixtureClient(opts = {}) {
       };
     },
 
-    async patchDealField({ deal, field, value, base_event_id, idempotency_key, change_reason, human_quote }) {
+    async patchDealField({ deal, field, value, base_event_id, idempotency_key, change_reason }) {
       return withIdem(idempotency_key, () =>
         applyFieldWrite({
           deal,
@@ -1349,7 +1347,6 @@ export async function createFixtureClient(opts = {}) {
           actor: selfActor,
           verb: 'patch-deal-field',
           change_reason,
-          human_quote,
         }),
       );
     },
