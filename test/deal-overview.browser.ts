@@ -486,3 +486,45 @@ for (const [width, height] of laptops)
     await latest.getByRole("button", { name: "All activity" }).click();
     assert.equal(await activity.isVisible(), true, "All activity opens Activity");
   });
+
+for (const [width, height] of [
+  [1280, 640],
+  [1440, 900],
+] as const)
+  test(`Overview is one screen at ${width}x${height}; long columns scroll inside themselves`, async (t) => {
+    const thread = Array.from({ length: 10 }, (_, n) => noteAt(n));
+    const { page } = await openDeal(t, width, height, [], fourDates(), { ...sideFacts, thread });
+    await page.screenshot({ path: `${shots}/overview-fit-${width}x${height}.png` });
+    const scroller = page.locator("#appMainSlot");
+    assert.ok(
+      await scroller.evaluate((node) => node.scrollHeight <= node.clientHeight),
+      "the page itself does not scroll",
+    );
+    const columns = page.locator(".deal-overview-grid > *");
+    for (const bottom of await columns.evaluateAll((all) => all.map((node) => node.getBoundingClientRect().bottom)))
+      assert.ok(bottom <= height, `a column ends on screen, not at ${bottom}`);
+    const steps = columns.first();
+    assert.ok(await steps.evaluate((node) => node.scrollHeight > node.clientHeight), "the long Next steps scroll");
+    assert.equal(await steps.evaluate((node) => getComputedStyle(node).scrollbarWidth), "none", "no bar at rest");
+  });
+
+test("on a phone Overview is one column in the design's order with 16px text", async (t) => {
+  const { page } = await openDeal(t, 390, 844, [], fourDates(), sideFacts);
+  const order = await page
+    .locator(
+      ".deal-overview-grid :is(#deal-next-steps-heading, #deal-latest-heading, #deal-invoice-heading, #deal-people-heading)",
+    )
+    .evaluateAll((all) => all.map((node) => [node.textContent, Math.round(node.getBoundingClientRect().left)]));
+  assert.deepEqual(
+    order.map(([name]) => name),
+    ["Next steps", "Latest activity", "Invoice", "People"],
+  );
+  assert.equal(new Set(order.map(([, left]) => left)).size <= 2, true, "one column");
+  assert.equal(
+    await page
+      .locator(".deal-latest .activity-title")
+      .first()
+      .evaluate((n) => getComputedStyle(n).fontSize),
+    "16px",
+  );
+});
