@@ -1,5 +1,5 @@
-import { type ReactNode, useRef, useState, useSyncExternalStore } from "react";
-import { flushSync } from "react-dom";
+import { type ReactNode, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { createPortal, flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { savePlanChange, TypicalLengths } from "./deal-plan-lengths.tsx";
 import {
@@ -48,6 +48,7 @@ type Inputs = { today: string; viewer: string; request: typeof fetch; reload: ()
       steps: SourceStep[];
       canSave: boolean;
       kind: string | null;
+      statusHost: HTMLElement;
     }
   | { mode: "board"; deals: DealTimeline[]; canSave: boolean; toolsHost: HTMLElement }
 );
@@ -64,7 +65,7 @@ export function signingCaption(plan: Plan | null | undefined, today: string) {
 const signingName = (recorded: boolean) => (recorded ? "Lease signed" : "Lease signing");
 const stepMap = (steps: SourceStep[]) => new Map(steps.map((step) => [`step:${step.id}`, step]));
 
-const phonePlan = () => matchMedia("(width < 600px)");
+const phonePlan = () => matchMedia("(width < 760px)");
 function subscribePhonePlan(change: () => void) {
   const media = phonePlan();
   media.addEventListener("change", change);
@@ -326,6 +327,53 @@ function PlanScreen(props: Inputs) {
     }
   }
 
+  const savedViews = (
+    <>
+      {(
+        [
+          ["mine", board ? "My deals" : "My steps", myCount],
+          ["risk", "At risk", riskCount],
+          ["soon", "Next two weeks", soonCount],
+        ] satisfies [View, string, number][]
+      ).map(([key, label, total]) => (
+        <button
+          type="button"
+          key={key}
+          aria-pressed={view === key}
+          onClick={() => {
+            setView(view === key ? null : key);
+            setReveal(undefined);
+          }}
+        >
+          {label}
+          <small>{total}</small>
+        </button>
+      ))}
+      <button
+        type="button"
+        aria-pressed={recorded}
+        onClick={() => {
+          setRecorded(!recorded);
+          setReveal(undefined);
+        }}
+      >
+        Recorded only
+      </button>
+    </>
+  );
+  const typical = (
+    <button
+      className="deal-plan-typical"
+      type="button"
+      onClick={() => {
+        setLengths(true);
+        setOpened(undefined);
+        setReset(false);
+      }}
+    >
+      Typical lengths
+    </button>
+  );
   const controls = (
     <div className="timeline-filters">
       {board ? (
@@ -349,6 +397,10 @@ function PlanScreen(props: Inputs) {
                 {partner(slug) ?? "Both"}
               </button>
             ))}
+          </fieldset>
+          <fieldset className="chip-bar" aria-label="Saved views">
+            {savedViews}
+            {typical}
           </fieldset>
         </>
       )}
@@ -511,18 +563,20 @@ function PlanScreen(props: Inputs) {
     setReset(false);
   }
   const canReset = planPath && props.canSave && version != null && Object.keys(own).length > 0;
-  const footer = (!phone || status || undo || canReset) && (
-    <footer className="deal-plan-footer">
-      {status ? (
-        <small role="status">{status}</small>
-      ) : (
-        !phone && (
-          <>
-            <span>Recorded</span>
-            <span>Expected</span>
-          </>
-        )
-      )}
+  const statusHost = props.mode === "plan" ? props.statusHost : null;
+  const confirming = reset || edit === "done" || edit === "drop";
+  useLayoutEffect(() => {
+    if (!statusHost?.checkVisibility() || (!status && !confirming)) return;
+    const bounds = statusHost.getBoundingClientRect();
+    const top = document.getElementById("appTopbar")?.getBoundingClientRect().bottom ?? 0;
+    if (bounds.top < top || bounds.bottom > innerHeight)
+      statusHost.scrollIntoView({ block: "start", inline: "nearest" });
+    if (confirming) statusHost.querySelector<HTMLElement>("[data-plan-confirm]")?.focus({ preventScroll: true });
+  }, [statusHost, status, confirming]);
+
+  const feedback = (
+    <>
+      {status && <small role="status">{status}</small>}
       {undo && (
         <button
           type="button"
@@ -533,20 +587,66 @@ function PlanScreen(props: Inputs) {
           Undo
         </button>
       )}
-      {canReset && (
-        <button
-          type="button"
-          className="btn btn-quiet"
-          onClick={() => {
-            setOpened(undefined);
-            setReset(true);
-          }}
-        >
-          Reset to typical
-        </button>
-      )}
-    </footer>
+    </>
   );
+  const planStatus =
+    statusHost &&
+    createPortal(
+      <>
+        {feedback}
+        {canReset && !confirming && (
+          <button type="button" className="btn btn-quiet" onClick={() => setReset(true)}>
+            Reset to typical
+          </button>
+        )}
+        {reset && planPath && (
+          <section className="plan-confirmation" aria-label="Reset to typical">
+            <span>Clear all dates you set for this deal?</span>
+            <button className="btn" type="button" onClick={() => setReset(false)}>
+              Cancel
+            </button>
+            <button
+              className="btn"
+              type="button"
+              data-plan-confirm
+              onClick={() => {
+                setReset(false);
+                void update(planPath, { base_version: version }, "Typical lengths restored.");
+              }}
+            >
+              Reset to typical
+            </button>
+          </section>
+        )}
+        {(edit === "drop" || edit === "done") && selectedFacts?.kind === "critical_date" && (
+          <form
+            className="plan-confirmation"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const reason = String(new FormData(event.currentTarget).get("reason")).trim();
+              if (reason)
+                void update(
+                  `critical-dates/${selectedFacts.id.slice(14)}/resolve`,
+                  { resolution: edit === "drop" ? "dropped" : "done", reason },
+                  edit === "drop" ? "Critical date dropped." : "Critical date marked done.",
+                );
+            }}
+          >
+            <label>
+              Reason
+              <input data-plan-confirm name="reason" required maxLength={500} />
+            </label>
+            <button className="btn" type="button" onClick={() => setEdit(undefined)}>
+              Cancel
+            </button>
+            <button className="btn" type="submit" disabled={busy}>
+              {edit === "drop" ? "Drop date" : "Mark date done"}
+            </button>
+          </form>
+        )}
+      </>,
+      statusHost,
+    );
   const detail = selected && (
     <section className="deal-plan-details" aria-label={selected.name}>
       <button type="button" className="btn btn-quiet" aria-label="Close item" onClick={() => setOpened(undefined)}>
@@ -632,51 +732,10 @@ function PlanScreen(props: Inputs) {
           </button>
         </form>
       )}
-      {(edit === "drop" || edit === "done") && selectedFacts?.kind === "critical_date" && (
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            const reason = String(new FormData(event.currentTarget).get("reason")).trim();
-            if (reason)
-              void update(
-                `critical-dates/${selectedFacts.id.slice(14)}/resolve`,
-                { resolution: edit === "drop" ? "dropped" : "done", reason },
-                edit === "drop" ? "Critical date dropped." : "Critical date marked done.",
-              );
-          }}
-        >
-          <label>
-            Reason
-            <input name="reason" required maxLength={500} />
-          </label>
-          <button className="btn" type="submit" disabled={busy}>
-            {edit === "drop" ? "Drop date" : "Mark date done"}
-          </button>
-        </form>
-      )}
-      {phone && footer}
     </section>
   );
   const auxiliary = (
     <>
-      {reset && planPath && (
-        <section className="deal-plan-details" aria-label="Reset to typical">
-          <p>Clear all dates you set for this deal?</p>
-          <button className="btn" type="button" onClick={() => setReset(false)}>
-            Cancel
-          </button>
-          <button
-            className="btn"
-            type="button"
-            onClick={() => {
-              setReset(false);
-              void update(planPath, { base_version: version }, "Typical lengths restored.");
-            }}
-          >
-            Reset to typical
-          </button>
-        </section>
-      )}
       {lengths && props.mode === "plan" && (
         <TypicalLengths
           kind={props.kind ?? "lease"}
@@ -688,33 +747,18 @@ function PlanScreen(props: Inputs) {
       )}
     </>
   );
-  const typical = (
-    <button
-      className="deal-plan-typical"
-      type="button"
-      onClick={() => {
-        setLengths(true);
-        setOpened(undefined);
-        setReset(false);
-      }}
-    >
-      Typical lengths
-    </button>
-  );
   if (phone)
     return (
       <div className="deal-plan-mobile">
-        <div className="chip-bar">
-          {controls}
-          {typical}
-        </div>
-        {!selected && footer}
+        {planStatus}
+        {controls}
         {auxiliary}
         <PlanDateList groups={groups} today={today} opened={opened} open={openItem} detail={detail} />
       </div>
     );
   return (
     <div className="deal-plan" data-board={board || undefined}>
+      {planStatus}
       <aside className="deal-plan-list">
         <h3>Milestones</h3>
         <ul>
@@ -738,38 +782,8 @@ function PlanScreen(props: Inputs) {
             ))}
         </ul>
         {!milestones.length && <p>No upcoming milestones</p>}
-        <h3>Saved views</h3>
-        {(
-          [
-            ["mine", board ? "My deals" : "My steps", myCount],
-            ["risk", "At risk", riskCount],
-            ["soon", "Next two weeks", soonCount],
-          ] satisfies [View, string, number][]
-        ).map(([key, label, total]) => (
-          <button
-            type="button"
-            key={key}
-            aria-pressed={view === key}
-            onClick={() => {
-              setView(view === key ? null : key);
-              setReveal(undefined);
-            }}
-          >
-            {label}
-            <small>{total}</small>
-          </button>
-        ))}
-        {!board && typical}
-        <button
-          type="button"
-          aria-pressed={recorded}
-          onClick={() => {
-            setRecorded(!recorded);
-            setReveal(undefined);
-          }}
-        >
-          Recorded only
-        </button>
+        {board && <h3>Saved views</h3>}
+        {board && savedViews}
       </aside>
       <div className="deal-plan-chart">
         <Timeline
@@ -811,7 +825,16 @@ function PlanScreen(props: Inputs) {
               : undefined
           }
         />
-        {footer}
+        <footer className="deal-plan-footer">
+          {board && status ? (
+            feedback
+          ) : (
+            <>
+              <span>Recorded</span>
+              <span>Expected</span>
+            </>
+          )}
+        </footer>
       </div>
       {detail}
       {auxiliary}

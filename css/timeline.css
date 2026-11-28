@@ -15,7 +15,7 @@
 
 .timeline-tools { height: 44px; flex: none; display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); padding: 0 var(--space-2); }
 .timeline-zoom { display: flex; gap: 2px; margin: 0; padding: 0; border: 0; min-width: 0; }
-.timeline-tools button { height: var(--touch); padding: 0 10px; border-radius: var(--radius-2); display: flex; align-items: center; gap: 6px; color: var(--fg-quiet); font-size: var(--font-size-1); white-space: nowrap; transition: background var(--duration-hover), color var(--duration-hover); }
+:is(.timeline-tools, .deal-plan-mobile .timeline-filters) button { height: var(--touch); padding: 0 10px; border-radius: var(--radius-2); display: flex; align-items: center; gap: 6px; color: var(--fg-quiet); font-size: var(--font-size-1); white-space: nowrap; transition: background var(--duration-hover), color var(--duration-hover); }
 .timeline-tools button:hover, .timeline-zoom [aria-pressed="true"] { background: var(--surface-3); color: var(--fg); }
 .timeline button:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: -2px; }
 
@@ -138,7 +138,10 @@
 @media (prefers-reduced-motion: reduce) { .timeline * { transition: none; } }
 
 #boardTimeline:not([hidden]) { height: max(380px, calc(100dvh - 112px)); min-width: 0; }
-@media (width >= 600px) {
+@media (width < 760px) {
+  #recordPanel:has(#workspace-plan:not([hidden])) > .workspace-header { position: static; }
+}
+@media (width >= 760px) {
   .app-layout-main:has(#workspace-plan:not([hidden])) { overflow: hidden; }
   #recordPanel:has(#workspace-plan:not([hidden])) { display: flex; flex-direction: column; height: 100%; }
   #recordPanel:has(#workspace-plan:not([hidden])) > #panelBody { display: flex; flex-direction: column; flex: 1; min-height: 0; padding-block: 8px 0; }
@@ -153,7 +156,9 @@
 .timeline-filters input, .timeline-filters select { background: var(--surface-2); color: var(--fg); border: 0; border-radius: var(--radius-2); min-width: 0; min-height: var(--touch); padding: 0 8px; font: inherit; font-size: var(--font-size-1); }
 .timeline-search { width: 182px; }
 #workspace-plan .timeline-tools { height: auto; min-height: 44px; flex-wrap: wrap; }
-#workspace-plan :is(.timeline-filters, .timeline-zoom) { flex: none; }
+#workspace-plan .timeline-filters { flex-wrap: wrap; min-width: 0; max-width: 100%; }
+#workspace-plan .timeline-filters .chip-bar button, .deal-plan-mobile .timeline-filters button { padding-inline: var(--space-2); }
+#workspace-plan .timeline-zoom { flex: none; }
 .timeline-filters [aria-pressed="true"], .deal-plan-list [aria-pressed="true"] { background: var(--surface-3); color: var(--fg); }
 .deal-plan-list { min-width: 0; display: flex; flex-direction: column; align-items: stretch; overflow: auto; }
 .deal-plan-list h3 { margin: 8px 0; color: var(--fg-quiet); font-size: var(--font-size-1); }
@@ -189,9 +194,9 @@
 .deal-plan[data-board] .timeline-group .timeline-phase-bar { height: 8px; top: calc(var(--row) / 2 - 4px); border-radius: 0; }
 .deal-plan[data-board] .timeline-phase-spent { border-radius: 0; }
 @media (max-width: 760px) {
-  .deal-plan { grid-template-columns: minmax(0, 1fr); }
-  .deal-plan-list, .timeline-search { display: none; }
-  .deal-plan-chart .timeline { --list: 164px; }
+  .deal-plan[data-board] { grid-template-columns: minmax(0, 1fr); }
+  .deal-plan[data-board] .deal-plan-list { display: none; }
+  .deal-plan[data-board] .deal-plan-chart .timeline { --list: 164px; }
   .timeline-filters button, .timeline-tools button { padding-inline: 7px; }
 }
 .timeline-grip { position: absolute; z-index: 4; top: 5px; width: 20px; height: 24px; border-radius: var(--radius-2); cursor: ew-resize; touch-action: none; opacity: 0; }
@@ -201,7 +206,9 @@
 .timeline-drag-label { position: absolute; z-index: 4; pointer-events: none; padding: 2px 6px; background: var(--accent); color: var(--on-accent); border-radius: var(--radius-2); font-size: var(--font-size-1); white-space: nowrap; }
 @media (max-width: 760px), (pointer: coarse) { .timeline-grip { display: none; } }
 .timeline-drag-original { position: absolute; z-index: 3; pointer-events: none; height: 22px; border: 1px dashed var(--fg-muted); border-radius: var(--radius-2); }
-.deal-plan-typical { order: 1; margin-top: auto; }
+.plan-confirmation { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
+.plan-confirmation label { display: flex; align-items: center; gap: var(--space-1); min-width: 0; }
+.plan-confirmation input { min-width: 0; }
 .deal-plan-mobile .deal-plan-details > :is(h3, p) { margin-block: var(--space-1); }
 .deal-plan-details form { display: flex; flex-wrap: wrap; gap: 8px; margin-block: 8px; }
 .deal-plan-details label { display: flex; gap: 6px; align-items: center; justify-content: space-between; flex: 1 1 auto; }
@@ -224,7 +231,7 @@
 @media (max-width: 760px) {
   #boardTimeline:not([hidden]) { height: max(380px, calc(100dvh - 214px)); }
 }
-@media (600px <= width <= 760px), (hover: none) and (pointer: coarse) and (600px <= width <= 1023px) {
+@media (width = 760px), (hover: none) and (pointer: coarse) and (760px <= width <= 1023px) {
   .app-layout-center:has(#workspace-plan:not([hidden])) { display: flex; flex-direction: column; height: calc(100dvh - var(--layout-bottom)); }
   .app-layout-main:has(#workspace-plan:not([hidden])) { flex: 1; min-height: 0; padding-block-end: var(--space-3); }
   #recordPanel:has(#workspace-plan:not([hidden])) > .workspace-header { position: static; }

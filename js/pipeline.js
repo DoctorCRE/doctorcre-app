@@ -459,7 +459,7 @@ function renderPlan(detail) {
     mode: 'plan', today: businessDay(), viewer: state.selfActor, request: sessionFetch,
     reload: () => refreshPanel({ changed: true }), plan: detail.plan, deal: detail.deal.id,
     phase: columnByValue(detail.deal.phase)?.slug, steps: detail.next_actions || [],
-    kind: detail.deal.kind, canSave: state.nextDealSaves,
+    kind: detail.deal.kind, canSave: state.nextDealSaves, statusHost: $('workspacePlanStatus'),
   });
 }
 

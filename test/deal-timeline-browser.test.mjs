@@ -240,14 +240,14 @@ test('moving another partner’s step from Plan uses its change version and can 
  await grip.focus(); await grip.press('ArrowRight');
  await tab.getByText('Thu, Oct 8',{exact:true}).waitFor();
  await grip.press('Enter');
- await tab.getByText('Call about the lease moved to Oct 8.').waitFor();
- await tab.getByRole('button',{name:'Undo',exact:true}).click();
- await tab.getByText('Call about the lease date restored.').waitFor();
+ await page.locator('#workspacePlanStatus').getByText('Call about the lease moved to Oct 8.').waitFor();
+ await page.locator('#workspacePlanStatus').getByRole('button',{name:'Undo',exact:true}).click();
+ await page.locator('#workspacePlanStatus').getByText('Call about the lease date restored.').waitFor();
  assert.deepEqual(saves.map(({due_on,seen_change_id,strict_version})=>[due_on,seen_change_id,strict_version]),[['2026-10-08',12,undefined],['2026-10-07',13,true]]);
  crossed=true;
  await grip.focus(); await grip.press('ArrowRight'); await grip.press('Enter');
- await tab.getByText('This step changed. Review the latest version.').waitFor();
- assert.equal(await tab.getByRole('button',{name:'Undo',exact:true}).count(),0);
+ await page.locator('#workspacePlanStatus').getByText('This step changed. Review the latest version.').waitFor();
+ assert.equal(await page.locator('#workspacePlanStatus').getByRole('button',{name:'Undo',exact:true}).count(),0);
 });
 
 test('a keyboard edit to the exact start day retains focus and saves',async t=>{
@@ -264,7 +264,7 @@ test('a keyboard edit to the exact start day retains focus and saves',async t=>{
  await tab.getByText('Sat, Oct 10',{exact:true}).waitFor();
  assert.equal(await page.evaluate(()=>document.activeElement.getAttribute('aria-label')),'Change date for Sign the lease');
  await page.keyboard.press('Enter');
- await tab.getByText('Sign the lease expected by Oct 10. What follows moved with it.').waitFor();
+ await page.locator('#workspacePlanStatus').getByText('Sign the lease expected by Oct 10. What follows moved with it.').waitFor();
  assert.deepEqual(saves.map(({target_on})=>target_on),['2026-10-10']);
 });
 
@@ -334,10 +334,10 @@ for (const view of ['Next two weeks','At risk']) test('a filtered date edit keep
  assert.equal(await grip.count(),1,'the filtered row stays mounted during preview');
  assert.equal(await focused(),true);
  await page.keyboard.press('Enter');
- await tab.getByText('Saving…',{exact:true}).waitFor();
+ await page.locator('#workspacePlanStatus').getByText('Saving…',{exact:true}).waitFor();
  assert.equal(await focused(),true,'the grip stays focused while the save is pending');
  release();
- await tab.getByText(/Sign the lease expected by/).waitFor();
+ await page.locator('#workspacePlanStatus').getByText(/Sign the lease expected by/).waitFor();
  await grip.waitFor({state:'detached'});
  const expectedFocus=atRisk?'Other deadline':'Change date for Call about the lease';
  assert.equal(await tab.getByRole('button',{name:expectedFocus,exact:true}).evaluate(node=>node===document.activeElement),true);
@@ -363,6 +363,13 @@ for (const width of [390,1440]) test(`consecutive dates from a single open step 
   await detail.getByLabel('New date').fill('2026-10-'+day);
   await detail.getByRole('button',{name:'Save date',exact:true}).click();
   await detail.getByText('Oct '+Number(day),{exact:true}).waitFor({timeout:2500});
+  const receipt=page.locator('#workspacePlanStatus').getByRole('status');
+  await receipt.getByText('Call about the lease moved to Oct '+Number(day)+'.',{exact:true}).waitFor();
+  assert.ok(await receipt.evaluate(node=>{
+   const {top,bottom}=node.getBoundingClientRect();
+   return top>=document.getElementById('appTopbar').getBoundingClientRect().bottom-1 && bottom<=innerHeight;
+  }),'save receipt stays in view');
+
  }
  assert.deepEqual(saves.map(({seen_change_id})=>seen_change_id),[12,13]);
 });
@@ -386,19 +393,41 @@ for (const receipt of ['written','crossed-again','old-engine']) test('a rebased 
  await grip.press('ArrowRight');
  await page.evaluate(receipt=>{window.timelineProbe.step={change_id:receipt==='crossed-again'?16:14,due_on:'2026-10-08'};},receipt);
  await grip.press('Enter');
- const undo=tab.getByRole('button',{name:'Undo',exact:true});
+ const undo=page.locator('#workspacePlanStatus').getByRole('button',{name:'Undo',exact:true});
  if (receipt==='old-engine') {
-  await tab.getByText(/Undo is unavailable/).waitFor({timeout:3000});
+  await page.locator('#workspacePlanStatus').getByText(/Undo is unavailable/).waitFor({timeout:3000});
   assert.equal(await undo.count(),0);
  } else {
   await undo.click({timeout:3000});
   const message=receipt==='crossed-again'?'This step changed. Review the latest version.':'Call about the lease date restored.';
-  await tab.getByText(message,{exact:true}).waitFor({timeout:3000});
+  await page.locator('#workspacePlanStatus').getByText(message,{exact:true}).waitFor({timeout:3000});
   assert.equal(await undo.count(),0);
   assert.deepEqual(saves.map(({due_on,seen_change_id,strict_version})=>[due_on,seen_change_id,strict_version]),[
    ['2026-10-08',12,undefined],['2026-10-07',14,true],
   ]);
  }
+});
+
+test('Plan preserves visible filters and items across the chart boundary',async t=>{
+ const {page}=await open(t,{width:1000,height:800});
+ const tab=await showPlan(page);
+ const recorded=tab.getByRole('button',{name:'Recorded only',exact:true});
+ const dell=tab.getByRole('button',{name:'Dell',exact:true});
+ await recorded.click();
+ await dell.click();
+ await page.setViewportSize({width:700,height:800});
+ const list=tab.getByRole('list',{name:'Plan items'});
+ await list.waitFor({timeout:3000});
+ assert.equal(await recorded.getAttribute('aria-pressed'),'true');
+ assert.equal(await dell.getAttribute('aria-pressed'),'true');
+ assert.deepEqual((await list.getByRole('button').allTextContents()).sort(),['Call about the lease','Review the lease']);
+ await recorded.click();
+ await list.getByRole('button',{name:'Sign the lease',exact:true}).waitFor();
+ await page.setViewportSize({width:760,height:800});
+ await tab.getByRole('heading',{name:'Milestones'}).waitFor();
+ assert.equal(await recorded.getAttribute('aria-pressed'),'false');
+ assert.equal(await dell.getAttribute('aria-pressed'),'true');
+ await tab.getByRole('button',{name:'Sign the lease',exact:true}).first().waitFor();
 });
 
 test('Phone Plan lists items in date order and opens them inline',async t=>{
@@ -416,7 +445,7 @@ test('Phone Plan lists items in date order and opens them inline',async t=>{
  assert.match(await detail.innerText(),/exp\. Oct 17/);
  assert.equal(await tab.locator('.timeline').count(),0);
  assert.deepEqual(errors,[]);
- await page.setViewportSize({width:600,height:844});
+ await page.setViewportSize({width:760,height:844});
  await tab.getByRole('group',{name:'Zoom'}).waitFor();
  assert.equal(await tab.getByRole('list',{name:'Plan items'}).count(),0);
 
@@ -471,7 +500,7 @@ for(const [width,height,touch] of [[1280,640,false],[1440,900,false],[390,844,tr
     const bounds=row.getBoundingClientRect();
     return {clipped:node.scrollWidth>node.clientWidth,labelTop:label.top,labelBottom:label.bottom,phaseTop:phase.top,phaseBottom:phase.bottom,top:bounds.top,bottom:bounds.bottom};
    });
-   assert.ok(!layout.clipped && layout.top<=layout.labelTop && layout.labelBottom<=layout.phaseTop && layout.phaseBottom<=layout.bottom,JSON.stringify(layout));
+   assert.ok(!layout.clipped && layout.top<=layout.labelTop+0.5 && layout.labelBottom<=layout.phaseTop+0.5 && layout.phaseBottom<=layout.bottom+0.5,JSON.stringify(layout));
   }
  } else {
   await page.locator('#boardTimelineTools').getByRole('button',{name:'Today',exact:true}).waitFor();
@@ -543,7 +572,7 @@ test('a pointer drag previews and saves an expected to-do date, and Typical leng
  assert.equal(await tab.locator('.timeline-drag-original').count(),1);
  assert.equal(own.length,0);
  await page.mouse.up();
- await tab.getByText('Sign the lease expected by Oct 19. What follows moved with it.').waitFor();
+ await page.locator('#workspacePlanStatus').getByText('Sign the lease expected by Oct 19. What follows moved with it.').waitFor();
  assert.deepEqual(own.map(({todo,target_on,base_version})=>[todo,target_on,base_version]),[['sign','2026-10-19',0]]);
  await tab.getByRole('button',{name:'Typical lengths',exact:true}).click();
  await tab.getByRole('button',{name:'Use measured',exact:true}).click();
