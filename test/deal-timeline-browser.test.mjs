@@ -191,7 +191,9 @@ async function providePlan(page, plan, {canSave=false}={}) {
    const step=window.timelineProbe.step;
    const todoEnd=window.timelineProbe.todoEnd;
    const rows=plan.rows.map(row=>row.id==='step:sample' && step?{...row,to_on:step.due_on,change_id:step.change_id}:row.id==='sign' && todoEnd?{...row,expected_to_on:todoEnd}:row);
-   return {...await get(...args),plan:{...plan,rows},next_actions:[{id:'sample',description:'Call about the lease',change_id:step?.change_id??12}]};
+   const arrows=plan.arrows.map(arrow=>arrow.to==='deadline' && todoEnd?{...arrow,at_risk:false}:arrow);
+   const updated=todoEnd?rows.map(row=>row.id==='deadline'?{...row,at_risk:false}:row):rows;
+   return {...await get(...args),plan:{...plan,rows:updated,arrows},next_actions:[{id:'sample',description:'Call about the lease',change_id:step?.change_id??12}]};
   };
  },{plan,canSave});
  await page.getByRole('button',{name:'Back to deals',exact:true}).click();
@@ -312,35 +314,65 @@ test('live reflow includes filtered-out successors and moves the signing date an
  );
 });
 
-test('a keyboard date edit keeps its grip until saving outside Next two weeks',async t=>{
+for (const view of ['Next two weeks','At risk']) test('a filtered date edit keeps its grip and then focuses the next row: '+view,async t=>{
  const {page}=await open(t,{width:1440,height:900});
+ const atRisk=view==='At risk';
+ const deadlines=atRisk?[
+  {id:'deadline',kind:'critical_date',phase:'legal',label:'Letter expires',at_risk:true,on:'2026-10-16',status:'open'},
+  {id:'other-deadline',kind:'critical_date',phase:'legal',label:'Other deadline',at_risk:true,on:'2026-10-14',status:'open'},
+ ]:[];
  const saves=[];
  let release;
  const gate=new Promise(resolve=>{release=resolve;});
+ const day=atRisk?'2026-10-16':'2026-10-24';
  await page.route('**/api/engine/deals/d14/plan-dates',async route=>{
   saves.push(route.request().postDataJSON());
   await gate;
-  await page.evaluate(()=>{window.timelineProbe.todoEnd='2026-10-24';});
+  await page.evaluate(day=>{window.timelineProbe.todoEnd=day;},day);
   await route.fulfill({json:{base_version:1,previous_on:null}});
  });
- const tab=await showPlan(page,{canSave:true});
- const filter=tab.getByRole('button',{name:/Next two weeks/});
+ await providePlan(page,{...plan,rows:[...planRows,...deadlines],arrows:atRisk?[...plan.arrows,{from:'sign',to:'deadline',at_risk:true}]:plan.arrows},{canSave:true});
+ await page.getByRole('tab',{name:'Plan',exact:true}).click();
+ const tab=page.getByRole('tabpanel',{name:'Plan'});
+ const filter=tab.getByRole('button',{name:new RegExp(view)});
  await filter.click();
  const grip=tab.getByRole('button',{name:'Change date for Sign the lease'});
  const focused=()=>grip.evaluate(node=>node===document.activeElement);
  await grip.focus();
- await grip.press('Shift+ArrowRight');
+ await grip.press(atRisk?'ArrowLeft':'Shift+ArrowRight');
  assert.equal(await grip.count(),1,'the filtered row stays mounted during preview');
  assert.equal(await focused(),true);
  await page.keyboard.press('Enter');
  await tab.getByText('Saving…',{exact:true}).waitFor();
  assert.equal(await focused(),true,'the grip stays focused while the save is pending');
  release();
- await tab.getByText('Sign the lease expected by Oct 24. What follows moved with it.').waitFor();
- await page.waitForFunction(()=>document.querySelector('[data-row="sign"] .timeline-when')?.textContent==='exp. Oct 24');
- assert.equal(await focused(),true);
- assert.equal(await filter.getAttribute('aria-pressed'),'false','the row is shown at its new date');
- assert.deepEqual(saves.map(({target_on})=>target_on),['2026-10-24']);
+ await tab.getByText(/Sign the lease expected by/).waitFor();
+ await grip.waitFor({state:'detached'});
+ const expectedFocus=atRisk?'Other deadline':'Change date for Call about the lease';
+ assert.equal(await tab.getByRole('button',{name:expectedFocus,exact:true}).evaluate(node=>node===document.activeElement),true);
+ assert.equal(await filter.getAttribute('aria-pressed'),'true','the selected filter stays on');
+ assert.deepEqual(saves.map(({target_on})=>target_on),[day]);
+});
+
+test('consecutive dates from a single open step panel use the last saved version',async t=>{
+ const {page}=await open(t,{width:1440,height:900});
+ const saves=[];
+ await page.route('**/api/engine/next-steps/sample/changes',async route=>{
+  const body=route.request().postDataJSON();
+  saves.push(body);
+  if(body.seen_change_id!==11+saves.length) return route.fulfill({status:409,json:{error:'version_conflict'}});
+  await route.fulfill({json:{change_id:12+saves.length}});
+ });
+ const tab=await showPlan(page,{canSave:true});
+ await tab.locator('[data-row="step:sample"] .timeline-label').getByRole('button',{name:'Call about the lease'}).click();
+ const detail=tab.getByRole('region',{name:'Call about the lease'});
+ for (const day of ['08','09']) {
+  await detail.getByRole('button',{name:'Change date',exact:true}).click();
+  await detail.getByLabel('New date').fill('2026-10-'+day);
+  await detail.getByRole('button',{name:'Save date',exact:true}).click();
+  await detail.getByText('Oct '+Number(day),{exact:true}).waitFor({timeout:2500});
+ }
+ assert.deepEqual(saves.map(({seen_change_id})=>seen_change_id),[12,13]);
 });
 
 for (const receipt of ['written','crossed-again','old-engine']) test('a rebased step save guards Undo with the saved write version: '+receipt,async t=>{

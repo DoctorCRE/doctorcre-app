@@ -129,7 +129,9 @@ type TimelineViewProps = TimelineProps & {
   controls?: ReactNode;
   toolsHost?: HTMLElement | undefined;
   board?: boolean;
-  reveal?: { group: string; row?: string | undefined; day: string; focus?: boolean } | undefined;
+  reveal?:
+    | { group: string; row?: string | undefined; day: string; focus?: boolean; fallbackIndex?: number }
+    | undefined;
   onOpen?: (id: string) => void;
   changeDate?:
     | {
@@ -985,19 +987,36 @@ export function Timeline({
 
   useLayoutEffect(() => {
     if (!reveal || reveal === focusedReveal.current || !scroller.current) return;
-    const parent = groups.find((group) => group.id === reveal.group);
+    const scroll = scroller.current;
+    let parent = groups.find((group) =>
+      reveal.row ? group.rows.some((item) => item.id === reveal.row) : group.id === reveal.group,
+    );
+    let itemId = reveal.row;
+    let day = reveal.day;
+    if (!parent && reveal.focus) {
+      const visible = groups.flatMap((group) => group.rows.map((row) => ({ group, row })));
+      const next = visible[Math.min(reveal.fallbackIndex ?? 0, visible.length - 1)];
+      if (!next) {
+        focusedReveal.current = reveal;
+        scroll.focus({ preventScroll: true });
+        return;
+      }
+      parent = next.group;
+      itemId = next.row.id;
+      const row = next.row;
+      day = (row.kind === "date" ? row.day : "end" in row ? row.end : "due" in row ? row.due : null) ?? day;
+    }
     if (!parent) return;
-    if (reveal.row && (folds[parent.id] ?? parent.startsFolded)) {
+    if (itemId && (folds[parent.id] ?? parent.startsFolded)) {
       setFolds({ ...folds, [parent.id]: false });
       return;
     }
-    const row = [...scroller.current.querySelectorAll<HTMLElement>("[data-row], [data-group]")].find((item) =>
-      reveal.row ? item.dataset.row === reveal.row : item.dataset.group === reveal.group,
+    const row = [...scroll.querySelectorAll<HTMLElement>("[data-row], [data-group]")].find((item) =>
+      itemId ? item.dataset.row === itemId : item.dataset.group === parent.id,
     );
     if (!row) return;
-    const scroll = scroller.current;
     scroll.scrollTo({
-      left: (dayOf(reveal.day) - start + 0.5) * px - visibleTrack(scroll, corner.current) / 2,
+      left: (dayOf(day) - start + 0.5) * px - visibleTrack(scroll, corner.current) / 2,
       top:
         scroll.scrollTop +
         row.getBoundingClientRect().top -
@@ -1008,7 +1027,7 @@ export function Timeline({
       focusedReveal.current = reveal;
       const target =
         row.querySelector<HTMLElement>(".timeline-grip") ?? row.querySelector<HTMLElement>("button.timeline-name");
-      target?.focus({ preventScroll: true });
+      (target ?? scroll).focus({ preventScroll: true });
     }
   }, [reveal, folds, groups, start, px]);
 
@@ -1069,7 +1088,7 @@ export function Timeline({
       </p>
       <span ref={probe} className="timeline-bar timeline-probe" aria-hidden="true" />
       {toolsHost ? createPortal(tools, toolsHost) : tools}
-      <section className="timeline-scroll" ref={scroller} aria-label="Timeline">
+      <section className="timeline-scroll" ref={scroller} aria-label="Timeline" tabIndex={0}>
         <div className="timeline-canvas">
           <div className="timeline-head">
             <div className="timeline-corner" ref={corner} />
