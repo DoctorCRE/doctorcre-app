@@ -582,10 +582,10 @@ for (const width of [900, 1280])
     const tile = page.locator('.deal-path-tile[data-place="current"]');
     const more = tile.getByText("6 more", { exact: true });
     assert.ok(
-      await more.evaluate(
-        (node) =>
-          node.getBoundingClientRect().bottom <= node.closest(".deal-path-tile")!.getBoundingClientRect().bottom,
-      ),
+      await more.evaluate((node) => {
+        const tile = node.closest(".deal-path-tile");
+        return tile !== null && node.getBoundingClientRect().bottom <= tile.getBoundingClientRect().bottom;
+      }),
     );
     await more.click();
     await tile.getByRole("button", { name: "Show less" }).click();
