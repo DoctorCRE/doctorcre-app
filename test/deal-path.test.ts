@@ -20,7 +20,6 @@ const view = {
   checklist,
   today: "2026-11-25",
   canMove: true,
-  receiptHtml: "",
   focusedItem: null,
 };
 

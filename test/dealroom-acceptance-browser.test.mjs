@@ -994,7 +994,7 @@ for (const width of [1440, 390]) {
     const stepRows = snapshot.getByRole('list', { name: 'Open steps' }).getByRole('listitem');
     assert.match(await stepRows.first().innerText(), /Send the floor plan\s+Dell · Due Wed, Nov 18, 2026 · 1 day late/);
     assert.match(await stepRows.nth(1).innerText(), /Call the architect\s+Joe · Due Sun, Nov 15, 2026 · 4 days late/);
-    assert.equal(await page.getByRole('region', { name: 'Deal path' }).getByRole('button', { name: 'Undo', exact: true }).isVisible(), true);
+    assert.equal(await page.locator('#workspacePhaseMove').getByRole('button', { name: 'Undo', exact: true }).isVisible(), true);
     assert.equal(await snapshot.getByText('Also open:', { exact: true }).count(), 0);
     const task = snapshot.getByRole('listitem').filter({ hasText: item.title });
     assert.match(await task.innerText(), /Check the plans.*Joe.*Wed, Nov 18, 2026/s);
@@ -1223,7 +1223,7 @@ for (const width of [1440, 390]) test(`a fresh automatic call move shows its evi
     assert.match(await mark.innerText(), /Oct 18, 9:30 PM/);
   };
   const card = page.locator(`.kanban-card[data-id="${deal.id}"]`);
-  const snapshot = page.getByRole('region', { name: 'Deal path' });
+  const snapshot = page.locator('#workspacePhaseMove');
   await page.goto(`${origin}/deals?mode=live`);
   await card.waitFor();
   assert.equal(await caption(card).count(), 0);
@@ -1325,7 +1325,7 @@ test('keyboard Undo on the deal page returns the deal to the previous phase', as
     return route.fulfill({ status: response.status, contentType: 'application/json', body: await response.text() });
   });
   const card = deal => page.locator('.kanban-card').filter({ has: page.getByRole('button', { name: deal.name, exact: true }) });
-  const snapshot = page.getByRole('region', { name: 'Deal path' });
+  const snapshot = page.locator('#workspacePhaseMove');
   const undo = snapshot.getByRole('button', { name: 'Undo', exact: true });
   const open = deal => card(deal).getByRole('button', { name: deal.name, exact: true }).click();
   const back = () => page.getByRole('button', { name: 'Back to deals' }).click();
@@ -1338,7 +1338,7 @@ test('keyboard Undo on the deal page returns the deal to the previous phase', as
   assert.ok(oldReads.length);
   oldReads.length = 0;
   await open(manual);
-  await snapshot.waitFor();
+  await page.locator(".deal-path").waitFor();
   assert.equal(await snapshot.getByText('Moved automatically', { exact: true }).count(), 0);
   assert.equal(await undo.count(), 0);
   await back();
@@ -1442,7 +1442,7 @@ async function openDealForUndoConflict(t, { archived = false } = {}) {
     }), env);
     await route.fulfill({ status: response.status, contentType: 'application/json', body: await response.text() });
   });
-  const snapshot = page.getByRole('region', { name: 'Deal path' });
+  const snapshot = page.locator('#workspacePhaseMove');
   const undo = snapshot.getByRole('button', { name: 'Undo', exact: true });
   const open = () => page.getByRole('button', { name, exact: true }).click();
   await page.goto(`${origin}/deals?mode=live`);

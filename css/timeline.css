@@ -167,7 +167,6 @@
 .deal-plan-footer span + span::before { border: 1px dashed var(--fg-quiet); background: transparent; }
 .deal-plan-details { position: absolute; z-index: 8; top: 48px; right: 0; width: min(310px, 100%); padding: 12px; background: var(--surface-2); border-radius: var(--radius-3); box-shadow: var(--shadow-overlay); }
 .deal-plan-details button:first-child { float: right; }
-.deal-plan-signing-link { justify-content: start; white-space: normal; text-align: left; }
 .timeline-label a { color: inherit; text-decoration: none; }
 .timeline-label a:hover { text-decoration: underline; }
 .timeline-attention { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--status-warn-ink); }

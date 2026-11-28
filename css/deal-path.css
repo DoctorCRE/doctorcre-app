@@ -17,9 +17,6 @@ button.deal-path-name:hover, button.deal-path-name[aria-expanded="true"] { color
 .deal-path-tile[data-place="done"] .deal-path-name { color: var(--fg-quiet); }
 .deal-path-check { color: var(--status-ok-ink); }
 .deal-path-head small { margin-left: auto; color: var(--fg-quiet); font-size: var(--font-size-1); white-space: nowrap; }
-.deal-path-tile [data-phase-move]:not(:empty) { padding: 0 10px 4px; font-size: var(--font-size-1); color: var(--fg-quiet); }
-.deal-path-tile [data-phase-move] .auto-move { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--space-1); color: var(--fg-quiet); }
-.deal-path-tile [data-phase-move] .btn { min-height: 0; padding: 0 var(--space-1); color: var(--fg-muted); text-decoration: underline; text-underline-offset: 2px; }
 .deal-path-tile ul { list-style: none; margin: 0; padding: 0 6px 8px; }
 .deal-path-tile ul:has(+ .deal-path-more) { padding-bottom: 0; }
 .deal-path-tile .deal-path-more > summary { display: block; margin: 0 6px 4px; padding: 0 4px; line-height: 20px; color: var(--fg-quiet); }
@@ -57,20 +54,18 @@ button.deal-path-name:hover, button.deal-path-name[aria-expanded="true"] { color
 .deal-park-line .park-options > summary { color: var(--fg-quiet); font-size: var(--font-size-1); cursor: pointer; }
 
 @media (min-width: 761px) {
-  .deal-path { block-size: 144px; }
+  .deal-path { block-size: calc(4 * var(--touch)); }
   .deal-path-fold { align-self: start; position: relative; }
   .deal-path-fold summary { color: var(--fg-muted); cursor: pointer; font-size: var(--font-size-1); }
   .deal-path-fold > details > summary { display: list-item; padding-inline: 8px; line-height: var(--touch); }
   .deal-path-fold ol { position: absolute; z-index: 12; inset-block-start: 100%; width: min(320px, 46vw); max-height: 48dvh; overflow: auto; display: grid; gap: 6px; margin: 0; padding: 8px; list-style: none; border-radius: var(--radius-3); background: var(--surface-2); box-shadow: var(--shadow-overlay); }
   .deal-path-fold:last-child ol { right: 0; }
   .deal-path > .deal-path-tile .deal-path-head { min-height: var(--touch); padding-block: 0; }
-  .deal-path-dates { display: flex; align-items: center; flex-wrap: wrap; padding-inline: 6px; }
-  .deal-path-dates [data-phase-move]:not(:empty), .deal-path-dates .deal-plan-signing-link { padding: 0 4px; min-height: 20px; font-size: var(--font-size-1); }
   .deal-path > .deal-path-tile > ul { padding-block-end: 0; }
   .deal-path > .deal-path-tile > ul > li { position: relative; }
-  .deal-path > .deal-path-tile > ul summary { grid-template-columns: 14px minmax(0, 1fr) auto; padding-block: 2px; min-height: 24px; }
+  .deal-path > .deal-path-tile > ul summary { grid-template-columns: 14px minmax(0, 1fr) auto; box-sizing: border-box; align-items: center; padding-block: 0; block-size: var(--touch); }
   .deal-path > .deal-path-tile > ul summary small { grid-column: 3; }
-  .deal-path-tile .deal-path-more > summary { min-height: 20px; }
+  .deal-path-tile .deal-path-more > summary { margin-block-end: 0; line-height: var(--touch); }
   .deal-path > .deal-path-tile > ul details p { position: absolute; z-index: 10; width: max-content; max-width: 90%; padding: 8px; border-radius: var(--radius-2); background: var(--surface-2); box-shadow: var(--shadow-overlay); }
 }
 
