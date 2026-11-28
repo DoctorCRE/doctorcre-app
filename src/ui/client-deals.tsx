@@ -11,14 +11,7 @@ import {
 import { createPortal, flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { AddVendor } from "./deal-add-vendor.tsx";
-import {
-  type ClientDeal,
-  DealDiagram,
-  type DiagramClient,
-  type Introduction,
-  type Role,
-  type VendorMenu,
-} from "./deal-diagram.tsx";
+import { type ClientDeal, DealDiagram, type DiagramClient, type Role, type VendorMenu } from "./deal-diagram.tsx";
 import {
   broughtBy,
   DealVendorMenu,
@@ -27,11 +20,20 @@ import {
   recordSource,
   refusal,
   type Saved,
+  sourceOf,
   type VendorActions,
   type VendorDoors,
   VendorSaveStatus,
-  type VendorStatus,
 } from "./deal-vendor-menu.tsx";
+import {
+  currentIntroduction,
+  type LinkValue,
+  missingRoles,
+  type Operation,
+  transitionLink,
+  undoFor,
+  type VendorLink,
+} from "./vendor-link.ts";
 
 type Read<T> = { state: "loading" } | { state: "failed" } | { state: "ready"; value: T };
 export interface CardSectionProps<T> {
@@ -161,67 +163,80 @@ function DealTitle({ deal }: { deal: ClientDeal }) {
   );
 }
 
-type Undo = { roles: Role[] } & ({ kind: "offer" } | { kind: "restore" });
-
-function missingRoles(link: Link, undo: Undo) {
-  return undo.roles.filter((role) => !link.party?.roles.some((row) => row.role === role.role));
+function refusalMessage(link: VendorLink) {
+  const { state, name } = link;
+  if (state.kind !== "refused") return "";
+  const reason = refusal(state.failure.problem);
+  const operation = state.save.operation;
+  if (operation.kind === "restore") return `${name} wasn't put back. ${reason}`;
+  if (operation.kind === "add" && operation.showSource) {
+    const current = sourceOf(currentIntroduction(link));
+    if (current) return `${reason} ${name} is recorded as introduced by ${broughtBy(current.by)}.`;
+  }
+  if (operation.kind === "remove") {
+    const removed = missingRoles(link, operation.roles).length;
+    if (removed) return `${reason} ${removed} of ${operation.roles.length} roles were removed.`;
+  }
+  return reason;
 }
 
 function LinkNotice({
   link,
   deal,
+  target,
   check,
   restore,
 }: {
-  link: Link;
+  link: VendorLink;
   deal: ClientDeal;
+  target: HTMLElement | undefined;
   check: () => void;
-  restore: () => void;
+  restore: (id: number) => void;
 }) {
-  const { phase, undo, name, problem } = link;
-  if (phase !== "ready") {
-    if (!undo && (link.party || link.introductions.length || phase === "saving")) return null;
+  const { state, name } = link;
+  const undo = undoFor(link);
+  if (undo && missingRoles(link, undo.roles).length) {
+    const message =
+      state.kind === "undoable" && !state.retried
+        ? `Removed ${name} from ${deal.name}.`
+        : refusalMessage(link) || `${name} still has roles to put back.`;
     return (
-      <div className="client-deal-undo">
-        <span>{name}</span>
-        <VendorSaveStatus phase={phase} problem={problem} check={check} />
-      </div>
+      <p className="client-deal-undo" role="status">
+        {message}{" "}
+        <button type="button" onClick={() => restore(undo.id)}>
+          Undo
+        </button>
+      </p>
     );
   }
-  if (!undo) return null;
-  const canRestore = missingRoles(link, undo).length > 0;
-  const message = canRestore
-    ? undo.kind === "offer"
-      ? `Removed ${name} from ${deal.name}.`
-      : problem || `${name} still has roles to put back.`
-    : `${name} was put back.`;
+  if (state.kind === "idle")
+    return state.restored ? (
+      <p className="client-deal-undo" role="status">
+        {name} was put back.
+      </p>
+    ) : null;
+  if (state.kind === "undoable") return null;
+  const phase =
+    state.kind === "saving"
+      ? state.slow
+        ? "slow"
+        : "saving"
+      : state.kind === "unconfirmed"
+        ? state.checking
+          ? "checking"
+          : "unconfirmed"
+        : "ready";
+  const notice = <VendorSaveStatus phase={phase} problem={refusalMessage(link)} check={check} />;
+  if (target) return createPortal(notice, target);
+  if (state.kind === "refused") return null;
   return (
-    <p className="client-deal-undo" role="status">
-      {message}
-      {canRestore && (
-        <>
-          {" "}
-          <button type="button" onClick={restore}>
-            Undo
-          </button>
-        </>
-      )}
-    </p>
+    <div className="client-deal-undo">
+      <span>{name}</span>
+      {notice}
+    </div>
   );
 }
 
-type LinkValue = {
-  introductions: Introduction[];
-  party: ClientDeal["vendors"][number] | null;
-};
-type Link = LinkValue &
-  VendorStatus & {
-    deal: string;
-    vendor: string;
-    name: string;
-    acknowledged: number;
-    undo: Undo | null;
-  };
 type SaveFailed = Extract<Saved, { ok: false }>;
 const linkKey = (deal: string, vendor: string) => JSON.stringify([deal, vendor]);
 
@@ -232,7 +247,7 @@ function readLink(deal: ClientDeal | undefined, vendor: string): LinkValue {
   };
 }
 
-function applyLinks(deal: ClientDeal, links: ReadonlyMap<string, Link>): ClientDeal {
+function applyLinks(deal: ClientDeal, links: ReadonlyMap<string, VendorLink>): ClientDeal {
   const tracked = [...links.values()].filter((link) => link.deal === deal.id);
   if (!tracked.length) return deal;
   const introductions = new Map(deal.introductions.map((row) => [row.id, row]));
@@ -251,7 +266,7 @@ function applyLinks(deal: ClientDeal, links: ReadonlyMap<string, Link>): ClientD
 
 // The Clients island is loaded once per page. Closing a card only removes its subscriber.
 let linkSequence = 0;
-let sessionLinks = new Map<string, Link>();
+let sessionLinks = new Map<string, VendorLink>();
 const linkListeners = new Set<() => void>();
 const settledListeners = new Set<() => void>();
 const subscribeLinks = (listener: () => void) => {
@@ -261,20 +276,40 @@ const subscribeLinks = (listener: () => void) => {
   };
 };
 const getLinks = () => sessionLinks;
-function publishLinks(next: Map<string, Link>) {
+function publishLinks(next: Map<string, VendorLink>) {
   sessionLinks = next;
   for (const listener of linkListeners) listener();
 }
-function updateLink(key: string, link: Link) {
+function updateLink(key: string, link: VendorLink) {
   publishLinks(new Map(sessionLinks).set(key, link));
 }
 
-function expireUndo(key: string, undo: Undo) {
+function expireUndo(key: string, id: number) {
   // eslint-disable-next-line no-restricted-syntax -- A single three-second timer per acknowledged removal.
   window.setTimeout(() => {
     const link = sessionLinks.get(key);
-    if (link?.undo === undo) updateLink(key, { ...link, undo: null });
+    if (!link) return;
+    const next = transitionLink(link, { type: "expire", id });
+    if (next !== link) updateLink(key, next);
   }, UNDO_MS);
+}
+
+function applyReads(result: { revision: number } & ({ type: "read-failed" } | { type: "read"; deals: ClientDeal[] })) {
+  const next = new Map(sessionLinks);
+  let changed = false;
+  for (const [key, link] of next) {
+    const deal = result.type === "read" ? result.deals.find((row) => row.id === link.deal) : undefined;
+    const updated =
+      result.type === "read-failed"
+        ? transitionLink(link, result)
+        : deal
+          ? transitionLink(link, { type: "read", revision: result.revision, value: readLink(deal, link.vendor) })
+          : link;
+    if (updated === link) continue;
+    next.set(key, updated);
+    changed = true;
+  }
+  if (changed) publishLinks(next);
 }
 
 function useDealLinks(load: CardSectionProps<ClientDeal[]>["load"]) {
@@ -283,29 +318,10 @@ function useDealLinks(load: CardSectionProps<ClientDeal[]>["load"]) {
     async (signal: AbortSignal) => {
       const started = ++linkSequence;
       const deals = await load(signal).catch((error: unknown) => {
-        if (!signal.aborted) {
-          const next = new Map(sessionLinks);
-          let changed = false;
-          for (const [key, link] of next) {
-            if (link.phase !== "checking" || started <= link.acknowledged) continue;
-            next.set(key, { ...link, phase: "unconfirmed" });
-            changed = true;
-          }
-          if (changed) publishLinks(next);
-        }
+        if (!signal.aborted) applyReads({ type: "read-failed", revision: started });
         throw error;
       });
-      if (signal.aborted) return deals;
-      const next = new Map(sessionLinks);
-      let changed = false;
-      for (const [key, link] of next) {
-        if ((link.phase !== "ready" && link.phase !== "checking") || started <= link.acknowledged) continue;
-        const deal = deals.find((row) => row.id === link.deal);
-        if (!deal) continue;
-        next.set(key, { ...link, ...readLink(deal, link.vendor), acknowledged: started, phase: "ready" });
-        changed = true;
-      }
-      if (changed) publishLinks(next);
+      if (!signal.aborted) applyReads({ type: "read", revision: started, deals });
       return deals;
     },
     [load],
@@ -323,52 +339,56 @@ function useDealLinks(load: CardSectionProps<ClientDeal[]>["load"]) {
   function check(deal: string, vendor: string) {
     const key = linkKey(deal, vendor);
     const link = sessionLinks.get(key);
-    if (!link || (link.phase !== "unconfirmed" && link.phase !== "checking")) return;
-    updateLink(key, { ...link, acknowledged: ++linkSequence, phase: "checking" });
+    if (!link) return;
+    const next = transitionLink(link, { type: "check", revision: ++linkSequence });
+    if (next === link) return;
+    updateLink(key, next);
     refresh();
   }
 
   async function write<T extends Saved>(
     deal: ClientDeal,
     vendor: FoundVendor,
+    operation: Operation,
     save: () => Promise<T>,
-    apply: (link: Link, answer: T | SaveFailed) => Partial<Link>,
-    restoring?: Undo,
+    changes: (link: VendorLink, answer: T | SaveFailed) => Partial<LinkValue>,
   ): Promise<Saved> {
     const key = linkKey(deal.id, vendor.id);
-    const before = sessionLinks.get(key) ?? {
+    const before: VendorLink = sessionLinks.get(key) ?? {
       ...readLink(deal, vendor.id),
       deal: deal.id,
       vendor: vendor.id,
       name: vendor.name,
-      acknowledged: 0,
-      phase: "ready",
-      problem: "",
-      undo: null,
+      revision: 0,
+      state: { kind: "idle" },
     };
-    if (before.phase !== "ready") return { ok: false, problem: { error: "vendor_save_in_progress" } };
-    const saving: Link = { ...before, phase: "saving", problem: "", undo: restoring ?? before.undo };
+    const id = ++linkSequence;
+    const saving = transitionLink(before, { type: "begin", save: { id, operation } });
+    if (saving === before) return { ok: false, problem: { error: "vendor_save_in_progress" } };
     updateLink(key, saving);
-    // eslint-disable-next-line no-restricted-syntax -- A single 10-second display timer is cleared when the write settles.
+    // eslint-disable-next-line no-restricted-syntax -- A single ten-second timer cleared when the write settles.
     const deadline = window.setTimeout(() => {
       const link = sessionLinks.get(key);
-      if (link) updateLink(key, { ...link, phase: "slow" });
+      if (!link) return;
+      const next = transitionLink(link, { type: "deadline", id });
+      if (next !== link) updateLink(key, next);
     }, 10_000);
     const answer = await save()
       .catch((): SaveFailed => ({ ok: false, pending: true }))
       .finally(() => window.clearTimeout(deadline));
-    const unconfirmed = !answer.ok && answer.pending;
     const current = sessionLinks.get(key) ?? saving;
-    const next: Link = {
-      ...current,
-      problem: answer.ok || answer.pending ? "" : refusal(answer.problem),
-      ...apply(current, answer),
-      acknowledged: ++linkSequence,
-      phase: unconfirmed ? "unconfirmed" : "ready",
-    };
-    updateLink(key, next);
-    if (next.undo?.kind === "offer" && next.undo !== current.undo) expireUndo(key, next.undo);
-    if (!unconfirmed) for (const listener of settledListeners) listener();
+    const next = transitionLink(current, {
+      type: "answer",
+      id,
+      revision: ++linkSequence,
+      answer,
+      changes: changes(current, answer),
+    });
+    if (next !== current) {
+      updateLink(key, next);
+      if (next.state.kind === "undoable") expireUndo(key, next.state.removal.id);
+      if (next.state.kind !== "unconfirmed") for (const listener of settledListeners) listener();
+    }
     return answer;
   }
 
@@ -376,7 +396,7 @@ function useDealLinks(load: CardSectionProps<ClientDeal[]>["load"]) {
   return { read, deals, reload, check, write, links };
 }
 
-function withRoles(link: Link, roles: Role[]): Pick<LinkValue, "party"> {
+function withRoles(link: VendorLink, roles: Role[]): Pick<LinkValue, "party"> {
   return {
     party: {
       party_id: link.vendor,
@@ -389,13 +409,30 @@ function withRoles(link: Link, roles: Role[]): Pick<LinkValue, "party"> {
 
 function ClientDeals({ subject: client, load, stage, doors = null }: CardSectionProps<ClientDeal[]>) {
   const { read, deals, reload, check, write, links } = useDealLinks(load);
+  const [targets, setTargets] = useState(new Map<string, HTMLElement[]>());
+  const registerNotice = useCallback((deal: string, vendor: string, node: HTMLElement) => {
+    const key = linkKey(deal, vendor);
+    setTargets((now) => new Map(now).set(key, [...(now.get(key) ?? []), node]));
+    return () =>
+      setTargets((now) => {
+        const next = new Map(now);
+        const remaining = next.get(key)?.filter((target) => target !== node) ?? [];
+        if (remaining.length) next.set(key, remaining);
+        else next.delete(key);
+        return next;
+      });
+  }, []);
   const actionsFor = (deal: ClientDeal, doors: VendorDoors): VendorActions => ({
-    status: (vendor) => links.get(linkKey(deal.id, vendor)) ?? { phase: "ready", problem: "" },
-    check: (vendor) => check(deal.id, vendor),
+    locked: (vendor) => {
+      const state = links.get(linkKey(deal.id, vendor))?.state.kind;
+      return state === "saving" || state === "unconfirmed";
+    },
+    registerNotice,
     setSource: (vendor, by, replaces) =>
       write(
         deal,
         vendor,
+        { kind: "source", by },
         () => recordSource(doors, deal, client.id, vendor.id, by, replaces),
         (link, answer) => {
           if (!answer.ok) return {};
@@ -423,53 +460,48 @@ function ClientDeals({ subject: client, load, stage, doors = null }: CardSection
       write(
         deal,
         vendor,
+        { kind: "remove-introduction", introduction: intro.id },
         () => doors.removeIntroduction(intro),
         (link, answer) => (answer.ok ? { introductions: link.introductions.filter((row) => row.id !== intro.id) } : {}),
       ),
-    add: (vendor, role, by) =>
+    add: (vendor, role, showSource = false) =>
       write(
         deal,
         vendor,
+        { kind: "add", role, showSource },
         () => doors.add(deal.id, vendor.id, role.role),
-        (link, answer) => {
-          if (answer.ok) return withRoles(link, [role]);
-          if (answer.pending || !by || by === "unrecorded") return {};
-          return {
-            problem: `${refusal(answer.problem)} ${vendor.name} is recorded as introduced by ${broughtBy(by)}.`,
-          };
-        },
+        (link, answer) => (answer.ok ? withRoles(link, [role]) : {}),
       ),
     remove: (vendor) =>
       write(
         deal,
         vendor,
+        { kind: "remove", roles: vendor.roles },
         () => eachRole(vendor.roles, (role) => doors.remove(deal.id, vendor.id, role.role)),
-        (_link, answer) => {
-          if (answer.ok) return { party: null, undo: { kind: "offer", roles: vendor.roles } };
-          if (answer.pending || !answer.done) return {};
-          return { problem: `${refusal(answer.problem)} ${answer.done} of ${vendor.roles.length} roles were removed.` };
+        (link, answer) => {
+          if (answer.ok) return { party: null };
+          if (!link.party || !answer.done) return {};
+          const removed = vendor.roles.slice(0, answer.done);
+          const roles = link.party.roles.filter((role) => !removed.some((row) => row.role === role.role));
+          return { party: roles.length ? { ...link.party, roles } : null };
         },
       ),
   });
-  function restore(deal: ClientDeal, vendorId: string) {
+  function restore(deal: ClientDeal, vendorId: string, removalId: number) {
     const link = sessionLinks.get(linkKey(deal.id, vendorId));
-    if (!doors || !link?.undo || link.phase !== "ready") return;
-    const missing = missingRoles(link, link.undo);
-    if (!missing.length) return;
-    const restoring: Undo = { kind: "restore", roles: link.undo.roles };
+    if (!doors || !link) return;
+    const removal = undoFor(link);
+    if (removal?.id !== removalId) return;
+    const missing = missingRoles(link, removal.roles);
     void write(
       deal,
       { id: vendorId, name: link.name },
+      { kind: "restore", removal },
       () => eachRole(missing, (role) => doors.add(deal.id, vendorId, role.role)),
       (current, answer) => {
-        if (answer.ok) return { ...withRoles(current, missing), undo: null };
-        const restored = missing.slice(0, answer.done ?? 0);
-        return {
-          ...(restored.length && withRoles(current, restored)),
-          ...(!answer.pending && { problem: `${link.name} wasn't put back. ${refusal(answer.problem)}` }),
-        };
+        const restored = answer.ok ? missing : missing.slice(0, answer.done ?? 0);
+        return restored.length ? withRoles(current, restored) : {};
       },
-      restoring,
     );
   }
   const [opened, setOpened] = useState<string | null>(null);
@@ -517,8 +549,9 @@ function ClientDeals({ subject: client, load, stage, doors = null }: CardSection
                 key={link.vendor}
                 link={link}
                 deal={deal}
+                target={targets.get(linkKey(deal.id, link.vendor))?.at(-1)}
                 check={() => check(deal.id, link.vendor)}
-                restore={() => restore(deal, link.vendor)}
+                restore={(id) => restore(deal, link.vendor, id)}
               />
             ))}
           <DealDiagram client={client} deal={deal} menu={menuFor(deal)} />

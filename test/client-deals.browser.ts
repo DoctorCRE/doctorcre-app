@@ -1039,3 +1039,62 @@ test("Check again for an unconfirmed Undo survives closing and reopening the cli
   await notice.getByText(/put back/).waitFor();
   assert.equal(sent.length, 2);
 });
+
+test("a checked Undo never becomes available after a later removal elsewhere", async (t) => {
+  const engine = partyEngine(null, 0, "undo");
+  const { page, panel, sent } = await openParties(t, engine);
+  const article = panel.locator(".client-deal", { hasText: "Example first office" });
+  const vendor = article.getByRole("button", { name: /Example Halloran Title/ });
+  await freezeUndoClock(page);
+  await vendor.click();
+  const menu = page.getByRole("dialog", { name: "Example Halloran Title on Example first office" });
+  await menu.getByRole("button", { name: "Remove from this deal" }).click();
+  await menu.getByRole("button", { name: "Remove", exact: true }).click();
+  const notice = article.locator(".client-deal-undo");
+  await notice.getByRole("button", { name: "Undo", exact: true }).click();
+  await notice.getByRole("button", { name: "Check again" }).click();
+  await notice.getByText(/was put back/).waitFor();
+  await page.locator("#recordClose").click();
+  await article.waitFor({ state: "detached" });
+  const changed = engine.list.find((row) => row.name === "Example first office");
+  assert.ok(changed);
+  changed.vendors = changed.vendors.filter((row) => row.party_id !== titleVendor);
+  await page.locator(`a[data-record-id="${recordId}"]`).click();
+  await article.waitFor();
+  assert.equal(await vendor.count(), 0);
+  assert.equal(await notice.getByRole("button", { name: "Undo", exact: true }).count(), 0);
+  assert.equal(sent.length, 2);
+});
+
+test("a persisted Add refusal describes the source on the latest read", async (t) => {
+  const engine = partyEngine("database_refused_the_statement", 1);
+  const { page, panel, deal } = await openParties(t, engine);
+  const form = await addVendor(page, deal, "Dell");
+  await form.getByRole("button", { name: "Add", exact: true }).click();
+  await form
+    .getByRole("alert")
+    .getByText(/introduced by Dell/)
+    .waitFor();
+  await page.locator("#recordClose").click();
+  await deal.waitFor({ state: "detached" });
+  const source = engine.list[0]?.introductions.find((row) => row.vendor_id === "v9");
+  assert.ok(source);
+  source.introduced_by = "joe";
+  await page.locator(`a[data-record-id="${recordId}"]`).click();
+  await panel.getByRole("button", { name: /^Example Harbor Bank/ }).click();
+  const menu = page.getByRole("dialog", { name: /Example Harbor Bank on/ });
+  await menu.getByText(/Introduced .* by Joe/).waitFor();
+  assert.match((await menu.getByRole("alert").textContent()) ?? "", /recorded as introduced by Joe/);
+});
+
+test("a lost Add reply has one Check again while the form is open and after closing it", async (t) => {
+  const { page, deal } = await openParties(t, partyEngine(null, 0, "role"));
+  const form = await addVendor(page, deal, "Not recorded");
+  await form.getByRole("button", { name: "Add", exact: true }).click();
+  const check = deal.getByRole("button", { name: "Check again" });
+  await form.getByRole("button", { name: "Check again" }).waitFor();
+  assert.equal(await check.count(), 1);
+  await form.getByRole("button", { name: "Cancel" }).click();
+  await check.waitFor();
+  assert.equal(await check.count(), 1);
+});

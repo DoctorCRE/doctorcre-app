@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { centralToday } from "./central-time.ts";
 import { type ClientDeal, dated, type Introduction, type Role, type Vendor } from "./deal-diagram.tsx";
 
@@ -27,7 +27,7 @@ const SAVE_STATUS = {
 };
 type LinkPhase = keyof typeof SAVE_STATUS;
 
-export type VendorStatus = { phase: LinkPhase; problem: string };
+type VendorStatus = { phase: LinkPhase; problem: string };
 
 export function VendorSaveStatus({ phase, problem, check }: VendorStatus & { check: () => void }) {
   if (phase === "ready")
@@ -49,11 +49,11 @@ export function VendorSaveStatus({ phase, problem, check }: VendorStatus & { che
 }
 
 export interface VendorActions {
-  status(vendor: string): VendorStatus;
-  check(vendor: string): void;
+  locked(vendor: string): boolean;
+  registerNotice(deal: string, vendor: string, node: HTMLElement): () => void;
   setSource(vendor: FoundVendor, by: BroughtBy, replaces?: RecordedSource): Promise<Saved>;
   removeIntroduction(vendor: FoundVendor, introduction: IntroductionVersion): Promise<Saved>;
-  add(vendor: FoundVendor, role: Role, by?: BroughtBy): Promise<Saved>;
+  add(vendor: FoundVendor, role: Role, showSource?: boolean): Promise<Saved>;
   remove(vendor: Vendor): Promise<Saved>;
 }
 
@@ -182,9 +182,14 @@ interface Props {
 
 export function DealVendorMenu({ deal, vendor, doors, actions, close }: Props) {
   const [step, setStep] = useState<Step>({ at: "menu" });
-  const status = actions.status(vendor.id);
-  const { phase } = status;
-  const busy = phase !== "ready";
+  const busy = actions.locked(vendor.id);
+  const { registerNotice } = actions;
+  const notice = useCallback(
+    (node: HTMLDivElement | null) => {
+      if (node) return registerNotice(deal.id, vendor.id, node);
+    },
+    [deal.id, vendor.id, registerNotice],
+  );
   const panel = useRef<HTMLDivElement>(null);
   const picking = step.at === "role";
   const focusKey = picking ? `role:${Boolean(step.roles)}` : step.at;
@@ -229,8 +234,8 @@ export function DealVendorMenu({ deal, vendor, doors, actions, close }: Props) {
         <span>{introduced(vendor)}</span>
         {vendor.introduction?.note && <q>{vendor.introduction.note}</q>}
       </p>
-      <VendorSaveStatus {...status} check={() => actions.check(vendor.id)} />
-      {step.at === "menu" && phase === "ready" && (
+      <div ref={notice} />
+      {step.at === "menu" && !busy && (
         <>
           {!vendor.chosen && (
             <button type="button" onClick={() => setStep({ at: "role", roles: null, role: "" })}>

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ClientDeal, Role } from "./deal-diagram.tsx";
 import {
   type BroughtBy,
@@ -8,7 +8,6 @@ import {
   sourceOf,
   type VendorActions,
   type VendorDoors,
-  VendorSaveStatus,
 } from "./deal-vendor-menu.tsx";
 
 interface Props {
@@ -79,9 +78,16 @@ function AddVendorForm({
   const [role, setRole] = useState("");
   const [by, setBy] = useState<BroughtBy | null>(null);
   const recorded = sourceOf(deal.introductions.find((i) => i.vendor_id === vendor?.id));
-  const status = vendor ? actions.status(vendor.id) : null;
+  const { registerNotice } = actions;
+  const vendorId = vendor?.id;
+  const notice = useCallback(
+    (node: HTMLDivElement | null) => {
+      if (node && vendorId) return registerNotice(deal.id, vendorId, node);
+    },
+    [deal.id, vendorId, registerNotice],
+  );
   const correction = recorded && by && recorded.by !== by;
-  const roleLocked = busy || (status !== null && status.phase !== "ready");
+  const roleLocked = busy || (vendorId !== undefined && actions.locked(vendorId));
   const search = useRef<HTMLInputElement>(null);
   // A vendor already on this deal, or introduced for it, is changed from its own box.
   const [onDeal] = useState(
@@ -114,7 +120,7 @@ function AddVendorForm({
       setBusy(false);
       return close();
     }
-    const answer = await actions.add(vendor, pickedRole, by);
+    const answer = await actions.add(vendor, pickedRole, by !== "unrecorded");
     setBusy(false);
     if (answer.ok) close();
   }
@@ -180,7 +186,7 @@ function AddVendorForm({
           Cancel
         </button>
       </span>
-      {vendor && status && <VendorSaveStatus {...status} check={() => actions.check(vendor.id)} />}
+      {vendor && <div ref={notice} />}
       {recorded && <p>Recorded as introduced by {broughtBy(recorded.by)}.</p>}
       {roleRead === "failed" && (
         <p className="deal-vendor-menu-problem" role="alert">
