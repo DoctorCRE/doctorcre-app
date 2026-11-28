@@ -1,149 +1,60 @@
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
-import test, { type TestContext } from "node:test";
-import { chromium } from "./browser-harness.mjs";
-import { ownedServer as startFixtureServer } from "./fixture-probe.ts";
-import { directoryFixture } from "./fixtures/vendor-directory.synthetic.mjs";
+import test from "node:test";
+import { expect } from "@playwright/test";
+import { directoryFixture, vendorRoster } from "./fixtures/vendor-directory.synthetic.mjs";
+import { expectVendorScreen, matchesVendorRequest, openVendors, screenFor } from "./fixtures/vendor-screen.ts";
 
 const shots = "out/test-artifacts/directory-tiles";
 await mkdir(shots, { recursive: true });
 
-type Counts = { count: number; quiet: number; relationship: Record<string, number> };
-type Summary = { all: Counts; no_category: Counts; categories: ({ slug: string; label: string } & Counts)[] };
-
-// Three made-up vendors nobody categorized, so the No category tile shows.
-function withUncategorized(url: string) {
-  const payload = directoryFixture(url);
-  if (!new URL(url).pathname.endsWith("/summary")) return payload;
-  // The fixture is declared as a loose record; its summary answer carries the tile counts.
-  const summary = payload as unknown as Summary;
-  summary.no_category = { count: 3, quiet: 0, relationship: { ...summary.all.relationship, not_rated: 3 } };
-  return summary;
-}
-
-async function openVendors(
-  t: TestContext,
-  width: number,
-  height: number,
-  {
-    path = "/vendors",
-    live = false,
-    light = false,
-    territoryTiles = false,
-    touch = false,
-    ready = ".directory-tile[href]",
-  } = {},
-) {
-  const server = await startFixtureServer();
-  t.after(() => server.stop());
-  const browser = await chromium.launch();
-  t.after(() => browser.close());
-  const page = await browser.newPage({
-    viewport: { width, height },
-    colorScheme: light ? "light" : "dark",
-    hasTouch: touch,
-    isMobile: touch,
-  });
-  if (light)
-    await page.addInitScript(() =>
-      localStorage.setItem("doctorcre.visual-preferences", JSON.stringify({ theme: "light" })),
-    );
-  const asked: URL[] = [];
-  await page.route("https://**", (r) => r.abort());
-  await page.route("**/api/v1/business/**", (r) => {
-    asked.push(new URL(r.request().url()));
-    return r.fulfill({ json: territoryTiles ? withMarkets(r.request().url()) : withUncategorized(r.request().url()) });
-  });
-  await page.route("**/mcp", (r) =>
-    r.fulfill({
-      json: { jsonrpc: "2.0", id: r.request().postDataJSON()?.id, result: { content: [{ type: "text", text: "{}" }] } },
-    }),
-  );
-  if (live) {
-    await page.route("**/auth/session", (r) =>
-      r.fulfill({ json: { actor: { slug: "joe" }, csrf_token: "synthetic" } }),
-    );
-  }
-  if (live || territoryTiles) {
-    await page.route(
-      (url) => url.pathname === "/vendors",
-      async (r) => {
-        const response = await r.fetch();
-        return r.fulfill({
-          response,
-          body: (await response.text()).replace(
-            "<html ",
-            `<html ${live ? "data-clients-vendors-from-engine " : ""}${territoryTiles ? "data-vendor-territory-tiles " : ""}`,
-          ),
-        });
-      },
-    );
-  }
-  await page.goto(`${server.url}${path}${live ? `${path.includes("?") ? "&" : "?"}mode=live` : ""}`);
-  await page.locator(ready).first().waitFor();
-  return { page, asked };
-}
-
-const tileNames = (page: import("playwright").Page) => page.locator("a.directory-tile .tile-name").allTextContents();
+const roster = vendorRoster({ uncategorized: true });
+const banking = "/vendors?category=banker";
 
 test("Vendors opens on a tile per category that opens its list, and Joe recounts them", async (t) => {
-  const { page, asked } = await openVendors(t, 1440, 900);
-  assert.deepEqual(
-    await tileNames(page),
-    ["All vendors", "Architecture", "Banking", "No category"],
-    "empty Attorney has no tile",
-  );
-  assert.equal(await page.locator(".record-row").count(), 0, "no list under the tiles");
-  const all = page.locator("a.directory-tile").first();
-  assert.equal(await all.locator(".tile-count").textContent(), "62");
-  assert.equal(await page.locator("#resultSummary").textContent(), "62 vendors");
-  assert.match((await all.locator(".tile-quiet").textContent()) ?? "", /^\d+ quiet$/);
-  assert.ok(await all.locator('.tile-mix [data-relationship="core"]').isVisible());
+  const { page } = await openVendors(t, roster);
+  await expectVendorScreen(page, screenFor(roster));
   await page.screenshot({ path: `${shots}/tiles-1440.png` });
 
+  const joeView = "/vendors?owner=joe";
+  const joeTiles = screenFor(roster, { view: joeView, afterList: true });
+  const tile = (label: string) =>
+    page.locator("a.directory-tile").filter({ has: page.getByText(label, { exact: true }) });
   await page.getByRole("button", { name: "Joe", exact: true }).click();
-  await page.waitForURL(/owner=joe/);
-  await page.waitForFunction(() => document.querySelector(".directory-tile .tile-count")?.textContent === "31");
-  assert.equal(asked.at(-1)?.search, "?owner=joe");
+  await expectVendorScreen(page, screenFor(roster, { view: joeView }));
 
-  await page.locator("a.directory-tile", { hasText: "Banking" }).click();
-  await page.waitForURL(/category=banker/);
-  await page.locator(".record-row").first().waitFor();
-  assert.equal(await page.locator("#directoryTiles").isHidden(), true);
-  const list = asked.at(-1);
-  assert.equal(list?.searchParams.get("category"), "banker");
-  assert.equal(list?.searchParams.get("owner"), "joe");
-
+  await tile("Banking").click();
+  await expectVendorScreen(page, screenFor(roster, { view: `${banking}&owner=joe` }));
   await page.getByRole("button", { name: "Categories", exact: true }).click();
-  await page.waitForURL((url) => url.pathname === "/vendors" && url.search === "?owner=joe");
-  await page.locator("a.directory-tile", { hasText: "No category" }).click();
-  await page.waitForURL(/no_category=true/);
-  await page.waitForFunction(() => document.querySelector("#directoryTiles")?.hasAttribute("hidden"));
-  assert.equal(asked.at(-1)?.searchParams.get("no_category"), "true");
+  await expectVendorScreen(page, joeTiles);
 
+  await tile("No category").click();
+  await expectVendorScreen(page, screenFor(roster, { view: "/vendors?owner=joe&no_category=true" }));
   await page.goBack();
-  await page.locator("a.directory-tile", { hasText: "All vendors" }).click();
-  await page.waitForURL(/all=true/);
-  await page.locator(".record-row").first().waitFor();
-  assert.equal(asked.at(-1)?.searchParams.has("all"), false, "All vendors is the plain list read");
+  await expectVendorScreen(page, joeTiles);
+
+  const view = "/vendors?owner=joe&all=true";
+  await tile("All vendors").click();
+  await expectVendorScreen(page, screenFor(roster, { view }));
+  await page.locator("#scrollSentinel").scrollIntoViewIfNeeded();
+  await expectVendorScreen(page, screenFor(roster, { view, page: 2 }));
 });
 
 test("Find a vendor swaps the tiles for matches and clearing it brings them back", async (t) => {
-  const { page } = await openVendors(t, 1280, 640);
+  const { page } = await openVendors(t, roster, { width: 1280, height: 640 });
+  await expectVendorScreen(page, screenFor(roster));
   await page.screenshot({ path: `${shots}/tiles-1280x640.png` });
   const find = page.getByPlaceholder("Find a vendor");
   await find.fill("Partner 0");
-  await page.waitForURL(/q=Partner/);
-  await page.locator(".record-row").first().waitFor();
-  assert.equal(await page.locator("#directoryTiles").isHidden(), true);
+  await expectVendorScreen(page, screenFor(roster, { view: "/vendors?q=Partner+0" }));
   await find.fill("");
-  await page.waitForURL((url) => !url.searchParams.has("q"));
-  await page.locator(".directory-tile[href]").first().waitFor();
-  assert.equal(await page.locator("#listRegion").isHidden(), true);
+  await expectVendorScreen(page, screenFor(roster, { afterList: true }));
 });
 
 test("on a phone the tiles are two across", async (t) => {
-  const { page } = await openVendors(t, 390, 844);
+  const { page } = await openVendors(t, roster, { width: 390, height: 844 });
+  const expected = screenFor(roster, { layout: "phone" });
+  await expectVendorScreen(page, expected);
   const boxes = await page
     .locator("a.directory-tile")
     .evaluateAll((tiles) => tiles.slice(0, 2).map((tile) => tile.getBoundingClientRect().top));
@@ -152,38 +63,58 @@ test("on a phone the tiles are two across", async (t) => {
   const dell = await page.getByRole("button", { name: "Dell", exact: true }).boundingBox();
   assert.ok(dell && dell.x + dell.width <= 390, "the owner chips fit beside Categories");
   await page.screenshot({ path: `${shots}/tiles-390.png`, fullPage: true });
+  await expectVendorScreen(page, expected);
 });
 
 test("New vendor offers every category while the tiles are showing (Edit reads the same list)", async (t) => {
-  const { page } = await openVendors(t, 1440, 900, { live: true });
+  const { page } = await openVendors(t, roster, { live: true });
+  await expectVendorScreen(page, screenFor(roster, { live: true }));
   await page.getByRole("button", { name: "New vendor" }).click();
   const dialog = page.getByRole("dialog", { name: "New vendor" });
   const choices = await dialog.locator('input[name="categories"]').count();
   assert.ok(choices >= 3, `the form lists the categories (${choices})`);
   assert.equal(await dialog.getByText("No categories yet.").count(), 0);
+  await dialog.getByRole("button", { name: "Close" }).click();
+  await expectVendorScreen(page, screenFor(roster, { live: true }));
 });
 
 test("a saved link to My work keeps showing the vendors recorded as yours", async (t) => {
-  const { page, asked } = await openVendors(t, 1440, 900, { path: "/vendors?scope=mine", ready: ".record-row" });
-  assert.equal(await page.locator("#directoryTiles").isHidden(), true);
-  assert.equal(asked.at(-1)?.searchParams.get("scope"), "mine");
+  const view = "/vendors?scope=mine";
+  const { page } = await openVendors(t, roster, { view });
+  await expectVendorScreen(page, screenFor(roster, { view }));
+  await page.locator("#scrollSentinel").scrollIntoViewIfNeeded();
+  await expectVendorScreen(page, screenFor(roster, { view, page: 2 }));
+});
+
+test("reloading Banking reads the same list again", async (t) => {
+  const { page } = await openVendors(t, roster, { view: banking });
+  const expected = screenFor(roster, { view: banking });
+  await expectVendorScreen(page, expected);
+  await page.reload();
+  await expectVendorScreen(page, expected);
 });
 
 test("a refresh keeps keyboard focus on the same tile", async (t) => {
-  const { page, asked } = await openVendors(t, 1440, 900);
-  const tile = page.locator("a.directory-tile", { hasText: "Banking" });
-  const href = await tile.getAttribute("href");
-  await tile.focus();
-  const reads = asked.length;
-  await page.evaluate(() => document.querySelector<HTMLButtonElement>("#refreshList")?.click());
-  await page.waitForFunction((n) => n > 0, reads);
-  await page.waitForFunction(() => document.querySelector("#directoryTiles")?.getAttribute("aria-busy") === "false");
-  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("href")), href);
+  const { page } = await openVendors(t, roster);
+  await expectVendorScreen(page, screenFor(roster));
+  await page.getByRole("link", { name: /^Banking / }).focus();
+
+  const refreshed = vendorRoster({ uncategorized: true, banking: "Commercial Banking" });
+  await page.route(
+    (url) => matchesVendorRequest(url, "/api/v1/business/vendors/summary"),
+    (route) => route.fulfill({ json: directoryFixture(route.request().url(), { roster: refreshed }) }),
+    { times: 1 },
+  );
+  await page.locator("#refreshList").evaluate((button: HTMLButtonElement) => button.click());
+  await expect(page.getByRole("link", { name: /^Commercial Banking / })).toBeFocused();
+  await expectVendorScreen(page, screenFor(refreshed));
 });
 
 for (const width of [390, 320])
   test(`the top row keeps Joe, Dell and New vendor on screen at ${width}`, async (t) => {
-    const { page } = await openVendors(t, width, 844, { live: true, light: true });
+    const { page } = await openVendors(t, roster, { width, height: 844, live: true, light: true });
+    const expected = screenFor(roster, { layout: "phone", live: true });
+    await expectVendorScreen(page, expected);
     await page.getByRole("button", { name: "New vendor" }).waitFor();
     await page.screenshot({ path: `${shots}/tiles-new-${width}.png`, fullPage: true });
     for (const name of ["New vendor", "Joe", "Dell"]) {
@@ -191,67 +122,54 @@ for (const width of [390, 320])
       assert.ok(box && box.x >= 0 && box.x + box.width <= width, `${name} sits inside ${width} wide`);
     }
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    await expectVendorScreen(page, expected);
   });
 
 test("inside a category the relationship counts and Quiet filter the one table, and headings sort it", async (t) => {
-  const { page, asked } = await openVendors(t, 1440, 900, { path: "/vendors?category=banker", ready: ".record-row" });
-  const reads = () => asked.filter((url) => url.pathname.endsWith("/vendors")).length;
-  const counts = page.locator("#tableFilters [data-relationship-filter]");
-  const total = await page.locator(".record-row").count();
-  assert.equal(total, 31, "the whole category in one table");
-  assert.equal(await page.locator("#resultSummary").textContent(), "Banking · 31 vendors");
-  const core = counts.filter({ hasText: "Core" });
-  const shown = Number(await core.locator(".tile-n").textContent());
-  const before = reads();
+  const { page } = await openVendors(t, roster, { view: banking });
+  const category = screenFor(roster, { view: banking });
+  await expectVendorScreen(page, category);
+  const core = page.getByRole("button", { name: /^Core / });
+  const coreScreen = screenFor(roster, { view: `${banking}&relationship=core` });
   await core.click();
-  await page.waitForURL(/relationship=core/);
-  assert.equal(await page.locator(".record-row").count(), shown, "only Core vendors");
-  assert.equal(await core.getAttribute("aria-pressed"), "true");
-  assert.equal(reads(), before, "the filter re-reads nothing");
+  await expectVendorScreen(page, coreScreen);
   await core.click();
-  await page.waitForURL((url) => !url.searchParams.has("relationship"));
-  assert.equal(await page.locator(".record-row").count(), total);
+  await expectVendorScreen(page, category);
 
   const quiet = page.getByRole("button", { name: /^Quiet/ });
-  const quietRows = await page.locator(".record-row .contact-note.quiet").count();
-  assert.ok(quietRows > 0, "the category holds quiet vendors");
-  assert.equal(await quiet.locator(".tile-n").textContent(), String(quietRows), "Quiet counts the quiet vendors");
+  const quietScreen = screenFor(roster, { view: `${banking}&quiet=true` });
   await quiet.click();
-  await page.waitForURL(/quiet=true/);
-  await page.waitForFunction(() => document.querySelectorAll(".record-row .contact-note.quiet").length > 0);
-  assert.equal(asked.at(-1)?.searchParams.get("quiet"), "true");
-  assert.equal(await page.locator(".record-row .contact-note:not(.quiet)").count(), 0, "every quiet row says how long");
+  await expectVendorScreen(page, quietScreen);
+  assert.equal(await page.locator(".record-row:visible .contact-note:not(.quiet)").count(), 0);
   await quiet.click();
-  await page.waitForURL((url) => !url.searchParams.has("quiet"));
+  await expectVendorScreen(page, category);
 
-  await page.locator('[data-column-sort="name"]').click();
-  await page.waitForURL(/sort=name/);
-  assert.equal(asked.at(-1)?.searchParams.get("sort"), "name");
-  assert.equal(await page.locator('[data-column-sort="name"]').getAttribute("aria-pressed"), "true");
-  await page.locator('[data-column-sort="name"]').click();
-  await page.waitForURL((url) => !url.searchParams.has("sort"));
-  assert.equal(await page.locator(".list-head [data-fact=Category]").count(), 0, "no Category column inside one");
+  const name = page.getByRole("button", { name: "Name", exact: true });
+  await name.click();
+  await expectVendorScreen(page, screenFor(roster, { view: `${banking}&sort=name` }));
+  await name.click();
+  await expectVendorScreen(page, category);
 });
 
 test("outside a category the relationship counts and the Quiet count stay away, however small the answer", async (t) => {
-  const { page } = await openVendors(t, 1440, 900, { path: "/vendors?all=true&q=Partner+0", ready: ".record-row" });
-  assert.equal(await page.locator("#tableFilters [data-relationship-filter]").count(), 0);
-  assert.equal(await page.getByRole("button", { name: /^Quiet/ }).textContent(), "Quiet");
+  const view = "/vendors?all=true&q=Partner+0";
+  const { page } = await openVendors(t, roster, { view });
+  await expectVendorScreen(page, screenFor(roster, { view }));
 });
 
 test("a filter that matches nothing says so and Clear filters brings the category back", async (t) => {
-  const { page } = await openVendors(t, 1280, 640, {
-    path: "/vendors?category=banker&q=Nobody",
-    ready: ".record-empty",
-  });
+  const view = `${banking}&q=Nobody`;
+  const { page } = await openVendors(t, roster, { view, width: 1280, height: 640 });
+  await expectVendorScreen(page, screenFor(roster, { view }));
   await page.getByRole("button", { name: "Clear filters" }).click();
-  await page.waitForURL((url) => url.search === "?category=banker");
-  await page.locator(".record-row").first().waitFor();
+  await expectVendorScreen(page, screenFor(roster, { view: banking }));
 });
 
 for (const width of [320, 390])
   test(`at ${width} wide a tile's count stays inside its tile`, async (t) => {
-    const { page } = await openVendors(t, width, 740);
+    const { page } = await openVendors(t, roster, { width, height: 740 });
+    const expected = screenFor(roster, { layout: "phone" });
+    await expectVendorScreen(page, expected);
     const touching = await page.locator("a.directory-tile").evaluateAll((tiles) =>
       tiles
         .filter((tile) => {
@@ -261,104 +179,57 @@ for (const width of [320, 390])
         .map((tile) => tile.querySelector(".tile-name")?.textContent),
     );
     assert.deepEqual(touching, []);
+    await expectVendorScreen(page, expected);
   });
 
-const MARKETS = [
-  "Mobile",
-  "Eastern Shore",
-  "Orange Beach / Gulf Shores",
-  "Dothan",
-  "Pensacola",
-  "Pace",
-  "Milton",
-  "Gulf Breeze",
-  "Navarre",
-  "Crestview",
-  "Niceville",
-  "Fort Walton Beach",
-  "Destin",
-  "Miramar Beach",
-  "30A / Santa Rosa Beach",
-  "Freeport",
-  "Panama City Beach",
-  "Panama City",
-  "Tallahassee",
-].map((name, index) => ({ id: `00000000-0000-4000-8000-${String(800 + index).padStart(12, "0")}`, name }));
-
-function withMarkets(url: string) {
-  const requested = new URL(url);
-  const payload = directoryFixture(url);
-  if (requested.pathname.endsWith("/summary")) {
-    // The synthetic adapter returns the summary envelope for this route.
-    const summary = payload as unknown as Summary;
-    const coverage = (count: number, bucketSize: number) => ({
-      markets: MARKETS.slice()
-        .reverse()
-        .map((market) => ({ ...market, count: market.name === "Mobile" ? bucketSize : count - 2 * bucketSize }))
-        .filter((market) => market.count),
-      elsewhere: bucketSize,
-      no_territory: bucketSize,
-    });
-    Object.assign(summary.all, coverage(summary.all.count, requested.searchParams.has("owner") ? 1 : 2));
-    for (const counts of [summary.no_category, ...summary.categories])
-      Object.assign(counts, coverage(counts.count, Number(counts.count > 0)));
-  } else if (requested.searchParams.get("markets") === "true" && Array.isArray(payload.rows)) {
-    assert.ok(payload.query && typeof payload.query === "object");
-    Object.assign(payload.query, { markets: true });
-    for (const row of payload.rows) {
-      const n = Number(row.id.slice(-12));
-      row.markets = n <= 4 && n >= 3 ? [] : n <= 2 ? MARKETS : MARKETS.slice(1);
-      if (n === 3 || n === 4) row.territory = null;
-      if (n === 5 || n === 6) row.markets = [];
-    }
-  }
-  return payload;
-}
+const marketRoster = vendorRoster({ markets: true });
 
 test("territory tiles combine with search and clear in place", async (t) => {
-  const { page, asked } = await openVendors(t, 1440, 900, {
-    path: "/vendors?category=banker",
-    territoryTiles: true,
-    ready: ".record-row",
-  });
-  const group = page.getByRole("group", { name: "Territories" });
-  const mobile = group.getByRole("button", { name: "Mobile 1" });
-  await mobile.waitFor();
-  assert.deepEqual(await group.locator("button span:first-child").allTextContents(), [
-    "All territories",
-    ...MARKETS.map(({ name }) => name),
-    "Elsewhere",
-    "No territory",
-  ]);
-  assert.equal(await page.locator(".record-row").count(), 31);
-  const reads = asked.length;
-  await mobile.click();
-  assert.equal(await mobile.getAttribute("aria-pressed"), "true");
-  assert.equal(await page.locator(".record-row").count(), 1);
-  assert.equal(asked.length, reads, "choosing a territory does not read the list again");
-  await mobile.click();
-  assert.equal(await page.locator(".record-row").count(), 31);
-  await group.getByRole("button", { name: "Elsewhere 1" }).click();
-  assert.match((await page.locator(".record-row").textContent()) ?? "", /Demo Partner 05/);
-  await group.getByRole("button", { name: "No territory 1" }).click();
-  assert.match((await page.locator(".record-row").textContent()) ?? "", /Demo Partner 03/);
-  await page.getByPlaceholder("Find in Banking").fill("missing");
-  await page.getByText("No vendors match these filters").waitFor();
+  const { page } = await openVendors(t, marketRoster, { view: banking });
+  const territory = page.getByRole("group", { name: "Territories" });
+  const [mobile] = marketRoster.markets;
+  assert.ok(mobile);
+  const mobileButton = territory.getByRole("button", { name: "Mobile 1" });
+  const bankingScreen = screenFor(marketRoster, { view: banking });
+  await expectVendorScreen(page, bankingScreen);
+
+  await mobileButton.click();
+  await expectVendorScreen(page, screenFor(marketRoster, { view: `${banking}&market=${mobile.id}` }));
+  await mobileButton.click();
+  await expectVendorScreen(page, bankingScreen);
+
+  await territory.getByRole("button", { name: "Elsewhere 1" }).click();
+  await expectVendorScreen(page, screenFor(marketRoster, { view: `${banking}&market=elsewhere` }));
+  await territory.getByRole("button", { name: "No territory 1" }).click();
+  const noTerritory = `${banking}&market=no_territory`;
+  await expectVendorScreen(page, screenFor(marketRoster, { view: noTerritory }));
+  const find = page.getByPlaceholder("Find in Banking");
+  await find.fill("missing");
+  await expectVendorScreen(page, screenFor(marketRoster, { view: `${noTerritory}&q=missing` }));
   await page.getByRole("button", { name: "Clear filters" }).click();
-  await page.locator(".record-row").first().waitFor();
-  assert.equal(await group.getByRole("button", { name: "All territories 31" }).getAttribute("aria-pressed"), "true");
-  assert.equal(await page.getByPlaceholder("Find in Banking").inputValue(), "");
+  await expectVendorScreen(page, bankingScreen);
   await page.screenshot({ path: `${shots}/territories-1440.png` });
+
+  const sortTerritory = page.getByRole("button", { name: "Territory", exact: true });
+  await sortTerritory.click();
+  await expectVendorScreen(page, screenFor(marketRoster, { view: `${banking}&sort=territory` }));
+  await sortTerritory.click();
+  await expectVendorScreen(page, bankingScreen);
+
   await page.getByRole("button", { name: "Categories", exact: true }).click();
-  await page.locator("a.directory-tile", { hasText: "All vendors" }).click();
-  await group.getByRole("button", { name: "All territories 62" }).waitFor();
+  await expectVendorScreen(page, screenFor(marketRoster, { afterList: true }));
+  await page.getByRole("link", { name: /^All vendors / }).click();
+  const all = "/vendors?all=true";
+  await expectVendorScreen(page, screenFor(marketRoster, { view: all }));
   await page.getByRole("button", { name: "Dell", exact: true }).click();
-  await group.getByRole("button", { name: "All territories 31" }).waitFor();
-  await group.getByRole("button", { name: "Mobile 1" }).click();
-  assert.match((await page.locator(".record-row").textContent()) ?? "", /Demo Partner 02/);
+  const dell = `${all}&owner=dell`;
+  await expectVendorScreen(page, screenFor(marketRoster, { view: dell }));
+  await mobileButton.click();
+  const dellMobile = `${dell}&market=${mobile.id}`;
+  await expectVendorScreen(page, screenFor(marketRoster, { view: dellMobile }));
   await page.getByRole("button", { name: "People worth meeting" }).click();
-  assert.equal(await group.isVisible(), false);
   assert.equal(await page.locator(".app-layout-main").evaluate((main) => getComputedStyle(main).overflowY), "auto");
+  await expectVendorScreen(page, screenFor(marketRoster, { view: dellMobile, meetings: true }));
 });
 
 for (const [width, height, touch] of [
@@ -366,33 +237,29 @@ for (const [width, height, touch] of [
   [390, 844, true],
 ] as const) {
   test(`territory tiles fit at ${width}×${height}`, async (t) => {
-    const { page } = await openVendors(t, width, height, {
-      path: "/vendors?category=banker",
-      territoryTiles: true,
-      touch,
-      light: touch,
-      ready: ".record-row",
-    });
+    const { page } = await openVendors(t, marketRoster, { view: banking, width, height, touch, light: touch });
+    const layout = touch ? "phone" : "desktop";
+    const expected = screenFor(marketRoster, { view: banking, layout });
     const group = page.getByRole("group", { name: "Territories" });
     await page.evaluate(() => (document.documentElement.dataset.colorAssist = "on"));
-    await group.waitFor();
+    await expectVendorScreen(page, expected);
     if (touch) {
       assert.ok(await group.evaluate((row) => row.scrollWidth > row.clientWidth));
       const firstTile = await group.getByRole("button").first().boundingBox();
       assert.ok(firstTile && firstTile.height >= 44);
       await group.getByRole("button", { name: "No territory 1" }).tap();
-      assert.equal(await page.locator(".record-row").count(), 1);
+      await expectVendorScreen(page, screenFor(marketRoster, { view: `${banking}&market=no_territory`, layout }));
       await group.getByRole("button", { name: "All territories 31" }).tap();
     } else {
-      const wholeRows = await page.locator("#listRegion").evaluate((region) => {
-        const edge = region.getBoundingClientRect();
-        return [...region.querySelectorAll(".record-row")].filter((row) => {
+      const region = page.locator("#listRegion");
+      const wholeRows = await region.evaluate((list) => {
+        const edge = list.getBoundingClientRect();
+        return [...list.querySelectorAll(".record-row")].filter((row) => {
           const box = row.getBoundingClientRect();
           return box.top >= edge.top && box.bottom <= Math.min(edge.bottom, innerHeight);
         }).length;
       });
       assert.ok(wholeRows >= 11, `${wholeRows} whole vendor rows`);
-      const region = page.locator("#listRegion");
       const top = await group.boundingBox();
       await region.evaluate((list) => {
         list.scrollTop = 200;
@@ -400,40 +267,32 @@ for (const [width, height, touch] of [
       assert.ok(await region.evaluate((list) => list.scrollTop > 0));
       assert.deepEqual(await group.boundingBox(), top);
     }
+    await expectVendorScreen(page, expected);
     await page.screenshot({ path: `${shots}/territories-${width}.png` });
+    await expectVendorScreen(page, expected);
   });
 }
 
 test("territory tiles and market reads stay off before rollout", async (t) => {
-  const { page, asked } = await openVendors(t, 1440, 900, {
-    path: "/vendors?category=banker&market=elsewhere",
-    ready: ".record-row",
-  });
-  assert.equal(await page.getByRole("group", { name: "Territories" }).isVisible(), false);
-  assert.equal(
-    asked.some((url) => url.searchParams.has("markets")),
-    false,
-  );
-  assert.equal(new URL(page.url()).searchParams.has("market"), false);
+  const { page } = await openVendors(t, roster, { view: `${banking}&market=elsewhere` });
+  const expected = screenFor(roster, { view: banking });
+  await expectVendorScreen(page, expected);
 });
 
 test("Tab through the vendor table scrolls only the list", async (t) => {
-  const { page } = await openVendors(t, 1280, 640, {
-    path: "/vendors?category=banker",
-    territoryTiles: true,
-    ready: ".record-row",
-  });
+  const { page } = await openVendors(t, marketRoster, { view: banking, width: 1280, height: 640 });
+  const expected = screenFor(marketRoster, { view: banking });
+  await expectVendorScreen(page, expected);
   const tiles = page.getByRole("group", { name: "Territories" });
-  await tiles.waitFor();
   const headings = page.locator(".list-head");
   const tilesTop = (await tiles.boundingBox())?.y;
   const headingsTop = (await headings.boundingBox())?.y;
   const rows = page.locator(".record-row");
-  assert.equal(await rows.count(), 31);
+  const count = marketRoster.rows.filter((row) => row.categories.some(({ slug }) => slug === "banker")).length;
   await rows.first().focus();
-  for (let index = 1; index < 31; index++) {
+  for (let index = 1; index < count; index++) {
     await page.keyboard.press("Tab");
-    assert.equal(await rows.nth(index).evaluate((row) => row === document.activeElement), true);
+    await expect(rows.nth(index)).toBeFocused();
   }
   assert.equal(
     await page.locator(".app-layout-main").evaluate((main) => main.scrollTop),
@@ -445,17 +304,14 @@ test("Tab through the vendor table scrolls only the list", async (t) => {
   assert.equal((await tiles.boundingBox())?.y, tilesTop);
   assert.equal((await headings.boundingBox())?.y, headingsTop);
   await page.keyboard.press("Shift+Tab");
-  assert.equal(await rows.nth(29).evaluate((row) => row === document.activeElement), true);
+  await expect(rows.nth(count - 2)).toBeFocused();
+  await expectVendorScreen(page, expected);
 });
 
 test("a phone vendor card removes the territory and table controls from keyboard navigation", async (t) => {
-  const { page } = await openVendors(t, 390, 844, {
-    path: "/vendors?category=banker",
-    territoryTiles: true,
-    touch: true,
-    ready: ".record-row",
-  });
-  await page.getByRole("group", { name: "Territories" }).waitFor();
+  const { page } = await openVendors(t, marketRoster, { view: banking, width: 390, height: 844, touch: true });
+  const expected = screenFor(marketRoster, { view: banking, layout: "phone" });
+  await expectVendorScreen(page, expected);
   const quiet = page.locator("#tableFilters [data-quiet-filter]");
   const first = page.locator(".record-row").first();
   await first.focus();
@@ -463,20 +319,16 @@ test("a phone vendor card removes the territory and table controls from keyboard
   const dialog = page.getByRole("dialog");
   await dialog.getByRole("heading", { name: "Demo Partner 01" }).waitFor();
 
-  // A focus request must be refused by the covered background itself.
   await quiet.focus();
-  assert.equal(
-    await quiet.evaluate((button) => button === document.activeElement),
-    false,
-    "Quiet accepted focus behind the card",
-  );
+  await expect(quiet).not.toBeFocused();
   assert.equal(await page.getByRole("group", { name: "Show only" }).count(), 0);
   for (const key of ["Tab", "Tab", "Shift+Tab", "Shift+Tab"]) {
     await page.keyboard.press(key);
     assert.ok(await dialog.evaluate((panel) => panel.contains(document.activeElement)));
   }
   await page.keyboard.press("Escape");
-  assert.ok(await first.evaluate((row) => row === document.activeElement), "focus returns to the row");
+  await expect(first).toBeFocused();
   await quiet.focus();
-  assert.ok(await quiet.evaluate((button) => button === document.activeElement), "Quiet accepts focus after closing");
+  await expect(quiet).toBeFocused();
+  await expectVendorScreen(page, expected);
 });
