@@ -564,15 +564,15 @@ function PlanScreen(props: Inputs) {
   }
   const canReset = planPath && props.canSave && version != null && Object.keys(own).length > 0;
   const statusHost = props.mode === "plan" ? props.statusHost : null;
-  const confirming = reset || edit === "done" || edit === "drop";
+  const confirmation = reset ? "reset" : edit === "done" || edit === "drop" ? edit : undefined;
   useLayoutEffect(() => {
-    if (!statusHost?.checkVisibility() || (!status && !confirming)) return;
+    if (!statusHost?.checkVisibility() || (!status && !confirmation)) return;
     const bounds = statusHost.getBoundingClientRect();
     const top = document.getElementById("appTopbar")?.getBoundingClientRect().bottom ?? 0;
     if (bounds.top < top || bounds.bottom > innerHeight)
       statusHost.scrollIntoView({ block: "start", inline: "nearest" });
-    if (confirming) statusHost.querySelector<HTMLElement>("[data-plan-confirm]")?.focus({ preventScroll: true });
-  }, [statusHost, status, confirming, edit]);
+    if (confirmation) statusHost.querySelector<HTMLElement>("[data-plan-confirm]")?.focus({ preventScroll: true });
+  }, [statusHost, status, confirmation]);
 
   const feedback = (
     <>
@@ -620,7 +620,7 @@ function PlanScreen(props: Inputs) {
     createPortal(
       <>
         {feedback}
-        {canReset && !confirming && (
+        {canReset && !confirmation && (
           <button
             type="button"
             className="btn btn-quiet"
