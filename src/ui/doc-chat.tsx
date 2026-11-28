@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import { z } from "zod";
 import { centralToday } from "./central-time";
 import { docQuestionDraft } from "./device-text";
-import { type DocLinkStatus, docLinkMessages, readDocLinkStatus } from "./doc-link";
+import { type DocLink, docLinkMessage, docLinkMessages, readDocLinkStatus, waitingMessage } from "./doc-link";
 import { submitOnEnter } from "./keyboard-input";
 import { refreshWhileVisible } from "./visible-refresh";
 
@@ -62,27 +62,27 @@ const draftReview = z.object({
   version: draftVersion,
   current: z.enum(["pending_same", "changed", "gone"]),
 });
-const chatTurn = z.object({
-  id: z.guid(),
-  position: z.int().positive(),
-  created_at: z.iso.datetime({ offset: true }),
-  question: z.string(),
-  idempotency_key: z.guid(),
-  context: z.union([recordRef, draftContext]).nullable(),
-  draft_review: draftReview.nullable(),
-  state: z.enum(["queued", "working", "failed", "answered"]),
-  answer: answer.nullable(),
-  answered_by: z.string().nullable().optional(),
-  confirmation: confirmation.nullable(),
-  waiting_reason: z
-    .string()
-    .transform((reason) => {
-      if (reason === "Sign in to Claude Code on your Mac.") return docLinkMessages.signed_out;
-      if (reason === "Doc is paused until your Claude plan resets.") return docLinkMessages.plan_limited;
-      return reason;
-    })
-    .nullable(),
-});
+const chatTurn = z
+  .object({
+    id: z.guid(),
+    position: z.int().positive(),
+    created_at: z.iso.datetime({ offset: true }),
+    question: z.string(),
+    idempotency_key: z.guid(),
+    context: z.union([recordRef, draftContext]).nullable(),
+    draft_review: draftReview.nullable(),
+    state: z.enum(["queued", "working", "failed", "answered"]),
+    answer: answer.nullable(),
+    answered_by: z.string().nullable().optional(),
+    confirmation: confirmation.nullable(),
+    waiting_reason: z.string().nullable(),
+    waiting_reason_code: z.string().nullish(),
+    backend: z.enum(["claude", "codex"]).nullish(),
+  })
+  .transform((turn) => ({
+    ...turn,
+    waiting_reason: waitingMessage(turn.waiting_reason, turn.waiting_reason_code, turn.backend ?? null),
+  }));
 const conversationList = z.object({ conversations: z.array(conversation), next_before: z.guid().nullable() });
 const conversationDetail = z.object({ conversation, turns: z.array(chatTurn) });
 const sendResponse = z.object({ conversation_id: z.guid(), turn: chatTurn });
@@ -363,11 +363,12 @@ function TurnStatus({
   );
 }
 
-function MacStatus({ status }: { status: DocLinkStatus }) {
+function MacStatus({ status: link }: { status: DocLink }) {
+  const { status, backend } = link;
   return (
     <p className="doc-chat__mac" data-ready={status === "ready" || undefined}>
       <span>
-        {docLinkMessages[status]}
+        {docLinkMessage(status, backend)}
         {status === "not_set_up" && (
           <>
             {" "}
@@ -673,7 +674,7 @@ function DocChat() {
   const waitingTurnId = waiting ? latest.id : undefined;
   const now = useNow(waiting && !latest.waiting_reason);
   const getWaitingReason = useEffectEvent(() => latest?.waiting_reason);
-  const [macStatus, setMacStatus] = useState<DocLinkStatus | null>(null);
+  const [macStatus, setMacStatus] = useState<DocLink | null>(null);
   // The Mac can come on, sign out or hit its plan limit while a question waits, so its status is read again when the latest question changes. A replayed ask keeps its state but gets a new id.
   const macCheck = ready && `${latest?.id}:${latest?.state}:${latest?.waiting_reason}`;
   const retry =
@@ -817,7 +818,10 @@ function DocChat() {
         immediate: false,
         delay(visibleMs) {
           if (visibleMs < 60_000) return 5_000;
-          return waitingReason === docLinkMessages.mac_off || waitingReason === docLinkMessages.plan_limited
+          return waitingReason === docLinkMessages.mac_off ||
+            ([null, "claude", "codex"] as const).some(
+              (backend) => waitingReason === docLinkMessage("plan_limited", backend),
+            )
             ? 120_000
             : 30_000;
         },

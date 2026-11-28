@@ -1940,6 +1940,25 @@ for (const [status, line] of [
   });
 }
 
+test("Doc uses the engine's model and waiting code on screen", async (t) => {
+  const { page, origin } = await docChatFixture(t, (request) => {
+    const path = new URL(request.url).pathname;
+    if (path === "/api/engine/doc/link")
+      return Response.json({ status: "mac_off", readiness_code: "doc_signed_out", backend: "codex" });
+    if (path === `/api/engine/doc/conversations/${id}`)
+      return Response.json({
+        conversation,
+        turns: [
+          { ...queuedTurn, waiting_reason: "old wording", waiting_reason_code: "doc_plan_limit", backend: "claude" },
+        ],
+      });
+    return Response.json({ conversations: [conversation], next_before: null });
+  });
+  await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
+  await expect(page.getByText("Doc is paused until your Claude Code plan resets.")).toBeVisible();
+  await expect(page.getByText("Sign in to Codex on your Mac.")).toBeVisible();
+});
+
 test("The Mac status line shows nothing when its read fails and reads again when a waiting question is answered", async (t) => {
   let answer = false;
   let linkReads = 0;

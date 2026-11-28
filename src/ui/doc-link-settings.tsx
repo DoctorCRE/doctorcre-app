@@ -2,16 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 
-import {
-  type DocLinkRequest,
-  type DocLinkStatus,
-  docLinkMessages,
-  readDocLinkStatus,
-  requestDocLink,
-} from "./doc-link";
+import { type DocLink, type DocLinkRequest, docLinkMessage, readDocLinkStatus, requestDocLink } from "./doc-link";
 
 function DocLinkSettings({ request }: { request: DocLinkRequest }) {
-  const [status, setStatus] = useState<DocLinkStatus | null>(null);
+  const [status, setStatus] = useState<DocLink | null>(null);
   const [busy, setBusy] = useState(true);
   const [notice, setNotice] = useState("");
   const [code, setCode] = useState("");
@@ -59,7 +53,7 @@ function DocLinkSettings({ request }: { request: DocLinkRequest }) {
     try {
       if (action === "revoke") {
         await requestDocLink(request, "POST", "/revoke");
-        setStatus("not_set_up");
+        setStatus({ status: "not_set_up", backend: null });
       } else {
         const response = await requestDocLink(request, "POST");
         const data: unknown = await response.json();
@@ -71,16 +65,17 @@ function DocLinkSettings({ request }: { request: DocLinkRequest }) {
           !/^[A-Za-z0-9_-]{43}$/.test(data.credential)
         )
           throw new Error("Doc link code unavailable");
-        setStatus("mac_off");
+        setStatus({ status: "mac_off", backend: null });
         if (view === codeView.current) setCode(data.credential);
       }
     } catch {
       const current = await readDocLinkStatus(request);
       setStatus(current);
-      if (action === "issue" && current && current !== "not_set_up")
+      if (action === "issue" && current && current.status !== "not_set_up")
         setNotice("The code could not be shown. Replace it to get a new one.");
-      else if (action === "issue" && current === "not_set_up") setNotice("Couldn't make a link code. Try again.");
-      else if (action !== "revoke" || current !== "not_set_up")
+      else if (action === "issue" && current?.status === "not_set_up")
+        setNotice("Couldn't make a link code. Try again.");
+      else if (action !== "revoke" || current?.status !== "not_set_up")
         setNotice("Couldn't confirm the change. Refresh Doc status.");
     } finally {
       setBusy(false);
@@ -104,7 +99,11 @@ function DocLinkSettings({ request }: { request: DocLinkRequest }) {
         <h2 id="docLinkTitle">Doc link</h2>
       </div>
       <p role="status">
-        {status ? docLinkMessages[status] : busy ? "Checking Doc status…" : "Couldn't load Doc status."}
+        {status
+          ? docLinkMessage(status.status, status.backend)
+          : busy
+            ? "Checking Doc status…"
+            : "Couldn't load Doc status."}
       </p>
       {notice && <p role="status">{notice}</p>}
       {code ? (
@@ -133,10 +132,10 @@ function DocLinkSettings({ request }: { request: DocLinkRequest }) {
         <div className="pref-act">
           {status && (
             <button className="btn" type="button" disabled={busy} onClick={() => void change("issue")}>
-              {status === "not_set_up" ? "Make link code" : "Replace link code"}
+              {status.status === "not_set_up" ? "Make link code" : "Replace link code"}
             </button>
           )}
-          {status && status !== "not_set_up" && (
+          {status && status.status !== "not_set_up" && (
             <button className="btn" type="button" disabled={busy} onClick={() => void change("revoke")}>
               Revoke link code
             </button>
