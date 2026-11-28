@@ -1261,7 +1261,8 @@ self.addEventListener('activate', event => event.waitUntil((async () => {
     const weeklyReview = /^\/api\/engine\/weekly-reviews(?:\/|$)/.test(pathname);
     const dealRead = ['/api/engine/calendar/critical-dates', '/api/engine/calendar/meetings'].includes(pathname) || pathname === '/api/engine/markets' || /^\/api\/engine\/national-accounts\/[^/]+\/locations$/.test(pathname);
     if ((weeklyReview && (!await switchedOn(env, DEALS) || !await switchedOn(env, NEXT_DEAL_SAVES)))
-        || ((dealRead || pathname.startsWith('/api/engine/documents/')) && !await routeToEngine(env, DEALS)))
+        || ((dealRead || pathname.startsWith('/api/engine/documents/')) && !await routeToEngine(env, DEALS))
+        || (pathname === '/api/engine/leads/counts' && !await routeToEngine(env, LEADS)))
       return json({ error: 'not_found' }, 404);
     const nextDealsOnly = (pathname === '/api/engine/parties/search' && url.searchParams.has('role'))
       || /^\/api\/engine\/clients\/[^/]+\/leases$/.test(pathname)

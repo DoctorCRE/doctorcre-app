@@ -68,15 +68,6 @@ export const quietLeadIndex = proposals => new Map(proposals.filter(row => row.s
   row.ref ? [[row.subject_id, row], [row.ref, row]] : [[row.subject_id, row]]
 ));
 export const quietFollowUp = (index, lead) => index.get(lead.id) || index.get(lead.registry_ref);
-/** The board's New from email and Follow-up late badges, counted over the leads it shows unfiltered. */
-export function leadBadgeCounts(leads, proposals) {
-  const index = quietLeadIndex(proposals);
-  const shown = visibleLeads(leads);
-  return {
-    newFromEmail: shown.filter(lead => lead.new_from_email).length,
-    followUpsLate: shown.filter(lead => quietFollowUp(index, lead)?.days_overdue > 0).length,
-  };
-}
 export function marketCounts(leads, filters = {}, locate = () => null) {
   const counts = new Map();
   for (const lead of visibleLeads(leads, filters)) {
