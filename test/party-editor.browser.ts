@@ -936,6 +936,45 @@ test("The relationship button on a vendor card changes the level, parks with a r
   assert.equal(saves().length, 3);
 });
 
+test("A vendor card can retry a failed relationship refresh after a save", async (t) => {
+  const fake = engine(vendorParty, "vendor", { ...vendorProfile, relationship_level: 1 });
+  let refreshes = 0;
+  const { page, sent } = await setup(
+    t,
+    `/vendors?all=true&record=${vendor}`,
+    (call) => {
+      if (
+        call.method === "GET" &&
+        call.path === `/api/engine/parties/${vendor}` &&
+        fake.state.profile.relationship_level === 2 &&
+        ++refreshes === 1
+      )
+        return { status: 503, json: {} };
+      return fake.answer(call);
+    },
+    { record: () => ({ relationship_level: fake.state.profile.relationship_level }) },
+  );
+  const relationship = page.locator("#recordRelationship");
+  const established = relationship.locator(".rel-button", { hasText: "Established" });
+  await relationship.locator(".rel-button", { hasText: "Building" }).click();
+  await relationship.getByRole("button", { name: "Established", exact: true }).click();
+
+  const alert = relationship.getByRole("alert");
+  await alert.filter({ hasText: "Could not load the relationship." }).waitFor();
+  assert.equal(await established.isVisible(), false);
+  const retry = relationship.getByRole("button", { name: "Try again" });
+  await retry.focus();
+  await page.keyboard.press("Enter");
+  await alert.waitFor({ state: "hidden" });
+  await page.waitForFunction(() =>
+    document.activeElement?.matches('.rel-button:not([disabled])[data-relationship="established"]'),
+  );
+  assert.equal(refreshes, 2);
+  assert.equal(posts(sent).length, 1);
+  await established.click();
+  await relationship.getByRole("button", { name: "Park…" }).waitFor();
+});
+
 test("Park opens as a question, and Escape closes it without saving or closing the card", async (t) => {
   const fake = engine(vendorParty, "vendor", {
     ...vendorProfile,
