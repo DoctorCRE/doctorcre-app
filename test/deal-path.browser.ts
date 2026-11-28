@@ -190,7 +190,7 @@ test("the path shows every phase with its to-dos and no phase dropdown", async (
   assert.equal(await path.locator('[data-place="done"] .deal-path-check').count(), 3, "earlier phases are checked");
   assert.equal(await path.locator('[data-phase="pending"] .deal-path-empty').textContent(), "Nothing listed");
   assert.equal(await path.locator('[data-phase="due_diligence"] .deal-path-empty').textContent(), "Nothing listed");
-  assert.equal(await path.locator('[data-todo="loi_grid"] small').textContent(), "Was due Nov 24");
+  assert.equal(await path.locator('[data-todo="loi_grid"] small:visible').textContent(), "Was due Nov 24");
   assert.equal(
     await path.locator('[data-phase="legal"] [data-todo]').count(),
     1,
@@ -198,7 +198,7 @@ test("the path shows every phase with its to-dos and no phase dropdown", async (
   );
   assert.equal(await path.locator('[data-phase="closed"] [data-todo="invoice_recorded"]').count(), 1);
   assert.match((await current.locator("[data-phase-move]").textContent()) ?? "", /Moved automatically.*Nov 23.*Undo/);
-  await path.getByText("Market survey", { exact: true }).click();
+  await path.getByText("Market survey", { exact: true }).locator("visible=true").click();
   assert.equal(await path.getByText("Market survey filed").isVisible(), true, "a to-do opens to what is filed");
 });
 

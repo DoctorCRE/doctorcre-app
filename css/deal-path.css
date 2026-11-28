@@ -23,7 +23,6 @@ button.deal-path-name:hover, button.deal-path-name[aria-expanded="true"] { color
 .deal-path-tile ul:has(+ .deal-path-more) { padding-bottom: 0; }
 .deal-path-tile .deal-path-more > summary { display: block; margin: 0 6px 4px; padding: 0 4px; line-height: 20px; color: var(--fg-quiet); }
 .deal-path-tile .deal-path-more > summary::before { content: none; }
-.deal-path-tile .deal-path-more[open] > summary { margin-bottom: 0; }
 .deal-path-tile summary { display: grid; grid-template-columns: 14px minmax(0, 1fr); column-gap: 6px; padding: 4px; border-radius: var(--radius-2); font-size: var(--font-size-1); color: var(--fg-muted); cursor: pointer; list-style: none; }
 .deal-path-tile summary::-webkit-details-marker { display: none; }
 .deal-path-tile summary:hover { background: var(--surface-3); color: var(--fg); }
@@ -66,3 +65,7 @@ button.deal-path-name:hover, button.deal-path-name[aria-expanded="true"] { color
   .deal-path-ask { position: fixed; z-index: 1250; inset: auto 0 var(--layout-bottom, 0) 0; top: auto; width: auto; padding: var(--space-4); border-radius: var(--radius-3) var(--radius-3) 0 0; }
   .deal-path-actions .btn { min-height: 44px; }
 }
+
+/* A 220px minimum keeps the list readable in a narrow phase tile. */
+.deal-path-list-panel { position: fixed; z-index: 20; overflow-y: auto; box-sizing: border-box; min-width: 220px; padding: 8px; border-radius: var(--radius-3); background: var(--surface-2); box-shadow: var(--shadow-overlay); }
+.deal-path-list-panel > button { border: 0; background: none; color: var(--fg-muted); cursor: pointer; font: inherit; }
