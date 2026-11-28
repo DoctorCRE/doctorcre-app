@@ -165,6 +165,7 @@ async function openHome(
   tours: unknown[] = [],
   dates = comingUpDates,
   home: typeof dashboard = dashboard,
+  leadCounts: unknown = { schema_version: "lead-counts.v1", new_from_email: 2, follow_ups_late: 1 },
 ) {
   const browser = await chromium.launch();
   t.after(() => browser.close());
@@ -217,9 +218,7 @@ async function openHome(
   await page.route("**/api/engine/calendar/critical-dates", (route) =>
     route.fulfill({ json: { schema_version: "calendar-critical-dates.v1", critical_dates: dates } }),
   );
-  await page.route("**/api/engine/leads/counts", (route) =>
-    route.fulfill({ json: { schema_version: "lead-counts.v1", new_from_email: 2, follow_ups_late: 1 } }),
-  );
+  await page.route("**/api/engine/leads/counts", (route) => route.fulfill({ json: leadCounts }));
   await page.route("**/mcp", async (route) => {
     const call = route.request().postDataJSON();
     if (["lead-board", "quiet-follow-ups"].includes(call.params.name)) leadReads.push(call.params.name);
@@ -323,6 +322,16 @@ test("The Leads line counts new and late leads and opens Leads", async (t) => {
   assert.equal(await line.getAttribute("href"), "/leads");
   assert.deepEqual(leadReads, [], "Home reads no Leads board or Quiet list");
 });
+
+for (const [fault, answer] of [
+  ["a wrong schema version", { schema_version: "lead-counts.v0", new_from_email: 2, follow_ups_late: 1 }],
+  ["a missing count", { schema_version: "lead-counts.v1", new_from_email: 2 }],
+] as const)
+  test(`The Leads line says counts are unavailable for ${fault}, never wrong numbers`, async (t) => {
+    const page = await openHome(t, 1440, 900, [], comingUpDates, dashboard, answer);
+    const line = page.getByRole("region", { name: "Leads", exact: true }).getByRole("link");
+    assert.equal(await line.textContent(), "LeadsLead counts unavailable");
+  });
 
 test("At 1440 a waiting row keeps its whole return date and gives the rest to the title", async (t) => {
   const page = await openHome(t, 1440, 900);
@@ -479,6 +488,22 @@ test("At 1280x640 the attention list and Coming up fold to one line each that op
   await tile.getByRole("link", { name: "Example Deal 2 This deal has no next step and no suggestion." }).waitFor();
   await page.getByRole("button", { name: "Coming up 2 dates in the next 14 days" }).click();
   await page.getByRole("link", { name: /Fri, Nov 27/ }).waitFor();
+});
+
+test("At 1280x640 every right-column tile shows whole, and each Leads count keeps to one line", async (t) => {
+  const page = await openHome(t, 1280, 640);
+  const clipped = await page.evaluate(() =>
+    [...document.querySelectorAll(".home-side > *")]
+      .filter((tile) => tile.scrollHeight > tile.clientHeight)
+      .map((tile) => tile.getAttribute("aria-label")),
+  );
+  assert.deepEqual(clipped, []);
+  const parts = page.getByRole("region", { name: "Leads" }).locator(".home-door-detail > span");
+  assert.deepEqual(await parts.allTextContents(), ["2 new from email", "1 follow-up late"]);
+  for (const part of await parts.all()) {
+    const lines = await part.evaluate((node) => node.getClientRects().length);
+    assert.equal(lines, 1);
+  }
 });
 
 test("Coming up is not drawn when no open deal has a date in the next 14 days", async (t) => {

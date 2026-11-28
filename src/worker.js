@@ -427,6 +427,10 @@ function routeToEngine(env, key, usedOnDeals = false) {
   return switchedOn(env, key);
 }
 
+const FALLBACK_DEADLINE_MS = 2_000;
+// The app's own deadline for these reads in js/live-client.js and js/leads-client.js.
+const READ_DEADLINE_MS = 10_000;
+
 async function engineResponse(request, env, call) {
   const url = new URL(request.url);
   const asked = engineRead(request, url, call);
@@ -440,6 +444,9 @@ async function engineResponse(request, env, call) {
   if (!await routeToEngine(env, read.key, read.usedOnDeals)) return null;
   let cutover;
   const cutoverOn = () => cutover ??= routeToEngine(env, NEXT_DEAL_SAVES);
+  // Only a read the old system may still answer is cut short to leave it time;
+  // under engine sign-in nothing can, so the engine gets the reader's whole deadline.
+  const engineOnly = engineSignIn(env) || read.engineOnly;
   const origin = request.headers.get('origin');
   if (origin && origin !== url.origin) return json({ error: 'origin_mismatch' }, 403);
   const headers = new Headers();
@@ -480,7 +487,7 @@ async function engineResponse(request, env, call) {
         const chunks = [];
         const decoder = new TextDecoder();
         if (reader) {
-          // eslint-disable-next-line no-restricted-syntax -- Engine body reads stop after the two-second request deadline cancels this reader.
+          // eslint-disable-next-line no-restricted-syntax -- Engine body reads stop when the read deadline cancels this reader.
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
@@ -518,18 +525,17 @@ async function engineResponse(request, env, call) {
         return mcpReply(call, response, text, response.status >= 400);
       })(),
       new Promise(resolve => {
-        // eslint-disable-next-line no-restricted-syntax -- One engine deadline fires after two seconds and is cleared when the response settles.
+        // eslint-disable-next-line no-restricted-syntax -- One engine deadline per read, cleared when the response settles.
         timer = setTimeout(() => {
         controller.abort();
         void reader?.cancel().catch(() => {});
         resolve(null);
-      }, 2000); }),
+      }, engineOnly ? READ_DEADLINE_MS : FALLBACK_DEADLINE_MS); }),
     ]);
     if (response) return response;
   } catch { /* The switch below decides whether this read can fall back. */ }
   finally { clearTimeout(timer); reader?.releaseLock(); }
-  return engineSignIn(env) || read.engineOnly || await cutoverOn()
-    ? json({ error: 'engine_unavailable' }, 503) : null;
+  return engineOnly || await cutoverOn() ? json({ error: 'engine_unavailable' }, 503) : null;
 }
 
 // New-schema receipts are separate from the legacy tool receipts.
@@ -1255,7 +1261,8 @@ self.addEventListener('activate', event => event.waitUntil((async () => {
     const weeklyReview = /^\/api\/engine\/weekly-reviews(?:\/|$)/.test(pathname);
     const dealRead = ['/api/engine/calendar/critical-dates', '/api/engine/calendar/meetings'].includes(pathname) || pathname === '/api/engine/markets' || /^\/api\/engine\/national-accounts\/[^/]+\/locations$/.test(pathname);
     if ((weeklyReview && (!await switchedOn(env, DEALS) || !await switchedOn(env, NEXT_DEAL_SAVES)))
-        || ((dealRead || pathname.startsWith('/api/engine/documents/')) && !await routeToEngine(env, DEALS)))
+        || ((dealRead || pathname.startsWith('/api/engine/documents/')) && !await routeToEngine(env, DEALS))
+        || (pathname === '/api/engine/leads/counts' && !await routeToEngine(env, LEADS)))
       return json({ error: 'not_found' }, 404);
     const nextDealsOnly = (pathname === '/api/engine/parties/search' && url.searchParams.has('role'))
       || /^\/api\/engine\/clients\/[^/]+\/leases$/.test(pathname)

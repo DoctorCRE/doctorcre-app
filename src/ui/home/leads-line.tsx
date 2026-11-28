@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { Fragment } from "react";
 
 type Counts = { newFromEmail: number; followUpsLate: number };
 const count = (value: unknown) => (Number.isSafeInteger(value) && Number(value) >= 0 ? Number(value) : null);
@@ -22,9 +23,7 @@ function leadsSummary({ newFromEmail, followUpsLate }: Counts) {
   return [
     newFromEmail && `${newFromEmail} new from email`,
     followUpsLate && `${followUpsLate} ${followUpsLate === 1 ? "follow-up" : "follow-ups"} late`,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  ].filter((part): part is string => Boolean(part));
 }
 
 /** One line that opens Leads with the counts its New from email and Follow-up late badges show. */
@@ -35,14 +34,21 @@ export function LeadsLine() {
     // eslint-disable-next-line no-restricted-syntax -- The Leads counts read once a minute while visible and online.
     refetchInterval: () => (navigator.onLine && document.visibilityState === "visible" ? 60_000 : false),
   });
-  const summary = leads.data ? leadsSummary(leads.data) : leads.isError ? "Lead counts unavailable" : "";
-  if (!summary) return null;
+  const summary = leads.data ? leadsSummary(leads.data) : leads.isError ? ["Lead counts unavailable"] : [];
+  if (!summary.length) return null;
   return (
     <section className="home-slice home-door-tile" aria-label="Leads">
       <a className="home-door" href="/leads">
         <strong>Leads</strong>
         {leads.data?.newFromEmail ? <span className="home-dot-info" aria-hidden="true" /> : null}
-        <span className="home-door-detail">{summary}</span>
+        <span className="home-door-detail">
+          {summary.map((part, index) => (
+            <Fragment key={part}>
+              {index > 0 && " · "}
+              <span>{part}</span>
+            </Fragment>
+          ))}
+        </span>
       </a>
     </section>
   );
