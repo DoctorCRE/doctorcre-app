@@ -260,8 +260,10 @@ export function mountLeadsWorkspace(doc = document, client = createLeadBoardClie
     $("leadDetailRecovery").hidden = !($("leadDetail").open && pending && pending.kind !== "stage" && pending.lead.id === state.detailId);
     const command = state.pending ? 'Confirmation pending <button id="checkPending">Check outcome</button>' : esc(state.commandFeedback);
     const engagements = engagement.values(state.actor).map(pending => `${esc(leadTitle(state.board?.leads.find(lead => lead.prospect_client_id === pending.request.client_id) || { name: "Prospect" }))}: Confirmation pending <button data-check-engagement="${esc(pending.request.client_id)}"${pending.sending ? " disabled" : ""}>Check outcome</button>`);
-    box.hidden = !state.pending && !engagements.length && !state.commandFeedback && !state.connectionFeedback;
-    box.innerHTML = [command, ...engagements, esc(state.connectionFeedback)].filter(Boolean).join(" · ");
+    const leftOut = state.board?.left_out;
+    const leftOutNote = leftOut ? `${leftOut} ${leftOut === 1 ? "lead" : "leads"} couldn't be shown` : "";
+    box.hidden = !state.pending && !engagements.length && !state.commandFeedback && !state.connectionFeedback && !leftOut;
+    box.innerHTML = [command, ...engagements, esc(state.connectionFeedback), leftOutNote].filter(Boolean).join(" · ");
     if (!state.actor && state.connectionFeedback === "Sign-in required") box.insertAdjacentHTML("beforeend", ` · <a href="/auth/login?return_to=${encodeURIComponent(win.location.pathname + win.location.search)}">Sign in</a>`);
     if (state.readFailed && state.connectionFeedback && state.connectionFeedback !== "Sign-in required") {
       box.insertAdjacentHTML("beforeend", ' <button type="button" id="retryLeadRead">Retry</button>');
