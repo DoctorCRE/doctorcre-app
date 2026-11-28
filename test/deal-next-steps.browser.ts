@@ -12,6 +12,12 @@ const dealId = "00000000-0000-4000-8000-00000000d160";
 const stepId = "00000000-0000-4000-8000-00000000a101";
 const suggestionId = "00000000-0000-4000-8000-00000000b101";
 const filingId = "00000000-0000-4000-8000-00000000b102";
+const workflow = {
+  proposal_id: "00000000-0000-4000-8000-00000000b103",
+  what: "Live terms comparison and counters",
+  evidence: "From the checklist · Live terms comparison and counters is next in Negotiating",
+  due_on: "2026-12-03",
+};
 const emailId = "00000000-0000-4000-8000-00000000e101";
 const session = { actor: { slug: "joe" }, csrf_token: "synthetic-csrf" };
 const body = [
@@ -26,7 +32,7 @@ async function openDeal(
   t: TestContext,
   viewport: { width: number; height: number },
   theme: "light" | "dark",
-  { holdEmail = false } = {},
+  { holdEmail = false, withWorkflow = false } = {},
 ) {
   const server = await startWorkerFixture({
     assets: await appAssetSnapshot(),
@@ -64,7 +70,15 @@ async function openDeal(
     },
     { proposal_id: filingId, kind: "file_to_deal", title: "File Morgan's email", email },
   ];
-  let steps = [
+  let steps: {
+    id: string;
+    owner: string;
+    description: string;
+    due_on: string | null;
+    status: string;
+    change_id: number;
+    set_on: string;
+  }[] = [
     {
       id: stepId,
       owner: "dell",
@@ -75,6 +89,11 @@ async function openDeal(
       set_on: "2026-11-18",
     },
   ];
+  let workflowSuggestions = withWorkflow ? [workflow] : [];
+  if (withWorkflow) {
+    suggestions = suggestions.filter(({ kind }) => kind === "file_to_deal");
+    steps = [];
+  }
   const deal = () => ({
     id: dealId,
     deal_id: dealId,
@@ -89,6 +108,7 @@ async function openDeal(
     critical_dates: [],
     vendors: [],
     email_follow_ups: suggestions,
+    ...(withWorkflow ? { workflow_suggestions: workflowSuggestions } : {}),
     correspondence: [],
     documents: [],
   });
@@ -105,6 +125,20 @@ async function openDeal(
           const { idempotency_key: _key, ...decision } = await request.json();
           writes.push([path, decision]);
           suggestions = suggestions.filter((row) => row.proposal_id !== decided[1]);
+          workflowSuggestions = workflowSuggestions.filter((row) => row.proposal_id !== decided[1]);
+          if (decided[1] === workflow.proposal_id && decision.decision === "accept") {
+            steps = [
+              {
+                id: workflow.proposal_id,
+                owner: "joe",
+                description: decision.edits.what,
+                due_on: decision.edits.due_on,
+                status: "open",
+                change_id: 5,
+                set_on: "2026-11-25",
+              },
+            ];
+          }
           return Response.json({
             proposal_id: decided[1],
             status: decision.decision === "accept" ? "accepted" : "dismissed",
@@ -116,7 +150,11 @@ async function openDeal(
           steps = [];
           return Response.json({ next_step_id: stepId, status: "done", change_id: 4 });
         }
-        if (path === `/api/engine/proposals/${suggestionId}` || path === `/api/engine/proposals/${filingId}`) {
+        if (
+          path === `/api/engine/proposals/${suggestionId}` ||
+          path === `/api/engine/proposals/${filingId}` ||
+          path === `/api/engine/proposals/${workflow.proposal_id}`
+        ) {
           emailReads.push(path);
           await emailHeld;
           return Response.json({
@@ -286,3 +324,65 @@ test("A suggestion's email is read once while the deal reads again", async (t) =
   await tile.getByText("Our lender cannot fund until late February", { exact: false }).waitFor();
   assert.deepEqual(emailReads, [`/api/engine/proposals/${suggestionId}`]);
 });
+
+for (const [action, width] of [
+  ["accept", 1440],
+  ["edit and accept", 390],
+  ["dismiss", 1280],
+] as const) {
+  test(`a checklist suggestion shares the Suggested list and can be ${action === "dismiss" ? "dismissed" : "accepted"} (${action})`, async (t) => {
+    const { page, tile, writes, emailReads } = await openDeal(
+      t,
+      { width, height: width === 1280 ? 640 : 900 },
+      "light",
+      {
+        withWorkflow: true,
+      },
+    );
+    const list = tile.getByRole("list", { name: "Suggested steps" });
+    const suggestion = list.getByRole("listitem", { name: workflow.what });
+    const filing = list.getByRole("listitem", { name: "File Morgan's email" });
+    assert.equal(await suggestion.count(), 1, "one checklist suggestion beside the email follow-up");
+    assert.equal(await filing.count(), 1);
+    assert.equal(await tile.getByRole("list", { name: "Open steps" }).getByText(workflow.what).count(), 0);
+    await suggestion.getByText(workflow.evidence, { exact: false }).waitFor();
+    await suggestion.getByText("Due Thu, Dec 3, 2026", { exact: false }).waitFor();
+    assert.deepEqual(await suggestion.getByRole("button").allTextContents(), ["Accept", "Edit", "Dismiss"]);
+
+    if (action === "edit and accept") {
+      await suggestion.getByRole("button", { name: "Edit" }).click();
+      assert.equal(await suggestion.getByLabel("Next step").inputValue(), workflow.what);
+      assert.equal(await suggestion.getByLabel("Due date").inputValue(), "2026-12-03");
+      await suggestion.getByLabel("Next step").fill("Compare the two sample offers");
+      await suggestion.getByLabel("Due date").fill("");
+      await suggestion.screenshot({ path: `${shots}/checklist-suggestion-edit-390.png` });
+      assert.deepEqual(writes, [], "editing alone does not save");
+    }
+
+    await suggestion.getByRole("button", { name: action === "dismiss" ? "Dismiss" : "Accept" }).click();
+    await suggestion.waitFor({ state: "detached" });
+    assert.equal(await filing.count(), 1, "the email suggestion remains");
+    if (action === "dismiss") {
+      await tile.getByText("No next step set.", { exact: true }).waitFor();
+    } else {
+      const title = action === "accept" ? workflow.what : "Compare the two sample offers";
+      await tile.getByRole("list", { name: "Open steps" }).getByText(title, { exact: true }).waitFor();
+    }
+    assert.deepEqual(writes, [
+      [
+        `/api/engine/proposals/${workflow.proposal_id}/decision`,
+        action === "dismiss"
+          ? { decision: "dismiss" }
+          : {
+              decision: "accept",
+              edits:
+                action === "accept"
+                  ? { what: workflow.what, due_on: "2026-12-03" }
+                  : { what: "Compare the two sample offers", due_on: null },
+            },
+      ],
+    ]);
+    assert.deepEqual(emailReads, [`/api/engine/proposals/${filingId}`]);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), 0);
+  });
+}

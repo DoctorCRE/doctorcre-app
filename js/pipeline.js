@@ -1317,7 +1317,7 @@ function syncUpdateForm() {
 }
 function validateDetail(detail, id) {
   if (!detail?.deal || detail.deal.id !== id || typeof detail.deal.name !== 'string') throw new Error('Invalid detail');
-  for (const field of ['activities','thread','next_actions','critical_dates','participants','premises','negotiation_rounds','documents','history','email_follow_ups','correspondence']) {
+  for (const field of ['activities','thread','next_actions','critical_dates','participants','premises','negotiation_rounds','documents','history','email_follow_ups','workflow_suggestions','correspondence']) {
     if (detail[field] !== undefined && (!Array.isArray(detail[field]) || detail[field].some(row => !row || typeof row !== 'object'))) throw new Error('Invalid detail section');
   }
   return prepareDealDetail(detail);
@@ -1771,18 +1771,19 @@ function suggestionEmailSlot(fallback, id) {
 }
 
 function suggestionHtml(row, today, canDecide, showEmail) {
+  const workflow = row.kind === 'workflow_step';
   const email = row.email || {};
   const subject = emailSubject(redactEmailAddresses(email.subject || ''));
-  const fallback = redactEmailAddresses(row.evidence || email.summary || '');
-  const change = row.kind === 'file_to_deal' ? 'File email to this deal'
+  const change = workflow ? row.what
+    : row.kind === 'file_to_deal' ? 'File email to this deal'
     : row.kind === 'phase_move' ? `Move to ${columnBySlug(row.to_phase)?.label || 'the next phase'}`
     : row.what && emailPlaceholderText(redactEmailAddresses(row.what)) || 'Review email';
-  const title = row.title || (subject === '(No subject)' ? 'Email follow-up' : subject);
-  const step = row.kind === 'next_step';
-  const line = [esc(suggestionSource(email)), title !== change && esc(change), step && row.owner && `For ${esc(actorName(row.owner))}`,
+  const title = workflow ? change : row.title || (subject === '(No subject)' ? 'Email follow-up' : subject);
+  const step = workflow || row.kind === 'next_step';
+  const line = [esc(workflow ? row.evidence : suggestionSource(email)), title !== change && esc(change), step && row.owner && `For ${esc(actorName(row.owner))}`,
     row.due_on && dueDateHtml(row.due_on, today)].filter(Boolean).join(' · ');
   const id = esc(row.proposal_id);
-  const actions = canDecide ? `<form class="deal-suggestion-actions" data-email-decision="${id}">
+  const actions = canDecide ? `<form class="deal-suggestion-actions" data-suggestion-decision="${id}">
       <div class="deal-suggestion-buttons">
         <button class="btn" type="submit" value="accept" data-detail-focus="accept-${id}">Accept</button>
         ${step ? `<button class="btn btn-quiet" type="button" data-edit-suggestion data-detail-focus="edit-${id}">Edit</button>
@@ -1794,19 +1795,23 @@ function suggestionHtml(row, today, canDecide, showEmail) {
         <label>Due date<input type="date" name="due_on" value="${esc(row.due_on)}" data-detail-focus="date-${id}"></label>
       </div>` : ''}
     </form>` : '';
+  const emailBody = showEmail ? suggestionEmailSlot(redactEmailAddresses(row.evidence || email.summary || ''), row.proposal_id) : '';
   return `<li class="deal-suggestion" aria-labelledby="suggestion-${id}"><div class="deal-suggestion-row">
       <div><h3 id="suggestion-${id}">${esc(title)}</h3><p>${line}</p></div>${actions}
-    </div>${showEmail ? suggestionEmailSlot(fallback, row.proposal_id) : ''}</li>`;
+    </div>${emailBody}</li>`;
 }
 
-function dealSuggestionsHtml({ correspondence, email_follow_ups, next_deal_saves }, today) {
+function dealSuggestionsHtml({ correspondence, email_follow_ups, workflow_suggestions = [], next_deal_saves }, today) {
   const filed = new Set(correspondence?.filter(entry => entry.kind === 'email' && entry.activity_id).map(entry => entry.activity_id));
   const rows = email_follow_ups.filter(row => row.kind !== 'file_to_deal' || !filed.has(row.email?.activity_id));
   const emailOf = row => row.email?.activity_id ?? row.proposal_id;
   const firstForEmail = new Set(rows.map(row => rows.find(other => emailOf(other) === emailOf(row))));
-  return rows.length ? `<h3 class="deal-steps-group">Suggested</h3>
-    <ul class="deal-suggestions" aria-label="Suggested steps" role="list">${rows.map(row =>
-      suggestionHtml(row, today, next_deal_saves, firstForEmail.has(row))).join('')}</ul>` : '';
+  const suggestions = [
+    ...rows.map(row => suggestionHtml(row, today, next_deal_saves, firstForEmail.has(row))),
+    ...workflow_suggestions.map(row => suggestionHtml({ ...row, kind: 'workflow_step' }, today, next_deal_saves, false)),
+  ];
+  return suggestions.length ? `<h3 class="deal-steps-group">Suggested</h3>
+    <ul class="deal-suggestions" aria-label="Suggested steps" role="list">${suggestions.join('')}</ul>` : '';
 }
 
 function renderSnapshotFacts(deal, fromEngine) {
@@ -2224,12 +2229,12 @@ async function readPanel(id) {
           const activityScroll = current.querySelector('.activity-list')?.scrollTop ?? null;
           const openTodos = new Set([...current.querySelectorAll('[data-todo] > details[open]')].map(n => n.parentElement.dataset.todo));
           if (fresh.dataset.detailRead === 'suggested') {
-            for (const input of current.querySelectorAll('[data-email-decision] input')) {
+            for (const input of current.querySelectorAll('[data-suggestion-decision] input')) {
               const replacement = fresh.querySelector(`[data-detail-focus="${CSS.escape(input.dataset.detailFocus)}"]`);
               if (replacement && replacement.defaultValue === input.defaultValue) replacement.value = input.value;
             }
-            for (const edit of current.querySelectorAll('[data-email-decision] [data-suggestion-edit]:not([hidden])'))
-              setSuggestionEdit(fresh.querySelector(`[data-email-decision="${CSS.escape(edit.closest('form').dataset.emailDecision)}"]`), true, false);
+            for (const edit of current.querySelectorAll('[data-suggestion-decision] [data-suggestion-edit]:not([hidden])'))
+              setSuggestionEdit(fresh.querySelector(`[data-suggestion-decision="${CSS.escape(edit.closest('form').dataset.suggestionDecision)}"]`), true, false);
           }
           if (fresh.dataset.detailRead === 'updates') disposeActivityAttribution();
           if (fresh.dataset.detailRead === 'activity') disposeActivityPane();
@@ -3111,7 +3116,7 @@ function wire() {
   $('panelBody').addEventListener('submit', async e => {
     if (e.target.dataset.pathMove) { e.preventDefault(); await movePathPhase(e.target); return; }
     e.preventDefault(); const id=state.panelDeal; const form = new FormData(e.target);
-    const proposal = e.target.dataset.emailDecision;
+    const proposal = e.target.dataset.suggestionDecision;
     const choice = e.submitter?.value;
     if (proposal && state.panelDetail?.next_deal_saves && ['accept', 'dismiss'].includes(choice)) {
       let edits;
@@ -3127,7 +3132,7 @@ function wire() {
       await runFollowUp(`deal-email:${id}:${proposal}`, {
         verb:'decide-engine-deal-email',
         args:{ deal:id, proposal_id:proposal, decision:choice, ...(edits && { edits }) },
-        summary:'Email follow-up',
+        summary:'Deal suggestion',
       });
       return;
     }

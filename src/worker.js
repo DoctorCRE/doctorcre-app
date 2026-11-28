@@ -838,11 +838,11 @@ async function engineSave(request, env, call) {
   if (leadAction) return routeLeadSave(request, env, call, leadAction);
   if (call.params.name === 'decide-engine-deal-email') {
     if (!await routeToEngine(env, DEALS) || !await routeToEngine(env, NEXT_DEAL_SAVES))
-      return saveRefusal(call, 'deal_email_routing_changed', 'Reload the deal before reviewing this email.');
+      return saveRefusal(call, 'deal_email_routing_changed', 'Reload the deal before reviewing this suggestion.');
     const { proposal_id, decision, idempotency_key, edits } = call.params.arguments;
     if (!isUuid(proposal_id) || !isUuid(idempotency_key) || !['accept', 'dismiss'].includes(decision)
         || (edits !== undefined && (decision !== 'accept' || !isObject(edits))))
-      return saveRefusal(call, 'invalid_arguments', 'Choose an email follow-up to review.');
+      return saveRefusal(call, 'invalid_arguments', 'Choose a suggestion to review.');
     const response = await sendEngineSave(request, env, `/api/engine/proposals/${proposal_id}/decision`, {
       decision, idempotency_key, ...(edits && { edits }),
     });
