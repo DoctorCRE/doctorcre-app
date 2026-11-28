@@ -2782,8 +2782,21 @@ function wireBoard() {
 }
 
 
+function positionPathList(more) {
+  const panel = more.querySelector('.deal-path-list-panel');
+  const tile = more.closest('.deal-path-tile').getBoundingClientRect();
+  const width = Math.min(innerWidth, Math.max(tile.width, 220));
+  Object.assign(panel.style, { top: `${tile.bottom}px`, left: `${Math.max(0, Math.min(tile.left, innerWidth - width))}px`, width: `${width}px`, maxHeight: `${Math.max(0, innerHeight - tile.bottom)}px` });
+}
+
 function wire() {
   wireBoard();
+  const repositionPathList = () => {
+    const more = $('panelBody')?.querySelector('.deal-path-more[open]');
+    if (more) positionPathList(more);
+  };
+  window.addEventListener('resize', repositionPathList);
+  document.addEventListener('scroll', repositionPathList, true);
 
   $('boardChips')?.addEventListener('click', (event) => {
     const chip = event.target.closest('button[data-filter]');
@@ -2797,6 +2810,13 @@ function wire() {
   });
 
   document.addEventListener('click', async (event) => {
+    const more = $('panelBody')?.querySelector('.deal-path-more[open]');
+    if (more && (event.target.closest('[data-path-less]') || !more.contains(event.target))) {
+      const restoreFocus = event.target.closest('[data-path-less]') || document.activeElement === document.body;
+      more.open = false;
+      if (restoreFocus) more.querySelector('summary').focus();
+    }
+
     if ($('panelBody')?.querySelector('.deal-path-ask')
         && !event.target.closest('.deal-path-ask, button[data-path-phase]')) {
       const interactive = event.target.closest('button, a, input, select, textarea, summary, [tabindex]:not([tabindex="-1"])');
@@ -2975,6 +2995,7 @@ function wire() {
   $('parkedToggle').addEventListener('click', () => { state.parkedOpen = !state.parkedOpen; $('parkedToggle').setAttribute('aria-pressed',String(state.parkedOpen)); renderBoard(); });
   $('kanban').addEventListener('toggle', e => { if(e.target.classList.contains('parked-lane')) { state.parkedOpen=e.target.open; $('parkedToggle').setAttribute('aria-pressed',String(state.parkedOpen)); } },true);
   $('panelBody').addEventListener('toggle', event => {
+    if (event.target.matches('.deal-path-more') && event.target.open) positionPathList(event.target);
     if (event.target.id === 'panelCallReview') return void openPanelCallReview(event.target);
     if (event.target.id !== 'panelEvidenceSection') return;
     if (event.target.open && state.panelDetail) void refreshEvidence(state.panelDetail, state.panelDeal, panelReadSequence);
@@ -3055,7 +3076,13 @@ function wire() {
 
   });
   document.addEventListener('keydown', event => {
-    if (event.key === 'Escape' && $('panelBody')?.querySelector('.deal-path-ask') && !document.querySelector('dialog[open]')) {
+    const more = $('panelBody')?.querySelector('.deal-path-more[open]');
+    if (event.key === 'Escape' && more && !document.querySelector('dialog[open]')) {
+      event.preventDefault();
+      more.open = false;
+      more.querySelector('summary').focus();
+    }
+    else if (event.key === 'Escape' && $('panelBody')?.querySelector('.deal-path-ask') && !document.querySelector('dialog[open]')) {
       event.preventDefault();
       closePathQuestion();
     }
