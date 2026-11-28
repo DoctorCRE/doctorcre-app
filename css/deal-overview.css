@@ -25,7 +25,13 @@
   .app-layout-main:has(#workspace-overview:not([hidden]) > .deal-overview-grid) > #recordPanel { display: flex; flex-direction: column; height: 100%; }
   #recordPanel:has(#workspace-overview:not([hidden]) > .deal-overview-grid) > #panelBody { display: flex; flex-direction: column; flex: 1; min-height: 0; }
   #panelBody > #workspace-overview:not([hidden]):has(> .deal-overview-grid) { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-  #workspace-overview > .deal-overview-grid { flex: 1; min-height: 12rem; grid-template-rows: minmax(0, 1fr); margin-block-end: var(--space-3); }
+  /* Only the columns give up height; the dates row, as a sideways scroller, would otherwise shrink to nothing. */
+  #workspace-overview > :not(.deal-overview-grid) { flex-shrink: 0; }
+  #workspace-overview > :is([data-detail-read="add-critical-date"], [role="status"]:empty, .deal-parked-line:empty) { margin-block: 0; }
+  #workspace-overview :is(.critical-dates, .deal-path) { margin-block-end: var(--space-2); }
+  .app-layout-main:has(#workspace-overview:not([hidden]) > .deal-overview-grid) { scrollbar-width: none; }
+  .app-layout-main:has(#workspace-overview:not([hidden]) > .deal-overview-grid)::-webkit-scrollbar { display: none; }
+  #workspace-overview > .deal-overview-grid { flex: 1; min-height: 12rem; grid-template-rows: minmax(0, 1fr); margin-block: 0 var(--space-3); }
   .deal-overview-grid > * { max-height: 100%; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
   .deal-overview-grid > *::-webkit-scrollbar { display: none; }
 }
