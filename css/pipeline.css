@@ -353,10 +353,9 @@ button.client-portal-link:disabled { cursor: wait; }
 
 /* On a phone the page scrolls, so the top bar (back and deal name) and the tab row both stay pinned. */
 @media (max-width: 760px), (hover: none) and (pointer: coarse) and (max-width: 1023px) {
-  .workspace-open .app-layout-center { display: flex; flex-direction: column; height: calc(100dvh - var(--layout-bottom)); }
-  .workspace-open .app-layout-topbar { height: auto; min-height: 52px; flex: none; }
+  .workspace-open .app-layout-topbar { position: sticky; top: 0; z-index: 71; height: auto; min-height: 52px; flex: none; }
   .workspace-open .app-layout-topbar .deal-crumb h1 { white-space: normal; overflow: visible; }
-  .workspace-open .app-layout-main { --scroll-edge: calc(-1 * var(--space-3)); flex: 1; min-height: 0; overflow: auto; }
+  .deal-detail > .workspace-header { top: var(--topbar-block-size, 52px); }
 }
 
 @media (min-width: 651px) {

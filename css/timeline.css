@@ -197,7 +197,9 @@
   #boardTimeline:not([hidden]) { height: max(380px, calc(100dvh - 214px)); }
 }
 @media (max-width: 760px), (hover: none) and (pointer: coarse) and (max-width: 1023px) {
-  .workspace-open .app-layout-main:has(#workspace-plan:not([hidden])) { overflow: hidden; padding-block-end: var(--space-3); }
+  .app-layout-center:has(#workspace-plan:not([hidden])) { display: flex; flex-direction: column; height: calc(100dvh - var(--layout-bottom)); }
+  .app-layout-main:has(#workspace-plan:not([hidden])) { flex: 1; min-height: 0; padding-block-end: var(--space-3); }
+  #recordPanel:has(#workspace-plan:not([hidden])) > .workspace-header { position: static; }
 }
 #workspace-plan .timeline :is(.timeline-name, .timeline-label, .timeline-bar, .timeline-date-mark) { min-height: 0; min-width: 0; }
 

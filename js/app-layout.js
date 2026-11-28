@@ -101,7 +101,10 @@ export function mountAppLayout(root, host, pathname) {
   placeTabs();
   phone.addEventListener('change', placeTabs);
   // Moving the tabs never resizes the top bar, so watching it cannot loop; page scripts fill some tabs after mount.
-  if (win.ResizeObserver) new win.ResizeObserver(placeTabs).observe(topbar);
+  if (win.ResizeObserver) new win.ResizeObserver(([entry]) => {
+    layout.style.setProperty('--topbar-block-size', `${entry.borderBoxSize[0].blockSize}px`);
+    placeTabs();
+  }).observe(topbar, { box: 'border-box' });
   new win.MutationObserver(placeTabs).observe(pageViews, { childList: true, subtree: true, characterData: true });
   if (phoneTabs.length) new win.MutationObserver(() => phone.matches && placeTabs()).observe(slots.title, { attributeFilter: ['class'], subtree: true });
   // Today starts collapsed so each main view keeps the full width, and every page remembers its own choice.

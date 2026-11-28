@@ -60,7 +60,7 @@ button.deal-path-name:hover, button.deal-path-name[aria-expanded="true"] { color
   .deal-path { block-size: 144px; }
   .deal-path-fold { align-self: start; position: relative; }
   .deal-path-fold summary { color: var(--fg-muted); cursor: pointer; font-size: var(--font-size-1); }
-  .deal-path-fold > details > summary { display: list-item; padding: 8px; }
+  .deal-path-fold > details > summary { display: list-item; padding-inline: 8px; line-height: var(--touch); }
   .deal-path-fold ol { position: absolute; z-index: 12; inset-block-start: 100%; width: min(320px, 46vw); max-height: 48dvh; overflow: auto; display: grid; gap: 6px; margin: 0; padding: 8px; list-style: none; border-radius: var(--radius-3); background: var(--surface-2); box-shadow: var(--shadow-overlay); }
   .deal-path-fold:last-child ol { right: 0; }
   .deal-path > .deal-path-tile .deal-path-head { min-height: var(--touch); padding-block: 0; }
