@@ -162,7 +162,7 @@
 .deal-plan-list span > small { display: block; overflow: hidden; text-overflow: ellipsis; }
 .deal-plan-list button i { width: 8px; height: 8px; flex: none; transform: rotate(45deg); border-radius: 2px; background: var(--phase-closing); }
 .deal-plan-list p, .deal-plan-footer { color: var(--fg-quiet); font-size: var(--font-size-1); }
-.deal-plan-footer { display: flex; align-items: center; gap: 12px; min-height: 30px; padding: 0 12px; }
+.app-layout-main .deal-plan-footer { display: flex; align-items: center; gap: 12px; min-height: 30px; padding: 0 12px; }
 .deal-plan-footer span::before { display: inline-block; content: ""; margin-right: 5px; width: 20px; height: 8px; border-radius: 2px; background: var(--fg-quiet); }
 .deal-plan-footer span + span::before { border: 1px dashed var(--fg-quiet); background: transparent; }
 .deal-plan-details { position: absolute; z-index: 8; top: 48px; right: 0; width: min(310px, 100%); padding: 12px; background: var(--surface-2); border-radius: var(--radius-3); box-shadow: var(--shadow-overlay); }
@@ -196,7 +196,6 @@
 .deal-plan-lengths { width: min(460px, 100%); max-height: calc(100% - 60px); overflow: auto; }
 .deal-plan-length h4 { margin: 12px 0 0; color: var(--fg-quiet); }
 .deal-plan-length input { width: 68px; }
-.app-layout-main .deal-plan-footer { display: flex; }
 .deal-plan-footer > button { flex: none; }
 #workspace-plan > .deal-plan { margin-block-end: 0; }
 #workspace-plan .timeline :is(.timeline-name, .timeline-label, .timeline-grip, .timeline-bar, .timeline-date-mark) { min-height: 0; min-width: 0; }
@@ -211,4 +210,43 @@ body:has(#workspace-plan:not([hidden])) #panelBody { padding-block: 8px 0; }
   body:has(#workspace-plan:not([hidden])) #workspaceFacts { display: none; }
   #workspace-plan:not([hidden]) { height: max(380px, calc(100dvh - 168px)); }
   #boardTimeline:not([hidden]) { height: max(380px, calc(100dvh - 214px)); }
+}
+
+.board-toolbar:has(#boardTimelineTools:not([hidden])) :is(#closedView, #lostView) { display: none; }
+#appTopbar > .dealroom-heading { flex: none; gap: 4px; margin: 0; }
+#appTopbar > .dealroom-heading .hero-meta { flex: none; gap: 4px; }
+#appTopbar > .dealroom-heading :is(#deploymentBadge, #receiptsOpen, .deal-heading-actions:not(:has(a:not([hidden])))) { display: none; }
+.workspace-open #appTopbar > .dealroom-heading { display: none; }
+
+@media (min-width: 1024px), (min-width: 761px) and (pointer: fine) {
+  #appTopbar:has(.dealroom-heading) { gap: 2px; }
+  #appTopbar:has(.dealroom-heading) .app-section-tabs { margin-inline: 4px; }
+  #appTopbar .board-toolbar:has(#boardTimelineTools:not([hidden])) { flex-wrap: nowrap; }
+  #appTopbar .board-toolbar:has(#boardTimelineTools:not([hidden])) .chip-bar { flex-wrap: nowrap; gap: 2px; }
+  #appTopbar .board-toolbar:has(#boardTimelineTools:not([hidden])) .chip { padding-inline: 6px; }
+  #appTopbar #boardTimelineTools select { width: 116px; }
+  body:not(.workspace-open) .app-layout-main:has(#boardTimeline:not([hidden])) { padding-block: 8px var(--space-3); }
+  body:not(.workspace-open) :is(#appMainSlot, #main, .pipeline-layout):has(#boardTimeline:not([hidden])) {
+    display: flex; flex: 1; flex-direction: column; align-items: stretch; min-height: 0;
+  }
+  .pipeline-layout:has(#boardTimeline:not([hidden])) { margin-top: 0; }
+  #boardTimeline:not([hidden]) { flex: 1; height: auto; min-height: 0; }
+}
+@media (max-width: 760px) {
+  #appTopbar > .dealroom-heading .hero-meta { margin: 0; }
+  #appTopbar > .dealroom-heading #syncStatus { display: none; }
+  .deal-plan[data-board] .timeline { --list: 184px; }
+  .deal-plan[data-board] .timeline-group .timeline-label {
+    display: grid; grid-template-columns: 40px minmax(0, 1fr) 18px;
+    grid-template-rows: repeat(2, minmax(0, 1fr)); column-gap: 4px; row-gap: 0; padding-inline: 6px;
+  }
+  .deal-plan[data-board] .timeline-group .timeline-label > :first-child {
+    grid-row: 1 / -1; grid-column: 1; min-width: 0; min-height: 0; place-self: stretch; display: grid; place-items: center;
+  }
+  .deal-plan[data-board] .timeline-group-title { grid-column: 2 / -1; grid-row: 1; align-self: end; }
+  .deal-plan[data-board] .timeline-group-title .timeline-name { min-height: 0; line-height: 1.2; }
+  .deal-plan[data-board] .timeline-group .timeline-when {
+    grid-column: 2; grid-row: 2; align-self: start; overflow: hidden; text-overflow: ellipsis;
+  }
+  .deal-plan[data-board] .timeline-group .timeline-owner { grid-column: 3; grid-row: 2; width: 16px; height: 16px; align-self: start; }
 }

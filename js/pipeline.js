@@ -1,4 +1,4 @@
-import { mountDealPlan } from './ui-deal-plan.generated.js';
+import { mountDealPlan, signingRecorded } from './ui-deal-plan.generated.js';
 import { hasTourDrafts, legacyTourDraftScope, TOUR_DRAFT_KEYS } from './offline-tour-session.js';
 import { createDayStore } from '../tours/day-store.js';
 import { emailConversation, redactEmailAddresses, suggestionEmail } from './ui-deal-suggestion-email.generated.js';
@@ -467,6 +467,13 @@ function renderBoard() {
   $('timelineView').setAttribute('aria-pressed', String(timeline));
   $('boardTimeline').hidden = !timeline;
   $('boardTimelineTools').hidden = !timeline;
+  const heading = $('boardHeading');
+  if (timeline) {
+    const topbar = $('appTopbar');
+    if (topbar && heading.parentElement !== topbar) topbar.append(heading);
+  } else if (heading.parentElement !== $('main')) {
+    $('boardLive').before(heading);
+  }
   board.hidden = timeline || ['closed','lost'].includes(state.view);
   $('boardLive').hidden = timeline || ['closed','lost'].includes(state.view);
   $('closedDealsView').hidden = !['closed','lost'].includes(state.view);
@@ -2024,7 +2031,7 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
     <div data-detail-read="add-critical-date" data-available="${canAddCriticalDate}">${canAddCriticalDate ? criticalDateFormHtml() : ''}</div>
     <div class="deal-freshness"><time id="detailUpdated" title="Last updated"></time><button class="btn icon-btn" type="button" data-refresh-detail aria-label="Refresh deal" title="Refresh">↻</button></div><p id="detailReadStatus" role="status"></p>
     ${fromEngine ? `<p id="detailStepStatus" role="status"></p><div class="deal-parked-line" data-detail-read="parked">${parked ? `${parkingSummary}${controlsAvailable ? `<button type="button" class="btn" data-revive="${esc(d.id)}">Revive</button>` : ''}` : ''}</div>` : ''}
-    <div data-detail-read="path">${dealPathHtml({ phases: COLUMNS, current: columnByValue(d.phase)?.slug ?? null, checklist: detail.checklist, showTodos: fromEngine, today, canMove: controlsAvailable && !parked, receiptHtml: fromEngine ? phaseMove : '', focusedItem: focusedChecklistItem(d.id), signingOn: detail.plan?.expected_signing_on })}</div>${fromEngine ? `<div class="deal-overview-grid">${stepsHtml(`${snapshotHtml}${ownStep ? '' : dealUpdateFormHtml(false, today)}`)}
+    <div data-detail-read="path">${dealPathHtml({ phases: COLUMNS, current: columnByValue(d.phase)?.slug ?? null, checklist: detail.checklist, showTodos: fromEngine, today, canMove: controlsAvailable && !parked, receiptHtml: fromEngine ? phaseMove : '', focusedItem: focusedChecklistItem(d.id), signingOn: detail.plan?.expected_signing_on, signingRecorded: signingRecorded(detail.plan) })}</div>${fromEngine ? `<div class="deal-overview-grid">${stepsHtml(`${snapshotHtml}${ownStep ? '' : dealUpdateFormHtml(false, today)}`)}
       <div data-detail-read="latest">${renderLatestActivity(detail, { planTours, note: activityNoteDraft, canNote: Boolean(state.selfActor), ports: activityPorts })}</div>
       <div class="deal-overview-side">
         <div data-detail-read="invoice">${dealInvoiceHtml(detail.invoice, dateCaption)}</div>

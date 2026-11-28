@@ -20,6 +20,7 @@ export type PathView = {
   receiptHtml: string;
   focusedItem: string | null;
   signingOn?: string | null;
+  signingRecorded?: boolean;
 };
 
 const STATUSES = new Set<unknown>(["complete", "received", "not_recorded", "due", "overdue", "upcoming"]);
@@ -94,7 +95,7 @@ function tileHtml(phase: Phase, place: Place, todos: Todo[] | undefined, view: P
   const receipt = place === "current" ? `<div data-phase-move aria-live="polite">${view.receiptHtml}</div>` : "";
   const signing =
     place === "current" && view.signingOn
-      ? `<button type="button" class="btn btn-quiet deal-plan-signing-link" data-open-deal-plan>Lease signing expected ${shortDate(dayOf(view.signingOn), yearOf(dayOf(view.today)))}</button>`
+      ? `<button type="button" class="btn btn-quiet deal-plan-signing-link" data-open-deal-plan>${view.signingRecorded ? "Lease signed" : "Lease signing expected"} ${shortDate(dayOf(view.signingOn), yearOf(dayOf(view.today)))}</button>`
       : "";
   return `<li class="deal-path-tile" data-phase="${esc(phase.slug)}" data-place="${place}"${place === "current" ? ' aria-current="step"' : ""}><div class="deal-path-head">${name}${check}${count}</div>${receipt}${signing}${list}</li>`;
 }

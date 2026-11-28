@@ -202,56 +202,57 @@ export function range(groups: TimelineGroup[], today: string) {
   return { from: from[0] ?? today, to: dateAfter(to.at(-1) ?? today, 15) };
 }
 
-export function previewDates(
-  groups: TimelineGroup[],
-  links: TimelineLink[],
-  change: { id: string; day: string },
-  own: Record<string, string>,
-  today: string,
-) {
-  const rows = new Map(groups.flatMap((group) => group.rows.map((row) => [row.id, row] as const)));
-  const next = new Map(links.filter((link) => link.kind === "workflow").map((link) => [link.from, link.to]));
+export function previewPlanDates(plan: Plan, change: { id: string; day: string }): Plan {
+  const rows = new Map(plan.rows.map((row) => [row.id, row] as const));
   const original = rows.get(change.id);
-  if (original?.kind === "step" && original.state === "open")
-    rows.set(original.id, { ...original, due: change.day, when: dayText(change.day, today) });
-  if (original?.kind === "todo" && original.state === "expected") {
-    let prior = change.day;
-    let id: string | undefined = original.id;
-    for (const row of rows.values()) {
-      if (row.id !== id) continue;
-      if (row.kind !== "todo" || row.state !== "expected") break;
-      const start = id === change.id ? row.start : prior;
-      const target = own[id];
-      let end = change.day;
-      if (id !== change.id) {
-        end = target ?? dateAfter(start, dayOf(row.end) - dayOf(row.start));
-        if (end < start) end = start;
-      }
-      rows.set(id, { ...row, start, end, when: `exp. ${dayText(end, today)}` });
-      prior = end;
-      id = next.get(id);
-    }
+  if (original?.kind !== "todo" || original.state !== "expected" || !original.expected_from_on) return plan;
+
+  const next = new Map(
+    plan.arrows.filter((arrow) => rows.get(arrow.to)?.kind === "todo").map(({ from, to }) => [from, to]),
+  );
+  const updated = new Map<string, PlanRow>();
+  const phaseEnds = new Map<TimelinePhase, string>();
+  let edge = original.expected_from_on;
+  for (let id: string | undefined = change.id; id; id = next.get(id)) {
+    const row = rows.get(id);
+    if (row?.kind !== "todo") break;
+    if (row.state === "finished") continue;
+    if (row.state !== "expected" || !row.expected_from_on || !row.expected_to_on || row.typical_days == null) break;
+    const target = id === change.id ? change.day : (plan.own_dates?.[id] ?? dateAfter(edge, row.typical_days));
+    const end = target < edge ? edge : target;
+    updated.set(id, { ...row, expected_from_on: edge, expected_to_on: end });
+    edge = end;
+    phaseEnds.set(row.phase, end);
   }
-  const risk = new Set<string>();
-  const updated = links.map((link) => {
-    if (link.kind !== "deadline") return link;
-    const date = rows.get(link.to);
-    const todo = rows.get(link.from);
-    if (date?.kind !== "date" || todo?.kind !== "todo" || todo.state !== "expected" || date.detail === "Done")
-      return link;
-    const atRisk = todo.end > date.day;
-    if (atRisk) risk.add(todo.id);
-    rows.set(date.id, { ...date, atRisk });
-    return { ...link, atRisk };
+
+  const arrows = plan.arrows.map((arrow) => {
+    const todo = updated.get(arrow.from);
+    const date = rows.get(arrow.to);
+    if (todo?.kind !== "todo" || todo.state !== "expected" || !todo.expected_to_on || date?.kind !== "critical_date")
+      return arrow;
+    const at_risk = date.status !== "cleared" && todo.expected_to_on > date.on;
+    updated.set(date.id, { ...date, at_risk });
+    return { ...arrow, at_risk };
   });
+
+  let previousEnd: string | null = null;
+  const phases = plan.phases.map((span) => {
+    const end = phaseEnds.get(span.phase);
+    if (previousEnd === null && !end) return span;
+    const expected_from_on = span.expected_from_on && (previousEnd ?? span.expected_from_on);
+    const expected_to_on =
+      span.expected_to_on &&
+      (end ?? (span.expected_to_on === span.expected_from_on ? expected_from_on : span.expected_to_on));
+    previousEnd = expected_to_on;
+    return { ...span, expected_from_on, expected_to_on };
+  });
+  const signing = updated.get("executed_lease");
   return {
-    groups: groups.map((group) => ({
-      ...group,
-      rows: group.rows.map((row) => {
-        const fresh = rows.get(row.id) ?? row;
-        return fresh.kind === "todo" && fresh.state === "expected" ? { ...fresh, atRisk: risk.has(fresh.id) } : fresh;
-      }),
-    })),
-    links: updated,
+    ...plan,
+    rows: plan.rows.map((row) => updated.get(row.id) ?? row),
+    phases,
+    arrows,
+    expected_signing_on:
+      signing?.kind === "todo" && signing.state === "expected" ? signing.expected_to_on : plan.expected_signing_on,
   };
 }

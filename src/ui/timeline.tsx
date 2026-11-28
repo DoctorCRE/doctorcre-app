@@ -1118,7 +1118,7 @@ export function Timeline({
                 <>
                   <span className="timeline-group-title">
                     {group.href ? (
-                      <a className="timeline-name" href={group.href}>
+                      <a className="timeline-name" href={group.href} title={group.name}>
                         {group.name}
                       </a>
                     ) : (

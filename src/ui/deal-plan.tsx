@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { savePlanChange, TypicalLengths } from "./deal-plan-lengths.tsx";
@@ -12,7 +12,7 @@ import {
   type Plan,
   partner,
   phaseBar,
-  previewDates,
+  previewPlanDates,
   range,
   rowDay,
   type SourceStep,
@@ -21,6 +21,14 @@ import { Timeline, type TimelineGroup, type TimelineLink, type TimelineRow } fro
 
 type Change = { id: string; day: string };
 type Undo = { path: string; args: object; label: string };
+type StepVersion = { change_id: number | null; due: string | null; state: "open" | "late" | "done" };
+type ChangeReceipt = {
+  change_id?: number;
+  base_version?: number;
+  previous_on?: string | null;
+  rebased?: boolean;
+  intervening_change_ids?: number[];
+};
 type View = "mine" | "risk" | "soon";
 type Milestone = {
   group: string;
@@ -42,6 +50,11 @@ type Inputs = { today: string; viewer: string; request: typeof fetch; reload: ()
     }
   | { mode: "board"; deals: DealTimeline[]; canSave: boolean; toolsHost: HTMLElement }
 );
+export function signingRecorded(plan: Plan | null | undefined) {
+  return (
+    plan?.rows.some((row) => row.kind === "todo" && row.id === "executed_lease" && row.state === "finished") ?? false
+  );
+}
 const signingName = (recorded: boolean) => (recorded ? "Lease signed" : "Lease signing");
 const stepMap = (steps: SourceStep[]) => new Map(steps.map((step) => [`step:${step.id}`, step]));
 
@@ -65,7 +78,11 @@ function PlanScreen(props: Inputs) {
   const openedDate = useRef<((day: string) => void) | null>(null);
   const openedStepVersion = useRef<number | null>(null);
   const [busy, setBusy] = useState(false);
-  const sourceSteps = new Map<string, { change_id?: number | null; due: string | null }>();
+  const sourceSteps = new Map<string, StepVersion>();
+  const refreshedSteps = useRef(sourceSteps);
+  useLayoutEffect(() => {
+    refreshedSteps.current = sourceSteps;
+  }, [sourceSteps]);
   const through = dateAfter(today, 14);
   const soon = (day: string | null) => day !== null && day >= today && day <= through;
   const atRisk = (row: TimelineRow) => "atRisk" in row && row.atRisk;
@@ -92,11 +109,12 @@ function PlanScreen(props: Inputs) {
       );
 
   if (props.mode === "plan") {
-    const { plan, phase } = props;
+    const { phase } = props;
+    const plan = preview ? previewPlanDates(props.plan, preview) : props.plan;
     const steps = stepMap(props.steps);
-    for (const row of plan.rows)
+    for (const row of props.plan.rows)
       if (row.kind === "step")
-        sourceSteps.set(row.id, { change_id: steps.get(row.id)?.change_id ?? null, due: row.to_on });
+        sourceSteps.set(row.id, { change_id: steps.get(row.id)?.change_id ?? null, due: row.to_on, state: row.state });
     const ranks = Object.keys(PHASES);
     count = `${plan.rows.filter((row) => row.kind === "todo").length} to-dos · ${plan.rows.filter((row) => row.kind === "step").length} steps`;
     const risk = new Set(plan.arrows.filter((arrow) => arrow.at_risk).map((arrow) => arrow.from));
@@ -138,9 +156,7 @@ function PlanScreen(props: Inputs) {
         }
     }
     links.push(...chartLinks(plan.arrows, plan.rows));
-    const signed = plan.rows.some(
-      (row) => row.kind === "todo" && row.id === "executed_lease" && row.state === "finished",
-    );
+    const signed = signingRecorded(plan);
     if (plan.expected_signing_on && (!recorded || signed) && groups.some((group) => group.id === "closing")) {
       milestones.push({
         group: "closing",
@@ -184,7 +200,8 @@ function PlanScreen(props: Inputs) {
       const risk = new Set(timeline.arrows.filter((arrow) => arrow.at_risk).map((arrow) => arrow.from));
       const prefix = (row: string) => `${id}/${row}`;
       for (const row of timeline.rows)
-        if (row.kind === "step") sourceSteps.set(prefix(row.id), { change_id: row.change_id ?? null, due: row.to_on });
+        if (row.kind === "step")
+          sourceSteps.set(prefix(row.id), { change_id: row.change_id ?? null, due: row.to_on, state: row.state });
       const rows = selectRows(timeline.rows.flatMap((row) => chartRow(row, phase, today, new Map(), risk) ?? [])).map(
         (row) => ({ ...row, id: prefix(row.id) }),
       );
@@ -267,7 +284,7 @@ function PlanScreen(props: Inputs) {
     path: string,
     args: object,
     success: string,
-    makeUndo?: (body: { change_id?: number; base_version?: number; previous_on?: string | null }) => Undo | undefined,
+    makeUndo?: (body: ChangeReceipt, fresh?: ReadonlyMap<string, StepVersion>) => Undo | undefined,
   ) => {
     if (saving.current) return;
     saving.current = true;
@@ -289,11 +306,17 @@ function PlanScreen(props: Inputs) {
         } else setStatus("Could not save this change.");
         return;
       }
-      const result = await response.json();
+      const result: ChangeReceipt = await response.json();
+      const receiptUndo = makeUndo?.(result);
       setStatus(success);
-      setUndo(makeUndo?.(result));
+      setUndo(receiptUndo);
       setEdit(undefined);
-      await props.reload();
+      await props.reload().catch(() => false);
+      if (result.rebased && makeUndo && !receiptUndo) {
+        const refreshedUndo = makeUndo(result, refreshedSteps.current);
+        setUndo(refreshedUndo);
+        if (!refreshedUndo) setStatus(`${success} Undo is unavailable because the saved date could not be verified.`);
+      }
     } catch {
       setStatus("Could not confirm the save. Refresh to see the latest version.");
     } finally {
@@ -309,11 +332,19 @@ function PlanScreen(props: Inputs) {
     const fact = factsFor(id);
     if (fact?.kind === "step" && source?.change_id != null) {
       const path = `next-steps/${fact.id.slice("step:".length)}/changes`;
-      void update(path, { due_on: day, seen_change_id: source.change_id }, label, (body) =>
-        body.change_id == null
+      const seen = source.change_id;
+      void update(path, { due_on: day, seen_change_id: seen }, label, (body, fresh) => {
+        const step = fresh?.get(id);
+        const intervening = Math.max(seen, ...(body.intervening_change_ids ?? []));
+        const recovered =
+          step?.change_id != null && step.change_id > intervening && step.due === day && step.state !== "done"
+            ? step.change_id
+            : null;
+        const changeId = body.change_id ?? recovered;
+        return changeId == null
           ? undefined
-          : { path, args: { due_on: source.due, seen_change_id: body.change_id }, label: `${row.name} date restored.` },
-      );
+          : { path, args: { due_on: source.due, seen_change_id: changeId }, label: `${row.name} date restored.` };
+      });
     } else if (planPath && version != null && row.kind === "todo") {
       void update(
         planPath,
@@ -330,8 +361,26 @@ function PlanScreen(props: Inputs) {
       );
     }
   }
-  const displayed = preview ? previewDates(groups, links, preview, own, today) : { groups, links };
+  const displayedGroups =
+    preview && rowsById.get(preview.id)?.kind === "step"
+      ? groups.map((group) => ({
+          ...group,
+          rows: group.rows.map((row) =>
+            row.kind === "step" && row.state === "open" && row.id === preview.id
+              ? { ...row, due: preview.day, when: dayText(preview.day, today) }
+              : row,
+          ),
+        }))
+      : groups;
+  const sourceRow = (id: string) => {
+    const visible = rowsById.get(id);
+    if (props.mode !== "plan" || preview?.id !== id || visible?.kind !== "todo") return visible;
+    const original = factsFor(id);
+    return original && chartRow(original, original.phase ?? props.phase, today, new Map(), new Set());
+  };
   const selected = opened ? rowsById.get(opened) : undefined;
+  const selectedDay = selected ? rowDay(selected) : null;
+  const selectedDate = selected?.kind === "todo" ? selected.when : selectedDay && dayText(selectedDay, today);
   const selectedFacts = opened ? factsFor(opened) : undefined;
   const stepVersion = openedStepVersion.current;
   const canSetDate =
@@ -419,8 +468,8 @@ function PlanScreen(props: Inputs) {
           key={foldKey}
           foldKey={foldKey}
           today={today}
-          groups={displayed.groups}
-          links={displayed.links}
+          groups={displayedGroups}
+          links={links}
           board={board}
           toolsHost={props.mode === "board" ? props.toolsHost : undefined}
           reveal={reveal}
@@ -435,49 +484,54 @@ function PlanScreen(props: Inputs) {
           changeDate={
             props.canSave && !busy
               ? {
-                  source: (id) => rowsById.get(id),
+                  source: sourceRow,
                   preview,
                   show: (day) => {
                     setPreview(day);
                     setReveal(undefined);
                   },
                   begin: (id) => (day) => changeDate(id, day),
-                  canMove: (row) =>
-                    row.kind === "step"
-                      ? row.state === "open" && sourceSteps.get(row.id)?.change_id != null
-                      : version != null && row.kind === "todo" && row.state === "expected" && row.start !== row.end,
+                  canMove: (row) => {
+                    if (row.kind === "step") return row.state === "open" && sourceSteps.get(row.id)?.change_id != null;
+                    const fact = factsFor(row.id);
+                    return (
+                      version != null &&
+                      fact?.kind === "todo" &&
+                      fact.state === "expected" &&
+                      fact.expected_from_on != null &&
+                      fact.expected_to_on != null
+                    );
+                  },
                 }
               : undefined
           }
         />
         <div className="deal-plan-count">{groups.length ? count : "No matching items"}</div>
-        {(!board || status) && (
-          <footer className="deal-plan-footer">
-            {status ? (
-              <small role="status">{status}</small>
-            ) : (
-              <>
-                <span>Recorded</span>
-                <span>Expected</span>
-              </>
-            )}
-            {undo && (
-              <button
-                type="button"
-                className="btn btn-quiet"
-                disabled={busy}
-                onClick={() => void update(undo.path, undo.args, undo.label)}
-              >
-                Undo
-              </button>
-            )}
-            {planPath && props.canSave && version != null && Object.keys(own).length > 0 && (
-              <button type="button" className="btn btn-quiet" onClick={() => setReset(true)}>
-                Reset to typical
-              </button>
-            )}
-          </footer>
-        )}
+        <footer className="deal-plan-footer">
+          {status ? (
+            <small role="status">{status}</small>
+          ) : (
+            <>
+              <span>Recorded</span>
+              <span>Expected</span>
+            </>
+          )}
+          {undo && (
+            <button
+              type="button"
+              className="btn btn-quiet"
+              disabled={busy}
+              onClick={() => void update(undo.path, undo.args, undo.label)}
+            >
+              Undo
+            </button>
+          )}
+          {planPath && props.canSave && version != null && Object.keys(own).length > 0 && (
+            <button type="button" className="btn btn-quiet" onClick={() => setReset(true)}>
+              Reset to typical
+            </button>
+          )}
+        </footer>
       </div>
       {selected && (
         <section className="deal-plan-details" aria-label={selected.name}>
@@ -486,7 +540,7 @@ function PlanScreen(props: Inputs) {
           </button>
           <h3>{selected.name}</h3>
           <p>{selected.kind === "step" ? selected.owner : PHASES[selected.phase]}</p>
-          {rowDay(selected) && <p>{dayText(rowDay(selected) ?? today, today)}</p>}
+          {selectedDate && <p>{selectedDate}</p>}
           {selected.kind === "todo" && selectedFacts?.kind === "todo" && selectedFacts.typical_days != null && (
             <p>Typical length {selectedFacts.typical_days} days</p>
           )}
