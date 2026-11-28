@@ -523,6 +523,272 @@ const longChecklist = {
   ],
 };
 
+const signingPlan = {
+  phases: [{ phase: "site_selection", from_on: "2026-11-23", expected_to_on: "2026-12-05" }],
+  rows: Array.from({ length: 25 }, (_, i) => ({
+    id: `date-${i}`,
+    kind: "critical_date",
+    phase: "site_selection",
+    label: `Example date ${i}`,
+    status: "open",
+    on: "2026-12-05",
+  })),
+  arrows: [],
+  expected_signing_on: "2026-12-05",
+  stale: null,
+};
+const automaticMove = {
+  source: "call_capture",
+  automatic: true,
+  event_id: "00000000-0000-4000-8000-00000000e160",
+  evidence_date: "2026-11-23",
+  undoable: true,
+  prior_phase: "research",
+  phase: "site_selection",
+  call: { happened_at: "2026-11-23T18:00:00Z" },
+};
+
+test("at 320x568 the move receipt, Undo and forecast each have their own tap target", async (t) => {
+  const { page } = await openDeal(t, 320, 568, [], [], { plan: signingPlan, phase_change: automaticMove });
+  const status = page.locator("#workspaceStatus");
+  const receipt = status.locator("summary");
+  const undo = status.getByRole("button", { name: "Undo" });
+  await receipt.tap({ timeout: 3000 });
+  await status
+    .locator("details[open]")
+    .getByText(/Call on /)
+    .waitFor();
+  await receipt.tap();
+  await undo.tap({ trial: true });
+  await status.getByRole("button", { name: "Lease signing expected Dec 5" }).tap();
+  assert.equal(await page.getByRole("tabpanel", { name: "Plan" }).isVisible(), true);
+});
+
+test("at 320x568 the Plan list keeps the owner controls in reach", async (t) => {
+  const { page } = await openDeal(t, 320, 568, [], [], { plan: signingPlan });
+  await page.getByRole("tab", { name: "Plan" }).tap();
+  const plan = page.getByRole("tabpanel", { name: "Plan" });
+  await plan.getByRole("list", { name: "Plan items" }).waitFor();
+  for (const name of ["Both", "Dell", "Joe"]) {
+    const owner = plan.getByRole("button", { name, exact: true });
+    await owner.tap();
+    assert.equal(await owner.getAttribute("aria-pressed"), "true");
+  }
+  assert.equal(await plan.getByRole("group", { name: "Zoom" }).count(), 0);
+  assert.equal(await plan.getByRole("button", { name: "Today", exact: true }).count(), 0);
+});
+
+for (const [width, height] of [
+  [390, 844],
+  [1024, 768],
+  [1280, 599],
+  [1280, 640],
+  [1440, 900],
+] as const)
+  test(`at ${width}x${height} deal header and Plan toolbar items fit without overlap`, async (t) => {
+    const { page } = await openDeal(t, width, height, [], fourDates(), {
+      ...sideFacts,
+      plan: { ...signingPlan, own_dates: { review: "2026-12-05" }, base_version: 1 },
+      phase_change: automaticMove,
+    });
+    await page.getByRole("tab", { name: "Plan" }).click();
+    const item = page
+      .locator("#workspace-plan :is(.timeline-name, .deal-plan-item > button)")
+      .filter({ hasText: "Example date 0" });
+    await item.waitFor();
+    const geometryProblems = (state: "top" | "item" | "reset") =>
+      page.evaluate((state) => {
+        const checkRequired = state === "top";
+        const scope = ":is(#appTopbar, #recordPanel)";
+        const buttons = "button, a[href], summary, input, select, textarea, [role=button]";
+        const viewport = new DOMRect(0, 0, innerWidth, innerHeight);
+        const visible = (node: Element) =>
+          node.checkVisibility({ visibilityProperty: true, contentVisibilityAuto: true });
+        const clientBounds = (node: Element) => {
+          const { left, top } = node.getBoundingClientRect();
+          return new DOMRect(left + node.clientLeft, top + node.clientTop, node.clientWidth, node.clientHeight);
+        };
+        const overlap = (a: DOMRect, b: DOMRect) =>
+          Math.min(a.right, b.right) - Math.max(a.left, b.left) > 0.5 &&
+          Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0.5;
+        const inside = (a: DOMRect, b: DOMRect) =>
+          a.left >= b.left - 1 && a.top >= b.top - 1 && a.right <= b.right + 1 && a.bottom <= b.bottom + 1;
+        const controlName = (node: Element) =>
+          node.getAttribute("aria-label") ?? node.textContent?.trim() ?? node.tagName;
+        const issues: string[] = [];
+        const scrollers = [
+          ...document.querySelectorAll(`${scope} :is(.timeline-scroll, .deal-plan-list, .deal-plan-details)`),
+        ].filter((node) => visible(node) && /auto|scroll/.test(getComputedStyle(node).overflowY));
+        for (const node of scrollers)
+          if (node.clientHeight < 160) issues.push(`${node.className} scroller is ${node.clientHeight}px tall`);
+        const listLayout = matchMedia("(width < 1280px)").matches;
+        const required = "#appTopbar, .workspace-header, .timeline-filters, .timeline-tools";
+        const beyondInline = (rect: DOMRect) => rect.left < -1 || rect.right > innerWidth + 1;
+        const chartPane = (node: Element) => node.closest(".timeline-scroll, .deal-plan-list");
+        const clipAncestor = (node: Element, rect: DOMRect) => {
+          for (let ancestor: Element | null = node; ancestor; ancestor = ancestor.parentElement) {
+            const style = getComputedStyle(ancestor);
+            if (style.clipPath !== "none") return ancestor;
+            const clip = clientBounds(ancestor);
+            if (/hidden|clip/.test(style.overflowX) && (rect.left < clip.left - 1 || rect.right > clip.right + 1))
+              return ancestor;
+            if (/hidden|clip/.test(style.overflowY) && (rect.top < clip.top - 1 || rect.bottom > clip.bottom + 1))
+              return ancestor;
+          }
+          return null;
+        };
+        const topbarBottom = document.getElementById("appTopbar")?.getBoundingClientRect().bottom ?? 0;
+        const controls = [...document.querySelectorAll(`${scope} :is(${buttons})`)]
+          .filter(visible)
+          .map((node) => ({ node, rect: node.getBoundingClientRect() }))
+          .filter(({ node, rect }) => {
+            const pane = chartPane(node);
+            if (
+              !pane &&
+              (beyondInline(rect) ||
+                (checkRequired && (!listLayout || node.closest(required)) && !overlap(rect, viewport)))
+            ) {
+              issues.push(`${controlName(node)} is outside the viewport`);
+              return false;
+            }
+            if (!overlap(rect, viewport)) return false;
+            // Rows at the edges of a scrolling page move into view as the partner scrolls.
+            if (
+              listLayout &&
+              !node.closest("#appTopbar") &&
+              (rect.top < topbarBottom - 1 || rect.bottom > innerHeight + 1)
+            )
+              return false;
+            return pane ? inside(rect, clientBounds(pane)) : true;
+          });
+        for (const [index, { node, rect }] of controls.entries()) {
+          const name = controlName(node);
+          if (!inside(rect, viewport)) issues.push(`${name} is outside the viewport`);
+          const clip = clipAncestor(node, rect);
+          if (clip) issues.push(`${name} control is clipped by ${clip.id || clip.className || clip.tagName}`);
+          const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+          const layer = hit?.closest(".deal-plan-details, [popover]:popover-open");
+          if (layer && !layer.contains(node)) issues.push(`${name} is covered by the opened item`);
+          for (const { node: other, rect: otherRect } of controls.slice(index + 1)) {
+            if (!overlap(rect, otherRect) || node.contains(other) || other.contains(node)) continue;
+            const track = node.closest(".timeline-track");
+            if (track && track === other.closest(".timeline-track")) continue;
+            if (node.closest(".timeline-scroll") || other.closest(".timeline-scroll")) continue;
+            issues.push(`${name} overlaps ${controlName(other)}`);
+          }
+        }
+        const range = document.createRange();
+        for (const root of document.querySelectorAll("#appTopbar, #recordPanel")) {
+          const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+          for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+            const value = text.textContent?.trim();
+            const node = text.parentElement;
+            if (!node || !value || !visible(node) || node.closest("style, script, .sr-only, .timeline-sr, dt"))
+              continue;
+            if (node.closest("details:not([open])") && !node.closest("summary")) continue;
+            range.selectNodeContents(text);
+            const rect = range.getBoundingClientRect();
+            if (!rect.width || !rect.height) continue;
+            const pane = chartPane(node);
+            if (
+              !pane &&
+              (beyondInline(rect) ||
+                (checkRequired && (!listLayout || node.closest(required)) && !overlap(rect, viewport)))
+            ) {
+              issues.push(`${value} text is outside the viewport`);
+              continue;
+            }
+            if (!overlap(rect, viewport) || (pane && !inside(rect, clientBounds(pane)))) continue;
+            const style = getComputedStyle(node);
+            if (style.whiteSpace === "nowrap" && node.clientWidth > 0 && node.scrollWidth > node.clientWidth + 1)
+              issues.push(`${value} overflows its line`);
+            const clip = clipAncestor(node, rect);
+            if (clip) issues.push(`${value} text is clipped by ${clip.id || clip.className || clip.tagName}`);
+          }
+        }
+        if (state === "reset") {
+          const confirm = document.querySelector("#workspacePlanStatus [data-plan-confirm]");
+          if (!confirm || !inside(confirm.getBoundingClientRect(), viewport))
+            issues.push("Reset confirmation is outside the viewport");
+        }
+        return issues;
+      }, state);
+    const receipt = page.locator("#workspacePhaseMove summary");
+    const closed = await geometryProblems("top");
+    await receipt.click();
+    const open = await geometryProblems("top");
+    await receipt.click();
+    await item.click();
+    const itemOpen = await geometryProblems("item");
+    const reset = page.getByRole("button", { name: "Reset to typical", exact: true });
+    let confirming: string[] = [];
+    if (width >= 1280 && (await reset.isVisible())) {
+      await reset.click();
+      confirming = await geometryProblems("reset");
+    }
+    assert.deepEqual({ closed, open, itemOpen, confirming }, { closed: [], open: [], itemOpen: [], confirming: [] });
+  });
+
+for (const height of [599, 640])
+  test(`at 1280x${height} the deal status stays clear of the path and Plan fits`, async (t) => {
+    const { page } = await openDeal(t, 1280, height, [], fourDates(), {
+      ...sideFacts,
+      checklist: longChecklist,
+      plan: signingPlan,
+      phase_change: automaticMove,
+    });
+    const tabs = page.getByRole("tablist");
+    assert.deepEqual(await tabs.getByRole("tab").allTextContents(), [
+      "Overview",
+      "Plan",
+      "Activity",
+      "Tours",
+      "Documents",
+      "Client portal",
+    ]);
+    const outer = page.locator("#appMainSlot");
+    const fits = () => outer.evaluate((node) => node.scrollHeight <= node.clientHeight && node.scrollTop === 0);
+    const signing = page.getByRole("button", { name: "Lease signing expected Dec 5" });
+    await signing.waitFor();
+    const controlHeight = await signing.evaluate((node) => node.getBoundingClientRect().height);
+    assert.ok(
+      controlHeight >= 28 && controlHeight <= 32,
+      `the forecast button is ${controlHeight}px high with a mouse`,
+    );
+    assert.equal(await fits(), true, "the forecast and all six tabs fit with Overview");
+    const status = page.locator("#workspaceStatus");
+    const receipt = status.locator("summary");
+    await receipt.getByText("Moved automatically", { exact: true }).waitFor();
+    const statusHeight = await status.evaluate((node) => node.clientHeight);
+    await receipt.click();
+    assert.equal(
+      await status.evaluate((node) => node.clientHeight),
+      statusHeight,
+      "reading the receipt keeps the status height",
+    );
+    await receipt.click();
+    const tile = page.locator('.deal-path-tile[data-place="current"]');
+    const more = tile.getByText("6 more", { exact: true });
+    assert.ok(
+      await more.evaluate((node) => {
+        const tile = node.closest(".deal-path-tile");
+        return tile !== null && node.getBoundingClientRect().bottom <= tile.getBoundingClientRect().bottom;
+      }),
+    );
+    await more.click();
+    await tile.getByRole("button", { name: "Show less" }).click();
+    await signing.click();
+    await page.getByRole("button", { name: "Example date 0", exact: true }).first().waitFor();
+    assert.equal(await fits(), true, "the outer page does not scroll on Plan");
+    for (const selector of [".timeline-scroll", ".deal-plan-list"]) {
+      const column = page.locator(`#workspace-plan ${selector}`);
+      assert.ok(
+        await column.evaluate((node) => node.scrollHeight > node.clientHeight),
+        `${selector} scrolls inside Plan`,
+      );
+    }
+  });
+
 for (const [width, height] of [
   [1280, 599],
   [1280, 640],
@@ -582,12 +848,26 @@ for (const [width, height] of [
     const { page } = await openDeal(t, width, height, [], fourDates(), {
       ...sideFacts,
       thread: Array.from({ length: 10 }, (_, n) => noteAt(n)),
-      checklist: longChecklist,
+      checklist: {
+        ...longChecklist,
+        phases: longChecklist.phases.map((phase) => ({
+          ...phase,
+          items: [
+            ...phase.items,
+            ...Array.from({ length: 4 }, (_, i) => ({
+              id: `more-${i}`,
+              label: `Example unfinished checklist item ${i}`,
+              status: "not_recorded",
+              due_on: null,
+            })),
+          ],
+        })),
+      },
     });
     {
       await page.screenshot({ path: `${shots}/polish-${width}x${height}-closed.png` });
       const current = page.locator('.deal-path-tile[data-place="current"]');
-      const more = current.getByText("6 more");
+      const more = current.getByText("10 more");
       const columns = page.locator(".deal-overview-grid");
       const before = await columns.boundingBox();
       for (const list of await current.locator(":scope > ul").all()) {
@@ -597,14 +877,18 @@ for (const [width, height] of [
       await page.keyboard.press("Enter");
       await page.screenshot({ path: `${shots}/polish-${width}x${height}-open.png` });
       const panel = current.locator(".deal-path-list-panel");
-      assert.equal(await panel.locator("[data-todo]").count(), 6);
-      assert.equal(await current.locator("[data-todo]").count(), 8);
+      assert.equal(await panel.locator("[data-todo]").count(), 10);
+      assert.equal(await current.locator("[data-todo]").count(), 12);
       await page.keyboard.press("Tab");
       assert.equal(
         await panel.getByRole("button", { name: "Show less" }).evaluate((n) => n === document.activeElement),
         true,
       );
-      await page.waitForFunction(() => !!document.querySelector<HTMLElement>(".deal-path-list-panel")?.style.top);
+      await page.waitForFunction(
+        () =>
+          !!document.querySelector<HTMLElement>('.deal-path-tile[data-place="current"] .deal-path-list-panel')?.style
+            .top,
+      );
       const box = await panel.boundingBox();
       const tile = await current.boundingBox();
       assert.ok(box && tile && box.y >= tile.y + tile.height && box.y + box.height <= height);
@@ -648,7 +932,7 @@ for (const [width, height] of [
       assert.equal(await panel.isVisible(), false);
       assert.equal(await note.evaluate((n) => n === document.activeElement), true);
       await more.click();
-      await page.locator(".deal-path-tile").first().getByText("Nothing listed").click();
+      await page.locator(".deal-path > .deal-path-tile").first().getByText("Nothing listed").click();
       assert.equal(await more.evaluate((n) => n === document.activeElement), true);
       assert.deepEqual(await columns.boundingBox(), before, "closing preserves columns");
       await more.click();

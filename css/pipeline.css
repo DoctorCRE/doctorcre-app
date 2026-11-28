@@ -319,6 +319,23 @@ button.client-portal-link:disabled { cursor: wait; }
 .workspace-facts a { color: inherit; text-decoration: none; }
 .workspace-facts a:hover { color: var(--fg); text-decoration: underline; }
 #workspaceTabs { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+#workspaceStatus { flex-basis: 100%; min-width: 0; display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--space-2); color: var(--fg-muted); font-size: var(--font-size-1); }
+#workspaceStatus:not(:has(button, summary, [role=status])), #workspaceStatus > :empty, #recordPanel:not(:has(#workspace-plan:not([hidden]))) #workspacePlanStatus { display: none; }
+#workspacePlanStatus { scroll-margin-block-start: var(--topbar-height); flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+#workspacePhaseMove { flex: 1; min-width: 0; }
+#workspaceSigning { min-width: 0; }
+#workspacePhaseMove .auto-move { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--space-1); }
+#workspacePhaseMove details { flex: 1; min-width: var(--touch); min-height: var(--touch); }
+#workspacePhaseMove button { flex: none; }
+#workspacePhaseMove .phase-move-notice { flex-basis: 100%; margin: 0; }
+#workspacePhaseMove summary span { display: inline; overflow: visible; }
+#workspacePhaseMove summary { padding-block: var(--space-1); align-content: center; line-height: var(--line-height-body); }
+#workspacePhaseMove details:not([open]) .phase-move-evidence { display: none; }
+.deal-plan-signing-link { display: block; max-width: 100%; padding-block: 0; white-space: normal; }
+@media (width < 760px) {
+  #workspacePhaseMove { flex-basis: 100%; }
+}
+
 .workspace-tab { flex: none; min-height: var(--touch); min-width: var(--touch); padding: 0 var(--space-3); color: var(--fg-muted); background: transparent; border: 0; border-radius: var(--radius-2); font: inherit; white-space: nowrap; cursor: pointer; }
 .workspace-tab:hover { color: var(--fg); }
 .workspace-tab[aria-selected="true"] { color: var(--fg); background: var(--surface-2); }
@@ -328,9 +345,10 @@ button.client-portal-link:disabled { cursor: wait; }
 .deal-workspace [role="tabpanel"] :is(h2, h3) { font-size: var(--font-size-2); }
 .deal-workspace [role="tabpanel"] > h2:first-child,
 .deal-workspace [role="tabpanel"] > :first-child > h2:first-child { display: flex; align-items: center; min-block-size: var(--touch); margin-block-start: 0; }
-/* The updated time and Refresh share the open tab's first row, beside its heading. */
-.deal-workspace .deal-freshness { inline-size: fit-content; margin-inline-start: auto; margin-block-end: calc(-1 * var(--touch)); position: relative; }
-.deal-workspace .deal-freshness:has(+ #detailReadStatus:not(:empty)) { margin-block-end: 0; }
+.workspace-tab-heading { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.workspace-tab-heading > h2 { margin: 0; }
+#workspace-activity > .workspace-tab-heading { margin-block-end: 0; }
+.deal-workspace .deal-freshness { inline-size: fit-content; margin-inline-start: auto; }
 #timelineType { margin-inline-start: var(--space-2); }
 .deal-workspace .correspondence-evidence { margin-block-start: 0; }
 .deal-workspace .evidence-item:not(:has(details)) { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: var(--space-1); padding-block: var(--space-2); }
@@ -348,12 +366,14 @@ button.client-portal-link:disabled { cursor: wait; }
   .deal-crumb h1::before { content: none; }
   #workspaceFacts { order: -1; flex-basis: 100%; padding-block: var(--space-1); }
   .workspace-facts { justify-content: flex-start; }
-  #workspaceTabs { flex-wrap: nowrap; gap: 0; margin-inline: calc(-1 * var(--space-3)); padding-inline: var(--space-1); overflow-x: auto; scrollbar-width: none; }
+  #workspaceTabs { gap: 0; }
+  .workspace-tab { padding-inline: var(--space-2); }
 }
 
 /* On a phone the page scrolls, so the top bar (back and deal name) and the tab row both stay pinned. */
 @media (max-width: 760px), (hover: none) and (pointer: coarse) and (max-width: 1023px) {
   .workspace-open .app-layout-topbar { position: sticky; top: 0; z-index: 71; }
+  .workspace-open .app-layout-topbar .deal-crumb h1 { font-size: var(--font-size-1); white-space: normal; max-block-size: 48px; overflow: auto; scrollbar-width: none; }
   .deal-detail > .workspace-header { top: 52px; }
 }
 

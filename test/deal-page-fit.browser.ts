@@ -7,7 +7,7 @@ import { chromium } from "./browser-harness.mjs";
 
 const shots = "out/test-artifacts/deal-page-fit";
 
-test("a deal page puts the deal in the top bar and five tabs beside its facts", async (t) => {
+test("a deal page puts the deal in the top bar and the full tab row beside its facts", async (t) => {
   const server = await startWorkerFixture({
     assets: await appAssetSnapshot(),
     env: { APP_ENV: "fixture", CARR: { fetch: async () => new Response("synthetic") } },
@@ -35,13 +35,14 @@ test("a deal page puts the deal in the top bar and five tabs beside its facts", 
         await topBar.getByRole("heading", { name: "Demo Surgical Practice", level: 1 }).waitFor();
         assert.equal(await topBar.getByRole("button", { name: "Back to deals" }).isVisible(), true, "Deals leads back");
         assert.equal(await topBar.getByRole("link", { name: "National Accounts" }).isVisible(), false);
-        // The fixture hides the engine-only Client portal tab; a signed-in partner sees all five.
+        // Show the full tab row, including the tabs whose engine data this fixture omits.
         await page.locator('#workspaceTabs [role="tab"]').evaluateAll((tabs) => {
           for (const tab of tabs) tab.removeAttribute("hidden");
         });
         const strip = page.locator("#workspaceTabs");
         assert.deepEqual(await strip.getByRole("tab").allTextContents(), [
           "Overview",
+          "Plan",
           "Activity",
           "Tours",
           "Documents",
@@ -57,17 +58,14 @@ test("a deal page puts the deal in the top bar and five tabs beside its facts", 
             .evaluateAll((tabs) =>
               tabs.map((tab) => tab.getBoundingClientRect()).map(({ top, height }) => [Math.round(top), height]),
             );
-          assert.equal(new Set(boxes.map(([top]) => top)).size, 1, "the tabs are one row");
+          assert.equal(new Set(boxes.map(([top]) => top)).size, 2, "the tabs wrap onto a second row");
           assert.equal(new Set(boxes.map(([, height]) => height)).size, 1, "every tab name reads on one line");
-          assert.equal(await strip.evaluate((strip) => strip.scrollWidth > strip.clientWidth), true, "the row scrolls");
-          await strip.evaluate((strip) => strip.scrollTo({ left: 0 }));
-          await page.getByRole("tab", { name: "Documents" }).dispatchEvent("click");
-        } else
-          assert.equal(
-            await strip.evaluate((strip) => strip.scrollWidth <= strip.clientWidth),
-            true,
-            "the tab row has no scroll bar",
-          );
+        }
+        assert.equal(
+          await strip.evaluate((strip) => strip.scrollWidth <= strip.clientWidth),
+          true,
+          "the tab strip needs no horizontal scroll",
+        );
         const outside = await strip.evaluate((strip) => {
           const bounds = strip.getBoundingClientRect();
           return [...strip.querySelectorAll('[role="tab"]')]
@@ -77,8 +75,7 @@ test("a deal page puts the deal in the top bar and five tabs beside its facts", 
             })
             .map((tab) => tab.textContent);
         });
-        if (phone) assert.equal(outside.includes("Documents"), false, "the chosen tab scrolls whole into view");
-        else assert.deepEqual(outside, [], "every tab shows whole");
+        assert.deepEqual(outside, [], "every tab shows whole");
         if (phone) return;
 
         const [tabs, facts] = await Promise.all([

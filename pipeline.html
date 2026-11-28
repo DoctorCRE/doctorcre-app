@@ -20,6 +20,7 @@
   <link rel="stylesheet" href="/css/deal-next-steps.css">
   <link rel="stylesheet" href="/css/correspondence.css">
   <link rel="stylesheet" href="/css/deal-timeline.css">
+  <link rel="stylesheet" href="/css/timeline.css">
   <link rel="stylesheet" href="/css/deal-path.css">
   <link rel="stylesheet" href="/css/deal-client-portal.css">
   <link rel="stylesheet" href="/css/deal-attention.css">
@@ -43,14 +44,23 @@
         <div class="chip-bar" role="group" aria-label="Deal view">
           <button class="chip" id="boardView" type="button" aria-pressed="true">Board</button>
           <button class="chip" id="listView" type="button" aria-pressed="false">List</button>
+          <button class="chip" id="timelineView" type="button" aria-pressed="false" aria-controls="boardTimeline" hidden>Timeline</button>
           <button class="chip" id="closedView" type="button" aria-pressed="false" aria-controls="closedDealsView">Closed deals</button>
           <button class="chip" id="lostView" type="button" aria-pressed="false" aria-controls="closedDealsView">Lost deals</button>
           <button class="chip" id="parkedToggle" type="button" aria-pressed="false">Parked</button>
         </div>
+        <select id="compactDealView" aria-label="Deal view">
+          <option value="board">Board</option>
+          <option value="list">List</option>
+          <option value="timeline">Timeline</option>
+          <option value="closed">Closed deals</option>
+          <option value="lost">Lost deals</option>
+        </select>
+        <div id="boardTimelineTools" hidden></div>
     </div>
 
     <div class="app-section-tabs" data-layout-slot="title"><nav aria-label="Deals pages"><a href="/deals" aria-current="page">Local Deals</a><a href="/deals?view=national" aria-label="National Accounts"><span>National<span class="wide-only"> Accounts</span></span></a></nav><h1 id="pageTitle" class="sr-only">Local Deals</h1><div class="deal-crumb"><button id="panelClose" type="button" aria-label="Back to deals">Deals</button><h1 id="panelTitle" tabindex="-1">Deal</h1></div></div>
-    <div class="dealroom-heading"><div class="deal-heading-actions"><button class="btn" type="button" id="receiptsOpen" aria-controls="appToday">Recent changes <span id="receiptsCount">0</span></button><a class="btn" id="mondayReviewLink" href="/deals?view=review" hidden>Monday review</a></div>
+    <div id="boardHeading" class="dealroom-heading"><div class="deal-heading-actions"><button class="btn" type="button" id="receiptsOpen" aria-controls="appToday">Recent changes <span id="receiptsCount">0</span></button><a class="btn" id="mondayReviewLink" href="/deals?view=review" hidden>Monday review</a></div>
         <div data-layout-slot="status" class="hero-meta">
           <span id="deploymentBadge" class="small"></span>
           <span id="syncStatus"><span class="as-of" id="boardAsOf"></span></span>
@@ -71,6 +81,7 @@
 
     <div class="pipeline-layout">
       <div class="kanban" id="kanban" aria-label="Deals by phase" tabindex="-1"></div>
+      <div id="boardTimeline" hidden></div>
       <section id="closedDealsView" hidden aria-labelledby="closedDealsTitle">
         <h2 id="closedDealsTitle">Closed deals</h2>
         <div class="field"><label for="closedSearch">Search closed deals</label><input id="closedSearch" type="search" placeholder="Deal, client, kind, or close date"></div>
@@ -107,7 +118,7 @@
   </dialog>
 
   <main id="recordPanel" class="deal-workspace deal-detail" aria-label="Deal Workspace" hidden>
-    <header class="workspace-header"><nav id="workspaceTabs" role="tablist" aria-label="Deal workspace tabs"></nav><div id="workspaceFacts"></div></header>
+    <header class="workspace-header"><nav id="workspaceTabs" role="tablist" aria-label="Deal workspace tabs"></nav><div id="workspaceFacts"></div><div id="workspaceStatus" aria-label="Deal status"><div id="workspacePhaseMove" aria-live="polite"></div><div id="workspaceSigning"></div><div id="workspacePlanStatus"></div></div></header>
     <div id="panelBody"></div>
   </main>
 

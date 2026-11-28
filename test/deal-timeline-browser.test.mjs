@@ -4,11 +4,12 @@ import {readFile,mkdir} from 'node:fs/promises';
 import { componentDocument, chromium, waitForAsync } from './browser-harness.mjs';
 import {dealHref} from '../js/home-dashboard-model.js';
 const root=new URL('../',import.meta.url);
+const longDealName='Example active deal with a longer heading and the full additional name';
 // A touch tablet: the iPad Mini portrait profile.
 const ipad={viewport:{width:768,height:1024},deviceScaleFactor:2,isMobile:true,hasTouch:true};
-async function open(t,{width=1440,device,link=false,reducedMotion='no-preference',fixtureDelayMs=0,noteOrder=false}={}) {
+async function open(t,{width=1440,height=960,touch,device,link=false,longName=false,reducedMotion='no-preference',fixtureDelayMs=0,noteOrder=false}={}) {
  const browser=await chromium.launch();t.after(()=>browser.close());
- const page=await browser.newPage({...(device?ipad:{viewport:{width,height:960}}),reducedMotion});
+ const page=await browser.newPage({...(device?ipad:{viewport:{width,height},...(touch === undefined ? {} : {hasTouch:touch,isMobile:touch})}),reducedMotion});
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.clock.install({time:new Date('2026-10-04T17:00:00Z')});
  await page.route('**/*',async route=>{
@@ -16,6 +17,11 @@ async function open(t,{width=1440,device,link=false,reducedMotion='no-preference
   if(['/api/system-work/session','/auth/session'].includes(url.pathname))return route.fulfill({contentType:'application/json',body:JSON.stringify({actor:{slug:'joe'},csrf_token:'synthetic-only'})});
   if(url.pathname.startsWith('/api/')||url.pathname==='/app-release')return route.fulfill({contentType:'application/json',body:'{}'});
   if(url.pathname==='/data/board-seed.json' && fixtureDelayMs)await new Promise(resolve=>setTimeout(resolve,fixtureDelayMs));
+  if(url.pathname==='/data/board-seed.json' && longName) {
+   const seed=JSON.parse(await readFile(new URL('data/board-seed.json',root),'utf8'));
+   seed.deals.find(deal=>deal.id==='d14').name=longDealName;
+   return route.fulfill({json:seed});
+  }
   const file=url.pathname==='/deals'?'pipeline.html':url.pathname.slice(1);
   try {return route.fulfill({body:await readFile(new URL(file,root)),contentType:/\.m?js$/.test(file)?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.json')?'application/json':'text/html'});}catch{return route.fulfill({status:404,body:''});}
  });
@@ -167,4 +173,200 @@ for (const timezoneId of ['UTC','America/Chicago','America/Los_Angeles','Asia/To
  const assertions=await exercise(page,`${fixture.origin}/js/deal-timeline.js`);
  assert.equal(assertions.length,83);
  assert.ok(assertions.every(result=>result.passed));
+});
+
+const planPhase={phase:'legal',from_on:'2026-10-03',to_on:null,expected_from_on:null,expected_to_on:'2026-11-05'};
+const planRows=[
+ {id:'review',kind:'todo',phase:'legal',label:'Review the lease',state:'current',day:2,typical_days:7,from_on:'2026-10-03',expected_to_on:'2026-10-10'},
+ {id:'sign',kind:'todo',phase:'legal',label:'Sign the lease',state:'expected',typical_days:7,expected_from_on:'2026-10-10',expected_to_on:'2026-10-17'},
+ {id:'step:sample',kind:'step',phase:'legal',owner:'dell',state:'open',from_on:'2026-10-04',to_on:'2026-10-07',done_on:null,label:'Call about the lease',change_id:12},
+];
+const plan={phases:[planPhase],rows:planRows,arrows:[{from:'review',to:'sign',at_risk:false}],expected_signing_on:'2026-10-17',stale:null,own_dates:{},base_version:0};
+async function providePlan(page, plan) {
+ await page.evaluate(async plan=>{
+  const {state}=await import('/js/pipeline.js');
+  const get=state.client.getDeal.bind(state.client);
+  state.client.getDeal=async (...args)=>({...await get(...args),plan,next_actions:[{id:'sample',description:'Call about the lease',change_id:12}]});
+ },plan);
+ await page.getByRole('button',{name:'Back to deals',exact:true}).click();
+ await page.locator('.kanban-card[data-id="d14"] .card-open').click();
+}
+async function showPlan(page) {
+ await providePlan(page,plan);
+ await page.getByRole('button',{name:'Lease signing expected Oct 17'}).click({timeout:3000});
+ return page.getByRole('tabpanel',{name:'Plan'});
+}
+
+for(const [width,height] of [[1280,640],[1440,900]]) {
+ test(`Plan keeps the chart on screen at ${width} × ${height}`,async t=>{
+  const {page,errors}=await open(t,{width,height});
+  const tab=await showPlan(page);
+  await tab.getByRole('button',{name:'Sign the lease',exact:true}).first().waitFor();
+  await tab.getByRole('button',{name:'Recorded only'}).click();
+  assert.equal(await tab.getByRole('button',{name:/Sign the lease/}).count(),0);
+  assert.equal(await tab.getByRole('button',{name:/Review the lease/}).count()>0,true);
+  await tab.getByRole('button',{name:'Recorded only'}).click();
+  await mkdir(new URL('out/test-artifacts/',root),{recursive:true});
+  await page.screenshot({path:new URL(`out/test-artifacts/deal-plan-${width}.png`,root).pathname});
+  assert.equal(await tab.evaluate(node=>{
+    const outer=node.closest('#appMainSlot');
+    return outer.scrollHeight<=outer.clientHeight && document.documentElement.scrollHeight<=innerHeight;
+  }),true,'Plan fits without an outer scroll region');
+  const box=await tab.locator('.timeline').boundingBox();
+  assert.ok(box.y+box.height <= height);
+  assert.deepEqual(errors,[]);
+ });
+}
+
+test('Plan preserves visible filters and items across the chart boundary',async t=>{
+ const {page}=await open(t,{width:1440,height:900});
+ const tab=await showPlan(page);
+ const recorded=tab.getByRole('button',{name:'Recorded only',exact:true});
+ const dell=tab.getByRole('button',{name:'Dell',exact:true});
+ await recorded.click();
+ await dell.click();
+ await tab.locator('.timeline-scroll').getByRole('button',{name:'Review the lease',exact:true}).first().click();
+ const detail=tab.getByRole('region',{name:'Review the lease'});
+ await detail.waitFor();
+ await page.setViewportSize({width:1279,height:800});
+ const list=tab.getByRole('list',{name:'Plan items'});
+ await list.waitFor({timeout:3000});
+ await detail.waitFor();
+ assert.equal(await list.getByRole('button',{name:'Review the lease',exact:true}).getAttribute('aria-expanded'),'true');
+ assert.equal(await recorded.getAttribute('aria-pressed'),'true');
+ assert.equal(await dell.getAttribute('aria-pressed'),'true');
+ assert.deepEqual((await list.locator('.deal-plan-item > button').allTextContents()).sort(),['Call about the lease','Review the lease']);
+ await recorded.click();
+ await list.getByRole('button',{name:'Sign the lease',exact:true}).waitFor();
+ await page.setViewportSize({width:1280,height:800});
+ await tab.locator('.timeline-scroll').waitFor();
+ await detail.waitFor();
+ assert.equal(await recorded.getAttribute('aria-pressed'),'false');
+ assert.equal(await dell.getAttribute('aria-pressed'),'true');
+ await page.setViewportSize({width:1279,height:800});
+ await list.waitFor();
+ assert.equal(await list.getByRole('button',{name:'Review the lease',exact:true}).getAttribute('aria-expanded'),'true');
+ await page.setViewportSize({width:1280,height:800});
+ await tab.locator('.timeline-scroll').waitFor();
+ await detail.getByRole('button',{name:'Close item',exact:true}).click();
+ await tab.getByRole('heading',{name:'Milestones'}).waitFor();
+ assert.equal(await recorded.getAttribute('aria-pressed'),'false');
+ assert.equal(await dell.getAttribute('aria-pressed'),'true');
+ await tab.getByRole('button',{name:'Sign the lease',exact:true}).first().waitFor();
+});
+test('Phone Plan lists items in date order and opens them inline',async t=>{
+ const {page,errors}=await open(t,{width:390,height:844,touch:true});
+ const tab=await showPlan(page);
+ const list=tab.getByRole('list',{name:'Plan items'});
+ await list.getByRole('button',{name:'Sign the lease',exact:true}).waitFor();
+ assert.deepEqual(await list.getByRole('button').allTextContents(),['Call about the lease','Review the lease','Sign the lease']);
+ const step=list.getByRole('listitem').first();
+ assert.match(await step.innerText(),/Legal · Dell/);
+ assert.match(await step.innerText(),/From Oct 4 · Oct 7/);
+ await list.getByRole('button',{name:'Sign the lease',exact:true}).tap();
+ const detail=list.getByRole('region',{name:'Sign the lease'});
+ await detail.waitFor();
+ assert.match(await detail.innerText(),/exp\. Oct 17/);
+ assert.equal(await tab.locator('.timeline').count(),0);
+ assert.deepEqual(errors,[]);
+ await page.setViewportSize({width:1280,height:844});
+ await tab.getByRole('group',{name:'Zoom'}).waitFor();
+ assert.equal(await tab.getByRole('list',{name:'Plan items'}).count(),0);
+});
+
+test('Overview names the signing date as recorded after the signing to-do is finished', async t=>{
+ const {page}=await open(t,{width:1440,height:900});
+ const signed={id:'executed_lease',kind:'todo',phase:'legal',label:'Sign the lease',state:'finished',from_on:'2026-10-17',to_on:'2026-10-17'};
+ await providePlan(page,{...plan,rows:[planRows[0],signed,planRows[2]]});
+ const signing=page.locator('.deal-plan-signing-link');
+ await signing.waitFor();
+ assert.equal(await signing.innerText(),'Lease signed Oct 17');
+ await signing.click();
+ await page.getByRole('tabpanel',{name:'Plan'}).getByRole('button',{name:'Sign the lease',exact:true}).first().waitFor();
+});
+
+for(const [width,height,touch] of [[1280,640,false],[1440,900,false],[390,844,true]]) test(`Deals Timeline expands one row per open deal at ${width} × ${height}`,async t=>{
+ const {page}=await open(t,{width,height,touch,longName:touch});
+ await page.evaluate(async ({planPhase,planRows,longDealName})=>{
+  const {state}=await import('/js/pipeline.js');
+  const get=state.client.getBoard.bind(state.client);
+  const timeline={phase_spans:[planPhase],rows:planRows,arrows:[],dates:[],at_risk_count:0,expected_signing_on:'2026-10-17',stale:null};
+  state.client.getBoard=async (...args)=>{
+    const board=await get(...args);
+    const rows=board.deals.filter(row=>row.id==='d14').map(row=>({...row,name:longDealName,short_name:null,owner:'dell',timeline}));
+    const more=Array.from({length:23},(_,index)=>({...rows[0],id:`sample-${index}`,name:`Example deal ${index+1}`,short_name:null,owner:index%2?'joe':'dell'}));
+    return {...board,board_from_engine:true,deals:[...rows,...more]};
+  };
+ },{planPhase,planRows,longDealName});
+ await page.getByRole('button',{name:'Back to deals',exact:true}).click();
+ await page.getByRole('button',{name:'Refresh',exact:true}).click();
+ await page.getByRole('button',{name:'Timeline',exact:true}).click();
+ const picker=page.getByRole('combobox',{name:'Deal view'});
+ for(const name of ['Closed deals','Lost deals']) {
+  if(width===1280) assert.equal(await picker.getByRole('option',{name,exact:true}).count(),1);
+  else assert.ok(await page.getByRole('button',{name,exact:true}).isVisible());
+ }
+ const chart=page.locator('#boardTimeline');
+ assert.equal(await chart.getByRole('link',{name:longDealName,exact:true}).count(),1);
+ const groups=chart.locator('[data-group]');
+ assert.equal(await groups.count(),24);
+ if(touch) {
+  const primary=chart.getByRole('link',{name:longDealName,exact:true});
+  assert.equal(await primary.evaluate(node=>getComputedStyle(node).webkitLineClamp),'2');
+  assert.ok(await primary.evaluate(node=>node.clientHeight>parseFloat(getComputedStyle(node).lineHeight)));
+  for(const name of ['Example deal 1','Example deal 10']) {
+   const link=chart.getByRole('link',{name,exact:true});
+    const layout=await link.evaluate(node=>{
+    const row=node.closest('.timeline-group');
+    const label=node.getBoundingClientRect();
+    const phase=row.querySelector('.timeline-when').getBoundingClientRect();
+    const bounds=row.getBoundingClientRect();
+    return {clipped:node.scrollWidth>node.clientWidth,labelTop:label.top,labelBottom:label.bottom,phaseTop:phase.top,phaseBottom:phase.bottom,top:bounds.top,bottom:bounds.bottom};
+   });
+   assert.ok(!layout.clipped && layout.top<=layout.labelTop+0.5 && layout.labelBottom<=layout.phaseTop+0.5 && layout.phaseBottom<=layout.bottom+0.5,JSON.stringify(layout));
+  }
+ } else {
+  await page.locator('#boardTimelineTools').getByRole('button',{name:'Today',exact:true}).waitFor();
+  // Reserve the space that a non-overlay scrollbar uses inside the chart box.
+  await page.addStyleTag({content:"#boardTimeline .timeline-scroll { border-block-end: 12px solid transparent; }"});
+  const bounds=await groups.evaluateAll(async rows=>{
+   await document.fonts.ready;
+   await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+   const scroller=rows[0].closest('.timeline-scroll');
+   const scroll=scroller.getBoundingClientRect();
+   const visibleTop=scroller.querySelector('.timeline-head').getBoundingClientRect().bottom;
+   const visibleBottom=scroll.top+scroller.clientTop+scroller.clientHeight;
+   const boxes=rows.map(row=>row.getBoundingClientRect());
+   return {
+    first:Math.round(boxes[0].top),
+    fullyVisible:boxes.filter(row=>row.top>=visibleTop-0.5 && row.bottom<=visibleBottom+0.5).length,
+    borderBottom:scroll.bottom, visibleTop, visibleBottom, scrollTop:scroller.scrollTop,
+    lastExpectedBottom:boxes[innerWidth===1280?13:21].bottom,
+   };
+  });
+  assert.ok(bounds.borderBottom-bounds.visibleBottom>=12,JSON.stringify(bounds));
+  assert.equal(bounds.first,100,JSON.stringify(bounds));
+  assert.equal(bounds.fullyVisible,width===1280?14:22,JSON.stringify(bounds));
+  assert.ok(bounds.borderBottom<=height,JSON.stringify(bounds));
+ }
+ assert.equal(await chart.locator('.timeline-scroll').evaluate(node=>node.scrollWidth>node.clientWidth),true);
+ assert.equal(await chart.getByRole('button',{name:'Sign the lease',exact:true}).count(),0);
+ await chart.getByRole('button',{name:/Show rows for Example active deal/}).click();
+ await chart.getByRole('button',{name:'Sign the lease',exact:true}).first().waitFor();
+ await page.getByRole('button',{name:'Month',exact:true}).click();
+ assert.equal(await chart.locator('.timeline').getAttribute('data-day-width'),'4');
+ await mkdir(new URL('out/test-artifacts/',root),{recursive:true});
+ await page.screenshot({path:new URL(`out/test-artifacts/deals-timeline-${width}.png`,root).pathname});
+ if(touch) {
+  await chart.getByRole('link',{name:/Example active deal with a longer heading/}).click();
+  const title=page.getByRole('heading',{name:longDealName});
+  await title.waitFor();
+  const bounds=await title.evaluate(node=>({height:node.clientHeight,contentHeight:node.scrollHeight,width:node.clientWidth,contentWidth:node.scrollWidth,lineHeight:getComputedStyle(node).lineHeight}));
+  assert.ok(bounds.height===bounds.contentHeight && bounds.width===bounds.contentWidth,JSON.stringify(bounds));
+
+ }
+ if(width===1280) {
+  await picker.selectOption('closed');
+  assert.equal(await page.getByRole('button',{name:'Closed deals',exact:true}).getAttribute('aria-pressed'),'true');
+ }
 });

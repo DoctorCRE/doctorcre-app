@@ -1,3 +1,4 @@
+import { mountDealPlan, signingCaption } from './ui-deal-plan.generated.js';
 import { hasTourDrafts, legacyTourDraftScope, TOUR_DRAFT_KEYS } from './offline-tour-session.js';
 import { createDayStore } from '../tours/day-store.js';
 import { emailConversation, redactEmailAddresses, suggestionEmail } from './ui-deal-suggestion-email.generated.js';
@@ -86,7 +87,7 @@ const state = {
   filter: ['joe','dell'].includes(incomingScope.get('owner')) ? incomingScope.get('owner') : 'all',
   personalScope: incomingScope.get('owner') === 'me',
   scopeFilter: ['flagged', 'no-next-step'].includes(incomingScope.get('filter')) ? incomingScope.get('filter') : 'all',
-  view: ['list','closed','lost'].includes(incomingScope.get('view')) ? incomingScope.get('view') : 'board',
+  view: ['list','timeline','closed','lost'].includes(incomingScope.get('view')) ? incomingScope.get('view') : 'board',
   closedDeals: null,
   lostDeals: null,
   parkedOpen: false,
@@ -132,23 +133,27 @@ const automaticPhase = prepareAutomaticPhaseUndo({
   refreshedMessage: 'The deal page was refreshed.',
 });
 
-function detailPhaseMoveHtml(detail) {
+function renderPhaseUndo(detail = state.panelDetail) {
+  const host = $('workspacePhaseMove');
+  if (!host || !detail) return;
   const deal = detail.deal;
-  if (!isEngineDealDetail(detail)) return isClosedDeal(deal) ? '' : autoHtml(deal);
-  const receipt = automaticPhaseReceipt(deal, automaticPhase.detailFeedback(deal.id), {
-    showEngineMoves: isPhaseMoveReceipt(deal.phase_change), canUndo: detail.next_deal_saves === true,
-  });
-  return renderPhaseReceipt(deal, receipt, '');
-}
-
-function renderPhaseUndo() {
-  const host = $('panelBody')?.querySelector('[data-phase-move]');
-  if (!host || !state.panelDetail) return;
-  const html = detailPhaseMoveHtml(state.panelDetail);
-  if (host.innerHTML === html) return;
+  const html = isEngineDealDetail(detail)
+    ? renderPhaseReceipt(deal, automaticPhaseReceipt(deal, automaticPhase.detailFeedback(deal.id), {
+        showEngineMoves: isPhaseMoveReceipt(deal.phase_change), canUndo: detail.next_deal_saves === true,
+      }), '', true)
+    : '';
+  if (host.dataset.receipt === html) return;
+  const previous = host.querySelector('details');
   const focused = host.contains(document.activeElement);
+  const toggle = focused && document.activeElement.matches('summary');
+  host.dataset.receipt = html;
   host.innerHTML = html;
-  if (focused) (host.querySelector('button') || $('panelBody').querySelector('[data-refresh-detail]'))?.focus({ preventScroll: true });
+  const next = host.querySelector('details');
+  if (next && previous?.open) next.open = true;
+  if (focused) {
+    const target = toggle ? next?.querySelector('summary') : host.querySelector('button');
+    (target || $('panelBody').querySelector('[data-refresh-detail]'))?.focus({ preventScroll: true });
+  }
 }
 
 const dealTitle = (deal) => dealName(deal.name);
@@ -444,13 +449,39 @@ function renderBoardPlaceholder() {
   board.innerHTML = reading ? boardPlaceholderHtml() : '';
 }
 
+let boardTimeline;
+let dealPlan;
+function renderPlan(detail) {
+  const host = $('workspace-plan');
+  if (!host || workspaceTab !== 'plan' || !detail?.plan) return;
+  dealPlan ??= mountDealPlan(host);
+  dealPlan.update({
+    mode: 'plan', today: businessDay(), viewer: state.selfActor,
+    plan: detail.plan, deal: detail.deal.id,
+    phase: columnByValue(detail.deal.phase)?.slug, steps: detail.next_actions || [],
+  });
+}
+
 function renderBoard() {
   const board = $('kanban');
   if (!board) return;
-  board.hidden = ['closed','lost'].includes(state.view);
-  $('boardLive').hidden = ['closed','lost'].includes(state.view);
+  const timeline = state.view === 'timeline';
+  $('timelineView').hidden = !state.boardFromEngine;
+  $('compactDealView').value = state.view;
+  $('timelineView').setAttribute('aria-pressed', String(timeline));
+  $('boardTimeline').hidden = !timeline;
+  $('boardTimelineTools').hidden = !timeline;
+  const heading = $('boardHeading');
+  if (timeline) {
+    const topbar = $('appTopbar');
+    if (topbar && heading.parentElement !== topbar) topbar.append(heading);
+  } else if (heading.parentElement !== $('main')) {
+    $('boardLive').before(heading);
+  }
+  board.hidden = timeline || ['closed','lost'].includes(state.view);
+  $('boardLive').hidden = timeline || ['closed','lost'].includes(state.view);
   $('closedDealsView').hidden = !['closed','lost'].includes(state.view);
-  $('parkedToggle').hidden = ['closed','lost'].includes(state.view);
+  $('parkedToggle').hidden = timeline || ['closed','lost'].includes(state.view);
   if (['closed','lost'].includes(state.view)) { renderClosedDeals(); return; }
   if (!state.boardRead) { renderBoardPlaceholder(); return; }
   board.removeAttribute('aria-busy');
@@ -464,6 +495,15 @@ function renderBoard() {
   }
   publishDocRead('getBoard', { deals: rows });
   renderBoardMessage();
+  if (timeline) {
+    boardTimeline ??= mountDealPlan($('boardTimeline'));
+    const deals = rows.flatMap(deal => {
+      const phase = columnByValue(deal.phase)?.slug;
+      return phase && deal.timeline ? [{ ...deal, phase }] : [];
+    });
+    boardTimeline.update({ mode: 'board', deals, toolsHost: $('boardTimelineTools'), today: businessDay(), viewer: state.selfActor });
+    return;
+  }
   const grouped = groupByColumn(rows);
   state.unplaced = grouped.unplaced.length;
   const focusedStage = board.contains(document.activeElement) ? document.activeElement?.dataset?.collapseStage : null;
@@ -600,6 +640,7 @@ function applyBoardSnapshot(board) {
     pageDocContext?.finish(contextRead, board);
     ++panelReadSequence;
     state.panelDetail = null;
+    dealPlan?.dispose(); dealPlan = null;
     disposeChecklist();
     disposeActivityAttribution();
     disposePanelCallReview();
@@ -1464,6 +1505,7 @@ async function copyRequirementDraft() {
 }
 export const workspaceTabs = [
   {id:'overview', label:'Overview'},
+  {id:'plan', label:'Plan'},
   {id:'activity', label:'Activity'},
   {id:'tours', label:'Tours'},
   {id:'documents', label:'Documents'},
@@ -1507,19 +1549,22 @@ function renderWorkspaceFacts(detail) {
     const text = note ? `${value} · ${note}` : value;
     return `<div><dt>${esc(label)}</dt><dd title="${esc(text)}">${href ? `<a href="${esc(href)}">${esc(text)}</a>` : esc(text)}</dd></div>`;
   }).join('')}</dl>`;
-}
-// Scrolls only the strip sideways; scrollIntoView would also move a phone page whose header scrolled away.
-function revealTab(tab) {
-  const strip = tab.parentElement.getBoundingClientRect();
-  const { left, right } = tab.getBoundingClientRect();
-  tab.parentElement.scrollLeft += Math.min(0, left - strip.left) + Math.max(0, right - strip.right);
+  renderPhaseUndo(detail);
+  const signing = signingCaption(detail.plan, businessDay());
+  if ($('workspaceSigning').textContent !== signing) $('workspaceSigning').innerHTML = signing ? `<button class="btn btn-quiet deal-plan-signing-link" type="button" data-open-deal-plan title="${esc(signing)}">${esc(signing)}</button>` : '';
 }
 // The updated time follows the dates on Overview and heads every other tab.
 function placeFreshness(id) {
   const line = $('panelBody').querySelector('.deal-freshness');
   if (!line) return;
-  if (id === 'overview') $('workspace-overview').querySelector('[data-detail-read="add-critical-date"]').after(line, $('detailReadStatus'));
-  else $('panelBody').prepend(line, $('detailReadStatus'));
+  const status = $('detailReadStatus');
+  const heading = $(`workspace-${id}`).querySelector(':scope > .workspace-tab-heading');
+  line.hidden = id === 'plan';
+  if (id === 'overview') $('workspace-overview').querySelector('[data-detail-read="add-critical-date"]').after(line, status);
+  else if (heading) {
+    heading.append(line);
+    heading.after(status);
+  } else $('panelBody').prepend(line, status);
 }
 function selectWorkspaceTab(id) {
   workspaceTab = id;
@@ -1531,7 +1576,7 @@ function selectWorkspaceTab(id) {
     if ($(`workspace-${tab.id}`)) $(`workspace-${tab.id}`).hidden = !selected;
   }
   placeFreshness(id);
-  revealTab($(`tab-${id}`));
+  if (id === 'plan') renderPlan(state.panelDetail);
   if (id === 'documents') void dealDocumentsPanel?.load();
   if (id === 'tours') void dealToursPanel?.load();
   if (id === 'activity') {
@@ -1591,7 +1636,7 @@ function revealCurrentPhase() {
 }
 function closePathQuestion({ focus = true } = {}) {
   const ask = $('panelBody').querySelector('.deal-path-ask');
-  const phase = ask?.closest('.deal-path-tile')?.querySelector('[data-path-phase]');
+  const phase = ask?.closest('.deal-path-section')?.querySelector(`[data-path-phase="${CSS.escape(ask.dataset.pathMove)}"]`);
   ask?.remove();
   phase?.setAttribute('aria-expanded', 'false');
   if (focus) phase?.focus();
@@ -1603,8 +1648,9 @@ function askPathMove(button) {
   const phase = columnBySlug(button.dataset.pathPhase);
   if (!phase) return;
   button.setAttribute('aria-expanded', 'true');
-  button.closest('.deal-path-tile').insertAdjacentHTML('beforeend', pathQuestionHtml(phase, businessDay()));
-  button.closest('.deal-path-tile').querySelector('.deal-path-ask input')?.focus();
+  const path = button.closest('.deal-path-section');
+  path.insertAdjacentHTML('beforeend', pathQuestionHtml(phase, businessDay()));
+  path.querySelector('.deal-path-ask input')?.focus();
 }
 async function movePathPhase(ask) {
   const detail = state.panelDetail;
@@ -1961,7 +2007,7 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
     : parkingNote ? `<p>${esc(parkingNote)}</p>${parker}` : parker || '<p>Parked</p>';
   const controlsAvailable = (state.deals.has(d.id) || (state.nextDealSaves && Number.isSafeInteger(d.seen))) && !ended;
   const canAddCriticalDate = detail.next_deal_saves === true && Number.isSafeInteger(d.seen);
-  const phaseMove = detailPhaseMoveHtml(detail);
+  const phaseMove = !fromEngine && !ended ? autoHtml(d) : '';
   const websiteSetup = !d.client_portal_url && (fromEngine ? detail.next_deal_saves && d.client_id : controlsAvailable)
     ? clientPortalSetupHtml() : '';
   const stepsHtml = (tail = '') => `<section class="deal-opening-snapshot" aria-label="Deal snapshot">
@@ -1989,7 +2035,7 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
     <div data-detail-read="add-critical-date" data-available="${canAddCriticalDate}">${canAddCriticalDate ? criticalDateFormHtml() : ''}</div>
     <div class="deal-freshness"><time id="detailUpdated" title="Last updated"></time><button class="btn icon-btn" type="button" data-refresh-detail aria-label="Refresh deal" title="Refresh">↻</button></div><p id="detailReadStatus" role="status"></p>
     ${fromEngine ? `<p id="detailStepStatus" role="status"></p><div class="deal-parked-line" data-detail-read="parked">${parked ? `${parkingSummary}${controlsAvailable ? `<button type="button" class="btn" data-revive="${esc(d.id)}">Revive</button>` : ''}` : ''}</div>` : ''}
-    <div data-detail-read="path">${dealPathHtml({ phases: COLUMNS, current: columnByValue(d.phase)?.slug ?? null, checklist: detail.checklist, showTodos: fromEngine, today, canMove: controlsAvailable && !parked, receiptHtml: fromEngine ? phaseMove : '', focusedItem: focusedChecklistItem(d.id) })}</div>${fromEngine ? `<div class="deal-overview-grid">${stepsHtml(`${snapshotHtml}${ownStep ? '' : dealUpdateFormHtml(false, today)}`)}
+    <div data-detail-read="path">${dealPathHtml({ phases: COLUMNS, current: columnByValue(d.phase)?.slug ?? null, checklist: detail.checklist, showTodos: fromEngine, today, canMove: controlsAvailable && !parked, focusedItem: focusedChecklistItem(d.id) })}</div>${fromEngine ? `<div class="deal-overview-grid">${stepsHtml(`${snapshotHtml}${ownStep ? '' : dealUpdateFormHtml(false, today)}`)}
       <div data-detail-read="latest">${renderLatestActivity(detail, { planTours, note: activityNoteDraft, canNote: Boolean(state.selfActor), ports: activityPorts })}</div>
       <div class="deal-overview-side">
         <div data-detail-read="invoice">${dealInvoiceHtml(detail.invoice, dateCaption)}</div>
@@ -2004,10 +2050,11 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
     <div data-detail-read="vendors">${renderDealVendors(d.vendors)}</div>${ownerHtml}${prospectHtml}
     <div data-detail-read="client-portal">${websiteSetup}</div>
     <div data-detail-read="updates">${renderDealUpdates(detail, Date.now(), { engineSignIn: engineMode, noteHtml: text => linkRecordNames(text, detail.record_links) })}</div>`}</section>
-    <section id="workspace-documents" role="tabpanel" aria-labelledby="tab-documents" hidden>${fromEngine ? `<h2>Documents</h2>${detail.next_deal_saves ? '<div id="deal-document-upload"></div>' : ''}<div data-detail-read="filed-documents">${filedDocumentsHtml(detail.documents)}</div>` : ''}</section>
+    <section id="workspace-documents" role="tabpanel" aria-labelledby="tab-documents" hidden>${fromEngine ? `<div class="workspace-tab-heading"><h2>Documents</h2></div>${detail.next_deal_saves ? '<div id="deal-document-upload"></div>' : ''}<div data-detail-read="filed-documents">${filedDocumentsHtml(detail.documents)}</div>` : ''}</section>
     <section id="workspace-client-portal" role="tabpanel" aria-labelledby="tab-client-portal" hidden>${fromEngine ? `<div data-detail-read="client-website">${clientPortalHtml({ deal: d.id, url: d.client_portal_url, clientName: d.client_name })}</div>` : ''}</section>
     <section id="workspace-tours" role="tabpanel" aria-labelledby="tab-tours" hidden>${engineMode ? '<p>Not available yet</p>' : ''}</section>
-    <section id="workspace-activity" role="tabpanel" aria-labelledby="tab-activity" hidden>${fromEngine ? activityPanel(detail, planTours) : `<div data-detail-read="events">${workspaceEventsHtml(detail, nextItem)}</div>${renderDealTimeline(detail)}
+    <section id="workspace-plan" role="tabpanel" aria-labelledby="tab-plan" hidden></section>
+    <section id="workspace-activity" role="tabpanel" aria-labelledby="tab-activity" hidden>${fromEngine ? `<div class="workspace-tab-heading"><h2>Activity</h2></div>${activityPanel(detail, planTours)}` : `<div data-detail-read="events">${workspaceEventsHtml(detail, nextItem)}</div>${renderDealTimeline(detail)}
       <h2>Correspondence &amp; notes</h2>
       <details id="panelEvidenceSection"><summary>Threads &amp; meetings</summary><div id="panelEvidence"></div></details>
       <div data-detail-read="notes">${workspaceNotesHtml(detail)}</div>`}</section>`;
@@ -2279,6 +2326,7 @@ async function readPanel(id) {
           else if (focused?.id) document.getElementById(focused.id)?.focus({preventScroll:true});
         }
       }
+      renderPlan(detail);
       void dealToursPanel?.refresh();
       void dealDocumentsPanel?.refresh();
       loadSuggestionEmails(detail);
@@ -2314,6 +2362,7 @@ async function refreshEvidence(detail, id, seq) {
 }
 
 function paintPanel(detail) {
+  dealPlan?.dispose(); dealPlan = null;
   $('panelTitle').textContent = dealTitle(detail.deal);
   renderWorkspaceFacts(detail);
   disposeChecklist();
@@ -2458,6 +2507,8 @@ function paintPanel(detail) {
     dispose() { documentsDisposed = true; documentsMounted?.dispose(); },
   };
   $('tab-client-portal').hidden = !fromEngine;
+  $('tab-plan').hidden = !detail.plan;
+  if (workspaceTab === 'plan' && !detail.plan) workspaceTab = 'overview';
   selectWorkspaceTab(fromEngine && requestedClientPortal ? 'client-portal'
     : !fromEngine && workspaceTab === 'client-portal' ? 'overview' : workspaceTab);
   mountPanelActivityAttribution();
@@ -2466,6 +2517,7 @@ function paintPanel(detail) {
 async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   if (!fromHistory && dealDocumentsPanel && !dealDocumentsPanel.confirmLeave()) return;
   if (!fromHistory && dealToursPanel && !await dealToursPanel.confirmLeave()) return;
+  dealPlan?.dispose(); dealPlan = null;
   disposeChecklist();
   dealDocumentsPanel?.dispose(); dealDocumentsPanel = null;
   dealToursPanel?.dispose(); dealToursPanel = null;
@@ -2482,7 +2534,7 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   const toursLink = scope.get('deal') === dealId && (scope.has('property') || scope.get('tab') === 'tours');
   const linkedTab = scope.get('deal') === dealId ? scope.get('tab') : null;
   const renamedTab = renamedTabs[linkedTab] ?? linkedTab;
-  workspaceTab = toursLink ? 'tours' : renamedTab === 'activity' ? 'activity' : 'overview';
+  workspaceTab = toursLink ? 'tours' : ['plan', 'activity'].includes(renamedTab) ? renamedTab : 'overview';
   requestedClientPortal = !toursLink && renamedTab === 'client-portal';
   timelineType = '';
   activityFilter = 'all';
@@ -2505,8 +2557,13 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   $('panelTitle').textContent = state.deals.get(dealId)?.name || 'Deal';
   $('panelBody').innerHTML = dealPlaceholderHtml;
   $('workspaceFacts').replaceChildren();
+  $('workspacePhaseMove').replaceChildren();
+  delete $('workspacePhaseMove').dataset.receipt;
+  $('workspaceSigning').replaceChildren();
   $('workspaceTabs').innerHTML = workspaceTabs.map(tab => `<button class="workspace-tab" type="button" role="tab" id="tab-${tab.id}" aria-controls="workspace-${tab.id}" aria-selected="${tab.id === workspaceTab}" tabindex="${tab.id === workspaceTab ? 0 : -1}" data-workspace-tab="${tab.id}">${tab.label}</button>`).join('');
   $('tab-client-portal').hidden = true;
+  $('tab-plan').hidden = true;
+  dealPlan?.dispose(); dealPlan = null;
   $('main').hidden = true; panel.hidden = false;
   document.body.classList.add('workspace-open');
   pageScroller().scrollTo({ top: 0, behavior: 'instant' });
@@ -2544,6 +2601,7 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
 async function closeWorkspace({ fromHistory = false } = {}) {
   if (!fromHistory && dealDocumentsPanel && !dealDocumentsPanel.confirmLeave()) return;
   if (!fromHistory && dealToursPanel && !await dealToursPanel.confirmLeave()) return;
+  dealPlan?.dispose(); dealPlan = null;
   disposeChecklist();
   dealDocumentsPanel?.dispose(); dealDocumentsPanel = null;
   dealToursPanel?.dispose(); dealToursPanel = null;
@@ -2868,7 +2926,7 @@ function wire() {
     if (retry) { retryFieldWrite(retry.dataset.retryWrite); return; }
     const phaseUndo = event.target.closest('button[data-undo-phase], #closedDealsView button[data-undo-invoice]');
     if (phaseUndo) {
-      await automaticPhase.undo(phaseUndo, $('panelBody').contains(phaseUndo));
+      await automaticPhase.undo(phaseUndo, $('recordPanel').contains(phaseUndo));
       return;
     }
     const undo = event.target.closest('button[data-undo]');
@@ -2935,6 +2993,9 @@ function wire() {
     else closeWorkspace({fromHistory:true});
   });
   $('panelClose')?.addEventListener('click', () => closeWorkspace());
+  $('workspaceSigning').addEventListener('click', event => {
+    if (event.target.closest('[data-open-deal-plan]')) { selectWorkspaceTab('plan'); $('tab-plan').focus(); }
+  });
   $('workspaceTabs').addEventListener('click', event => {
     const tab = event.target.closest('[data-workspace-tab]');
     if (tab) { selectWorkspaceTab(tab.dataset.workspaceTab); pageScroller().scrollTo(0,0); }
@@ -3010,6 +3071,12 @@ function wire() {
   });
   $('boardView').addEventListener('click', () => changeView('board'));
   $('listView').addEventListener('click', () => changeView('list'));
+  $('timelineView').addEventListener('click', () => changeView('timeline'));
+  $('compactDealView').addEventListener('change', event => {
+    const view = event.currentTarget.value;
+    changeView(view);
+    $(`${view}View`)?.focus();
+  });
   $('parkedToggle').addEventListener('click', () => { state.parkedOpen = !state.parkedOpen; $('parkedToggle').setAttribute('aria-pressed',String(state.parkedOpen)); renderBoard(); });
   $('kanban').addEventListener('toggle', e => { if(e.target.classList.contains('parked-lane')) { state.parkedOpen=e.target.open; $('parkedToggle').setAttribute('aria-pressed',String(state.parkedOpen)); } },true);
   $('panelBody').addEventListener('toggle', event => {

@@ -15,7 +15,6 @@ export type PathView = {
   showTodos?: boolean;
   today: string;
   canMove: boolean;
-  receiptHtml: string;
   focusedItem: string | null;
 };
 
@@ -88,11 +87,13 @@ function tileHtml(phase: Phase, place: Place, todos: Todo[] | undefined, view: P
   const count = place === "current" && todos?.length ? `<small>${done} of ${todos.length}</small>` : "";
   const check = place === "done" ? '<span class="deal-path-check" aria-label="Finished">✓</span>' : "";
   const list = todos?.length ? todoListHtml(todos, view) : todos ? '<p class="deal-path-empty">Nothing listed</p>' : "";
-  const receipt = place === "current" ? `<div data-phase-move aria-live="polite">${view.receiptHtml}</div>` : "";
-  return `<li class="deal-path-tile" data-phase="${esc(phase.slug)}" data-place="${place}"${place === "current" ? ' aria-current="step"' : ""}><div class="deal-path-head">${name}${check}${count}</div>${receipt}${list}</li>`;
+  return `<li class="deal-path-tile" data-phase="${esc(phase.slug)}" data-place="${place}"${place === "current" ? ' aria-current="step"' : ""}><div class="deal-path-head">${name}${check}${count}</div>${list}</li>`;
 }
 
-/** Every phase as a tile with its to-dos; a phase name asks before it moves the deal. */
+function phaseFold(tiles: string[], timing: "earlier" | "later", open: boolean) {
+  if (!tiles.length) return "";
+  return `<li class="deal-path-fold"><details name="deal-path-phases"${open ? " open" : ""}><summary>${tiles.length} ${timing} ${tiles.length === 1 ? "phase" : "phases"}</summary><ol>${tiles.join("")}</ol></details></li>`;
+}
 export function dealPathHtml(view: PathView) {
   const showTodos = view.showTodos !== false;
   const byPhase = showTodos ? todosByPhase(view.checklist) : null;
@@ -105,8 +106,12 @@ export function dealPathHtml(view: PathView) {
     showTodos && !byPhase
       ? '<p class="deal-path-note" role="status">Checklist is unavailable. Refresh the deal.</p>'
       : "";
-  const receipt = at < 0 ? `<div data-phase-move aria-live="polite">${view.receiptHtml}</div>` : "";
-  return `<section class="deal-path-section" aria-label="Deal path"><ol class="deal-path">${tiles.join("")}</ol>${receipt}${unread}</section>`;
+  const first = Math.max(0, at - 1);
+  const last = Math.min(tiles.length, Math.max(0, at) + 2);
+  const focused = view.phases.findIndex((phase) =>
+    byPhase?.get(phase.slug)?.some((todo) => todo.id === view.focusedItem),
+  );
+  return `<section class="deal-path-section" aria-label="Deal path"><ol class="deal-path">${phaseFold(tiles.slice(0, first), "earlier", focused >= 0 && focused < first)}${tiles.slice(first, last).join("")}${phaseFold(tiles.slice(last), "later", focused >= last)}</ol>${unread}</section>`;
 }
 
 /** The question a phase click asks. Closed asks the outcome instead. */
