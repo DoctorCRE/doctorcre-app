@@ -747,7 +747,7 @@ body[data-card-open] .app-layout-main { padding-inline-end: calc(clamp(340px, 28
 .vendor-territories .tile-n { margin-inline-start: auto; font-size: var(--font-size-1); }
 
 @media (min-width: 768px) and (pointer: fine) {
-  .app-layout-main:has(.vendor-territories:not([hidden])) { display: flex; flex-direction: column; overflow: hidden; }
+  .app-layout-main:has(.vendor-territories:not([hidden])) { display: flex; flex-direction: column; overflow: clip; }
   .business-shell:has(.vendor-territories:not([hidden])) {
     flex: 1;
     flex-flow: column nowrap;
@@ -767,7 +767,7 @@ body[data-card-open] .app-layout-main { padding-inline-end: calc(clamp(340px, 28
     flex-direction: column;
     min-height: 0;
   }
-  .business-shell:has(.vendor-territories:not([hidden])) .list-region { overflow: auto; }
+  .business-shell:has(.vendor-territories:not([hidden])) .list-region { flex: 1; min-height: 0; overflow: auto; }
   .business-shell:has(.vendor-territories:not([hidden])) .list-head { top: 0; }
   .business-shell:has(.vendor-territories:not([hidden])) .record-row { padding-block: 6px; min-height: 33px; }
   .vendor-territories > button { flex: 1 0 auto; max-width: 15rem; }

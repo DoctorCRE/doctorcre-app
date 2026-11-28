@@ -240,7 +240,6 @@ async function syncVendorMeetings() {
   const host = document.createElement('div');
   vendorMeetingsHost = host;
   host.className = 'vendor-meetings-host';
-  host.setAttribute('data-panel-background', '');
   dom.listRegion.closest(".business-body").after(host);
   try {
     const { mountVendorMeetings } = await import('./ui-vendor-meetings.generated.js');
@@ -1008,24 +1007,47 @@ const FOCUSABLE = 'summary, a[href], button:not([disabled]), input:not([disabled
 
 function panelIsModal() { return Boolean(view.recordId) && phoneWidth.matches; }
 
-function backgroundRegions() { return [...document.querySelectorAll("[data-panel-background], #appShell")]; }
+const panelBackground = new Map();
+
+function updatePanelBackground(modal, backdrop) {
+  const covered = new Set();
+  if (modal) {
+    for (let node = dom.panel; node !== document.body; node = node.parentElement) {
+      for (const sibling of node.parentElement.children) {
+        // The backdrop dismisses the record. Native dialogs manage their own modality.
+        if (sibling !== node && sibling !== backdrop && sibling instanceof HTMLElement && !(sibling instanceof HTMLDialogElement)) {
+          covered.add(sibling);
+        }
+      }
+    }
+  }
+  for (const [region, previous] of panelBackground) {
+    if (covered.has(region)) continue;
+    region.inert = previous.inert;
+    if (previous.ariaHidden === null) region.removeAttribute("aria-hidden");
+    else region.setAttribute("aria-hidden", previous.ariaHidden);
+    panelBackground.delete(region);
+  }
+  for (const region of covered) {
+    if (!panelBackground.has(region)) {
+      panelBackground.set(region, { inert: region.inert, ariaHidden: region.getAttribute("aria-hidden") });
+    }
+    region.inert = true;
+    region.setAttribute("aria-hidden", "true");
+  }
+}
 
 function applyPanelModality() {
   if (!dom.panel) return;
   const modal = panelIsModal();
   document.body.toggleAttribute("data-card-open", Boolean(view.recordId) && !modal);
-  document.querySelector('#recordBackdrop').hidden = !modal;
+  const backdrop = document.querySelector('#recordBackdrop');
+  backdrop.hidden = !modal;
   document.body.classList.toggle('record-open', modal);
   dom.panel.setAttribute("role", modal ? "dialog" : "complementary");
   if (modal) dom.panel.setAttribute("aria-modal", "true");
   else dom.panel.removeAttribute("aria-modal");
-  for (const region of backgroundRegions()) {
-    // `inert` is the real containment; aria-hidden keeps assistive technology
-    // out of the covered content where inert is not supported yet.
-    region.inert = modal;
-    if (modal) region.setAttribute("aria-hidden", "true");
-    else region.removeAttribute("aria-hidden");
-  }
+  updatePanelBackground(modal, backdrop);
 }
 
 /**
@@ -1725,6 +1747,7 @@ function wireControls() {
   });
 
   document.addEventListener("keydown", (event) => {
+    if (event.target.closest?.("dialog:modal")) return;
     // Tab stays inside the record dialog.
     containPanelFocus(event);
     if (event.key !== "Escape" || !view.recordId) return;

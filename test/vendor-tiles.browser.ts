@@ -416,3 +416,67 @@ test("territory tiles and market reads stay off before rollout", async (t) => {
   );
   assert.equal(new URL(page.url()).searchParams.has("market"), false);
 });
+
+test("Tab through the vendor table scrolls only the list", async (t) => {
+  const { page } = await openVendors(t, 1280, 640, {
+    path: "/vendors?category=banker",
+    territoryTiles: true,
+    ready: ".record-row",
+  });
+  const tiles = page.getByRole("group", { name: "Territories" });
+  await tiles.waitFor();
+  const headings = page.locator(".list-head");
+  const tilesTop = (await tiles.boundingBox())?.y;
+  const headingsTop = (await headings.boundingBox())?.y;
+  const rows = page.locator(".record-row");
+  assert.equal(await rows.count(), 31);
+  await rows.first().focus();
+  for (let index = 1; index < 31; index++) {
+    await page.keyboard.press("Tab");
+    assert.equal(await rows.nth(index).evaluate((row) => row === document.activeElement), true);
+  }
+  assert.equal(
+    await page.locator(".app-layout-main").evaluate((main) => main.scrollTop),
+    0,
+    "the outer workspace scrolled",
+  );
+  assert.equal(await page.evaluate(() => window.scrollY), 0);
+  assert.ok(await page.locator("#listRegion").evaluate((list) => list.scrollTop > 0));
+  assert.equal((await tiles.boundingBox())?.y, tilesTop);
+  assert.equal((await headings.boundingBox())?.y, headingsTop);
+  await page.keyboard.press("Shift+Tab");
+  assert.equal(await rows.nth(29).evaluate((row) => row === document.activeElement), true);
+});
+
+test("a phone vendor card removes the territory and table controls from keyboard navigation", async (t) => {
+  const { page } = await openVendors(t, 390, 844, {
+    path: "/vendors?category=banker",
+    territoryTiles: true,
+    touch: true,
+    ready: ".record-row",
+  });
+  await page.getByRole("group", { name: "Territories" }).waitFor();
+  const quiet = page.locator("#tableFilters [data-quiet-filter]");
+  const first = page.locator(".record-row").first();
+  await first.focus();
+  await page.keyboard.press("Enter");
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("heading", { name: "Demo Partner 01" }).waitFor();
+
+  // A focus request must be refused by the covered background itself.
+  await quiet.focus();
+  assert.equal(
+    await quiet.evaluate((button) => button === document.activeElement),
+    false,
+    "Quiet accepted focus behind the card",
+  );
+  assert.equal(await page.getByRole("group", { name: "Show only" }).count(), 0);
+  for (const key of ["Tab", "Tab", "Shift+Tab", "Shift+Tab"]) {
+    await page.keyboard.press(key);
+    assert.ok(await dialog.evaluate((panel) => panel.contains(document.activeElement)));
+  }
+  await page.keyboard.press("Escape");
+  assert.ok(await first.evaluate((row) => row === document.activeElement), "focus returns to the row");
+  await quiet.focus();
+  assert.ok(await quiet.evaluate((button) => button === document.activeElement), "Quiet accepts focus after closing");
+});
