@@ -1582,6 +1582,29 @@ test("The conversation is one column: the question boxed on the right, Doc's ans
   await expect(answer).toHaveCSS("padding-left", "0px");
 });
 
+test("Failed turns show their reason or a fallback", async (t) => {
+  let reason: string | null | undefined = "Doc lost this turn; ask again";
+  const { page, origin } = await docChatFixture(t, (request) =>
+    new URL(request.url).pathname === "/api/engine/doc/conversations"
+      ? Response.json({ conversations: [conversation], next_before: null })
+      : Response.json({
+          conversation,
+          turns: [{ ...answeredTurn, idempotency_key: id, state: "failed", answer: null, failure_reason: reason }],
+        }),
+  );
+  for (const [value, expected] of [
+    [reason, "Doc lost this turn; ask again"],
+    [null, "Doc couldn’t answer."],
+    ["   ", "Doc couldn’t answer."],
+    [undefined, "Doc couldn’t answer."],
+  ] as const) {
+    reason = value;
+    await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
+    await expect(page.getByText(expected)).toBeVisible();
+    await expect(page.getByRole("button", { name: "Retry", exact: true })).toBeVisible();
+  }
+});
+
 test("A failed answer has its Retry on the same line, and a short chat starts at the top", async (t) => {
   const { page, origin } = await docChatFixture(
     t,
