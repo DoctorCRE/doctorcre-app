@@ -34,7 +34,7 @@ async function setup(
     // The list read, and the filter choices it carries, never arrives.
     holdList?: boolean;
     // Fields the record read adds, as a newer engine would.
-    record?: Record<string, unknown>;
+    record?: Record<string, unknown> | (() => Record<string, unknown>);
     // Filter choices the list read adds.
     facets?: Record<string, unknown>;
     // The record's activity answers once this settles.
@@ -69,7 +69,15 @@ async function setup(
       return route.fulfill({
         json: isList
           ? { ...json, facets: Object.assign({}, json.facets, facets) }
-          : { ...json, record: Object.assign({}, json.record, record, recordReads > 1 ? rereadRecord : {}) },
+          : {
+              ...json,
+              record: Object.assign(
+                {},
+                json.record,
+                typeof record === "function" ? record() : record,
+                recordReads > 1 ? rereadRecord : {},
+              ),
+            },
       });
     } catch {
       return route.fulfill({ status: 404, json: { error: "RECORD_NOT_FOUND" } });
@@ -872,29 +880,36 @@ test("The relationship button on a vendor card changes the level, parks with a r
     disposition_reason: null,
     is_target: false,
   });
-  const { page, sent } = await setup(t, `/vendors?all=true&record=${vendor}`, fake.answer);
+  const { page, sent } = await setup(t, `/vendors?all=true&record=${vendor}`, fake.answer, {
+    record: () => ({
+      relationship_level: fake.state.profile.relationship_level,
+      recorded_disposition: fake.state.profile.disposition ?? "active",
+      is_target: fake.state.profile.is_target,
+    }),
+  });
   const panel = page.locator("#recordPanel");
   const button = panel.locator(".rel-button:not([disabled])");
   const saves = () => posts(sent).map((call) => [call.path, withoutKey(call.body ?? {})]);
-  const saved = () => page.waitForResponse((response) => response.request().method() === "POST");
 
-  await button.click();
-  await Promise.all([saved(), panel.getByRole("button", { name: "Established", exact: true }).click()]);
+  await button.filter({ hasText: "Building" }).click();
+  await panel.getByRole("button", { name: "Established", exact: true }).click();
+  await button.filter({ hasText: "Established" }).waitFor();
   assert.deepEqual(saves(), [[`/api/engine/vendors/${vendor}`, { relationship_level: { from: 1, to: 2 } }]]);
 
-  await button.click();
+  await button.filter({ hasText: "Established" }).click();
   await panel.getByRole("button", { name: "Park…" }).click();
   const why = panel.getByLabel("Why park Demo Partner 01?");
   await why.fill("  Slow to reply  ");
-  await Promise.all([saved(), panel.getByRole("button", { name: "Park", exact: true }).click()]);
+  await panel.getByRole("button", { name: "Park", exact: true }).click();
   await panel.locator(".rel-reason", { hasText: "Slow to reply" }).waitFor();
   assert.deepEqual(saves()[1], [
     `/api/engine/vendors/${vendor}`,
     { disposition: { from: null, to: "parked" }, disposition_reason: { from: null, to: "Slow to reply" } },
   ]);
 
-  await button.click();
-  await Promise.all([saved(), panel.getByRole("button", { name: "Want to meet" }).click()]);
+  await button.filter({ hasText: "Parked" }).click();
+  await panel.getByRole("button", { name: "Want to meet" }).click();
+  await panel.locator(".want-tag", { hasText: "Want to meet" }).waitFor();
   assert.deepEqual(saves()[2], [`/api/engine/vendors/${vendor}`, { is_target: { from: false, to: true } }]);
   assert.equal(saves().length, 3);
 });
