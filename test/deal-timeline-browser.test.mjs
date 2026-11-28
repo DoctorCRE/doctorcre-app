@@ -6,9 +6,9 @@ import {dealHref} from '../js/home-dashboard-model.js';
 const root=new URL('../',import.meta.url);
 // A touch tablet: the iPad Mini portrait profile.
 const ipad={viewport:{width:768,height:1024},deviceScaleFactor:2,isMobile:true,hasTouch:true};
-async function open(t,{width=1440,height=960,touch=false,device,link=false,reducedMotion='no-preference',fixtureDelayMs=0,noteOrder=false}={}) {
+async function open(t,{width=1440,height=960,touch,device,link=false,reducedMotion='no-preference',fixtureDelayMs=0,noteOrder=false}={}) {
  const browser=await chromium.launch();t.after(()=>browser.close());
- const page=await browser.newPage({...(device?ipad:{viewport:{width,height},hasTouch:touch,isMobile:touch}),reducedMotion});
+ const page=await browser.newPage({...(device?ipad:{viewport:{width,height},...(touch === undefined ? {} : {hasTouch:touch,isMobile:touch})}),reducedMotion});
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.clock.install({time:new Date('2026-10-04T17:00:00Z')});
  await page.route('**/*',async route=>{
