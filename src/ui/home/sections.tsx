@@ -236,9 +236,15 @@ type Anchor = { node: Element; top: number };
 
 function fitHomeTiles(grid: HTMLDivElement) {
   const watched = new Set<Element>([grid]);
+  const openFolds = new WeakSet<HTMLElement>();
+  const fonts = grid.ownerDocument.fonts;
   let frame = 0;
+  let active = true;
   const resize = new ResizeObserver(schedule);
-  const mutations = new MutationObserver(schedule);
+  const mutations = new MutationObserver(() => {
+    cancelAnimationFrame(frame);
+    fit();
+  });
 
   function fit() {
     frame = 0;
@@ -247,27 +253,39 @@ function fitHomeTiles(grid: HTMLDivElement) {
       getComputedStyle(grid).flexDirection === "row"
         ? Array.from(grid.querySelectorAll<HTMLElement>(":scope > .home-column > .home-slice"), (tile) => {
             const header = tile.querySelector<HTMLElement>(":scope > header");
-            const footer = tile.querySelector<HTMLElement>(":scope > [data-home-footer]");
+            const fold = tile.querySelector<HTMLElement>(":scope > [data-home-fold]");
+            const control = fold?.querySelector("button");
+            const open = fold?.hasAttribute("data-open") ? fold : null;
+            const result = control?.offsetHeight ? open?.querySelector<HTMLElement>("[data-home-open-preview]") : null;
             const first = Array.from(tile.querySelectorAll<HTMLElement>("[data-home-preview]")).find(
               (row) => row.offsetHeight > 0,
             );
-            for (const node of [tile, header, footer, first]) if (node) next.add(node);
+            const targets = tile.querySelectorAll<HTMLElement>("[data-home-target]");
+            for (const node of [header, control, result, first, ...targets]) if (node) next.add(node);
 
-            const rowBottom = first?.getBoundingClientRect().bottom ?? header?.getBoundingClientRect().bottom;
-            const stickyEnd = footer && getComputedStyle(footer).position === "sticky" ? footer.offsetHeight : 0;
+            const css = getComputedStyle(tile);
+            const paddingStart = Number.parseFloat(css.paddingBlockStart);
+            const paddingEnd = Number.parseFloat(css.paddingBlockEnd);
             const stickyStart = header?.offsetHeight
               ? header.offsetHeight + Number.parseFloat(getComputedStyle(header).top)
               : 0;
-            // Add back scrollTop to measure the first row in its unscrolled position.
-            const minimum =
-              rowBottom === undefined
-                ? 0
-                : rowBottom -
-                  tile.getBoundingClientRect().top +
-                  tile.scrollTop +
-                  Number.parseFloat(getComputedStyle(tile).paddingBlockEnd) +
-                  stickyEnd;
-            return { tile, minimum, stickyStart, stickyEnd };
+            const stickyEnd = open ? 0 : (control?.offsetHeight ?? 0);
+            const targetHeight = Math.max(0, ...Array.from(targets, (target) => target.offsetHeight));
+            const firstEnd = first
+              ? first.getBoundingClientRect().bottom - tile.getBoundingClientRect().top + tile.scrollTop
+              : 0;
+            // An open fold can scroll past the phases, but its first result and control fit together.
+            const body =
+              result && open
+                ? stickyStart + result.getBoundingClientRect().bottom - open.getBoundingClientRect().top
+                : Math.max(firstEnd, paddingStart + stickyStart + targetHeight);
+            const minimum = Math.ceil(body + paddingEnd + stickyEnd);
+            const reveal = result && open && !openFolds.has(open) ? open : null;
+            if (fold) {
+              if (result && open) openFolds.add(open);
+              else openFolds.delete(fold);
+            }
+            return { tile, minimum, stickyStart, stickyEnd, reveal };
           })
         : [];
     for (const node of watched) {
@@ -281,23 +299,39 @@ function fitHomeTiles(grid: HTMLDivElement) {
       watched.add(node);
     }
     for (const { tile, minimum, stickyStart, stickyEnd } of sizes) {
-      tile.style.setProperty("--home-preview-size", `${Math.ceil(minimum)}px`);
-      tile.style.setProperty("--home-sticky-start", `${stickyStart}px`);
-      tile.style.setProperty("--home-sticky-end", `${stickyEnd}px`);
+      for (const [property, value] of [
+        ["--home-preview-size", minimum],
+        ["--home-sticky-start", stickyStart],
+        ["--home-sticky-end", stickyEnd],
+      ] as const) {
+        const pixels = `${value}px`;
+        if (tile.style.getPropertyValue(property) !== pixels) tile.style.setProperty(property, pixels);
+      }
+    }
+    for (const { tile, minimum, stickyStart, stickyEnd, reveal } of sizes) {
+      tile.toggleAttribute("data-home-fitted", stickyEnd > 0 && tile.getBoundingClientRect().height >= minimum);
+      if (reveal) {
+        tile.scrollTop += reveal.getBoundingClientRect().top - tile.getBoundingClientRect().top - stickyStart;
+        tile.scrollIntoView({ block: "nearest", behavior: "instant" });
+      }
     }
   }
 
   function schedule() {
     // eslint-disable-next-line no-restricted-syntax -- At most one pending frame to fit the visible tiles, canceled on unmount.
-    if (!frame) frame = requestAnimationFrame(fit);
+    if (active && !frame) frame = requestAnimationFrame(fit);
   }
 
   resize.observe(grid);
   mutations.observe(grid, { childList: true, subtree: true, characterData: true, attributeFilter: ["data-open"] });
+  fonts.addEventListener("loadingdone", schedule);
+  void fonts.ready.then(schedule);
   fit();
   return () => {
+    active = false;
     resize.disconnect();
     mutations.disconnect();
+    fonts.removeEventListener("loadingdone", schedule);
     cancelAnimationFrame(frame);
   };
 }

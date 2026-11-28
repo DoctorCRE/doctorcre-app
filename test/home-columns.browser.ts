@@ -573,9 +573,6 @@ test("Crowded Home tiles keep their headings and first rows readable", async (t)
       if (!phone) {
         const deals = tile("Deals");
         await deals.getByRole("button", { name: "42 need attention" }).click();
-        await deals.evaluate((region) => {
-          region.scrollTop = 0;
-        });
         await comingUp.getByRole("button", { name: "Coming up 42 dates in the next 14 days" }).click();
       }
 
@@ -583,7 +580,7 @@ test("Crowded Home tiles keep their headings and first rows readable", async (t)
         ["Today's meetings", "summary"],
         ["Reminders", "article"],
         ["Inbox", "article"],
-        ["Deals", ".home-deals-counts a"],
+        ["Deals", phone ? ".home-deals-counts a" : ".home-deals-attention a"],
         ["Coming up", "li a"],
         ["Leads", ".home-door"],
         ["In motion and waiting", "article"],
@@ -593,14 +590,16 @@ test("Crowded Home tiles keep their headings and first rows readable", async (t)
         const heading = region.locator(name === "Leads" ? "strong" : ":scope > header");
         const first = region.locator(selector).first();
         if (phone) await first.evaluate((row) => row.scrollIntoView({ block: "center" }));
-        const [bounds, head, row] = await Promise.all([
+        else await region.evaluate((tile) => tile.scrollIntoView({ block: "nearest", behavior: "instant" }));
+        const [bounds, head, row, column] = await Promise.all([
           region.boundingBox(),
           heading.boundingBox(),
           first.boundingBox(),
+          phone ? null : region.locator("..").boundingBox(),
         ]);
         assert.ok(bounds && head && row, `${name} draws its heading and first row`);
-        const visibleTop = Math.max(bounds.y, 0);
-        const visibleBottom = Math.min(bounds.y + bounds.height, height);
+        const visibleTop = Math.max(bounds.y, column?.y ?? 0);
+        const visibleBottom = Math.min(bounds.y + bounds.height, column ? column.y + column.height : height);
         assert.ok(head.y >= visibleTop && head.y + head.height <= visibleBottom, `${name} heading fits`);
         assert.ok(row.y >= (name === "Leads" ? visibleTop : head.y + head.height), `${name} row clears the heading`);
         assert.ok(row.y + row.height <= visibleBottom + 1, `${name} first row fits`);
@@ -647,6 +646,134 @@ test("Crowded Home tiles keep their headings and first rows readable", async (t)
       "opening the fold exposes the first deal",
     );
   });
+});
+
+const busyMeetings = Array.from({ length: 42 }, (_, index) => ({
+  ...sampleMeeting,
+  title: `Sample visit ${index + 1}`,
+}));
+const wrappedDeal = deal(1, "Research", {
+  name: "Sample practice",
+  attention: {
+    reason:
+      "The practice asked us to confirm the revised lease terms, parking instructions, the second-floor buildout scope, the updated tour schedule, and which documents are needed before the next site visit.",
+  },
+});
+
+test("At 1280x599 every phase is a full touch target under the closed Deals fold", async (t) => {
+  const page = await openHome(t, 1280, 599, [], comingUpDates, dashboard, undefined, {
+    touch: true,
+    meetings: busyMeetings,
+  });
+  const phases = page.getByRole("region", { name: "Deals", exact: true }).locator(".home-phases a");
+  await phases.last().waitFor();
+  assert.equal(await phases.count(), 7);
+  for (const phase of await phases.all()) {
+    const hit = await phase.evaluate((link) => {
+      link.scrollIntoView({ block: "center", behavior: "instant" });
+      const box = link.getBoundingClientRect();
+      const x = box.left + box.width / 2;
+      return (
+        box.height >= 44 && [box.top + 1, box.bottom - 1].every((y) => link.contains(document.elementFromPoint(x, y)))
+      );
+    });
+    assert.ok(hit, `Both edges of ${await phase.textContent()} are tappable`);
+  }
+});
+
+test("At 1280x599 opening Deals attention shows both edges of a wrapped result", async (t) => {
+  const page = await openHome(t, 1280, 599, [], comingUpDates, dashboard, undefined, {
+    touch: true,
+    deals: [wrappedDeal],
+    meetings: busyMeetings,
+  });
+  const tile = page.getByRole("region", { name: "Deals", exact: true });
+  await tile.getByRole("button", { name: "1 needs attention" }).tap();
+  const result = tile.getByRole("link", { name: /Sample practice The practice asked/ });
+  const [row, head, bounds] = await Promise.all([
+    result.boundingBox(),
+    tile.locator("header").boundingBox(),
+    tile.boundingBox(),
+  ]);
+  assert.ok(row && head && bounds && row.height > 100, "the result wraps");
+  assert.ok(
+    row.y >= head.y + head.height && row.y + row.height <= Math.min(bounds.y + bounds.height, 599),
+    "the complete result fits under the heading",
+  );
+});
+
+test("At 1280x599 Deals refits wrapped counts after a late font load", async (t) => {
+  const page = await openHome(t, 1280, 599, [], comingUpDates, dashboard, undefined, {
+    touch: true,
+    meetings: busyMeetings,
+  });
+  const tile = page.getByRole("region", { name: "Deals", exact: true });
+  const counts = tile.locator(".home-deals-counts");
+  const loops: string[] = [];
+  page.on("pageerror", (error) => {
+    if (error.message.includes("ResizeObserver loop")) loops.push(error.message);
+  });
+  const before = (await counts.boundingBox()) ?? assert.fail("Deal counts are drawn");
+  await page.addStyleTag({
+    content: `
+    @font-face { font-family: HomeCountsTest; src: local("Arial"), local("Liberation Sans"), local("DejaVu Sans"); size-adjust: 250%; }
+    .home-deals-counts { font-family: HomeCountsTest, sans-serif; }
+  `,
+  });
+  await page.evaluate(async () => {
+    await document.fonts.load("12px HomeCountsTest");
+    await document.fonts.ready;
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
+  const [after, fold] = await Promise.all([
+    counts.boundingBox(),
+    tile.getByRole("button", { name: "2 need attention" }).boundingBox(),
+  ]);
+  assert.ok(after && fold && after.height > before.height, "the loaded font wraps the counts");
+  assert.ok(after.y + after.height <= fold.y, "the fold stays below the wrapped counts");
+  assert.deepEqual(loops, [], "refitting the column does not cause a resize loop");
+});
+
+test("Crowded touch columns keep every tile heading reachable at 599, 640 and 900", async (t) => {
+  for (const height of [599, 640, 900]) {
+    await t.test(`1280x${height}`, async (t) => {
+      const dates = Array.from({ length: 42 }, (_, index) => criticalDate(index + 1, today));
+      const page = await openHome(t, 1280, height, [], dates, dashboard, undefined, {
+        touch: true,
+        deals: [wrappedDeal],
+        meetings: busyMeetings,
+      });
+      if (height < 900) {
+        await page.getByRole("button", { name: "Coming up 42 dates in the next 14 days" }).tap();
+        await page.getByRole("button", { name: "1 needs attention" }).tap();
+        const right = page.locator(".home-side");
+        assert.ok(
+          await right.evaluate((column) => column.scrollHeight > column.clientHeight),
+          "the column scrolls when the previews cannot fit",
+        );
+      }
+      for (const name of [
+        "Reminders",
+        "Inbox",
+        "In motion and waiting",
+        "Today's meetings",
+        "Deals",
+        "Coming up",
+        "Leads",
+      ]) {
+        const tile = page.getByRole("region", { name, exact: true });
+        const heading = tile.locator(name === "Leads" ? "strong" : "header h2");
+        await tile.evaluate((region) => region.scrollIntoView({ block: "start", behavior: "instant" }));
+        const box = (await heading.boundingBox()) ?? assert.fail(`${name} draws a heading`);
+        assert.ok(box.y >= 0 && box.y + box.height <= height, `${name} heading is reachable`);
+      }
+      assert.equal(
+        await page.evaluate(() => document.scrollingElement?.scrollHeight),
+        height,
+        "the page itself does not scroll",
+      );
+    });
+  }
 });
 
 test("Coming up is not drawn when no open deal has a date in the next 14 days", async (t) => {

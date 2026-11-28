@@ -1,4 +1,4 @@
-import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
+import { type ReactNode, useState } from "react";
 
 /** Rows that fold to one counted line on a short computer screen; the line opens them in place. */
 export function Fold({
@@ -13,20 +13,12 @@ export function Fold({
   keepCollapsedVisible?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const section = useRef<HTMLElement>(null);
-  useLayoutEffect(() => {
-    const fold = section.current;
-    if (open && keepCollapsedVisible && fold?.querySelector("button")?.offsetHeight) {
-      fold.querySelector("li a")?.scrollIntoView({ block: "nearest", behavior: "instant" });
-    }
-  }, [open, keepCollapsedVisible]);
   return (
     <section
-      ref={section}
       className="home-short-fold"
       aria-label={label}
       data-open={open || undefined}
-      data-home-footer={!open && keepCollapsedVisible ? "" : undefined}
+      data-home-fold={keepCollapsedVisible ? "" : undefined}
     >
       <button
         type="button"

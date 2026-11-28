@@ -56,6 +56,6 @@ details.home-today-row > :not(summary) { margin: 0 0 var(--space-1); padding-inl
   .inbox-shell .home-short-fold-line { display: flex; }
   .home-short-fold:not([data-open]) > :not(.home-short-fold-line) { display: none; }
   .home-coming-up:has(.home-short-fold:not([data-open])) > header { display: none; }
-  [data-home-footer] { position: sticky; inset-block-end: 0; z-index: 1; background: var(--surface-1); }
+  [data-home-fitted] > [data-home-fold]:not([data-open]) { position: sticky; inset-block-end: 0; z-index: 1; background: var(--surface-1); }
   .home-coming-up:has(.home-short-fold[data-open]) { flex: 1 1 0; }
 } }
