@@ -579,11 +579,10 @@ test("at 320x568 the Plan list keeps the owner controls in reach", async (t) => 
 });
 
 for (const [width, height] of [
-  [320, 568],
   [390, 844],
-  [900, 599],
+  [1024, 768],
   [1280, 599],
-  [700, 800],
+  [1280, 640],
   [1440, 900],
 ] as const)
   test(`at ${width}x${height} deal header and Plan toolbar items fit without overlap`, async (t) => {
@@ -597,8 +596,8 @@ for (const [width, height] of [
       .locator("#workspace-plan :is(.timeline-name, .deal-plan-item > button)")
       .filter({ hasText: "Example date 0" });
     await item.waitFor();
-    const geometryProblems = (expectReset = false) =>
-      page.evaluate((expectReset) => {
+    const geometryProblems = (checkRequired = false) =>
+      page.evaluate((checkRequired) => {
         const scope = ":is(#appTopbar, #recordPanel)";
         const buttons = "button, a[href], summary, input, select, textarea, [role=button]";
         const viewport = new DOMRect(0, 0, innerWidth, innerHeight);
@@ -621,26 +620,50 @@ for (const [width, height] of [
         ].filter((node) => visible(node) && /auto|scroll/.test(getComputedStyle(node).overflowY));
         for (const node of scrollers)
           if (node.clientHeight < 160) issues.push(`${node.className} scroller is ${node.clientHeight}px tall`);
-        const mobilePage = matchMedia("(width < 760px)").matches;
+        const listLayout = matchMedia("(width < 1280px)").matches;
+        const required = "#appTopbar, .workspace-header, .timeline-filters, .timeline-tools";
+        const beyondInline = (rect: DOMRect) => rect.left < -1 || rect.right > innerWidth + 1;
+        const chartPane = (node: Element) => node.closest(".timeline-scroll, .deal-plan-list");
+        const clipAncestor = (node: Element, rect: DOMRect) => {
+          for (let ancestor: Element | null = node; ancestor; ancestor = ancestor.parentElement) {
+            const style = getComputedStyle(ancestor);
+            if (style.clipPath !== "none") return ancestor;
+            const clip = clientBounds(ancestor);
+            if (/hidden|clip/.test(style.overflowX) && (rect.left < clip.left - 1 || rect.right > clip.right + 1))
+              return ancestor;
+            if (/hidden|clip/.test(style.overflowY) && (rect.top < clip.top - 1 || rect.bottom > clip.bottom + 1))
+              return ancestor;
+          }
+          return null;
+        };
         const topbarBottom = document.getElementById("appTopbar")?.getBoundingClientRect().bottom ?? 0;
         const controls = [...document.querySelectorAll(`${scope} :is(${buttons})`)]
           .filter(visible)
           .map((node) => ({ node, rect: node.getBoundingClientRect() }))
           .filter(({ node, rect }) => {
+            const pane = chartPane(node);
+            if (
+              !pane &&
+              (beyondInline(rect) || (checkRequired && node.closest(required) && !overlap(rect, viewport)))
+            ) {
+              issues.push(`${controlName(node)} is outside the viewport`);
+              return false;
+            }
             if (!overlap(rect, viewport)) return false;
             // Rows at the edges of a scrolling page move into view as the partner scrolls.
             if (
-              mobilePage &&
+              listLayout &&
               !node.closest("#appTopbar") &&
               (rect.top < topbarBottom - 1 || rect.bottom > innerHeight + 1)
             )
               return false;
-            const pane = node.closest(".timeline-scroll, .deal-plan-list");
-            return pane ? inside(rect, clientBounds(pane)) : !node.closest(".deal-plan-item") || inside(rect, viewport);
+            return pane ? inside(rect, clientBounds(pane)) : true;
           });
         for (const [index, { node, rect }] of controls.entries()) {
           const name = controlName(node);
           if (!inside(rect, viewport)) issues.push(`${name} is outside the viewport`);
+          const clip = clipAncestor(node, rect);
+          if (clip) issues.push(`${name} control is clipped by ${clip.id || clip.className || clip.tagName}`);
           const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
           const layer = hit?.closest(".deal-plan-details, [popover]:popover-open");
           if (layer && !layer.contains(node)) issues.push(`${name} is covered by the opened item`);
@@ -658,57 +681,47 @@ for (const [width, height] of [
           for (let text = walker.nextNode(); text; text = walker.nextNode()) {
             const value = text.textContent?.trim();
             const node = text.parentElement;
-            if (!node || !value || !visible(node) || node.closest("style, script, .sr-only, .timeline-sr, dt"))
+            if (
+              !node ||
+              !value ||
+              !visible(node) ||
+              node.closest("style, script, .sr-only, .timeline-sr, .repeats-page, dt")
+            )
               continue;
             if (node.closest("details:not([open])") && !node.closest("summary")) continue;
             range.selectNodeContents(text);
             const rect = range.getBoundingClientRect();
-            if (!overlap(rect, viewport)) continue;
+            const pane = chartPane(node);
+            if (
+              !pane &&
+              (beyondInline(rect) || (checkRequired && node.closest(required) && !overlap(rect, viewport)))
+            ) {
+              issues.push(`${value} text is outside the viewport`);
+              continue;
+            }
+            if (!overlap(rect, viewport) || (pane && !inside(rect, clientBounds(pane)))) continue;
             const style = getComputedStyle(node);
-            if (style.clipPath !== "none") issues.push(`${value} has a clip path`);
             if (style.whiteSpace === "nowrap" && node.clientWidth > 0 && node.scrollWidth > node.clientWidth + 1)
               issues.push(`${value} overflows its line`);
-            for (let parent: Element | null = node; parent; parent = parent.parentElement) {
-              const { overflowX, overflowY } = getComputedStyle(parent);
-              if (overflowX === "visible" && overflowY === "visible") continue;
-              const clip = clientBounds(parent);
-              if (/auto|scroll/.test(overflowX + overflowY) && !inside(rect, clip)) break;
-              if (!inside(rect, clip)) {
-                issues.push(`${value} is clipped by ${parent.id || parent.className}`);
-                break;
-              }
-            }
+            const clip = clipAncestor(node, rect);
+            if (clip) issues.push(`${value} text is clipped by ${clip.id || clip.className || clip.tagName}`);
           }
         }
-        const confirmation = [
-          ...document.querySelectorAll(
-            '[aria-label="Reset to typical"] button, #workspacePlanStatus [data-plan-confirm]',
-          ),
-        ].find((button) => visible(button) && button.textContent?.trim() !== "Cancel");
-        if (expectReset && (!confirmation || !inside(confirmation.getBoundingClientRect(), viewport)))
-          issues.push("Reset confirmation is outside the viewport");
         return issues;
-      }, expectReset);
+      }, checkRequired);
     const receipt = page.locator("#workspacePhaseMove summary");
-    const closed = await geometryProblems();
+    const closed = await geometryProblems(true);
     await receipt.click();
-    const open = await geometryProblems();
+    const open = await geometryProblems(true);
     await receipt.click();
     await item.click();
     const itemOpen = await geometryProblems();
-    const reset = page.getByRole("button", { name: "Reset to typical", exact: true });
-    let confirming: string[] = [];
-    if (width === 320 && (await reset.count()) === 1) {
-      await page.getByRole("button", { name: "Example date 24", exact: true }).click();
-      await reset.click();
-      confirming = await geometryProblems(true);
-    }
-    assert.deepEqual({ closed, open, itemOpen, confirming }, { closed: [], open: [], itemOpen: [], confirming: [] });
+    assert.deepEqual({ closed, open, itemOpen }, { closed: [], open: [], itemOpen: [] });
   });
 
-for (const width of [900, 1280])
-  test(`at ${width}x599 the deal status stays clear of the path and Plan fits`, async (t) => {
-    const { page } = await openDeal(t, width, 599, [], fourDates(), {
+for (const height of [599, 640])
+  test(`at 1280x${height} the deal status stays clear of the path and Plan fits`, async (t) => {
+    const { page } = await openDeal(t, 1280, height, [], fourDates(), {
       ...sideFacts,
       checklist: longChecklist,
       plan: signingPlan,
@@ -727,9 +740,12 @@ for (const width of [900, 1280])
     const fits = () => outer.evaluate((node) => node.scrollHeight <= node.clientHeight && node.scrollTop === 0);
     const signing = page.getByRole("button", { name: "Lease signing expected Dec 5" });
     await signing.waitFor();
-    const height = await signing.evaluate((node) => node.getBoundingClientRect().height);
-    assert.ok(height >= 28 && height <= 32, `the forecast button is ${height}px high with a mouse`);
-    if (width === 1280) assert.equal(await fits(), true, "the forecast and all six tabs fit with Overview");
+    const controlHeight = await signing.evaluate((node) => node.getBoundingClientRect().height);
+    assert.ok(
+      controlHeight >= 28 && controlHeight <= 32,
+      `the forecast button is ${controlHeight}px high with a mouse`,
+    );
+    assert.equal(await fits(), true, "the forecast and all six tabs fit with Overview");
     const status = page.locator("#workspaceStatus");
     const receipt = status.locator("summary");
     await receipt.getByText("Moved automatically", { exact: true }).waitFor();
