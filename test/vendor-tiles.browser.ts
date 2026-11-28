@@ -99,7 +99,11 @@ test("Vendors opens on a tile per category that opens its list, and Joe recounts
 
   await page.getByRole("button", { name: "Categories", exact: true }).click();
   await page.waitForURL((url) => url.pathname === "/vendors" && url.search === "?owner=joe");
+  const noCategory = page.waitForResponse(
+    (response) => new URL(response.url()).searchParams.get("no_category") === "true",
+  );
   await page.locator("a.directory-tile", { hasText: "No category" }).click();
+  await noCategory;
   await page.waitForURL(/no_category=true/);
   await page.waitForFunction(() => document.querySelector("#directoryTiles")?.hasAttribute("hidden"));
   assert.equal(asked.at(-1)?.searchParams.get("no_category"), "true");
@@ -207,7 +211,9 @@ test("inside a category the relationship counts and Quiet filter the one table, 
   await quiet.click();
   await page.waitForURL((url) => !url.searchParams.has("quiet"));
 
+  const sorted = page.waitForResponse((response) => new URL(response.url()).searchParams.get("sort") === "name");
   await page.locator('[data-column-sort="name"]').click();
+  await sorted;
   await page.waitForURL(/sort=name/);
   assert.equal(asked.at(-1)?.searchParams.get("sort"), "name");
   assert.equal(await page.locator('[data-column-sort="name"]').getAttribute("aria-pressed"), "true");

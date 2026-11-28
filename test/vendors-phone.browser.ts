@@ -25,17 +25,29 @@ async function openVendors(
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width, height } });
   const held: Route[] = [];
+  let routeHeld: () => void = () => {};
+  const requestHeld = new Promise<void>((resolve) => {
+    routeHeld = resolve;
+  });
   await page.route("https://**", (r) => r.abort());
-  await page.route("**/api/v1/business/**", (r) =>
-    hold && !r.request().url().includes("/summary") ? held.push(r) : r.fulfill({ json: answer(r.request().url()) }),
-  );
+  await page.route("**/api/v1/business/**", (r) => {
+    if (hold && !r.request().url().includes("/summary")) {
+      held.push(r);
+      routeHeld();
+      return;
+    }
+    return r.fulfill({ json: answer(r.request().url()) });
+  });
   await page.route("**/mcp", (r) =>
     r.fulfill({
       json: { jsonrpc: "2.0", id: r.request().postDataJSON()?.id, result: { content: [{ type: "text", text: "{}" }] } },
     }),
   );
   await page.goto(`${server.url}${path}`);
-  const release = () => Promise.all(held.splice(0).map((r) => r.fulfill({ json: answer(r.request().url()) })));
+  const release = async () => {
+    await requestHeld;
+    await Promise.all(held.splice(0).map((r) => r.fulfill({ json: answer(r.request().url()) })));
+  };
   return { page, release };
 }
 
