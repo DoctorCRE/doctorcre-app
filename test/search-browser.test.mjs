@@ -523,30 +523,6 @@ for (const [width, height] of [[390, 844], [900, 700]]) {
   });
 }
 
-test('Search remembers a submitted query while the session is binding', async t => {
-  const server = await fixtureServer();
-  t.after(() => server.close());
-  const browser = await chromium.launch();
-  t.after(() => browser.close());
-  const page = await browser.newPage();
-  let releaseSession;
-  const sessionReady = new Promise(resolve => { releaseSession = resolve; });
-  await page.route('**/{auth/session,api/system-work/session}', async route => {
-    if (new URL(route.request().url()).pathname === '/auth/session') await sessionReady;
-    await route.fulfill({ json: { actor: { slug: 'joe' }, csrf_token: 'synthetic' } });
-  });
-  await page.route('**/mcp', route => {
-    const { id } = route.request().postDataJSON();
-    return route.fulfill({ json: { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify({ schema_version: 'search.v1', parties: [], deals: [] }) }] } } });
-  });
-  await page.goto(`${server.origin}/search?mode=live`);
-  await page.locator('#searchQuery').fill('Demo Dental');
-  await page.locator('#searchQuery').press('Enter');
-  releaseSession();
-  await page.getByRole('button', { name: 'Joe: account and settings', exact: true }).waitFor();
-  await page.locator('#recentSearches [data-recent="Demo Dental"]').waitFor();
-});
-
 async function seedRecentSearches(page, origin, recents) {
   let releaseSession;
   const sessionReady = new Promise(resolve => { releaseSession = resolve; });

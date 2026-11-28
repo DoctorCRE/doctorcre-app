@@ -195,7 +195,11 @@ function restoreFromAddress({ reread = true, query } = {}) {
 
 /* ------------------------------------------------------------------ the wiring */
 
-function wire(rememberQuery) {
+function rememberQuery(query) {
+  if (savedViewActor && queryIsSendable(query)) view.recents = recordRecentSearch(storage, query, savedViewActor, view.recents);
+}
+
+function wire() {
   $("searchForm")?.addEventListener("submit", (event) => {
     event.preventDefault();
     view.query = $("searchQuery")?.value ?? "";
@@ -301,16 +305,13 @@ export function mountSearch({ client: searchClient, storage: storageImpl } = {})
   storage = storageImpl === undefined ? browserStorage() : storageImpl;
   view.views = [];
   view.recents = [];
-  savedViewActor = null;
   const boundary = privateSession();
-  const pendingRecents = [];
   const identity = boundary ? boundary.verify() : Promise.resolve({actor:{slug:client.selfActor}});
   void identity.then(session => {
     if (boundary?.revoked) return;
     savedViewActor = session.actor.slug;
     view.views = readSavedViews(storage, savedViewActor);
     view.recents = readRecentSearches(storage, savedViewActor);
-    for (const query of pendingRecents) view.recents = recordRecentSearch(storage, query, savedViewActor, view.recents);
     renderSavedViews();
     renderRecentSearches();
   }).catch(() => {});
@@ -325,11 +326,7 @@ export function mountSearch({ client: searchClient, storage: storageImpl } = {})
   renderRecentSearches();
   $("savedViewNote").textContent = SAVED_VIEW_SENTENCE;
   const typedQuery = $("searchQuery")?.value ?? "";
-  wire(query => {
-    if (!queryIsSendable(query) || boundary?.revoked) return;
-    if (savedViewActor) view.recents = recordRecentSearch(storage, query, savedViewActor, view.recents);
-    else pendingRecents.push(query);
-  });
+  wire();
   const address = restoreFromAddress({ reread: true, query: typedQuery || undefined });
   mountAutoRefresh({ document, window: globalThis.window, refresh: ({ signal }) => view.query ? read({ push: false, signal }) : undefined });
   return { view, address };
