@@ -46,7 +46,7 @@ import {
   receiptsSignature, createFeedProgress, observeChangeBatch, performUndo,
 } from './change-receipts.mjs';
 import {
-  CLOSED_SLUG, COLUMNS, OPEN_COLUMNS, COMPLETION_CAPTIONS, closedColumnCaption, columnBySlug, columnByValue,
+  CLOSED_SLUG, COLUMNS, OPEN_COLUMNS, closedColumnCaption, columnBySlug, columnByValue,
   boardHeadline, columnLabel, completionPlan, contextDrawerSections, groupByColumn, keyboardTarget,
   loadDealContext, moveIntent, moveSummary, moveTitle, noteText, dealName,
 } from './pipeline-model.js';
@@ -922,14 +922,6 @@ async function runMove(intent, form) {
   if (plan.errors.length) return { ok: false, errors: plan.errors };
 
   const [phaseStep, ...followUps] = plan.steps;
-  const replacement = followUps.find(step => step.verb === 'set-next-step');
-  if (replacement) {
-    replacement.reviewed = await intent.reviewedStep;
-    if (state.intent !== intent) return { ok: false, errors: [] };
-    if (dealStepVersion(replacement.reviewed?.currentStep) === undefined) {
-      return { ok: false, errors: ['The current next step could not be read. Reopen the move to try again.'] };
-    }
-  }
   if (phaseStep.verb === 'update-deal') {
     const result = await runFollowUp(`close-deal:${intent.deal}`, phaseStep);
     if (result.code === 'version_conflict') return { ok: false, errors: [], reload: true };
@@ -947,7 +939,6 @@ async function runMove(intent, form) {
 
   const phaseExtra = Number.isSafeInteger(intent.seen) ? { seen_change_id: intent.seen, phase_from: intent.from } : {};
   if (phaseStep.args.change_reason) phaseExtra.change_reason = phaseStep.args.change_reason;
-  if (phaseStep.args.human_quote) phaseExtra.human_quote = phaseStep.args.human_quote;
 
   const result = await sendPhaseWrite(intent.deal, phaseStep.args.value, Object.keys(phaseExtra).length ? phaseExtra : null);
   const reload = recordFieldReceipt(cell, moveSummary(intent), `${fieldLabel('phase')} on ${intent.name}`, result);
@@ -1060,14 +1051,7 @@ async function runUndo(eventId) {
 
 
 function openCompletion(intent) {
-  const replaceNextStep = state.nextDealSaves && Number.isSafeInteger(intent.seen) && intent.to !== CLOSED_SLUG;
-  const actor = state.selfActor;
-  const detail = state.panelDetail;
-  const reviewedStep = replaceNextStep
-    ? (detail?.deal.id === intent.deal ? Promise.resolve(detail) : readDealDetail(intent.deal))
-      .then(current => actor && actor === state.selfActor ? reviewedDealStep(current) : null, () => null)
-    : null;
-  state.intent = { ...intent, reviewedStep };
+  state.intent = intent;
   const dialog = $('completionDialog');
   if (!dialog) return;
 
@@ -1075,6 +1059,7 @@ function openCompletion(intent) {
   const closingInEngine = isClosed && Number.isSafeInteger(intent.seen);
   const wonOrLost = closingInEngine || intent.wonOrLost;
   $('completionTitle').textContent = wonOrLost ? `Close ${intent.name}` : moveTitle(intent);
+  $('completionContext').textContent = wonOrLost ? 'Phase change' : intent.name;
   $('completionPaused').hidden = Boolean(wonOrLost);
   $('completionMoveDetails').hidden = Boolean(wonOrLost);
   $('completionLostReason').value = '';
@@ -1096,22 +1081,11 @@ function openCompletion(intent) {
   renderOutcomeState();
   const confirm = $('completionConfirm');
   if (confirm) confirm.textContent = wonOrLost ? 'Save outcome' : `Move to ${intent.to_label}`;
-  $('completionEvidence').value = '';
   $('completionReason').value = '';
-  $('completionQuote').value = '';
-  const nextStep = $('completionNextStep');
-  nextStep.labels[0].textContent = replaceNextStep ? 'Your next step' : 'Next item (2–4 words)';
-  nextStep.maxLength = replaceNextStep ? 10000 : 100;
-  nextStep.value = '';
-  $('completionNextWhen').value = '';
-  $('completionDate').value = '';
-  $('completionCritical').checked = false;
-  $('completionSource').value = '';
   const errors = $('completionErrors');
   if (errors) { errors.hidden = true; errors.textContent = ''; }
-  renderCriticalState();
   if (typeof dialog.showModal === 'function' && !dialog.open) dialog.showModal();
-  if (!wonOrLost) $('completionEvidence')?.focus();
+  if (!wonOrLost) $('completionReason')?.focus();
 }
 
 const outcomeRadios = () => [...document.querySelectorAll('input[name="completionOutcome"]')];
@@ -1127,16 +1101,6 @@ function renderOutcomeState() {
   const field = $('completionWonValueField');
   if (field) field.hidden = chosenOutcome() !== 'won';
   $('completionLostReasonField').hidden = !Number.isSafeInteger(state.intent?.seen) || chosenOutcome() !== 'lost';
-}
-
-function renderCriticalState() {
-  const on = $('completionCritical')?.checked === true;
-  const source = $('completionSourceField');
-  if (source) source.hidden = !on;
-  const input = $('completionSource');
-  if (input) input.required = on;
-  const caption = $('completionDateCaption');
-  if (caption) caption.textContent = on ? COMPLETION_CAPTIONS.effective_on : COMPLETION_CAPTIONS.effective_off;
 }
 
 function closeCompletion({ cancelled }) {
@@ -2998,7 +2962,6 @@ function wire() {
   $('contextDrawerBody')?.addEventListener('click', event => { if (event.target.closest('[data-context-retry]')) void openContextDrawer(); });
   $('contextDrawerClose')?.addEventListener('click', () => $('contextDrawer')?.close());
 
-  $('completionCritical')?.addEventListener('change', renderCriticalState);
   $('completionOutcomeField')?.addEventListener('change', renderOutcomeState);
   $('completionCancel')?.addEventListener('click', () => closeCompletion({ cancelled: true }));
   $('completionDismiss')?.addEventListener('click', () => closeCompletion({ cancelled: true }));
@@ -3010,15 +2973,7 @@ function wire() {
     confirm.disabled = true;
     try {
       const outcome = await runMove(intent, {
-        evidence: $('completionEvidence')?.value,
         changeReason: $('completionReason')?.value,
-        humanQuote: $('completionQuote')?.value,
-        nextStep: $('completionNextStep')?.value,
-        replaceNextStep: Boolean(intent.reviewedStep),
-        nextWhen: $('completionNextWhen')?.value,
-        effectiveDate: $('completionDate')?.value,
-        recordCriticalDate: $('completionCritical')?.checked === true,
-        dateSource: $('completionSource')?.value,
         outcome: chosenOutcome(),
         closedOn: $('completionClosedOn')?.value,
         wonValue: $('completionWonValue')?.value,
