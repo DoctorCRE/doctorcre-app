@@ -1805,19 +1805,18 @@ const stepWording = text => typeof text === 'string' ? text.trim().replace(/\s+/
 
 function dealSuggestionsHtml({ correspondence, email_follow_ups, workflow_suggestions = [], next_deal_saves }, openSteps, today) {
   const filed = new Set(correspondence?.filter(entry => entry.kind === 'email' && entry.activity_id).map(entry => entry.activity_id));
-  const seenSteps = new Set(openSteps.map(step => stepWording(step.description)));
-  const seenEmails = new Set();
-  // Open steps win, then email suggestions keep their source message when the checklist proposes the same wording.
-  const rows = [...email_follow_ups, ...workflow_suggestions.map(row => ({ ...row, kind: 'workflow_step' }))];
-  const suggestions = rows.filter(row => {
-    if (row.kind === 'file_to_deal' && filed.has(row.email?.activity_id)) return false;
-    if (row.kind !== 'next_step' && row.kind !== 'workflow_step') return true;
+  const openWording = new Set(openSteps.map(step => stepWording(step.description)));
+  const emailSuggestions = email_follow_ups.filter(row =>
+    !(row.kind === 'file_to_deal' && filed.has(row.email?.activity_id))
+    && !(row.kind === 'next_step' && openWording.has(stepWording(row.what))));
+  const emailWording = new Set(emailSuggestions.filter(row => row.kind === 'next_step').map(row => stepWording(row.what)).filter(Boolean));
+  // Keep the email's evidence and decision when the checklist proposes the same step.
+  const checklistSuggestions = workflow_suggestions.filter(row => {
     const wording = stepWording(row.what);
-    if (!wording) return true;
-    if (seenSteps.has(wording)) return false;
-    seenSteps.add(wording);
-    return true;
-  }).map(row => {
+    return !openWording.has(wording) && !emailWording.has(wording);
+  }).map(row => ({ ...row, kind: 'workflow_step' }));
+  const seenEmails = new Set();
+  const suggestions = [...emailSuggestions, ...checklistSuggestions].map(row => {
     const email = row.email?.activity_id ?? row.proposal_id;
     const showEmail = row.kind !== 'workflow_step' && !seenEmails.has(email);
     if (showEmail) seenEmails.add(email);

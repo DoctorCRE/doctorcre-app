@@ -18,6 +18,7 @@ const workflow = {
   evidence: "From the checklist · Live terms comparison and counters is next in Negotiating",
   due_on: "2026-12-03",
 };
+const secondSuggestionId = "00000000-0000-4000-8000-00000000b104";
 const emailId = "00000000-0000-4000-8000-00000000e101";
 const session = { actor: { slug: "joe" }, csrf_token: "synthetic-csrf" };
 const body = [
@@ -32,7 +33,11 @@ async function openDeal(
   t: TestContext,
   viewport: { width: number; height: number },
   theme: "light" | "dark",
-  { holdEmail = false, workflowWith }: { holdEmail?: boolean; workflowWith?: "filing" | "email" | "open" } = {},
+  {
+    holdEmail = false,
+    workflowWith,
+    secondEmail = false,
+  }: { holdEmail?: boolean; workflowWith?: "filing" | "email" | "open"; secondEmail?: boolean } = {},
 ) {
   const server = await startWorkerFixture({
     assets: await appAssetSnapshot(),
@@ -73,6 +78,23 @@ async function openDeal(
     },
     { proposal_id: filingId, kind: "file_to_deal", title: "File Morgan's email", email },
   ];
+  const otherEmail = {
+    activity_id: "00000000-0000-4000-8000-00000000e102",
+    sender_name: "Taylor Example",
+    subject: "Revised offer",
+    happened_at: "2026-11-25T15:12:00Z",
+    summary: "The broker sent a revised offer.",
+  };
+  if (secondEmail)
+    suggestions.push({
+      proposal_id: secondSuggestionId,
+      kind: "next_step",
+      title: "Review Taylor's request",
+      what: "LIVE  TERMS COMPARISON AND COUNTERS",
+      owner: "joe",
+      due_on: "2026-12-04",
+      email: otherEmail,
+    });
   let steps: {
     id: string;
     owner: string;
@@ -151,6 +173,13 @@ async function openDeal(
           writes.push([path, end]);
           steps = [];
           return Response.json({ next_step_id: stepId, status: "done", change_id: 4 });
+        }
+        if (path === `/api/engine/proposals/${secondSuggestionId}`) {
+          emailReads.push(path);
+          return Response.json({
+            thread: [{ ...otherEmail, body: "I attached the revised offer for your review." }],
+            source_activity: { subject: otherEmail.subject },
+          });
         }
         if (
           path === `/api/engine/proposals/${suggestionId}` ||
@@ -409,4 +438,25 @@ test("an open step replaces matching suggestions and leaves the email's other ac
   const filing = suggested.getByRole("listitem", { name: "File Morgan's email" });
   assert.equal(await filing.count(), 1);
   assert.equal(await filing.getByText("Our lender cannot fund until late February", { exact: false }).count(), 1);
+});
+
+test("separate email decisions with matching step wording keep their sources and dates", async (t) => {
+  const { tile, writes } = await openDeal(t, { width: 1280, height: 640 }, "light", {
+    workflowWith: "email",
+    secondEmail: true,
+  });
+  const suggested = tile.getByRole("list", { name: "Suggested steps" });
+  const morgan = suggested.getByRole("listitem", { name: "Review Morgan's request" });
+  const taylor = suggested.getByRole("listitem", { name: "Review Taylor's request" });
+  assert.equal(await morgan.count(), 1);
+  assert.equal(await taylor.count(), 1);
+  assert.match((await morgan.textContent()) ?? "", /From Morgan's email, Tue, Nov 24.*Due Fri, Nov 27, 2026/);
+  assert.match((await taylor.textContent()) ?? "", /From Taylor's email, Wed, Nov 25.*Due Fri, Dec 4, 2026/);
+  await taylor.getByText("I attached the revised offer for your review.", { exact: true }).waitFor();
+  assert.deepEqual(await taylor.getByRole("button").allTextContents(), ["Accept", "Edit", "Dismiss"]);
+  await taylor.getByRole("button", { name: "Dismiss" }).click();
+  await taylor.waitFor({ state: "detached" });
+  assert.equal(await morgan.count(), 1);
+  assert.equal(await suggested.getByRole("listitem", { name: workflow.what }).count(), 0);
+  assert.deepEqual(writes, [[`/api/engine/proposals/${secondSuggestionId}/decision`, { decision: "dismiss" }]]);
 });
