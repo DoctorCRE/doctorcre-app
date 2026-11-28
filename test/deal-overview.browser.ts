@@ -466,6 +466,14 @@ for (const [width, height] of laptops)
       await people.getByRole("link", { name: /Avery Sample/ }).getAttribute("href"),
       "/vendors?record=00000000-0000-4000-8000-00000000b001",
     );
+    for (const [name, id] of [
+      [/Dr. Example/, "b004"],
+      [/Rae Example/, "b003"],
+    ] as const)
+      assert.equal(
+        await people.getByRole("link", { name }).getAttribute("href"),
+        `/relationships?node=party:00000000-0000-4000-8000-00000000${id}`,
+      );
     const invoice = overview.getByRole("region", { name: "Invoice" });
     assert.deepEqual(await invoice.locator("dl > div").allInnerTexts(), [
       "Triggered\nNov 20, 2026",

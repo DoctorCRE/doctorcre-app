@@ -44,6 +44,13 @@ function rank(role: string): number {
   return role === "listing_agent" || role === "listing_side" ? 3 : 4;
 }
 
+/** A vendor opens its vendor record; anyone else opens the relationships card the app uses for a contact. */
+function partyHref(place: number, partyId: string | undefined): string {
+  if (!partyId) return "";
+  const id = encodeURIComponent(partyId);
+  return place === 1 ? `/vendors?record=${id}` : `/relationships?node=party:${id}`;
+}
+
 export function dealPeople(deal: PeopleDeal, parties: readonly Party[]): Person[] {
   const client = deal.client_name?.trim();
   const people: Person[] = client
@@ -64,7 +71,7 @@ export function dealPeople(deal: PeopleDeal, parties: readonly Party[]): Person[
     const person = {
       name: party.name.trim(),
       role: roleLabel(party.role),
-      href: place === 1 && party.party_id ? `/vendors?record=${encodeURIComponent(party.party_id)}` : "",
+      href: partyHref(place, party.party_id),
     };
     const key = `${person.name}|${person.role}`.toLowerCase();
     if (seen.has(key)) continue;

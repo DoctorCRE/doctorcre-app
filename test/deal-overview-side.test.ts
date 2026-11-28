@@ -74,10 +74,16 @@ test("People lists every party by role in the owner's order, never the partners"
   ];
   assert.deepEqual(dealPeople({ client_id: "c1", client_name: "Example Clinic" }, parties), [
     { name: "Example Clinic", role: "Client", href: "/clients?record=c1" },
-    { name: "Dr. Example", role: "Client contact", href: "" },
+    { name: "Dr. Example", role: "Client contact", href: "/relationships?node=party:p1" },
     { name: "Avery Broker", role: "Landlord's broker", href: "/vendors?record=p3" },
     { name: "Example Law", role: "Attorney", href: "/vendors?record=p2" },
+    { name: "Rae Referrer", role: "Referring agent", href: "/relationships?node=party:p4" },
+    { name: "Lee Listing", role: "Listing side", href: "/relationships?node=party:p5" },
+  ]);
+});
+
+test("a person with no party id on the read stays plain text", () => {
+  assert.deepEqual(dealPeople({}, [{ role: "referring_agent", name: "Rae Referrer" }]), [
     { name: "Rae Referrer", role: "Referring agent", href: "" },
-    { name: "Lee Listing", role: "Listing side", href: "" },
   ]);
 });
