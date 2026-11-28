@@ -11,7 +11,7 @@
 .home-today-row > summary::-webkit-details-marker { display: none; }
 .home-today-row > summary:hover, .home-tour:is(a):hover { background: var(--surface-2); }
 .home-today-time, .home-today-mark { color: var(--fg-quiet); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.home-today-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-today-title { min-width: 0; }
 .home-today-title span { color: var(--fg-quiet); }
 .home-today-row[data-ended] .home-today-title { color: var(--fg-quiet); }
 details.home-today-row > :not(summary) { margin: 0 0 var(--space-1); padding-inline: calc(64px + 2 * var(--space-2)) var(--space-2); color: var(--fg-muted); font-size: var(--font-size-1); }
@@ -43,11 +43,12 @@ details.home-today-row > :not(summary) { margin: 0 0 var(--space-1); padding-inl
 .home-deals-line small { flex-basis: 100%; color: var(--fg-muted); font-size: var(--font-size-1); }
 /* The engine's reason is a full sentence, so it sits under the deal's name. */
 .home-deals .home-deals-attention a { flex-wrap: wrap; row-gap: 0; padding-block: var(--space-1); }
-.home-deals .home-deals-attention a > span { flex-basis: 100%; margin-inline-start: calc(6px + var(--space-2)); white-space: normal; }
+.home-deals .home-deals-attention .home-deal-name { flex: 1; min-width: 0; margin: 0; color: inherit; font: inherit; white-space: normal; }
+.home-deals .home-deals-attention .home-deal-reason { flex-basis: 100%; margin-inline-start: calc(6px + var(--space-2)); white-space: normal; }
 .home-deals-attention a::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: var(--radius-round); background: var(--status-warn-ink); }
 .home-coming-up li > a { display: grid; grid-template-columns: 88px minmax(0, 1fr); }
 .home-coming-up li time { color: var(--fg-muted); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; }
-.home-coming-up li > a > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-coming-up li > a > span { min-width: 0; }
 .home-coming-up li span span { color: var(--fg-muted); }
 .inbox-shell .home-short-fold-line { display: none; width: 100%; border: 0; background: transparent; font: inherit; text-align: start; }
 .home-short-fold-line strong { margin-inline-end: auto; font-weight: var(--font-weight-strong); white-space: nowrap; }
@@ -56,11 +57,6 @@ details.home-today-row > :not(summary) { margin: 0 0 var(--space-1); padding-inl
   .home-column.home-side { gap: var(--space-3); }
   .inbox-shell .home-short-fold-line { display: flex; }
   .home-short-fold:not([data-open]) > :not(.home-short-fold-line) { display: none; }
-  .home-coming-up:has(.home-short-fold:not([data-open])) { --home-sticky-start: 0px; }
+  .home-coming-up:has(.home-short-fold:not([data-open])) { scroll-padding-block-start: 0; }
   .home-coming-up:has(.home-short-fold:not([data-open])) > header { display: none; }
-  .home-slice:has(> [data-home-fold][data-open]) { --home-preview-start: var(--home-sticky-start); }
-  .home-slice:has(> [data-home-fold]:not([data-open])) { --home-sticky-end: calc(var(--home-deal-control-size) + var(--space-3)); }
-  [data-home-fold]:not([data-open]) { position: sticky; inset-block-end: 0; z-index: 1; background: var(--surface-1); }
-  .home-deals > .home-phases { padding-block-end: var(--space-2); }
-  .home-coming-up:has(.home-short-fold[data-open]) { flex: 1 1 0; }
 } }

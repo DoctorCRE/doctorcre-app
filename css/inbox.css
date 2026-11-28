@@ -39,17 +39,23 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
 .home-slice .inbox-row:hover { background: var(--surface-2); }
 .home-slice .inbox-row > .inbox-copy { flex: 1 1 0; min-width: 0; }
 .home-slice .inbox-row > .inbox-copy h3 { margin: 0; font-size: var(--font-size-2); font-weight: 500; line-height: 1.4; }
-/* A line clamp cuts at the last whole word that fits; clip (unlike hidden) never scrolls when the link takes focus. */
-.home-slice[aria-label="Reminders"] .inbox-row > .inbox-copy h3 { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; line-clamp: 1; overflow: clip; }
-.home-slice .inbox-row > .inbox-copy h3 a { display: inline; min-height: 0; }
+.home-slice .inbox-row > .inbox-copy :is(h3:not(:has(> a)), h3 > a, .inbox-why),
+:is(.home-deal-name, .home-deal-reason, .home-today-title, .home-coming-up li > a > span) {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+}
 .home-whole-word { white-space: nowrap; }
 .home-slice .inbox-row > .inbox-copy > .inbox-why { font-size: var(--font-size-1); line-height: 1.4; }
 .home-slice .inbox-row > .inbox-copy > .inbox-why:empty { display: none; }
-.home-slice .inbox-row > .inbox-copy > .inbox-why { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 /* In three columns a waiting item is one line when its title and its wait both fit; otherwise the wait wraps whole. */
 @container home (min-width: 936px) {
   .home-slice[aria-label="In motion and waiting"] .inbox-row > .inbox-copy { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: var(--space-2); }
-  .home-slice[aria-label="In motion and waiting"] .inbox-row > .inbox-copy > :is(h3, .inbox-why) { min-width: 0; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .home-slice[aria-label="In motion and waiting"] .inbox-row > .inbox-copy > :is(h3, .inbox-why) { min-width: 0; max-width: 100%; }
 }
 .home-slice .inbox-row > .inbox-actions { flex: none; width: auto; margin: 0; gap: var(--space-1); }
 .inbox-shell .home-slice .inbox-row > .inbox-actions button { min-height: var(--touch); padding: 0 var(--space-3); font-size: var(--font-size-1); }
@@ -61,7 +67,7 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
 .home-group { margin: var(--space-3) 0 var(--space-1); color: var(--fg-muted); font-size: var(--font-size-1); font-weight: 600; }
 .inbox-shell .home-fold { min-height: var(--touch); padding: 0; border: 0; background: transparent; color: var(--fg-muted); font-size: var(--font-size-1); }
 /* With a pointer, Inbox Snooze and Drop keep their own space at the row's end and show on hover or focus; the title shortens instead of sitting under them. */
-/* Reminders titles use the full row width. Hidden Snooze and Drop take no width; on hover or focus they overlay the right end without moving the title. The row stays at most two lines: the title and its instruction. */
+/* Reminders titles use the full row width. Snooze and Drop overlay the right end without moving the title. */
 @media (hover: hover) {
   .home-slice[aria-label="Inbox"] .inbox-row:not(:hover, :focus-within) > .inbox-actions { opacity: 0; }
   .home-slice[aria-label="Reminders"] .inbox-row { position: relative; }
@@ -80,8 +86,7 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
 }
 /* By touch, Snooze and Drop sit under the row's text. */
 @media (max-width: 999px), (hover: none) {
-  .home-slice .inbox-row > .inbox-copy h3 a { display: inline-flex; min-height: var(--touch); }
-  .home-slice[aria-label="Reminders"] .inbox-row > .inbox-copy h3 a { display: block; line-height: var(--touch); }
+  .home-slice .inbox-row > .inbox-copy h3 a { min-height: var(--touch); }
 }
 @media (hover: none) {
   .home-slice:is([aria-label="Reminders"], [aria-label="Inbox"]) .inbox-row > .inbox-actions { flex-basis: 100%; padding-left: calc(var(--touch) - var(--space-4) + var(--space-3)); }
@@ -108,29 +113,11 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
   .home-column:first-child { flex-grow: 1.15; }
   .home-column.home-side { flex-grow: 0.75; }
   .home-column:empty { display: none; }
-  /* Expanded dates reach their measured minimum first. Other lists yield in proportion to their size. */
-  .home-column > * {
-    /* When the minimums do not fit, the column scrolls rather than squeezing the tiles. */
-    flex: 0 1 auto;
-    --home-sticky-start: 0px;
-    --home-sticky-end: 0px;
-    --home-preview-start: 0px;
-    --home-preview-padding: var(--space-3);
-    --home-focus-margin: var(--space-2);
-    --home-focus-inset: calc(2 * var(--home-focus-margin));
-    --home-minimum: max(
-      calc(var(--home-preview-end) + var(--home-preview-start) + max(var(--home-sticky-end), var(--home-preview-padding))),
-      calc(var(--home-row-size, 0px) + var(--home-sticky-start) + var(--home-sticky-end) + var(--home-focus-inset))
-    );
-    min-block-size: var(--home-minimum, min-content);
-    overflow-y: auto;
-    scroll-padding-block: var(--home-sticky-start, 0px) var(--home-sticky-end, 0px);
-  }
-  .home-column > .home-door-tile { --home-preview-padding: 0px; --home-focus-inset: 0px; }
+  .home-column > * { flex: none; max-block-size: 100%; overflow-y: auto; }
   .home-column:not(.home-side) > :first-child { flex-grow: 1; }
-  .home-slice:has(> header) { --home-sticky-start: calc(var(--touch) + var(--space-3)); }
-  .home-slice > header { position: sticky; top: calc(-1 * var(--space-3)); z-index: 1; min-block-size: var(--home-sticky-start); margin-top: calc(-1 * var(--space-3)); padding-top: var(--space-3); background: var(--surface-1); }
-  .home-slice * { scroll-margin-block: var(--home-focus-margin); }
+  .home-slice:has(> header) { --home-header-size: calc(var(--touch) + var(--space-3)); scroll-padding-block-start: var(--home-header-size); }
+  .home-slice > header { position: sticky; top: calc(-1 * var(--space-3)); z-index: 1; min-block-size: var(--home-header-size); margin-top: calc(-1 * var(--space-3)); padding-top: var(--space-3); background: var(--surface-1); }
+  .home-slice :is(a, button, summary) { scroll-margin-block: var(--space-2); }
   /* An opened item covers the middle and right columns beside Reminders; it stays in its row for reading order. */
   .home-sections:has(.home-inline-review) > .home-column:not(:first-child) :is(.home-column > :not(:has(.home-inline-review)), .inbox-row:not(:has(.home-inline-review))) { visibility: hidden; }
   .home-sections .home-slice .inbox-row:has(> .home-inline-review) { position: static; }

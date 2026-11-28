@@ -954,11 +954,16 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
         {item.open_url && !source && <p role="status">This link can't be opened here.</p>}
       </>
     );
+    const titleId = `home-title-${item.item_id}`;
+    const reasonId = `home-reason-${item.item_id}`;
+    const previewReason = line.filter(Boolean).join(" · ");
+    const openedReason = tile === "reminders" ? presentation?.why || previewReason : previewReason;
     return (
       <article
         key={cardKey(item)}
         className={presentation || isDoneStep(item) ? "inbox-row inbox-row-explained" : "inbox-row"}
         data-inbox-row={item.item_id}
+        aria-labelledby={home ? `${titleId} ${reasonId}` : undefined}
         data-shortcut-card={home ? "" : undefined}
         data-current={item_id === item.item_id || undefined}
         onTouchStart={(event) => {
@@ -1001,8 +1006,12 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
                 <span className="home-done" />
               ))}
             <div className="inbox-copy">
-              <h3 tabIndex={canOpen ? undefined : -1}>{titleLink}</h3>
-              <p className="inbox-why">{line.filter(Boolean).join(" · ")}</p>
+              <h3 id={titleId} tabIndex={canOpen ? undefined : -1}>
+                {titleLink}
+              </h3>
+              <p id={reasonId} className="inbox-why">
+                {previewReason}
+              </p>
               {deepLinked}
             </div>
             {edge && <span className={daysLate ? "home-edge home-late" : "home-edge"}>{edge}</span>}
@@ -1186,6 +1195,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
             }}
           >
             {finishedElsewhere && <p role="status">This card was finished elsewhere.</p>}
+            {home && reviewClient && <p>{reviewing.title}</p>}
             {home && !waitingCard && !finishedElsewhere && (paneDone || snoozeButton || dropButton) && (
               <div className="inbox-actions">
                 {paneDone}
@@ -1195,7 +1205,9 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
               </div>
             )}
             {!finishedElsewhere && !item.engine_marks && due && <p>Due {due}</p>}
-            {presentation && (tile === "reminders" || feedbackReview || isDoneStep(item)) && <p>{presentation.why}</p>}
+            {home
+              ? openedReason && <p>{openedReason}</p>
+              : presentation && (feedbackReview || isDoneStep(item)) && <p>{presentation.why}</p>}
             {home && item.covers && <p>{coveredSummary(item.covers)}</p>}
             {isDoneStep(item) && <p>{completionLabel(item)}</p>}
             {linkedRecord}

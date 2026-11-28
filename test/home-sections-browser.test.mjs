@@ -2578,7 +2578,11 @@ test('Home reply draft still lets the partner edit and save when storage throws'
     Storage.prototype.getItem = () => { throw new Error('denied'); };
     Storage.prototype.setItem = () => { throw new Error('denied'); };
   });
-  await message.fill('Typed while storage was blocked.');
+  await message.focus();
+  assert.equal(await message.evaluate(node => node === document.activeElement), true);
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.insertText('Typed while storage was blocked.');
+  assert.equal(await message.inputValue(), 'Typed while storage was blocked.');
   await review.getByRole('button', { name: 'Save draft', exact: true }).click();
   await review.getByText('Saved as a draft. Nothing was sent.', { exact: true }).waitFor();
   assert.equal(state.draft.body, 'Typed while storage was blocked.');
