@@ -92,7 +92,7 @@ for (const width of [1440, 390]) test(`place members follow filters across marke
   const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width, height: 1000 }, reducedMotion: 'reduce' });
-  const board = { ...workspace(), leads: [lead(1, { market: 'Example research' }), lead(2, { specialty: 'Medical' }), lead(3)] };
+  const board = { ...workspace(), leads: [lead(1, { market: { id: 'example-research', name: 'Example research' } }), lead(2, { specialty: 'Medical' }), lead(3)] };
   await routeLeads(page, { getBoard: () => board });
   await page.goto('http://localhost/leads');
   await page.getByRole('button', { name: 'Show territory', exact: true }).click();

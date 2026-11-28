@@ -112,7 +112,8 @@ export function hasLeadVersion(lead) {
 }
 function validateLead(lead, parseTiming) {
   projection(object(lead) && text(lead.id) && text(lead.stage) && typeof lead.suppressed === "boolean");
-  for (const key of ["registry_ref", "party_id", "doctor_name", "practice_name", "entity_name", "name", "owner", "city", "state", "market", "specialty", "vertical", "plan_type"]) projection(optionalText(lead[key]));
+  for (const key of ["registry_ref", "party_id", "doctor_name", "practice_name", "entity_name", "name", "owner", "city", "state", "specialty", "vertical", "plan_type"]) projection(optionalText(lead[key]));
+  projection(lead.market == null || (object(lead.market) && text(lead.market.id) && text(lead.market.name)));
   for (const key of ["is_client", "linked_client", "is_past_client", "is_deal", "do_not_contact", "new_from_email"]) projection(lead[key] == null || typeof lead[key] === "boolean");
   projection(lead.score == null || (["string", "number"].includes(typeof lead.score) && Number.isFinite(Number(lead.score))));
   projection(Array.isArray(lead.possible_clients) && lead.possible_clients.every(match => object(match) && text(match.client_id) && text(match.name)));
