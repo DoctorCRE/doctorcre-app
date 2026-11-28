@@ -145,6 +145,16 @@ const reviewItems = [
   { party_id: id(401), state: "open", reviewed: null },
   { party_id: id(402), state: "open", reviewed: null },
 ];
+const reviewDeals = (count: number, state: string, workspace: string, operating: string) =>
+  Array.from({ length: count }, () => reviewDeal(state, workspace, operating));
+const busyReview = [
+  ...reviewDeals(37, "open", "team", "active"),
+  ...reviewDeals(27, "open", "team", "parked"),
+  ...reviewDeals(16, "open", "national_account", "active"),
+  reviewDeal("lost", "team", "active"),
+  ...Array.from({ length: 12 }, (_, n) => ({ party_id: id(410 + n), state: "open", reviewed: null })),
+  { party_id: id(430), state: "dropped", reviewed: null },
+];
 const criticalDate = (n: number, due_on: string) => ({
   id: id(300 + n),
   deal_id: id(101),
@@ -172,6 +182,7 @@ async function openHome(
     meetings?: (typeof sampleMeeting)[];
     touch?: boolean;
     classicScrollbars?: boolean;
+    weeklyReview?: typeof reviewItems;
     theme?: "light";
     failedRead?: "weekly review" | "critical dates";
   } = {},
@@ -228,7 +239,9 @@ async function openHome(
       }),
     );
   await page.route("**/api/engine/weekly-reviews?week_of=2026-11-23", (route) =>
-    route.fulfill(right.failedRead === "weekly review" ? { status: 503 } : { json: { items: reviewItems } }),
+    route.fulfill(
+      right.failedRead === "weekly review" ? { status: 503 } : { json: { items: right.weeklyReview ?? reviewItems } },
+    ),
   );
   await page.route("**/api/engine/calendar/critical-dates", (route) =>
     route.fulfill(
@@ -433,28 +446,10 @@ for (const [width, height] of [
   [1280, 640],
 ] as const)
   test(`At ${width}x${height} the Deals heading shows a practice's counts on one line under it, and the week's closings sit on the Monday review line`, async (t) => {
-    const page = await openHome(t, width, height);
-    await page.addInitScript(() =>
-      localStorage.setItem(
-        "doctorcre.visual-preferences",
-        JSON.stringify({ theme: "light", walkthroughSeen: { joe: true } }),
-      ),
-    );
-    const items = (count: number, state: string, workspace: string, operating: string) =>
-      Array.from({ length: count }, () => reviewDeal(state, workspace, operating));
-    const parties = Array.from({ length: 12 }, (_, n) => ({ party_id: id(410 + n), state: "open", reviewed: null }));
-    const review = [
-      ...items(37, "open", "team", "active"),
-      ...items(27, "open", "team", "parked"),
-      ...items(16, "open", "national_account", "active"),
-      ...items(1, "lost", "team", "active"),
-      ...parties,
-      { party_id: id(430), state: "dropped", reviewed: null },
-    ];
-    await page.route("**/api/engine/weekly-reviews?week_of=2026-11-23", (route) =>
-      route.fulfill({ json: { items: review } }),
-    );
-    await page.reload();
+    const page = await openHome(t, width, height, [], comingUpDates, dashboard, undefined, {
+      theme: "light",
+      weeklyReview: busyReview,
+    });
     const tile = page.getByRole("region", { name: "Deals", exact: true });
     const counts = tile.locator(".home-deals-counts");
     await counts.getByText("37 open").waitFor();
@@ -584,14 +579,17 @@ const wrappedDeal = deal(1, "Research", {
   },
 });
 
-for (const [width, height, touch, classicScrollbars] of [
+for (const [width, height, touch, classicScrollbars, startWidth = width, datesFirst = false] of [
   [1280, 640, false, false],
   [1280, 640, false, true],
   [1280, 640, true, false],
   [1280, 640, true, true],
+  [1280, 640, false, true, 1600],
+  [1280, 640, true, true, 1600],
+  [1280, 640, true, true, 1600, true],
   [1440, 900, false, false],
 ] as const)
-  test(`At ${width}x${height} only overflowing Home tiles scroll and every heading is in view${touch ? " with touch" : ""}${classicScrollbars ? " with 15px scrollbars" : ""}`, async (t) => {
+  test(`At ${width}x${height} only overflowing Home tiles scroll and every heading is in view${touch ? " with touch" : ""}${classicScrollbars ? " with 15px scrollbars" : ""}${startWidth !== width ? ` after resizing from ${startWidth}px` : ""}${datesFirst ? " with dates opened first" : ""}`, async (t) => {
     const short = height === 640;
     const dates = Array.from({ length: short ? 4 : 30 }, (_, index) => criticalDate(index + 1, today));
     dates[0] = { ...criticalDate(1, today), kind: "Last day to confirm the revised due diligence terms" };
@@ -601,7 +599,7 @@ for (const [width, height, touch, classicScrollbars] of [
     attention[0] = { ...wrappedDeal, name: "Sample practice second-floor renovation and parking study" };
     const page = await openHome(
       t,
-      width,
+      startWidth,
       height,
       [],
       dates,
@@ -620,7 +618,7 @@ for (const [width, height, touch, classicScrollbars] of [
         ),
       },
       undefined,
-      { deals: attention, meetings: busyMeetings, touch, classicScrollbars },
+      { deals: attention, meetings: busyMeetings, touch, classicScrollbars, weeklyReview: busyReview },
     );
     await page.getByRole("region", { name: "Leads", exact: true }).waitFor();
     if (classicScrollbars) {
@@ -650,8 +648,7 @@ for (const [width, height, touch, classicScrollbars] of [
         );
         const outside = tiles.filter((tile) => {
           const heading = tile.querySelector(":scope > header > h2, :scope > .home-door > strong");
-          const label = heading?.getClientRects().length ? heading : tile.querySelector(".home-short-fold-line strong");
-          const box = label?.getBoundingClientRect();
+          const box = heading?.getBoundingClientRect();
           const bounds = tile.getBoundingClientRect();
           return (
             !box ||
@@ -706,13 +703,15 @@ for (const [width, height, touch, classicScrollbars] of [
             [top + 1, bottom - 1].every((y) => node.contains(document.elementFromPoint(x, y)));
           return fullyVisible ? null : { label: node.textContent?.trim(), top, bottom, tileBottom: tile?.bottom };
         });
-      for (const { fold, row, title } of [
+      const disclosures = [
         { fold: attentionFold, row: dealsRow, title: dealsRow.locator(".home-deal-name") },
         { fold: comingUpFold, row: comingUpRow, title: comingUpRow.locator(".home-today-title") },
-      ]) {
+      ];
+      for (const { fold, row, title } of datesFirst ? disclosures.toReversed() : disclosures) {
         const label = await fold.textContent();
         await t.test(`${label} is fully visible while closed`, async () => {
           assert.equal(await clipped(fold), null);
+          assert.equal(await fold.evaluate((button) => button.getBoundingClientRect().height), 44);
         });
         await t.test(`Opening ${label} shows the button and wrapped first row`, async () => {
           if (touch) await fold.tap();
@@ -723,7 +722,7 @@ for (const [width, height, touch, classicScrollbars] of [
             text.selectNodeContents(node);
             return text.getClientRects().length;
           });
-          assert.ok(lines >= 2, "the first row title wraps");
+          if (startWidth === width) assert.ok(lines >= 2, "the first row title wraps");
           const clippedControls = await Promise.all([fold, row].map(clipped));
           assert.deepEqual(clippedControls.filter(Boolean), []);
           const { overflowing, ...afterFold } = await layout();
@@ -731,6 +730,16 @@ for (const [width, height, touch, classicScrollbars] of [
           assert.deepEqual(
             overflowing.filter((name) => name !== "Coming up"),
             tileNames.slice(0, 5),
+          );
+        });
+      }
+      if (startWidth !== width) {
+        await t.test("Narrowing keeps both opened first rows and disclosures in view", async () => {
+          await page.setViewportSize({ width, height });
+          const clippedControls = await Promise.all([attentionFold, dealsRow, comingUpFold, comingUpRow].map(clipped));
+          assert.deepEqual(clippedControls.filter(Boolean), []);
+          assert.ok(
+            await (datesFirst ? attentionFold : comingUpFold).evaluate((button) => button === document.activeElement),
           );
         });
       }
@@ -743,6 +752,17 @@ for (const [width, height, touch, classicScrollbars] of [
           null,
           null,
         ]);
+      } else {
+        const tile = page.getByRole("region", { name: "Deals", exact: true });
+        const before = await tile.evaluate((node) => node.scrollTop);
+        const box = (await tile.boundingBox()) ?? assert.fail("Deals is visible");
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height - 15);
+        await page.mouse.wheel(0, 25);
+        await page.waitForFunction(
+          (scroll) => (document.querySelector(".home-deals")?.scrollTop ?? 0) > scroll,
+          before,
+        );
+        assert.equal(await clipped(attentionFold), null);
       }
     }
     assert.deepEqual(await layout(), { ...expected, overflowing: tileNames.slice(0, -1) });
