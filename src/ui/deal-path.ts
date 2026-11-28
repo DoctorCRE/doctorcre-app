@@ -63,7 +63,7 @@ function todoHtml(todo: Todo, today: string, focused: boolean) {
   const when = todo.due_on && !finished ? dayWords(todo.due_on, today) : "";
   const line = !when ? "" : todo.status === "overdue" ? `Was due ${when}` : `Due ${when}`;
   const detail = todo.evidence_ref || (finished ? "Recorded." : "Not filed yet.");
-  return `<li data-todo="${esc(todo.id)}" data-state="${finished ? "done" : todo.status === "overdue" ? "late" : "open"}"><details${focused ? " open data-focused" : ""}><summary><span>${esc(todo.label)}</span>${line ? `<small>${esc(line)}</small>` : ""}</summary><p>${esc(detail)}</p></details></li>`;
+  return `<li data-todo="${esc(todo.id)}" data-state="${finished ? "done" : todo.status === "overdue" ? "late" : "open"}"><details${focused ? " open data-focused" : ""}><summary title="${esc(todo.label)}"><span>${esc(todo.label)}</span>${line ? `<small>${esc(line)}</small>` : ""}</summary><p>${esc(detail)}</p></details></li>`;
 }
 
 // A tile shows its first unfinished to-dos; the rest fold under a count so the path stays one short row.

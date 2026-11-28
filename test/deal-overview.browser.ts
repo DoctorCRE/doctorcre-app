@@ -666,6 +666,70 @@ for (const [width, height] of [
   });
 }
 
+const denseChecklist = {
+  schema_version: "deal-checklist.v1",
+  template_state: "current",
+  due_items: [],
+  phases: ["pending", "research", "site_selection", "negotiation", "legal", "due_diligence", "closing", "closed"].map(
+    (id) => ({
+      id,
+      label: id,
+      items: [
+        "Commencement letter and possession dates",
+        "Executed lease / amendment",
+        "RFP / LOI versions and submission",
+      ].map((label, n) => ({ id: `${id}_${n}`, label, status: "not_recorded" })),
+    }),
+  ),
+};
+
+for (const [width, height] of [
+  [1280, 599],
+  [1100, 600],
+  [1279, 600],
+] as const) {
+  test(`long phase labels fit the Overview at ${width}x${height}`, async (t) => {
+    const { page } = await openDeal(t, width, height, [], fourDates(), {
+      ...sideFacts,
+      thread: Array.from({ length: 10 }, (_, n) => noteAt(n)),
+      checklist: denseChecklist,
+    });
+    const path = page.locator(".deal-path");
+    await page.screenshot({ path: `${shots}/long-labels-${width}x${height}.png` });
+    assert.ok((await path.evaluate((n) => n.getBoundingClientRect().height)) <= 160, "the path remains compact");
+    assert.equal(await page.locator("#appMainSlot").evaluate((n) => n.scrollHeight === n.clientHeight), true);
+    for (const box of await page
+      .locator(".deal-overview-grid > *")
+      .evaluateAll((all) => all.map((n) => n.getBoundingClientRect())))
+      assert.ok(box.bottom <= height && box.height >= 180);
+    const names = path.locator(".deal-path-name");
+    assert.equal(
+      await names.evaluateAll((all) =>
+        all.every((n) => n.scrollWidth <= n.clientWidth && n.scrollHeight <= n.clientHeight),
+      ),
+      true,
+      "phase names remain readable",
+    );
+    const current = path.locator('[data-place="current"]');
+    const label = current.locator(":scope > ul [data-todo]").first().locator("summary");
+    assert.equal(await label.getAttribute("title"), "Commencement letter and possession dates");
+    assert.equal(await label.textContent(), "Commencement letter and possession dates");
+    assert.ok(
+      await label.locator("span").evaluate((n) => n.clientHeight <= 32),
+      "the tile label is limited to two lines",
+    );
+    await current.getByText("1 more").click();
+    const panelLabel = current.locator(".deal-path-list-panel").getByText("RFP / LOI versions and submission");
+    assert.equal(await panelLabel.count(), 1);
+    assert.equal(
+      await panelLabel.evaluate((n) => n.scrollHeight <= n.clientHeight),
+      true,
+      "the panel label is complete",
+    );
+    assert.equal(await page.locator("#appMainSlot").evaluate((n) => n.scrollHeight === n.clientHeight), true);
+  });
+}
+
 test("narrow Overview uses only one scrollbar", async (t) => {
   const { page } = await openDeal(t, 1000, 700, [], fourDates(), { ...sideFacts, checklist: longChecklist });
   const scroller = page.locator("#appMainSlot");
