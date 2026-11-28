@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import { centralToday } from "./central-time.ts";
 import type { ClientDeal, DiagramClient, Role } from "./deal-diagram.tsx";
-import { type FoundVendor, refusal, type Saved, type VendorDoors } from "./deal-vendor-menu.tsx";
-
-type BroughtBy = ClientDeal["owner"] | "unrecorded";
-const BROUGHT_BY: [BroughtBy, string][] = [
-  ["dell", "Dell"],
-  ["joe", "Joe"],
-  ["unrecorded", "Not recorded"],
-];
+import {
+  type BroughtBy,
+  broughtBy,
+  type FoundVendor,
+  type RecordedSource,
+  recordSource,
+  refusal,
+  type Saved,
+  SourceChoices,
+  type VendorDoors,
+} from "./deal-vendor-menu.tsx";
 
 interface Props {
   client: DiagramClient;
@@ -20,6 +22,7 @@ interface Props {
 
 export function AddVendor(props: Props) {
   const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
   const opener = useRef<HTMLButtonElement>(null);
   const close = () => {
     setOpen(false);
@@ -31,12 +34,13 @@ export function AddVendor(props: Props) {
         type="button"
         className="client-deal-add"
         aria-expanded={open}
+        disabled={busy}
         ref={opener}
         onClick={() => setOpen(!open)}
       >
         + Add vendor
       </button>
-      {open && <AddVendorForm {...props} close={close} />}
+      {open && <AddVendorForm {...props} close={close} busy={busy} setBusy={setBusy} />}
     </>
   );
 }
@@ -59,16 +63,30 @@ function useVendorSearch(doors: VendorDoors, query: string, skip: Set<string>) {
   return { found: found?.filter((vendor) => !skip.has(vendor.id)) ?? null, failed };
 }
 
-function AddVendorForm({ client, deal, doors, saved, close }: Props & { close: () => void }) {
+function AddVendorForm({
+  client,
+  deal,
+  doors,
+  saved,
+  close,
+  busy,
+  setBusy,
+}: Props & {
+  close: () => void;
+  busy: boolean;
+  setBusy: (busy: boolean) => void;
+}) {
   const [query, setQuery] = useState("");
   const [vendor, setVendor] = useState<FoundVendor | null>(null);
   const [roles, setRoles] = useState<Role[] | null>(null);
   const [role, setRole] = useState("");
   const [by, setBy] = useState<BroughtBy | null>(null);
-  const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState("");
-  // A vendor whose introduction already landed, so trying again never records it twice.
-  const introduced = useRef<string | null>(null);
+  const [recorded, setRecorded] = useState<RecordedSource | null>(null);
+  const [uncertain, setUncertain] = useState(false);
+  const [correctionPending, setCorrectionPending] = useState(false);
+  const correction = recorded && by && recorded.by !== by;
+  const locked = busy || uncertain || Boolean(recorded);
   const search = useRef<HTMLInputElement>(null);
   // A vendor already on this deal, or introduced for it, is changed from its own box.
   const [onDeal] = useState(
@@ -86,31 +104,46 @@ function AddVendorForm({ client, deal, doors, saved, close }: Props & { close: (
     );
     return () => controller.abort();
   }, [doors]);
-  async function save(picked: FoundVendor, brought: BroughtBy): Promise<Saved> {
-    if (brought !== "unrecorded" && introduced.current !== picked.id) {
-      const introduction = await doors.introduce({
-        vendor_id: picked.id,
-        introduced_by: brought,
-        introduced_party_id: client.id,
-        introduced_on: centralToday(new Date()),
-        deal_id: deal.id,
-      });
-      if (!introduction.ok) return introduction;
-      introduced.current = picked.id;
-    }
-    return doors.add(deal.id, picked.id, role);
-  }
   async function add() {
-    if (!vendor || !role || !by) return;
+    if (busy || !vendor || !role || !by) return;
     setBusy(true);
     setProblem("");
-    const answer = await save(vendor, by).catch((): Saved => ({ ok: false }));
+    let source = recorded;
+    if (source?.by !== by) {
+      const result = await recordSource(doors, deal, client.id, vendor.id, by, source?.id);
+      if (!result.ok) {
+        setUncertain(Boolean(result.pending));
+        setCorrectionPending(Boolean(correction && result.pending));
+        setBusy(false);
+        saved();
+        setProblem(
+          result.pending
+            ? "Couldn’t confirm who was saved. Retry to check the earlier choice."
+            : refusal(result.problem),
+        );
+        return;
+      }
+      source = result.introduction;
+      setRecorded(source);
+      setCorrectionPending(false);
+      if (source && source.by !== by) {
+        setBusy(false);
+        setUncertain(false);
+        saved();
+        setProblem(`${broughtBy(source.by)} was saved as the source. Use the new choice to change it.`);
+        return;
+      }
+    }
+    const answer = await doors.add(deal.id, vendor.id, role).catch((): Saved => ({ ok: false, pending: true }));
     setBusy(false);
     saved();
     if (answer.ok) return close();
-    const landed =
-      introduced.current === vendor.id ? ` ${vendor.name} is recorded as introduced, not yet on the deal.` : "";
-    setProblem(`${refusal(answer.problem)}${landed}`);
+    setUncertain(Boolean(answer.pending));
+    const message = answer.pending
+      ? "Couldn’t confirm whether the vendor was put on the deal. Retry to check."
+      : refusal(answer.problem);
+    const landed = source ? ` ${vendor.name} is recorded as introduced by ${broughtBy(source.by)}.` : "";
+    setProblem(message + landed);
   }
   return (
     <form
@@ -121,7 +154,7 @@ function AddVendorForm({ client, deal, doors, saved, close }: Props & { close: (
         void add();
       }}
       onKeyDown={(event) => {
-        if (event.key !== "Escape") return;
+        if (event.key !== "Escape" || busy) return;
         event.stopPropagation();
         close();
       }}
@@ -129,7 +162,7 @@ function AddVendorForm({ client, deal, doors, saved, close }: Props & { close: (
       {vendor ? (
         <p className="deal-add-vendor-picked">
           <b>{vendor.name}</b>
-          <button type="button" onClick={() => setVendor(null)}>
+          <button type="button" disabled={locked} onClick={() => setVendor(null)}>
             Change
           </button>
         </p>
@@ -154,7 +187,7 @@ function AddVendorForm({ client, deal, doors, saved, close }: Props & { close: (
       )}
       <label>
         Role
-        <select value={role} disabled={!roles} onChange={(event) => setRole(event.target.value)}>
+        <select value={role} disabled={!roles || locked} onChange={(event) => setRole(event.target.value)}>
           <option value="" disabled>
             {roles ? "Pick a role" : "Loading roles…"}
           </option>
@@ -165,19 +198,18 @@ function AddVendorForm({ client, deal, doors, saved, close }: Props & { close: (
           ))}
         </select>
       </label>
-      <fieldset>
-        <legend>Who brought them in</legend>
-        {BROUGHT_BY.map(([key, label]) => (
-          <button key={key} type="button" aria-pressed={by === key} onClick={() => setBy(key)}>
-            {label}
-          </button>
-        ))}
-      </fieldset>
+      <SourceChoices
+        by={by}
+        select={setBy}
+        client={Boolean(deal.client_id)}
+        unrecorded
+        disabled={busy || correctionPending}
+      />
       <span className="deal-vendor-menu-row">
         <button type="submit" disabled={busy || !vendor || !role || !by}>
-          Add
+          {correction ? "Use new choice" : uncertain ? "Retry" : "Add"}
         </button>
-        <button type="button" onClick={close}>
+        <button type="button" disabled={busy} onClick={close}>
           Cancel
         </button>
       </span>

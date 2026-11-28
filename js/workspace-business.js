@@ -171,7 +171,8 @@ async function readCardSection(kind, id, signal) {
 const vendorDoors = {
   add: (deal, party, role) => saveDealParty(deal, "", party, role),
   remove: (deal, party, role) => saveDealParty(deal, "/remove", party, role),
-  introduce: saveIntroduction,
+  recordSource: saveIntroduction,
+  removeIntroduction,
   findVendors: readVendorMatches,
   roles: readVendorRoles,
   vendorHref: id => viewHref(defaultQuery("vendors"), id),
@@ -184,10 +185,36 @@ async function saveDealParty(deal, suffix, party_id, role) {
   return client.savePartnerRecord(path, `client-deal${suffix}:${deal}:${party_id}:${role}`, "party_id", { party_id, role });
 }
 
-async function saveIntroduction(introduction) {
+async function removeIntroduction(id) {
   const client = await dealroomClient();
-  const key = `client-deal-introduction:${introduction.deal_id}:${introduction.vendor_id}`;
-  return client.savePartnerRecord("/api/engine/introductions", key, "introduction_id", { made_by: "team", ...introduction });
+  return client.savePartnerRecord(`/api/engine/introductions/${encodeURIComponent(id)}/remove`, `remove-introduction:${id}`, "introduction_id", {});
+}
+
+async function saveIntroduction({ deal, client, vendor, by, on, replaces, guarded }) {
+  const session = await dealroomClient();
+  const key = `client-deal-introduction:${deal}:${vendor}`;
+  const pending = session.hasPendingPartnerRecord(key);
+  if (!pending && by === "unrecorded") {
+    const outcome = replaces ? await removeIntroduction(replaces) : { ok: true };
+    return outcome.ok ? { ok: true, introduction: null } : outcome;
+  }
+  const args = pending ? undefined : {
+    made_by: by === "client" ? "client" : "team",
+    ...(by === "client" ? {} : { introduced_by: by }),
+    introduced_party_id: client,
+    vendor_id: vendor,
+    deal_id: deal,
+    introduced_on: on,
+    ...(guarded && { unrecorded_only: true }),
+    ...(replaces && { replaces }),
+  };
+  if (!guarded && replaces) return { ok: false, problem: { error: "introduction_already_recorded" } };
+  const result = await session.savePartnerRecord("/api/engine/introductions", key, "introduction_id", args);
+  if (!result.ok) return result;
+  const { made_by, introduced_by, introduction_id } = result.data;
+  const savedBy = made_by === "client" ? "client" : introduced_by;
+  if (savedBy !== "client" && savedBy !== "joe" && savedBy !== "dell") return { ok: false, pending: true };
+  return { ok: true, introduction: { id: introduction_id, by: savedBy } };
 }
 
 async function readVendorMatches(query, signal) {

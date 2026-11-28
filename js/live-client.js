@@ -294,6 +294,8 @@ export function createLiveClient(opts = {}) {
     },
     async getPostCallFollowups({ signal } = {}) { return rpc('read-post-call-followups', {}, signal); },
 
+    hasPendingPartnerRecord(key) { return Boolean(sessionCommands.pending(key)); },
+
     async savePartnerRecord(path, key, receipt, args) {
       try {
         return await sessionCommands.send(key, args ?? sessionCommands.pending(key), async (body, binding) => {

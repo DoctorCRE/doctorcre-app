@@ -16,6 +16,8 @@ const role = (label: string) => [{ role: label.toLowerCase(), label }];
 const deal = (id: string, name: string, parts: Partial<ClientDeal>): ClientDeal => ({
   id,
   name,
+  client_id: recordId,
+  client_name: "Example client",
   phase: "negotiation",
   phase_label: "Negotiation",
   open: true,
@@ -35,6 +37,7 @@ const introduction = (vendor_id: string, vendor_name: string, chosen: boolean) =
   introduced_party_name: "Example client",
   introduced_on: "2026-10-14",
   note: null,
+  removable: true,
   chosen,
 });
 const deals: ClientDeal[] = [
@@ -96,7 +99,7 @@ async function openCard(
   await page.route("**/api/engine/clients/*/deals", (route) => deals(route));
   if (saves) {
     await page.route("**/api/engine/deals/*/parties**", (route) => saves(route));
-    if (introductions) await page.route("**/api/engine/introductions", (route) => introductions(route));
+    if (introductions) await page.route("**/api/engine/introductions**", (route) => introductions(route));
     await page.route(
       (url) => url.pathname === "/api/engine/vendors",
       (route) => {
@@ -266,7 +269,7 @@ const catalog = [
 ];
 
 // A made-up engine: the deals read answers what the saves left, deriving Chosen as the engine does.
-function partyEngine(refuse: string | null = null, after = 0) {
+function partyEngine(refuse: string | null = null, after = 0, loseIntroductionReceipt = false) {
   const list = structuredClone(deals);
   const sent: { path: string; body: Record<string, unknown> }[] = [];
   const chosen = (d: ClientDeal) =>
@@ -297,26 +300,52 @@ function partyEngine(refuse: string | null = null, after = 0) {
       });
     return route.fulfill({ json: { deal_id: deal.id, ...body } });
   };
+  const receipts = new Map<string, { introduction_id: string }>();
   const introduce: Answer = (route) => {
     const { idempotency_key, ...body } = route.request().postDataJSON();
     assert.match(String(idempotency_key), /^[0-9a-f-]{36}$/);
-    sent.push({ path: new URL(route.request().url()).pathname, body });
+    const path = new URL(route.request().url()).pathname;
+    sent.push({ path, body });
+    const prior = receipts.get(idempotency_key);
+    if (prior) return route.fulfill({ status: 201, json: { ...prior, replayed: true } });
+    if (path.endsWith("/remove")) {
+      const id = path.split("/").at(-2);
+      const deal = list.find((d) => d.introductions.some((i) => i.id === id && i.removable));
+      assert.ok(deal);
+      deal.introductions = deal.introductions.filter((i) => i.id !== id);
+      deal.vendors = deal.vendors.map((v) => (v.introduction_id === id ? { ...v, introduction_id: null } : v));
+      return route.fulfill({ json: { introduction_id: id } });
+    }
     const deal = list.find((d) => d.id === body.deal_id);
     assert.ok(deal, `a known deal: ${body.deal_id}`);
-    const id = `i-${body.vendor_id}`;
+    const id = `i-${body.vendor_id}-${receipts.size}`;
+    if (body.replaces) {
+      assert.ok(deal.introductions.some((i) => i.id === body.replaces));
+      deal.introductions = deal.introductions.filter((i) => i.id !== body.replaces);
+    } else {
+      assert.ok(!deal.introductions.some((i) => i.vendor_id === body.vendor_id));
+    }
     deal.introductions.push({
       id,
       vendor_id: body.vendor_id,
-      vendor_name: catalog.find((v) => v.id === body.vendor_id)?.name ?? "",
-      made_by: "team",
-      introduced_by: body.introduced_by,
+      vendor_name:
+        deal.vendors.find((v) => v.party_id === body.vendor_id)?.name ??
+        catalog.find((v) => v.id === body.vendor_id)?.name ??
+        "",
+      made_by: body.made_by,
+      introduced_by: body.introduced_by ?? null,
       introduced_party_id: body.introduced_party_id,
       introduced_party_name: "Example client",
       introduced_on: body.introduced_on,
       note: null,
+      removable: true,
       chosen: false,
     });
-    return route.fulfill({ status: 201, json: { introduction_id: id, ...body } });
+    deal.vendors = deal.vendors.map((v) => (v.party_id === body.vendor_id ? { ...v, introduction_id: id } : v));
+    const receipt = { introduction_id: id, ...body };
+    receipts.set(idempotency_key, receipt);
+    if (loseIntroductionReceipt && receipts.size === 1) return route.abort();
+    return route.fulfill({ status: 201, json: receipt });
   };
   return { read, save, introduce, sent, list };
 }
@@ -457,6 +486,7 @@ test("Add vendor records which partner brought them in, puts them on the deal, a
         introduced_party_id: recordId,
         introduced_on: introduction?.body.introduced_on,
         deal_id: "d1",
+        unrecorded_only: true,
       },
     },
     { path: "/api/engine/deals/d1/parties", body: { party_id: "v9", role: "lender" } },
@@ -477,7 +507,7 @@ test("an Add vendor that is refused after the introduction landed says so, and t
   await form.getByRole("button", { name: "Add", exact: true }).click();
   assert.equal(
     await form.getByRole("alert").textContent(),
-    "The database turned this down. They may already be on the deal in that role. Example Harbor Bank is recorded as introduced, not yet on the deal.",
+    "The database turned this down. They may already be on the deal in that role. Example Harbor Bank is recorded as introduced by Dell.",
   );
   await form.getByRole("button", { name: "Add", exact: true }).click();
   await form.getByRole("alert").waitFor();
@@ -610,3 +640,51 @@ for (const [width, height, scheme] of [
     assert.equal(await panel.locator(".client-deal-head a").first().getAttribute("title"), longName);
     await page.screenshot({ path: `${shots}/long-name-${width}-${scheme}.png` });
   });
+
+test("Add vendor recovers a lost receipt then uses the changed source without duplicating the introduction", async (t) => {
+  const engine = partyEngine(null, 0, true);
+  const { page, deal, shows, sent } = await openParties(t, engine);
+  const form = await addVendor(page, deal, "Joe");
+  await form.getByRole("button", { name: "Add", exact: true }).click();
+  assert.match((await form.getByRole("alert").textContent()) ?? "", /Couldn’t confirm/);
+  await form.getByRole("button", { name: "The client" }).click();
+  await form.getByRole("button", { name: "Retry" }).click();
+  assert.match((await form.getByRole("alert").textContent()) ?? "", /Joe was saved as the source/);
+  assert.deepEqual(sent[0], sent[1]);
+  await form.getByRole("button", { name: "Use new choice" }).click();
+  await shows("Example Harbor Bank", "chosen");
+  const introductions = engine.list[0]?.introductions.filter((i) => i.vendor_id === "v9");
+  assert.deepEqual(
+    introductions?.map((i) => i.made_by),
+    ["client"],
+  );
+  assert.equal(engine.list[0]?.vendors.filter((v) => v.party_id === "v9").length, 1);
+  await deal.locator(".deal-diagram > ul > li > .deal-diagram-vendor", { hasText: "Example Harbor Bank" }).waitFor();
+});
+
+test("Set records the client on a linked deal and removal leaves the chosen role", async (t) => {
+  const engine = partyEngine();
+  const linkedDeal = engine.list[2];
+  assert.ok(linkedDeal);
+  linkedDeal.client_id = "linked-client";
+  linkedDeal.client_name = "Example linked client";
+  const { page, panel, sent } = await openParties(t, engine);
+  const article = panel.locator(".client-deal", { hasText: "Example first office" });
+  await article.getByRole("button", { name: /Example Halloran Title/ }).click();
+  let menu = page.getByRole("dialog", { name: "Example Halloran Title on Example first office" });
+  await menu.getByRole("button", { name: "Set", exact: true }).click();
+  await menu.getByRole("button", { name: "The client" }).click();
+  await menu.getByRole("button", { name: "Set", exact: true }).click();
+  await article.locator('.deal-diagram [data-tone="client"]', { hasText: "Example linked client" }).waitFor();
+  const direct = article.locator(".deal-diagram > ul > li > .deal-diagram-vendor", {
+    hasText: "Example Halloran Title",
+  });
+  await direct.getByRole("button", { name: /Title · Chosen/ }).click();
+  assert.equal(sent[0]?.body.introduced_party_id, "linked-client");
+  menu = page.getByRole("dialog", { name: "Example Halloran Title on Example first office" });
+  await menu.getByRole("button", { name: "Remove introduction" }).click();
+  await menu.getByText("Remove the introduction for Example Halloran Title on Example first office?").waitFor();
+  await menu.getByRole("button", { name: "Remove", exact: true }).click();
+  await article.locator('.deal-diagram-junction [data-tone="onDeal"]', { hasText: "Example Halloran Title" }).waitFor();
+  assert.equal(engine.list[2]?.vendors[0]?.roles[0]?.role, "title");
+});

@@ -182,6 +182,7 @@ function ClientDeals({ subject: client, load, stage, doors = null }: CardSection
     ((vendor, close) => (
       <DealVendorMenu
         deal={deal}
+        client={client.id}
         vendor={vendor}
         doors={doors}
         close={close}
