@@ -1959,6 +1959,39 @@ test("Doc uses the engine's model and waiting code on screen", async (t) => {
   await expect(page.getByText("Sign in to Codex on your Mac.")).toBeVisible();
 });
 
+test("A conversation accepts a future backend and uses neutral waiting text", async (t) => {
+  const { page, origin } = await docChatFixture(t, (request) => {
+    const path = new URL(request.url).pathname;
+    if (path === `/api/engine/doc/conversations/${id}`)
+      return Response.json({
+        conversation,
+        turns: [
+          { ...queuedTurn, waiting_reason: "old text", waiting_reason_code: "doc_signed_out", backend: "future" },
+        ],
+      });
+    return Response.json({ conversations: [conversation], next_before: null });
+  });
+  await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
+  await expect(page.getByText("On your Mac, sign in to the app you use for Doc: Claude Code or Codex.")).toBeVisible();
+});
+
+test("A sent question accepts a future backend", async (t) => {
+  const { page, origin } = await docChatFixture(t, async (request) => {
+    if (new URL(request.url).pathname === "/api/engine/doc/turns") {
+      const ask = await request.json();
+      return Response.json({
+        conversation_id: id,
+        turn: { ...answeredTurn, idempotency_key: ask.idempotency_key, backend: "future" },
+      });
+    }
+    return Response.json({ conversations: [], next_before: null });
+  });
+  await page.goto(`${origin}/doc-chats?mode=live`);
+  await page.getByLabel("Question for Doc").fill(question);
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByText(answeredTurn.answer.text)).toBeVisible();
+});
+
 test("The Mac status line shows nothing when its read fails and reads again when a waiting question is answered", async (t) => {
   let answer = false;
   let linkReads = 0;

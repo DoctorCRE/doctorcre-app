@@ -12,7 +12,7 @@ const cases = [
 
 test("Doc codes take precedence and unknown or absent codes use the text", async () => {
   for (const [code, expected] of cases) {
-    assert.equal(waitingMessage("old text", code, null), expected);
+    assert.equal(waitingMessage("old text", code, null), code === "doc_ready" ? "old text" : expected);
     const link = await readDocLinkStatus(async () =>
       Response.json({ status: "mac_off", readiness_code: code, backend: null }),
     );
@@ -36,4 +36,11 @@ test("Doc names the configured model when sign-in or a plan limit blocks it", ()
     assert.equal(docLinkMessage("signed_out", backend), `Sign in to ${model} on your Mac.`);
   }
   assert.equal(waitingMessage("Sign in to Claude Code on your Mac.", null, null), docLinkMessage("signed_out", null));
+});
+
+test("a ready Mac still shows that a queued turn is waiting for a free slot", () => {
+  assert.equal(
+    waitingMessage("Doc is waiting for a free slot on your Mac.", "doc_ready", "codex"),
+    "Doc is waiting for a free slot on your Mac.",
+  );
 });

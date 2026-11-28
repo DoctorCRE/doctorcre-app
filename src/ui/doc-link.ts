@@ -33,6 +33,7 @@ export function docLinkMessage(status: DocLinkStatus, backend: DocBackend) {
 
 export function waitingMessage(text: string | null, code: string | null | undefined, backend: DocBackend) {
   const status = statusForCode(code);
+  if (status === "ready") return text;
   if (status) return docLinkMessage(status, backend);
   if (text === "Sign in to Claude Code on your Mac.") return docLinkMessage("signed_out", backend);
   if (text === "Doc is paused until your Claude plan resets.") return docLinkMessage("plan_limited", backend);

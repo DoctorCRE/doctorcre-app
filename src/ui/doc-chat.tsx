@@ -77,11 +77,15 @@ const chatTurn = z
     confirmation: confirmation.nullable(),
     waiting_reason: z.string().nullable(),
     waiting_reason_code: z.string().nullish(),
-    backend: z.enum(["claude", "codex"]).nullish(),
+    backend: z.unknown().optional(),
   })
   .transform((turn) => ({
     ...turn,
-    waiting_reason: waitingMessage(turn.waiting_reason, turn.waiting_reason_code, turn.backend ?? null),
+    waiting_reason: waitingMessage(
+      turn.waiting_reason,
+      turn.waiting_reason_code,
+      turn.backend === "claude" || turn.backend === "codex" ? turn.backend : null,
+    ),
   }));
 const conversationList = z.object({ conversations: z.array(conversation), next_before: z.guid().nullable() });
 const conversationDetail = z.object({ conversation, turns: z.array(chatTurn) });
