@@ -365,7 +365,7 @@ button.client-portal-link:disabled { cursor: wait; }
 /* On a phone the page scrolls, so the top bar (back and deal name) and the tab row both stay pinned. */
 @media (max-width: 760px), (hover: none) and (pointer: coarse) and (max-width: 1023px) {
   .workspace-open .app-layout-topbar { position: sticky; top: 0; z-index: 71; }
-  .workspace-open .app-layout-topbar .deal-crumb h1 { white-space: normal; max-block-size: 48px; overflow: auto; scrollbar-width: none; }
+  .workspace-open .app-layout-topbar .deal-crumb h1 { font-size: var(--font-size-1); white-space: normal; max-block-size: 48px; overflow: auto; scrollbar-width: none; }
   .deal-detail > .workspace-header { top: 52px; }
 }
 
