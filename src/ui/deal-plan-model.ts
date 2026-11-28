@@ -213,9 +213,12 @@ export function previewPlanDates(plan: Plan, change: { id: string; day: string }
   const updated = new Map<string, PlanRow>();
   const phaseEnds = new Map<TimelinePhase, string>();
   let edge = original.expected_from_on;
-  for (let id: string | undefined = change.id; id; id = next.get(id)) {
-    const row = rows.get(id);
-    if (row?.kind !== "todo") break;
+  let successor: string | undefined = change.id;
+  for (const row of plan.rows) {
+    if (row.id !== successor) continue;
+    const { id } = row;
+    successor = next.get(id);
+    if (row.kind !== "todo") break;
     if (row.state === "finished") continue;
     if (row.state !== "expected" || !row.expected_from_on || !row.expected_to_on || row.typical_days == null) break;
     const target = id === change.id ? change.day : (plan.own_dates?.[id] ?? dateAfter(edge, row.typical_days));
