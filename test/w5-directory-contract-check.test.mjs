@@ -46,6 +46,7 @@ import { openDom } from './jsdom-harness.mjs';
 import * as model from '../js/workspace-business-model.js';
 import { activityCopy } from '../js/record-activity-model.js';
 import { BUSINESS_TIME_ZONE } from '../js/business-date.js';
+import { RELATIONSHIP_SHAPES } from '../src/ui/relationship-shapes.ts';
 import { phoneLabel, withoutRecordCodes } from '../js/visual-system.js';
 import { updatedLabel } from '../js/auto-refresh.mjs';
 import { renderEvidence } from '../js/correspondence.js';
@@ -58,7 +59,7 @@ const page = readFileSync(new URL('../business.html', import.meta.url), 'utf8');
 function setup(dataset, locale = 'en-US') {
   const dom = openDom(page, { url: `https://example.test/${dataset}`, runScripts: 'outside-only' });
   const { window } = dom;
-  Object.assign(window, model, { activityCopy, updatedLabel, renderEvidence, BUSINESS_TIME_ZONE, phoneLabel, withoutRecordCodes, linkRecordNames, privateSession, resolveDealroomBoot: () => ({ mode: 'fixture' }) });
+  Object.assign(window, model, { activityCopy, updatedLabel, renderEvidence, BUSINESS_TIME_ZONE, RELATIONSHIP_SHAPES, phoneLabel, withoutRecordCodes, linkRecordNames, privateSession, resolveDealroomBoot: () => ({ mode: 'fixture' }) });
   window.matchMedia = () => Object.assign(new window.EventTarget(), { matches: false });
   // Emulate a browser whose default clock is 24-hour without changing the
   // renderer. Explicit locales and clock options still reach native Intl.

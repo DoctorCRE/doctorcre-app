@@ -12,6 +12,7 @@ import {
   WORD,
   withRole,
 } from "./deal-diagram.tsx";
+import { RELATIONSHIP_SHAPES } from "./relationship-shapes.ts";
 
 type Partner = "joe" | "dell";
 interface Party {
@@ -167,7 +168,25 @@ interface DiagramProps {
   groups: Group[];
 }
 
-const top = (vendor: DiagramClient) => <Box tone="client" lead={null} name={vendor.name} caption="Vendor" />;
+function RelationshipShape({ relationship }: { relationship: DiagramClient["relationship"] }) {
+  if (!relationship) return null;
+  return (
+    <svg
+      className="rel-shape"
+      data-relationship={relationship}
+      viewBox="0 0 12 12"
+      aria-hidden="true"
+      // The shapes are this app's own fixed markup, shared with the Vendors table.
+      ref={(svg) => {
+        if (svg) svg.innerHTML = RELATIONSHIP_SHAPES[relationship];
+      }}
+    />
+  );
+}
+
+const top = (vendor: DiagramClient, lead: ReactNode = null) => (
+  <Box tone="client" lead={lead} name={vendor.name} caption="Vendor" />
+);
 
 function CardTree({ vendor, partner, groups }: DiagramProps) {
   return (
@@ -240,7 +259,7 @@ function SidesView({ vendor, partner, groups }: DiagramProps) {
             <PartnerBox partner={partner} />
           </div>
         )}
-        <div ref={hub}>{top(vendor)}</div>
+        <div ref={hub}>{top(vendor, <RelationshipShape relationship={vendor.relationship} />)}</div>
         {below.length > 0 && <ul>{below}</ul>}
       </div>
       <ul data-side="right">{side("right")}</ul>

@@ -1,6 +1,7 @@
 import { type ReactNode, type Ref, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
+import { AddVendor } from "./deal-add-vendor.tsx";
 import { type ClientDeal, DealDiagram, type DiagramClient, type VendorMenu } from "./deal-diagram.tsx";
 import { DealVendorMenu, eachRole, type Removal, refusal, type Saved, type VendorDoors } from "./deal-vendor-menu.tsx";
 
@@ -229,6 +230,7 @@ function ClientDeals({ subject: client, load, stage, doors = null }: CardSection
               <Undo key={r.vendor.id} removed={r} expire={forget} undo={undo} />
             ))}
           <DealDiagram client={client} deal={deal} menu={menuFor(deal)} />
+          {doors && <AddVendor client={client} deal={deal} doors={doors} saved={refresh} />}
         </article>
       ))}
       {openedDeal &&
