@@ -88,7 +88,7 @@ test('A mixed board keeps unversioned leads readable and only the versioned lead
   assert.deepEqual(await page.locator('#leadBoard .lead-open').allTextContents(), [
     'Dr. Example 1', 'Dr. Example 2', 'Dr. Example 3', 'Dr. Example 4', 'Dr. Example 5',
   ]);
-  assert.equal(await page.locator('#leadBoardError').isVisible(), false);
+  assert.equal(await page.locator('#leadBoardError').textContent(), "1 lead couldn't be shown");
   const drawer = page.locator('#leadDetail');
   for (const readOnly of readOnlyLeads) {
     const card = page.locator(`[data-lead-id="${readOnly.id}"]`);
