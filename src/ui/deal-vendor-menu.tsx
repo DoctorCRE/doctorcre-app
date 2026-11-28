@@ -126,11 +126,6 @@ export function recordSource(
     })
     .catch((): SaveFailed => ({ ok: false, pending: true }));
 }
-export interface Removal {
-  deal: ClientDeal;
-  vendor: Vendor;
-}
-
 const PARTNER = { joe: "Joe", dell: "Dell" } as const;
 const REFUSALS: Record<string, string> = {
   introduction_already_recorded: "A source is already recorded. Open the vendor box to see it.",
@@ -176,11 +171,9 @@ interface Props {
   doors: VendorDoors;
   actions: VendorActions;
   close: () => void;
-  // A save landed; a removal carries what Undo puts back.
-  saved: (removal?: Removal) => void;
 }
 
-export function DealVendorMenu({ deal, vendor, doors, actions, close, saved }: Props) {
+export function DealVendorMenu({ deal, vendor, doors, actions, close }: Props) {
   const [step, setStep] = useState<Step>({ at: "menu" });
   const phase = actions.phase(vendor.id);
   const busy = phase !== "ready";
@@ -200,7 +193,7 @@ export function DealVendorMenu({ deal, vendor, doors, actions, close, saved }: P
     );
     return () => controller.abort();
   }, [doors, picking]);
-  async function run(save: () => Promise<Saved>, removal?: Removal) {
+  async function run(save: () => Promise<Saved>) {
     setProblem("");
     const answer = await save();
     if (!answer.ok) {
@@ -210,7 +203,6 @@ export function DealVendorMenu({ deal, vendor, doors, actions, close, saved }: P
       );
     }
     if (panel.current) close();
-    saved(removal);
   }
   const onDeal = vendor.roles.length > 0;
   const introduction = vendor.introduction;
@@ -357,11 +349,7 @@ export function DealVendorMenu({ deal, vendor, doors, actions, close, saved }: P
             Remove {vendor.name} from {deal.name}?
           </p>
           <span className="deal-vendor-menu-row">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void run(() => actions.remove(vendor), { deal, vendor })}
-            >
+            <button type="button" disabled={busy} onClick={() => void run(() => actions.remove(vendor))}>
               Remove
             </button>
             <button type="button" onClick={close}>

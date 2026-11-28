@@ -24,7 +24,6 @@ import {
   eachRole,
   type FoundVendor,
   type LinkPhase,
-  type Removal,
   recordSource,
   refusal,
   type Saved,
@@ -161,47 +160,47 @@ function DealTitle({ deal }: { deal: ClientDeal }) {
   );
 }
 
-type Removed = Removal & { problem?: string; unconfirmed?: boolean };
-// Each removal keeps its own Undo window, so a second removal never drops the first's Undo.
-function Undo({
-  removed,
-  missing,
-  phase,
+type Undo = { roles: Role[] } & ({ kind: "offer" } | { kind: "restore"; problem?: string });
+
+function missingRoles(link: Link, undo: Undo) {
+  return undo.roles.filter((role) => !link.party?.roles.some((row) => row.role === role.role));
+}
+
+function LinkNotice({
+  link,
+  deal,
   check,
-  expire,
-  undo,
+  restore,
 }: {
-  removed: Removed;
-  missing: Role[];
-  phase: LinkPhase;
+  link: Link;
+  deal: ClientDeal;
   check: () => void;
-  expire: (r: Removed) => void;
-  undo: (r: Removed, missing: Role[]) => void;
+  restore: () => void;
 }) {
-  useEffect(() => {
-    if (removed.problem || removed.unconfirmed) return;
-    // eslint-disable-next-line no-restricted-syntax -- One Undo window per removal, cleared when it ends or unmounts.
-    const timer = window.setTimeout(() => expire(removed), UNDO_MS);
-    return () => window.clearTimeout(timer);
-  }, [removed, expire]);
-  if (phase !== "ready")
+  const { phase, undo, name } = link;
+  if (phase !== "ready") {
+    if (!undo && (link.party || link.introductions.length || phase === "saving")) return null;
     return (
       <div className="client-deal-undo">
+        <span>{name}</span>
         <VendorSaveStatus phase={phase} check={check} />
       </div>
     );
-  const name = removed.vendor.name;
-  const message = !missing.length
-    ? `${name} was put back.`
-    : (removed.problem ??
-      (removed.unconfirmed ? `${name} still has roles to put back.` : `Removed ${name} from ${removed.deal.name}.`));
+  }
+  if (!undo) return null;
+  const canRestore = missingRoles(link, undo).length > 0;
+  const message = canRestore
+    ? undo.kind === "offer"
+      ? `Removed ${name} from ${deal.name}.`
+      : (undo.problem ?? `${name} still has roles to put back.`)
+    : `${name} was put back.`;
   return (
     <p className="client-deal-undo" role="status">
       {message}
-      {missing.length > 0 && (
+      {canRestore && (
         <>
           {" "}
-          <button type="button" onClick={() => undo(removed, missing)}>
+          <button type="button" onClick={restore}>
             Undo
           </button>
         </>
@@ -217,9 +216,12 @@ type LinkValue = {
 type Link = LinkValue & {
   deal: string;
   vendor: string;
+  name: string;
   acknowledged: number;
-  phase: ReturnType<VendorActions["phase"]>;
+  phase: LinkPhase;
+  undo: Undo | null;
 };
+type SaveFailed = Extract<Saved, { ok: false }>;
 const linkKey = (deal: string, vendor: string) => JSON.stringify([deal, vendor]);
 
 function readLink(deal: ClientDeal | undefined, vendor: string): LinkValue {
@@ -264,6 +266,14 @@ function publishLinks(next: Map<string, Link>) {
 }
 function updateLink(key: string, link: Link) {
   publishLinks(new Map(sessionLinks).set(key, link));
+}
+
+function expireUndo(key: string, undo: Undo) {
+  // eslint-disable-next-line no-restricted-syntax -- An independent window for each acknowledged removal.
+  window.setTimeout(() => {
+    const link = sessionLinks.get(key);
+    if (link?.undo === undo) updateLink(key, { ...link, undo: null });
+  }, UNDO_MS);
 }
 
 function useDealLinks(load: CardSectionProps<ClientDeal[]>["load"]) {
@@ -321,37 +331,57 @@ function useDealLinks(load: CardSectionProps<ClientDeal[]>["load"]) {
     deal: ClientDeal,
     vendor: FoundVendor,
     save: () => Promise<T>,
-    apply: (link: LinkValue, answer: T) => LinkValue,
+    apply: (link: Link, answer: T | SaveFailed) => Partial<Link>,
+    restoring?: Undo,
   ): Promise<Saved> {
     const key = linkKey(deal.id, vendor.id);
     const before = sessionLinks.get(key) ?? {
       ...readLink(deal, vendor.id),
       deal: deal.id,
       vendor: vendor.id,
+      name: vendor.name,
       acknowledged: 0,
       phase: "ready",
+      undo: null,
     };
     if (before.phase !== "ready") return { ok: false, problem: { error: "vendor_save_in_progress" } };
-    const saving: Link = { ...before, phase: "saving" };
+    const saving: Link = { ...before, phase: "saving", undo: restoring ?? before.undo };
     updateLink(key, saving);
     // eslint-disable-next-line no-restricted-syntax -- A single 10-second display timer is cleared when the write settles.
-    const deadline = window.setTimeout(() => updateLink(key, { ...saving, phase: "slow" }), 10_000);
+    const deadline = window.setTimeout(() => {
+      const link = sessionLinks.get(key);
+      if (link) updateLink(key, { ...link, phase: "slow" });
+    }, 10_000);
     const answer = await save()
-      .catch((): { ok: false; pending: true } => ({ ok: false, pending: true }))
+      .catch((): SaveFailed => ({ ok: false, pending: true }))
       .finally(() => window.clearTimeout(deadline));
     const unconfirmed = !answer.ok && answer.pending;
-    updateLink(key, {
-      ...before,
-      ...(answer.ok && apply(before, answer)),
+    const current = sessionLinks.get(key) ?? saving;
+    const next: Link = {
+      ...current,
+      ...apply(current, answer),
       acknowledged: ++linkSequence,
       phase: unconfirmed ? "unconfirmed" : "ready",
-    });
+    };
+    updateLink(key, next);
+    if (next.undo?.kind === "offer" && next.undo !== current.undo) expireUndo(key, next.undo);
     if (!unconfirmed) for (const listener of settledListeners) listener();
     return answer;
   }
 
   const deals = read.state === "ready" ? read.value.map((deal) => applyLinks(deal, links)) : [];
   return { read, deals, reload, check, write, links };
+}
+
+function withRoles(link: Link, roles: Role[]): Pick<LinkValue, "party"> {
+  return {
+    party: {
+      party_id: link.vendor,
+      name: link.name,
+      introduction_id: link.party?.introduction_id ?? null,
+      roles: [...(link.party?.roles.filter((row) => !roles.some((role) => role.role === row.role)) ?? []), ...roles],
+    },
+  };
 }
 
 function ClientDeals({ subject: client, load, stage, doors = null }: CardSectionProps<ClientDeal[]>) {
@@ -365,7 +395,7 @@ function ClientDeals({ subject: client, load, stage, doors = null }: CardSection
         vendor,
         () => recordSource(doors, deal, client.id, vendor.id, by, replaces),
         (link, answer) => {
-          if (!answer.ok) return link;
+          if (!answer.ok) return {};
           const introductions = link.introductions.filter((row) => row.id !== replaces?.id);
           const source = answer.introduction;
           if (source)
@@ -383,7 +413,7 @@ function ClientDeals({ subject: client, load, stage, doors = null }: CardSection
               removable: true,
               chosen: Boolean(link.party),
             });
-          return { ...link, introductions };
+          return { introductions };
         },
       ),
     removeIntroduction: (vendor, intro) =>
@@ -391,65 +421,52 @@ function ClientDeals({ subject: client, load, stage, doors = null }: CardSection
         deal,
         vendor,
         () => doors.removeIntroduction(intro),
-        (link) => ({ ...link, introductions: link.introductions.filter((row) => row.id !== intro.id) }),
+        (link, answer) => (answer.ok ? { introductions: link.introductions.filter((row) => row.id !== intro.id) } : {}),
       ),
     add: (vendor, role) =>
       write(
         deal,
         vendor,
         () => doors.add(deal.id, vendor.id, role.role),
-        (link) => ({
-          ...link,
-          party: {
-            party_id: vendor.id,
-            name: vendor.name,
-            introduction_id: link.party?.introduction_id ?? null,
-            roles: [...(link.party?.roles.filter((row) => row.role !== role.role) ?? []), role],
-          },
-        }),
+        (link, answer) => (answer.ok ? withRoles(link, [role]) : {}),
       ),
     remove: (vendor) =>
       write(
         deal,
         vendor,
         () => eachRole(vendor.roles, (role) => doors.remove(deal.id, vendor.id, role.role)),
-        (link) => ({ ...link, party: null }),
+        (_link, answer) => (answer.ok ? { party: null, undo: { kind: "offer", roles: vendor.roles } } : {}),
       ),
   });
-  const [opened, setOpened] = useState<string | null>(null);
-  const [removed, setRemoved] = useState<Removed[]>([]);
-  const openers = useRef(new Map<string, HTMLButtonElement>());
-  const forget = useCallback((gone: Removed) => setRemoved((now) => now.filter((r) => r !== gone)), []);
-  async function undo(gone: Removed, missing: Role[]) {
-    if (!doors) return;
-    const { deal, vendor } = gone;
-    forget(gone);
-    const actions = actionsFor(deal, doors);
-    const answer = await eachRole(missing, (role) => actions.add(vendor, role));
-    if (!answer.ok) {
-      const notice = answer.pending
-        ? { deal, vendor, unconfirmed: true }
-        : { deal, vendor, problem: `${vendor.name} wasn't put back. ${refusal(answer.problem)}` };
-      setRemoved((now) => [...now, notice]);
-    }
+  function restore(deal: ClientDeal, vendorId: string) {
+    const link = sessionLinks.get(linkKey(deal.id, vendorId));
+    if (!doors || !link?.undo || link.phase !== "ready") return;
+    const missing = missingRoles(link, link.undo);
+    if (!missing.length) return;
+    const restoring: Undo = { kind: "restore", roles: link.undo.roles };
+    void write(
+      deal,
+      { id: vendorId, name: link.name },
+      () => eachRole(missing, (role) => doors.add(deal.id, vendorId, role.role)),
+      (current, answer) => {
+        if (answer.ok) return { ...withRoles(current, missing), undo: null };
+        const restored = missing.slice(0, answer.done ?? 0);
+        return {
+          ...(restored.length && withRoles(current, restored)),
+          undo: answer.pending
+            ? restoring
+            : { ...restoring, problem: `${link.name} wasn't put back. ${refusal(answer.problem)}` },
+        };
+      },
+      restoring,
+    );
   }
+  const [opened, setOpened] = useState<string | null>(null);
+  const openers = useRef(new Map<string, HTMLButtonElement>());
   const menuFor = (deal: ClientDeal): VendorMenu | null =>
     doors &&
     ((vendor, close) => (
-      <DealVendorMenu
-        deal={deal}
-        vendor={vendor}
-        doors={doors}
-        close={close}
-        actions={actionsFor(deal, doors)}
-        saved={(removal) => {
-          if (removal)
-            setRemoved((now) => [
-              ...now.filter((r) => r.deal.id !== removal.deal.id || r.vendor.id !== removal.vendor.id),
-              removal,
-            ]);
-        }}
-      />
+      <DealVendorMenu deal={deal} vendor={vendor} doors={doors} close={close} actions={actionsFor(deal, doors)} />
     ));
   if (read.state === "loading" || (read.state === "ready" && read.value.length === 0)) return null;
   const openedDeal = deals.find((deal) => deal.id === opened);
@@ -482,24 +499,17 @@ function ClientDeals({ subject: client, load, stage, doors = null }: CardSection
               open={() => setOpened(deal.id)}
             />
           </header>
-          {removed
-            .filter((r) => r.deal.id === deal.id)
-            .map((r) => {
-              const link = links.get(linkKey(deal.id, r.vendor.id));
-              const current = deal.vendors.find((vendor) => vendor.party_id === r.vendor.id);
-              const missing = r.vendor.roles.filter((role) => !current?.roles.some((row) => row.role === role.role));
-              return (
-                <Undo
-                  key={r.vendor.id}
-                  removed={r}
-                  missing={missing}
-                  phase={link?.phase ?? "ready"}
-                  check={() => check(deal.id, r.vendor.id)}
-                  expire={forget}
-                  undo={undo}
-                />
-              );
-            })}
+          {[...links.values()]
+            .filter((link) => link.deal === deal.id)
+            .map((link) => (
+              <LinkNotice
+                key={link.vendor}
+                link={link}
+                deal={deal}
+                check={() => check(deal.id, link.vendor)}
+                restore={() => restore(deal, link.vendor)}
+              />
+            ))}
           <DealDiagram client={client} deal={deal} menu={menuFor(deal)} />
           {doors && <AddVendor deal={deal} doors={doors} actions={actionsFor(deal, doors)} />}
         </article>

@@ -978,3 +978,59 @@ test("a failed Check again restores the unconfirmed message and offers another c
   await form.waitFor({ state: "hidden" });
   assert.equal(sent.filter((row) => row.body.party_id === "v9").length, 1);
 });
+
+test("Undo of an unintroduced vendor shows Still saving when the restore is held", async (t) => {
+  const engine = partyEngine();
+  const { page, panel, sent } = await openParties(t, engine);
+  const article = panel.locator(".client-deal", { hasText: "Example first office" });
+  const vendor = article.getByRole("button", { name: /Example Halloran Title/ });
+  const started = Promise.withResolvers<void>();
+  const commit = Promise.withResolvers<void>();
+  t.after(() => commit.resolve());
+  await page.route("**/api/engine/deals/*/parties", async (route) => {
+    started.resolve();
+    await commit.promise;
+    await route.fallback();
+  });
+  await freezeUndoClock(page);
+  await vendor.click();
+  const menu = page.getByRole("dialog", { name: "Example Halloran Title on Example first office" });
+  await menu.getByRole("button", { name: "Remove from this deal" }).click();
+  await menu.getByRole("button", { name: "Remove", exact: true }).click();
+  const notice = article.locator(".client-deal-undo");
+  await notice.getByRole("button", { name: "Undo", exact: true }).click();
+  await started.promise;
+  await page.clock.runFor(10_001);
+  await notice.getByText("Still saving…", { exact: true }).waitFor({ timeout: 3000 });
+  assert.equal(await notice.getByRole("button", { name: "Undo", exact: true }).count(), 0);
+  assert.equal(sent.length, 1);
+  commit.resolve();
+  await vendor.waitFor();
+  await notice.waitFor({ state: "hidden" });
+  assert.equal(sent.length, 2);
+});
+
+test("Check again for an unconfirmed Undo survives closing and reopening the client card", async (t) => {
+  const engine = partyEngine(null, 0, "undo");
+  const { page, panel, sent } = await openParties(t, engine);
+  const article = panel.locator(".client-deal", { hasText: "Example first office" });
+  const vendor = article.getByRole("button", { name: /Example Halloran Title/ });
+  await freezeUndoClock(page);
+  await vendor.click();
+  const menu = page.getByRole("dialog", { name: "Example Halloran Title on Example first office" });
+  await menu.getByRole("button", { name: "Remove from this deal" }).click();
+  await menu.getByRole("button", { name: "Remove", exact: true }).click();
+  const notice = article.locator(".client-deal-undo");
+  await notice.getByRole("button", { name: "Undo", exact: true }).click();
+  const check = notice.getByRole("button", { name: "Check again" });
+  await check.waitFor();
+  await page.locator("#recordClose").click();
+  await article.waitFor({ state: "detached" });
+  await page.locator(`a[data-record-id="${recordId}"]`).click();
+  await article.waitFor();
+  await check.waitFor({ timeout: 3000 });
+  await check.click();
+  await vendor.waitFor();
+  await notice.getByText(/put back/).waitFor();
+  assert.equal(sent.length, 2);
+});
