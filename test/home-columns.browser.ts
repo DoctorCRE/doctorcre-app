@@ -1011,18 +1011,76 @@ async function assertHomePreview(tile: Locator, label: string, ...selectors: str
   assert.equal(clipped.length, 0, `${label} (${height}px): ${clipped.join(", ")}`);
 }
 
+async function assertHomeTabOrder(page: Page, state: string) {
+  const controls = await page
+    .locator(
+      '.home-inbox :is(a[href], button:enabled, summary, input:enabled, select:enabled, textarea:enabled):not([tabindex="-1"]):visible',
+    )
+    .all();
+  const first = controls[0];
+  if (!first) return;
+  const scrollers = page.locator(".home-column, .home-column > .home-slice");
+  const offsets = await scrollers.evaluateAll((nodes) => nodes.map((node) => node.scrollTop));
+  await first.focus();
+  await page.keyboard.press("Shift+Tab");
+  for (const control of controls) {
+    await page.keyboard.press("Tab");
+    const { focused, label, clipped, actual } = await control.evaluate(async (control) => {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      const row = control.closest("article, li, details") ?? control;
+      const tile = row.closest(".home-slice");
+      const column = row.closest(".home-column, #appMainSlot");
+      const { top, bottom, left, right } = row.getBoundingClientRect();
+      let visibleTop = 0;
+      let visibleBottom = innerHeight;
+      let visibleLeft = 0;
+      let visibleRight = innerWidth;
+      for (const scroller of [tile, column]) {
+        if (!scroller) continue;
+        const port = scroller.getBoundingClientRect();
+        visibleTop = Math.max(visibleTop, port.top + scroller.clientTop);
+        visibleBottom = Math.min(visibleBottom, port.top + scroller.clientTop + scroller.clientHeight);
+        visibleLeft = Math.max(visibleLeft, port.left + scroller.clientLeft);
+        visibleRight = Math.min(visibleRight, port.left + scroller.clientLeft + scroller.clientWidth);
+      }
+      const header = tile?.querySelector(":scope > header");
+      if (header?.getBoundingClientRect().height && !header.contains(control))
+        visibleTop = Math.max(visibleTop, header.getBoundingClientRect().bottom);
+      const fold = tile?.querySelector(":scope > [data-home-fold]:not([data-open])");
+      let coveredByFold = 0;
+      if (fold && !fold.contains(control) && getComputedStyle(fold).position === "sticky")
+        coveredByFold =
+          Math.min(bottom, fold.getBoundingClientRect().bottom) - Math.max(top, fold.getBoundingClientRect().top);
+      return {
+        focused: document.activeElement === control,
+        label: control.getAttribute("aria-label") ?? control.textContent?.trim(),
+        actual: document.activeElement?.outerHTML.slice(0, 120),
+        clipped: Math.max(
+          visibleTop - top,
+          bottom - visibleBottom,
+          visibleLeft - left,
+          right - visibleRight,
+          coveredByFold,
+        ),
+      };
+    });
+    assert.ok(focused, `${state}: Tab focuses ${label}. Got ${actual}`);
+    assert.ok(clipped <= 0.5, `${state}: Tab clips ${label} by ${clipped}px`);
+  }
+  await scrollers.evaluateAll((nodes, offsets) => {
+    for (const [index, node] of nodes.entries()) node.scrollTop = offsets[index] ?? 0;
+  }, offsets);
+}
+
 test("Home protects each rendered tile preview as reads change state", async (t) => {
   const dates = Array.from({ length: 42 }, (_, index) => criticalDate(index + 1, today));
-  const attentionDeals = Array.from({ length: 42 }, (_, index) =>
-    deal(index + 1, "Research", { attention: { reason: "A next step is late." } }),
-  );
   const crowded = {
     ...dashboard,
-    reminders: group(dates.map((_, index) => card(600 + index, `Sample reminder ${index + 1}`))),
-    inbox: group(dates.map((_, index) => reply(700 + index, `Sample Inbox item ${index + 1}`))),
+    reminders: group([...dashboard.reminders.items, card(600, longTitle, { why: longInstruction })]),
+    inbox: group([reply(700, "Sample Inbox item"), reply(701, longInstruction)]),
     waiting: group(
-      dates.map((_, index) =>
-        card(800 + index, `Sample waiting item ${index + 1}`, {
+      ["Sample waiting item", longTitle].map((title, index) =>
+        card(800 + index, title, {
           section: "snoozed",
           disposition: "snoozed",
           returns_at: "2026-12-01T15:00:00Z",
@@ -1058,9 +1116,12 @@ test("Home protects each rendered tile preview as reads change state", async (t)
         const todayRead = Promise.withResolvers<void>();
         const holds = new Map([[todayPath, todayRead.promise]]);
         let response: "fixture" | "failed" | "empty" = "fixture";
+        const short = height < 900;
+        const wrapped = { ...wrappedDeal, id: id(short ? 102 : 101) };
+        const simple = deal(short ? 1 : 2, "Research", { attention: { reason: "A next step is late." } });
         const page = await openHome(t, 1280, height, [], dates, crowded, undefined, {
           touch,
-          deals: attentionDeals,
+          deals: short ? [simple, wrapped] : [wrapped, simple],
           meetings: busyMeetings,
           waitForReady: false,
           beforeLoad: async (page) => {
@@ -1077,8 +1138,7 @@ test("Home protects each rendered tile preview as reads change state", async (t)
         const tile = (name: string) => page.getByRole("region", { name, exact: true });
         const notice = (text: string) => page.getByText(text, { exact: true });
         const skeletons = page.locator(".home-column > .home-placeholder");
-        const short = height < 900;
-        const attention = tile("Deals").getByRole("button", { name: "42 need attention" });
+        const attention = tile("Deals").getByRole("button", { name: "2 need attention" });
         const datesFold = tile("Coming up").getByRole("button", { name: "Coming up 42 dates in the next 14 days" });
         async function openFolds() {
           if (!short) return;
@@ -1096,6 +1156,7 @@ test("Home protects each rendered tile preview as reads change state", async (t)
             "header",
             ".home-placeholder-row",
           );
+          await assertHomeTabOrder(page, "Meetings loading");
         } finally {
           todayRead.resolve();
         }
@@ -1110,6 +1171,27 @@ test("Home protects each rendered tile preview as reads change state", async (t)
             if (short && (name === "Deals" || name === "Coming up")) parts.push(".home-short-fold-line");
             await assertHomePreview(tile(name), name, ...parts);
           }
+          if (offline) {
+            const prior = short ? /^Example Deal 1 A next step/ : /^Closing /;
+            await tile("Deals").getByRole("link", { name: prior }).focus();
+            await page.keyboard.press("Tab");
+            const focus = await tile("Deals")
+              .getByRole("link", { name: /^Sample practice The practice asked/ })
+              .evaluate(async (link) => {
+                await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                const { left, width, top, bottom, height } = link.getBoundingClientRect();
+                return {
+                  focused: document.activeElement === link,
+                  height,
+                  edges: [top + 1, bottom - 1].map((y) =>
+                    link.contains(document.elementFromPoint(left + width / 2, y)),
+                  ),
+                };
+              });
+            assert.ok(focus.focused && focus.height >= 100, "Tab focuses the wrapped Deals row");
+            assert.deepEqual(focus.edges, [true, true], "both edges of the wrapped Deals row are visible");
+          }
+          await assertHomeTabOrder(page, offline ? "Offline" : "Loaded");
         }
         await page.context().setOffline(false);
         if (short) {
@@ -1126,6 +1208,7 @@ test("Home protects each rendered tile preview as reads change state", async (t)
             ".home-short-fold-line",
           );
           await assertHomePreview(tile("Coming up"), "Closed Coming up", ".home-short-fold-line");
+          await assertHomeTabOrder(page, "Closed folds");
         }
         assert.deepEqual(
           await page.evaluate(() => [scrollY, document.querySelector("#appMainSlot")?.scrollTop]),
@@ -1144,6 +1227,7 @@ test("Home protects each rendered tile preview as reads change state", async (t)
           "[role=status]",
           "summary",
         );
+        await assertHomeTabOrder(page, "Partial read");
         await page.unroute(toursPath);
 
         const otherReads = Promise.withResolvers<void>();
@@ -1156,6 +1240,7 @@ test("Home protects each rendered tile preview as reads change state", async (t)
           assert.equal(loading.length, 4, "Reminders, Inbox, Deals and Coming up show loading previews");
           for (const skeleton of loading)
             await assertHomePreview(skeleton, "Loading tile", "header", ".home-placeholder-row");
+          await assertHomeTabOrder(page, "Other tiles loading");
         } finally {
           otherReads.resolve();
         }
@@ -1174,6 +1259,7 @@ test("Home protects each rendered tile preview as reads change state", async (t)
           await assertHomePreview(notice(text), text);
         await assertHomePreview(tile("Leads"), "Leads read failure", ".home-door", ".home-door-detail");
         assert.equal(await notice("Lead counts unavailable").count(), 1);
+        await assertHomeTabOrder(page, "Failed reads");
 
         response = "empty";
         await page.reload();
@@ -1182,6 +1268,7 @@ test("Home protects each rendered tile preview as reads change state", async (t)
           () => !document.querySelector(".home-placeholder, .home-tile-status, .home-read-status"),
         );
         for (const [name] of tiles) assert.equal(await tile(name).count(), 0, `${name} is omitted when empty`);
+        await assertHomeTabOrder(page, "Empty reads");
       });
     }
   }

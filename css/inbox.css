@@ -112,12 +112,25 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
   .home-column > * {
     /* When the minimums do not fit, the column scrolls rather than squeezing the tiles. */
     flex: 0 1 auto;
-    min-block-size: var(--home-preview-size, min-content);
+    --home-sticky-start: 0px;
+    --home-sticky-end: 0px;
+    --home-preview-start: 0px;
+    --home-preview-padding: var(--space-3);
+    --home-focus-margin: var(--space-2);
+    --home-focus-inset: calc(2 * var(--home-focus-margin));
+    --home-minimum: max(
+      calc(var(--home-preview-end) + var(--home-preview-start) + max(var(--home-sticky-end), var(--home-preview-padding))),
+      calc(var(--home-row-size, 0px) + var(--home-sticky-start) + var(--home-sticky-end) + var(--home-focus-inset))
+    );
+    min-block-size: var(--home-minimum, min-content);
     overflow-y: auto;
     scroll-padding-block: var(--home-sticky-start, 0px) var(--home-sticky-end, 0px);
   }
+  .home-column > .home-door-tile { --home-preview-padding: 0px; --home-focus-inset: 0px; }
   .home-column:not(.home-side) > :first-child { flex-grow: 1; }
-  .home-slice > header { position: sticky; top: calc(-1 * var(--space-3)); z-index: 1; margin-top: calc(-1 * var(--space-3)); padding-top: var(--space-3); background: var(--surface-1); }
+  .home-slice:has(> header) { --home-sticky-start: calc(var(--touch) + var(--space-3)); }
+  .home-slice > header { position: sticky; top: calc(-1 * var(--space-3)); z-index: 1; min-block-size: var(--home-sticky-start); margin-top: calc(-1 * var(--space-3)); padding-top: var(--space-3); background: var(--surface-1); }
+  .home-slice * { scroll-margin-block: var(--home-focus-margin); }
   /* An opened item covers the middle and right columns beside Reminders; it stays in its row for reading order. */
   .home-sections:has(.home-inline-review) > .home-column:not(:first-child) :is(.home-column > :not(:has(.home-inline-review)), .inbox-row:not(:has(.home-inline-review))) { visibility: hidden; }
   .home-sections .home-slice .inbox-row:has(> .home-inline-review) { position: static; }

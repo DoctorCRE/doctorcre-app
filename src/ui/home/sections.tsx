@@ -127,7 +127,7 @@ export function HomeTile({
 /** A tile's shape while its read is in flight: a title bar and three card rows. */
 export function PlaceholderTile() {
   return (
-    <div className="home-slice home-placeholder" aria-hidden="true">
+    <div className="home-slice home-placeholder" inert>
       <header>
         <span className="skeleton-line short" />
       </header>
@@ -234,31 +234,15 @@ export function CardTile({
 
 type Anchor = { node: Element; top: number };
 
-function revealColumnFocus(column: HTMLElement, control: HTMLElement) {
-  if (column.scrollHeight <= column.clientHeight || !control.matches(":focus-visible")) return;
-
-  const { top, bottom } = control.getBoundingClientRect();
-  const edge = column.getBoundingClientRect().top + column.clientTop;
-  const style = getComputedStyle(control);
-  const ring =
-    style.outlineStyle === "none" ? 0 : Math.max(0, parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset));
-  const above = top - ring - edge;
-  const below = bottom + ring - (edge + column.clientHeight);
-  if (above < 0) column.scrollTop += Math.floor(above);
-  else if (below > 0) column.scrollTop += Math.ceil(below);
-}
-
-function homePreview(group: HTMLElement): HTMLElement[] {
-  const preview: HTMLElement[] = [];
+function* homeRows(group: HTMLElement): Generator<HTMLElement> {
   for (const child of group.children) {
     if (!(child instanceof HTMLElement) || !child.offsetHeight || child.matches("header, h2, h3, hr")) continue;
-    if (group.hasAttribute("data-open") && child.matches(".home-short-fold-line")) continue;
-    const rows = child.matches("section, ul, ol") ? homePreview(child) : [child];
-    preview.push(...(rows.length ? rows : [child]));
-    if (!preview.at(-1)?.matches('[role="status"]')) break;
+    if (child.matches("section, ul, ol")) yield* homeRows(child);
+    else yield child;
   }
-  return preview;
 }
+
+const homeFocusControl = "a[href], button, summary, input, select, textarea, [tabindex]";
 
 function fitHomeTiles(grid: HTMLDivElement) {
   const watched = new Set<Element>([grid]);
@@ -281,55 +265,33 @@ function fitHomeTiles(grid: HTMLDivElement) {
         ? Array.from(grid.querySelectorAll<HTMLElement>(":scope > .home-column > .home-slice"), (tile) => {
             const header = tile.querySelector<HTMLElement>(":scope > header");
             const fold = tile.querySelector<HTMLElement>(":scope > [data-home-fold]");
-            const control = fold?.querySelector<HTMLButtonElement>(":scope > button");
-            const open = control?.offsetHeight && fold?.hasAttribute("data-open") ? fold : null;
-            const preview = homePreview(open ?? tile);
-            const last = preview.at(-1);
-
-            const css = getComputedStyle(tile);
-            const paddingStart = Number.parseFloat(css.paddingBlockStart);
-            const paddingEnd = Number.parseFloat(css.paddingBlockEnd);
-            // Sticky controls can cover the tile padding as well as the rows.
-            const stickyStart = header?.offsetHeight
-              ? paddingStart + header.offsetHeight + Number.parseFloat(getComputedStyle(header).top)
-              : 0;
-            const footerHeight = open ? 0 : (control?.getBoundingClientRect().height ?? 0);
-            const stickyEnd = footerHeight ? footerHeight + paddingEnd : 0;
-            const targets = footerHeight
-              ? Array.from(tile.querySelectorAll<HTMLElement>("a[href], button, summary")).filter(
-                  (target) => target.offsetHeight && !header?.contains(target) && !fold?.contains(target),
-                )
-              : [];
-            for (const node of [header, control, ...preview, ...targets]) if (node) next.add(node);
-
-            const targetHeight = Math.max(
-              0,
-              ...Array.from(targets, (target) => {
-                const style = getComputedStyle(target);
-                return (
-                  target.getBoundingClientRect().height +
-                  Number.parseFloat(style.scrollMarginBlockStart) +
-                  Number.parseFloat(style.scrollMarginBlockEnd)
-                );
-              }),
-            );
-            // An open fold can scroll past the phases, but its first result and control fit together.
-            const previewStart = open
-              ? open.getBoundingClientRect().top - stickyStart
-              : tile.getBoundingClientRect().top - tile.scrollTop;
-            const minimum = last
-              ? Math.ceil(
-                  Math.max(last.getBoundingClientRect().bottom - previewStart, stickyStart + targetHeight) +
-                    paddingEnd +
-                    footerHeight,
-                )
-              : null;
-            const reveal = last && open && !openFolds.has(open) ? open : null;
+            const open = fold?.hasAttribute("data-open") && fold.querySelector("button")?.offsetHeight ? fold : null;
+            const rows = Array.from(homeRows(tile));
+            let preview: HTMLElement | undefined;
+            let tallest = 0;
+            for (const row of rows) {
+              if (!preview || preview.matches('[role="status"]')) {
+                if (
+                  open ? open.contains(row) && !row.matches("button") : !row.matches('button[aria-expanded="true"]')
+                ) {
+                  preview = row;
+                  next.add(row);
+                }
+              }
+              if (row.matches(homeFocusControl) || row.querySelector(homeFocusControl)) {
+                next.add(row);
+                tallest = Math.max(tallest, row.getBoundingClientRect().height);
+              }
+            }
+            if (header) next.add(header);
+            const start = open ? open.getBoundingClientRect().top : tile.getBoundingClientRect().top - tile.scrollTop;
+            const end = preview ? preview.getBoundingClientRect().bottom - start : 0;
+            const reveal = preview && open && !openFolds.has(open) ? open : null;
             if (fold) {
-              if (last && open) openFolds.add(open);
+              if (preview && open) openFolds.add(open);
               else openFolds.delete(fold);
             }
-            return { tile, minimum, stickyStart, stickyEnd, reveal };
+            return { tile, end, tallest, reveal };
           })
         : [];
     for (const node of watched) {
@@ -342,24 +304,19 @@ function fitHomeTiles(grid: HTMLDivElement) {
       resize.observe(node);
       watched.add(node);
     }
-    for (const { tile, minimum, stickyStart, stickyEnd } of sizes) {
+    for (const { tile, end, tallest } of sizes) {
       for (const [property, value] of [
-        ["--home-preview-size", minimum],
-        ["--home-sticky-start", stickyStart],
-        ["--home-sticky-end", stickyEnd],
+        ["--home-preview-end", end],
+        ["--home-row-size", tallest],
       ] as const) {
-        const pixels = value === null ? "" : `${value}px`;
+        const pixels = value ? `${Math.ceil(value)}px` : "";
         if (tile.style.getPropertyValue(property) !== pixels) tile.style.setProperty(property, pixels);
       }
     }
-    for (const { tile, minimum, stickyStart, stickyEnd, reveal } of sizes) {
-      tile.toggleAttribute(
-        "data-home-fitted",
-        minimum !== null && stickyEnd > 0 && tile.getBoundingClientRect().height >= minimum,
-      );
+    for (const { tile, reveal } of sizes) {
       if (reveal) {
-        tile.scrollTop += reveal.getBoundingClientRect().top - tile.getBoundingClientRect().top - stickyStart;
-        tile.scrollIntoView({ block: "nearest", behavior: "instant" });
+        reveal.scrollIntoView({ block: "start", inline: "nearest" });
+        tile.scrollIntoView({ block: "nearest", inline: "nearest" });
       }
     }
   }
@@ -371,13 +328,19 @@ function fitHomeTiles(grid: HTMLDivElement) {
 
   function onFocus(event: FocusEvent) {
     const control = event.target;
-    if (!(control instanceof HTMLElement) || control.closest(".home-inline-review")) return;
-    const column = control.closest<HTMLElement>(".home-column");
-    if (column?.parentElement !== grid) return;
+    if (
+      !(control instanceof HTMLElement) ||
+      !control.matches(":focus-visible") ||
+      control.closest(".home-inline-review")
+    )
+      return;
+    const tile = control.closest<HTMLElement>(".home-column > .home-slice");
+    const row = tile && Array.from(homeRows(tile)).find((row) => row.contains(control));
     cancelAnimationFrame(focusFrame);
-    // eslint-disable-next-line no-restricted-syntax -- One frame after native focus scrolling, canceled on unmount.
+    // eslint-disable-next-line no-restricted-syntax -- Reveal after the browser's default focus scroll.
     focusFrame = requestAnimationFrame(() => {
-      if (grid.ownerDocument.activeElement === control) revealColumnFocus(column, control);
+      if (grid.ownerDocument.activeElement === control)
+        (row || control).scrollIntoView({ block: "nearest", inline: "nearest" });
     });
   }
 
