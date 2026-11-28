@@ -219,7 +219,7 @@ export function previewPlanDates(plan: Plan, change: { id: string; day: string }
     if (row.state === "finished") continue;
     if (row.state !== "expected" || !row.expected_from_on || !row.expected_to_on || row.typical_days == null) break;
     const target = id === change.id ? change.day : (plan.own_dates?.[id] ?? dateAfter(edge, row.typical_days));
-    const end = target < edge ? edge : target;
+    const end = dateAfter(edge, Math.max(0, dayOf(target) - dayOf(edge)));
     updated.set(id, { ...row, expected_from_on: edge, expected_to_on: end });
     edge = end;
     phaseEnds.set(row.phase, end);
