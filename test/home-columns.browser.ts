@@ -167,14 +167,20 @@ async function openHome(
   dates = comingUpDates,
   home: typeof dashboard = dashboard,
   leadCounts: unknown = { schema_version: "lead-counts.v1", new_from_email: 2, follow_ups_late: 1 },
-  right = { deals, meetings: [sampleMeeting] },
+  right: { deals?: typeof deals; meetings?: (typeof sampleMeeting)[]; touch?: boolean; theme?: "light" } = {},
 ) {
   const browser = await chromium.launch();
   t.after(() => browser.close());
-  const page = await browser.newPage({ viewport: { width, height }, timezoneId: "America/Chicago" });
+  const page = await browser.newPage({
+    viewport: { width, height },
+    timezoneId: "America/Chicago",
+    hasTouch: right.touch ?? width <= 760,
+  });
   await page.clock.setFixedTime(new Date("2026-11-25T16:00:00Z"));
-  await page.addInitScript(() =>
-    localStorage.setItem("doctorcre.visual-preferences", JSON.stringify({ walkthroughSeen: { joe: true } })),
+  await page.addInitScript(
+    (theme) =>
+      localStorage.setItem("doctorcre.visual-preferences", JSON.stringify({ walkthroughSeen: { joe: true }, theme })),
+    right.theme,
   );
   await page.route("**/auth/session", (route) =>
     route.fulfill({ json: { actor: { slug: "joe" }, csrf_token: "synthetic" } }),
@@ -199,7 +205,7 @@ async function openHome(
         viewer: null,
         meetings: {
           state: "ready",
-          items: right.meetings,
+          items: right.meetings ?? [sampleMeeting],
         },
       },
     }),
@@ -228,7 +234,9 @@ async function openHome(
       json: {
         jsonrpc: "2.0",
         id: call.id,
-        result: { content: [{ type: "text", text: JSON.stringify({ board_from_engine: true, deals: right.deals }) }] },
+        result: {
+          content: [{ type: "text", text: JSON.stringify({ board_from_engine: true, deals: right.deals ?? deals }) }],
+        },
       },
     });
   });
@@ -514,6 +522,8 @@ test("At 1280x640 every right-column tile shows whole, and each Leads count keep
 });
 
 test("Crowded Home tiles keep their headings and first rows readable", async (t) => {
+  const wrappedTitle =
+    "Confirm whether the practice wants the revised lease language, parking instructions, and second-floor buildout scope added to the proposal before the next site visit.";
   const records = Array.from({ length: 42 }, (_, index) => index + 1);
   const dates = records.map((n) => criticalDate(n, today));
   const busyDeals = records.map((n) =>
@@ -529,13 +539,15 @@ test("Crowded Home tiles keep their headings and first rows readable", async (t)
     }),
   );
 
-  for (const [width, height, waitingCount] of [
-    [1280, 599, 42],
-    [1280, 599, 1],
-    [1280, 640, 1],
-    [390, 844, 42],
-  ] as const) {
-    await t.test(`${width}x${height} with ${waitingCount} waiting`, async (t) => {
+  const viewports = [
+    { width: 1280, height: 599, waitingCount: 42, inboxCount: 42 },
+    { width: 1280, height: 599, waitingCount: 42, inboxCount: 1 },
+    { width: 1280, height: 599, waitingCount: 1, inboxCount: 42 },
+    { width: 1280, height: 640, waitingCount: 1, inboxCount: 42, touch: true },
+    { width: 390, height: 844, waitingCount: 42, inboxCount: 42 },
+  ];
+  for (const { width, height, waitingCount, inboxCount, touch } of viewports) {
+    await t.test(`${width}x${height} with ${inboxCount} in Inbox and ${waitingCount} waiting`, async (t) => {
       const page = await openHome(
         t,
         width,
@@ -545,11 +557,15 @@ test("Crowded Home tiles keep their headings and first rows readable", async (t)
         {
           ...dashboard,
           reminders: group(records.map((n) => card(500 + n, `Sample reminder ${n}`))),
-          inbox: group(records.map((n) => reply(600 + n, `Sample inbox item ${n}`))),
+          inbox: group(
+            inboxCount === 1
+              ? [reply(601, wrappedTitle)]
+              : records.map((n) => reply(600 + n, `Sample inbox item ${n}`)),
+          ),
           waiting: group(waiting.slice(0, waitingCount)),
         },
         { schema_version: "lead-counts.v1", new_from_email: 42, follow_ups_late: 42 },
-        { deals: busyDeals, meetings },
+        { deals: busyDeals, meetings, ...(touch ? { touch } : {}) },
       );
       const phone = width === 390;
       const tile = (name: string) => page.getByRole("region", { name, exact: true });
@@ -609,6 +625,28 @@ test("Crowded Home tiles keep their headings and first rows readable", async (t)
       await tile("Details for Sample waiting item 1").waitFor();
     });
   }
+
+  await t.test("1280x599 touch shows the whole Deals attention button on load", async (t) => {
+    const page = await openHome(t, 1280, 599, [], comingUpDates, dashboard, undefined, { touch: true, theme: "light" });
+    assert.ok(await page.evaluate(() => matchMedia("(pointer: coarse)").matches));
+    assert.equal(await page.locator("html").getAttribute("data-theme"), "light");
+    const deals = page.getByRole("region", { name: "Deals", exact: true });
+    const attention = deals.getByRole("button", { name: "2 need attention" });
+    await attention.waitFor();
+    const [tile, button] = await Promise.all([deals.boundingBox(), attention.boundingBox()]);
+    assert.ok(tile && button && button.height >= 44, "the attention button has a full touch target");
+    assert.ok(
+      button.y >= tile.y && button.y + button.height <= tile.y + tile.height,
+      "the whole button fits before scrolling",
+    );
+    await attention.tap();
+    const first = deals.getByRole("link", { name: /Example Deal 1 A next step is late/ });
+    const [openedTile, row] = await Promise.all([deals.boundingBox(), first.boundingBox()]);
+    assert.ok(
+      openedTile && row && row.y + row.height <= openedTile.y + openedTile.height,
+      "opening the fold exposes the first deal",
+    );
+  });
 });
 
 test("Coming up is not drawn when no open deal has a date in the next 14 days", async (t) => {

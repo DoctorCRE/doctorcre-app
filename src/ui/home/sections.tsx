@@ -223,7 +223,7 @@ export function CardTile({
             {folded.map(row)}
           </section>
         ) : (
-          <button type="button" className="home-fold" onClick={() => setUnfolded(true)}>
+          <button type="button" className="home-fold" data-home-preview onClick={() => setUnfolded(true)}>
             {folded.length} more than two weeks late
           </button>
         ))}
@@ -233,8 +233,86 @@ export function CardTile({
 }
 
 type Anchor = { node: Element; top: number };
+
+function fitHomeTiles(grid: HTMLDivElement) {
+  const watched = new Set<Element>([grid]);
+  let frame = 0;
+  const resize = new ResizeObserver(schedule);
+  const mutations = new MutationObserver(schedule);
+
+  function fit() {
+    frame = 0;
+    const next = new Set<Element>([grid]);
+    const sizes =
+      getComputedStyle(grid).flexDirection === "row"
+        ? Array.from(grid.querySelectorAll<HTMLElement>(":scope > .home-column > .home-slice"), (tile) => {
+            const header = tile.querySelector<HTMLElement>(":scope > header");
+            const footer = tile.querySelector<HTMLElement>(":scope > [data-home-footer]");
+            const first = Array.from(tile.querySelectorAll<HTMLElement>("[data-home-preview]")).find(
+              (row) => row.offsetHeight > 0,
+            );
+            for (const node of [tile, header, footer, first]) if (node) next.add(node);
+
+            const rowBottom = first?.getBoundingClientRect().bottom ?? header?.getBoundingClientRect().bottom;
+            const stickyEnd = footer && getComputedStyle(footer).position === "sticky" ? footer.offsetHeight : 0;
+            const stickyStart = header?.offsetHeight
+              ? header.offsetHeight + Number.parseFloat(getComputedStyle(header).top)
+              : 0;
+            // Add back scrollTop to measure the first row in its unscrolled position.
+            const minimum =
+              rowBottom === undefined
+                ? 0
+                : rowBottom -
+                  tile.getBoundingClientRect().top +
+                  tile.scrollTop +
+                  Number.parseFloat(getComputedStyle(tile).paddingBlockEnd) +
+                  stickyEnd;
+            return { tile, minimum, stickyStart, stickyEnd };
+          })
+        : [];
+    for (const node of watched) {
+      if (next.has(node)) continue;
+      resize.unobserve(node);
+      watched.delete(node);
+    }
+    for (const node of next) {
+      if (watched.has(node)) continue;
+      resize.observe(node);
+      watched.add(node);
+    }
+    for (const { tile, minimum, stickyStart, stickyEnd } of sizes) {
+      tile.style.setProperty("--home-preview-size", `${Math.ceil(minimum)}px`);
+      tile.style.setProperty("--home-sticky-start", `${stickyStart}px`);
+      tile.style.setProperty("--home-sticky-end", `${stickyEnd}px`);
+    }
+  }
+
+  function schedule() {
+    // eslint-disable-next-line no-restricted-syntax -- At most one pending frame to fit the visible tiles, canceled on unmount.
+    if (!frame) frame = requestAnimationFrame(fit);
+  }
+
+  resize.observe(grid);
+  mutations.observe(grid, { childList: true, subtree: true, characterData: true, attributeFilter: ["data-open"] });
+  fit();
+  return () => {
+    resize.disconnect();
+    mutations.disconnect();
+    cancelAnimationFrame(frame);
+  };
+}
+
 export class HomeGrid extends Component<{ children: ReactNode; snapshot: unknown; calendar?: unknown }> {
   private grid: HTMLDivElement | null = null;
+  private stopFitting: (() => void) | undefined;
+
+  componentDidMount() {
+    if (this.grid) this.stopFitting = fitHomeTiles(this.grid);
+  }
+
+  componentWillUnmount() {
+    this.stopFitting?.();
+  }
 
   getSnapshotBeforeUpdate(previous: Readonly<typeof this.props>): Anchor[] | null {
     if (

@@ -25,17 +25,17 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
 
 @media(min-width:701px){.inbox-row{flex-wrap:wrap}.inbox-copy{flex-basis:calc(100% - 62px)}.inbox-actions{margin-left:62px}}
 
-.home-sections { --home-row-height: max(34px, var(--touch)); display: flex; flex-direction: column; gap: var(--space-4); }
+.home-sections { display: flex; flex-direction: column; gap: var(--space-4); }
 .home-column { display: contents; }
 /* Stacked, Today's meetings comes first and In motion and waiting last. */
 .home-slice[aria-label="Today's meetings"] { order: -1; }
 .home-slice[aria-label="In motion and waiting"] { order: 1; }
 .home-slice { min-width: 0; padding: var(--space-3) var(--space-4); background: var(--surface-1); border-radius: var(--panel-radius); }
-.home-slice > header { display: flex; justify-content: space-between; gap: var(--space-2); align-items: center; min-height: var(--home-row-height, var(--touch)); }
+.home-slice > header { display: flex; justify-content: space-between; gap: var(--space-2); align-items: center; min-height: var(--touch); }
 .home-slice h2 { font-size: var(--font-size-2); font-weight: 600; margin: 0; }
 .home-slice h2 span { margin-inline-start: var(--space-1); color: var(--fg-muted); font-size: var(--font-size-1); font-weight: 400; font-variant-numeric: tabular-nums; }
 .home-slice > header > button { padding-inline: var(--space-2); border: 0; background: transparent; color: var(--fg-muted); font-size: var(--font-size-1); white-space: nowrap; }
-.home-slice .inbox-row { min-height: var(--home-row-height, var(--touch)); gap: 0 var(--space-3); margin: 0 calc(-1 * var(--space-2)); padding: 6px var(--space-2); border: 0; border-radius: var(--radius-2); background: transparent; align-items: center; flex-wrap: wrap; transition: background-color var(--duration-press); }
+.home-slice .inbox-row { gap: 0 var(--space-3); margin: 0 calc(-1 * var(--space-2)); padding: 6px var(--space-2); border: 0; border-radius: var(--radius-2); background: transparent; align-items: center; flex-wrap: wrap; transition: background-color var(--duration-press); }
 .home-slice .inbox-row:hover { background: var(--surface-2); }
 .home-slice .inbox-row > .inbox-copy { flex: 1 1 0; min-width: 0; }
 .home-slice .inbox-row > .inbox-copy h3 { margin: 0; font-size: var(--font-size-2); font-weight: 500; line-height: 1.4; }
@@ -99,21 +99,16 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
 /* Home is three columns once its own box is as wide as a 1000px window leaves it, whatever else takes room beside it, and then exactly the screen tall with each tile scrolling its own rows. */
 @container home (min-width: 936px) {
   .home-sections { flex-direction: row; position: relative; height: calc(100dvh - var(--topbar-height) - 2 * var(--pad)); }
-  .home-column { display: flex; flex: 1 1 0; flex-direction: column; gap: var(--space-4); min-width: 0; }
+  .home-column { display: flex; flex: 1 1 0; flex-direction: column; gap: var(--space-4); min-width: 0; overflow: auto; overscroll-behavior: contain; }
   .home-column:first-child { flex-grow: 1.15; }
   .home-column.home-side { flex-grow: 0.75; }
   .home-column:empty { display: none; }
   .has-app-layout main:has(.home-inbox) .inbox-shell { padding-bottom: 0; }
-  /* Single lines keep their height. Expanded dates yield first, then longer lists give up more space. */
+  /* Expanded dates reach their measured minimum first. Other lists yield in proportion to their size. */
   .home-column > * { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
-  .home-column > .home-slice:not(:has(> header)) { flex-shrink: 0; }
-  /* Work cards can take two lines. A leading disclosure reserves its own row. */
-  .home-slice:has(> .inbox-row, > section > .inbox-row, > header + .home-short-fold[data-open]) {
-    --home-first-row-space: calc(2 * var(--home-row-height));
-  }
-  .home-column > .home-slice:has(> header) {
-    min-block-size: calc(var(--home-row-height) + var(--home-first-row-space, var(--home-row-height)) + 2 * var(--space-3));
-    scroll-padding-block-start: var(--home-row-height);
+  .home-column > .home-slice {
+    min-block-size: var(--home-preview-size, 0px);
+    scroll-padding-block: var(--home-sticky-start, 0px) var(--home-sticky-end, 0px);
   }
   .home-column:not(.home-side) > :first-child { flex-grow: 1; }
   .home-slice > header { position: sticky; top: calc(-1 * var(--space-3)); z-index: 1; margin-top: calc(-1 * var(--space-3)); padding-top: var(--space-3); background: var(--surface-1); }

@@ -7,7 +7,7 @@
 .home-tile-door:hover { background: var(--surface-2); color: var(--fg); }
 
 .home-today-list { display: grid; }
-.home-today-row > summary, .home-tour { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; align-items: center; column-gap: var(--space-2); min-height: var(--home-row-height); padding-inline: var(--space-2); border-radius: var(--radius-2); color: var(--fg); font-size: var(--font-size-2); text-decoration: none; cursor: pointer; list-style: none; }
+.home-today-row > summary, .home-tour { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; align-items: center; column-gap: var(--space-2); min-height: var(--touch); padding-inline: var(--space-2); border-radius: var(--radius-2); color: var(--fg); font-size: var(--font-size-2); text-decoration: none; cursor: pointer; list-style: none; }
 .home-today-row > summary::-webkit-details-marker { display: none; }
 .home-today-row > summary:hover, .home-tour:is(a):hover { background: var(--surface-2); }
 .home-today-time, .home-today-mark { color: var(--fg-quiet); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -19,7 +19,7 @@ details.home-today-row > :not(summary) { margin: 0 0 var(--space-1); padding-inl
 .home-now { height: 1px; margin: var(--space-1) var(--space-2); border: 0; background: var(--accent); }
 
 .home-door-tile { padding: 0; }
-.home-door { display: flex; align-items: center; gap: var(--space-2); min-height: calc(var(--home-row-height) + var(--space-2)); padding-inline: var(--space-4); border-radius: var(--panel-radius); color: var(--fg); font-size: var(--font-size-2); text-decoration: none; }
+.home-door { display: flex; align-items: center; gap: var(--space-2); min-height: calc(var(--touch) + var(--space-2)); padding-inline: var(--space-4); border-radius: var(--panel-radius); color: var(--fg); font-size: var(--font-size-2); text-decoration: none; }
 .home-door:hover { background: var(--surface-2); }
 .home-door strong { flex: 1; font-weight: var(--font-weight-strong); }
 .home-door-detail { color: var(--fg-quiet); font-size: var(--font-size-1); }
@@ -31,7 +31,7 @@ details.home-today-row > :not(summary) { margin: 0 0 var(--space-1); padding-inl
 .home-deals ul, .home-coming-up ul { margin: 0; padding: 0; list-style: none; }
 /* Two phase columns when the tile has room, else one. */
 .home-phases { display: grid; grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)); column-gap: var(--space-2); }
-.home-deals :is(li > a, .home-deals-line), .home-coming-up li > a, .inbox-shell .home-short-fold-line { display: flex; align-items: center; gap: var(--space-2); min-height: var(--home-row-height); padding: 0 var(--space-2); border-radius: var(--radius-2); color: var(--fg); text-decoration: none; transition: background-color var(--duration-hover) var(--ease-out); }
+.home-deals :is(li > a, .home-deals-line), .home-coming-up li > a, .inbox-shell .home-short-fold-line { display: flex; align-items: center; gap: var(--space-2); min-height: max(34px, var(--touch)); padding: 0 var(--space-2); border-radius: var(--radius-2); color: var(--fg); text-decoration: none; transition: background-color var(--duration-hover) var(--ease-out); }
 .home-deals :is(li > a, .home-deals-line):hover, .home-coming-up li > a:hover, .inbox-shell .home-short-fold-line:hover { background: var(--surface-2); }
 .home-phases a { justify-content: space-between; color: var(--fg-muted); font-size: var(--font-size-1); white-space: nowrap; }
 .home-phases a span { color: var(--fg); font-weight: var(--font-weight-strong); font-variant-numeric: tabular-nums; }
@@ -56,6 +56,6 @@ details.home-today-row > :not(summary) { margin: 0 0 var(--space-1); padding-inl
   .inbox-shell .home-short-fold-line { display: flex; }
   .home-short-fold:not([data-open]) > :not(.home-short-fold-line) { display: none; }
   .home-coming-up:has(.home-short-fold:not([data-open])) > header { display: none; }
-  .home-column > .home-coming-up:has(.home-short-fold:not([data-open])) { flex-shrink: 0; min-block-size: 0; }
+  [data-home-footer] { position: sticky; inset-block-end: 0; z-index: 1; background: var(--surface-1); }
   .home-coming-up:has(.home-short-fold[data-open]) { flex: 1 1 0; }
 } }

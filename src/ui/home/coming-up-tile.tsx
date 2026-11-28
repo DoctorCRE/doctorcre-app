@@ -52,7 +52,7 @@ export function ComingUpTile() {
         <ul>
           {rows.map((row) => (
             <li key={row.id}>
-              <a href={`/calendar?day=${row.day}`}>
+              <a href={`/calendar?day=${row.day}`} data-home-preview>
                 <time dateTime={row.day}>{weekday.format(new Date(`${row.day}T00:00:00Z`))}</time>
                 <span>
                   {row.kind} <span>· {row.dealName}</span>

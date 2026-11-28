@@ -38,7 +38,7 @@ export function LeadsLine() {
   if (!summary.length) return null;
   return (
     <section className="home-slice home-door-tile" aria-label="Leads">
-      <a className="home-door" href="/leads">
+      <a className="home-door" href="/leads" data-home-preview>
         <strong>Leads</strong>
         {leads.data?.newFromEmail ? <span className="home-dot-info" aria-hidden="true" /> : null}
         <span className="home-door-detail">

@@ -959,6 +959,7 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
         key={cardKey(item)}
         className={presentation || isDoneStep(item) ? "inbox-row inbox-row-explained" : "inbox-row"}
         data-inbox-row={item.item_id}
+        data-home-preview={home ? "" : undefined}
         data-shortcut-card={home ? "" : undefined}
         data-current={item_id === item.item_id || undefined}
         onTouchStart={(event) => {

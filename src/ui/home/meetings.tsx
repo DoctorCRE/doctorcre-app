@@ -101,7 +101,7 @@ export function MeetingReview({
     };
     controller.current?.update(view.current);
   }, [review, data?.actor, data?.deals]);
-  return <div ref={host} />;
+  return <div ref={host} data-home-preview />;
 }
 
 type Review = MeetingRead["reviews"][number];

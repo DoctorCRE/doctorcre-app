@@ -71,7 +71,9 @@ export function DealsTile() {
         </a>
       </header>
       <p className="home-deals-counts">
-        <a href="/deals">{heading.join(" · ")}</a>
+        <a href="/deals" data-home-preview>
+          {heading.join(" · ")}
+        </a>
       </p>
       <ul className="home-phases">
         {data.phases.map((phase) => (
@@ -83,7 +85,11 @@ export function DealsTile() {
         ))}
       </ul>
       {data.attention.length > 0 && (
-        <Fold label="Needs attention" line={counted(data.attention.length, "needs attention", "need attention")}>
+        <Fold
+          label="Needs attention"
+          line={counted(data.attention.length, "needs attention", "need attention")}
+          keepCollapsedVisible
+        >
           <h3>Needs attention</h3>
           <ul className="home-deals-attention">
             {data.attention.map((deal) => (
