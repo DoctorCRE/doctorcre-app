@@ -135,21 +135,25 @@ const automaticPhase = prepareAutomaticPhaseUndo({
 
 function renderPhaseUndo(detail = state.panelDetail) {
   const host = $('workspacePhaseMove');
-  if (!host || !detail || !isEngineDealDetail(detail)) return;
+  if (!host || !detail) return;
   const deal = detail.deal;
-  const receipt = automaticPhaseReceipt(deal, automaticPhase.detailFeedback(deal.id), {
-    showEngineMoves: isPhaseMoveReceipt(deal.phase_change), canUndo: detail.next_deal_saves === true,
-  });
-  const html = renderPhaseReceipt(deal, receipt, '', true);
+  const html = isEngineDealDetail(detail)
+    ? renderPhaseReceipt(deal, automaticPhaseReceipt(deal, automaticPhase.detailFeedback(deal.id), {
+        showEngineMoves: isPhaseMoveReceipt(deal.phase_change), canUndo: detail.next_deal_saves === true,
+      }), '', true)
+    : '';
+  if (host.dataset.receipt === html) return;
   const previous = host.querySelector('details');
   const focused = host.contains(document.activeElement);
   const toggle = focused && document.activeElement.matches('summary');
-  if (host.dataset.receipt === html) return;
   host.dataset.receipt = html;
   host.innerHTML = html;
   const next = host.querySelector('details');
   if (next && previous?.open) next.open = true;
-  if (focused) (toggle ? next?.querySelector('summary') : host.querySelector('button') || $('panelBody').querySelector('[data-refresh-detail]'))?.focus({ preventScroll: true });
+  if (focused) {
+    const target = toggle ? next?.querySelector('summary') : host.querySelector('button');
+    (target || $('panelBody').querySelector('[data-refresh-detail]'))?.focus({ preventScroll: true });
+  }
 }
 
 const dealTitle = (deal) => dealName(deal.name);
