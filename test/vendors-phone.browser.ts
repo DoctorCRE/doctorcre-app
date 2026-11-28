@@ -1,62 +1,11 @@
 import assert from "node:assert/strict";
-import test, { type TestContext } from "node:test";
-import { expect } from "@playwright/test";
-import type { Page, Route } from "playwright";
-import { chromium } from "./browser-harness.mjs";
-import { ownedServer as startFixtureServer } from "./fixture-probe.ts";
-import { directoryFixture } from "./fixtures/vendor-directory.synthetic.mjs";
+import test from "node:test";
+import type { Page } from "playwright";
+import { vendorRoster } from "./fixtures/vendor-directory.synthetic.mjs";
+import { expectVendorScreen, holdVendorList, openVendors, screenFor } from "./fixtures/vendor-screen.ts";
 
-// The fixture is declared as a loose record; its list and summary answers carry these parts.
-const fixture = (url: string) => directoryFixture(url) as Payload;
-type Payload = Record<string, unknown> & {
-  rows?: (Record<string, unknown> & { relationship?: Record<string, unknown> })[];
-  facets?: { categories: { slug: string; label: string }[] };
-  categories?: { slug: string; label: string }[];
-};
-
-async function openVendors(
-  t: TestContext,
-  width: number,
-  height: number,
-  { path = "/vendors?category=banker", answer = fixture, hold = false } = {},
-) {
-  const server = await startFixtureServer();
-  t.after(() => server.stop());
-  const browser = await chromium.launch();
-  t.after(() => browser.close());
-  const page = await browser.newPage({ viewport: { width, height } });
-  const held: Route[] = [];
-  let routeHeld: () => void = () => {};
-  const requestHeld = new Promise<void>((resolve) => {
-    routeHeld = resolve;
-  });
-  await page.route("https://**", (r) => r.abort());
-  await page.route("**/api/v1/business/**", (r) => {
-    const url = new URL(r.request().url());
-    url.searchParams.sort();
-    if (
-      hold &&
-      url.pathname === "/api/v1/business/vendors" &&
-      url.searchParams.toString() === "category=banker&contract=vendor-directory.v1"
-    ) {
-      held.push(r);
-      routeHeld();
-      return;
-    }
-    return r.fulfill({ json: answer(r.request().url()) });
-  });
-  await page.route("**/mcp", (r) =>
-    r.fulfill({
-      json: { jsonrpc: "2.0", id: r.request().postDataJSON()?.id, result: { content: [{ type: "text", text: "{}" }] } },
-    }),
-  );
-  await page.goto(`${server.url}${path}`);
-  const release = async () => {
-    await requestHeld;
-    await Promise.all(held.splice(0).map((r) => r.fulfill({ json: answer(r.request().url()) })));
-  };
-  return { page, release };
-}
+const roster = vendorRoster();
+const banking = "/vendors?category=banker";
 
 const lines = (page: Page) =>
   page.locator(".record-row").evaluateAll((rows) =>
@@ -76,8 +25,9 @@ const lines = (page: Page) =>
   );
 
 test("on a phone each vendor is two lines: name and relationship, then territory and last contact", async (t) => {
-  const { page } = await openVendors(t, 390, 844);
-  await page.locator(".record-row").first().waitFor();
+  const { page } = await openVendors(t, roster, { view: banking, width: 390, height: 844 });
+  const expected = screenFor(roster, { view: banking, layout: "phone" });
+  await expectVendorScreen(page, expected);
   const rows = await lines(page);
   for (const row of rows) {
     assert.equal(row.hidden, null, "Location and Owner stay on the computer table");
@@ -96,57 +46,34 @@ test("on a phone each vendor is two lines: name and relationship, then territory
     .evaluateAll((names) => names.filter((name) => name.scrollWidth > name.clientWidth).length);
   assert.equal(clipped, 0, "short names show whole beside a Want to meet tag");
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
-  const title = page.locator(".app-layout-tabs .summary-place");
-  assert.equal(await title.textContent(), "Banking", "the category's name is the phone's title");
-  assert.ok(await title.isVisible());
+  await expectVendorScreen(page, expected);
 });
 
 test("a vendor never contacted says No contact yet with no day count", async (t) => {
-  const answer = (url: string) => {
-    const payload = fixture(url);
-    for (const row of payload.rows ?? []) if (row.quiet && row.relationship) row.relationship.last_contacted_at = null;
-    return payload;
-  };
-  const { page } = await openVendors(t, 1440, 900, { answer });
-  await page.locator(".record-row").first().waitFor();
-  const quiet = await page.locator(".record-row .contact-note.quiet").allTextContents();
-  assert.ok(quiet.length > 0, "the category holds quiet vendors");
-  for (const text of quiet) assert.equal(text, "Last contacted No contact yet");
+  const roster = vendorRoster({ noQuietContact: true });
+  const { page } = await openVendors(t, roster, { view: banking });
+  await expectVendorScreen(page, screenFor(roster, { view: banking }));
 });
 
 test("while a category loads it is named, never by its slug", async (t) => {
-  const answer = (url: string) => {
-    const payload = fixture(url);
-    const rename = (list?: { slug: string; label: string }[]) =>
-      list?.forEach((c) => {
-        if (c.slug === "banker") c.label = "CPA / Financial";
-      });
-    rename(payload.facets?.categories);
-    rename(payload.categories);
-    return payload;
-  };
-  const { page, release } = await openVendors(t, 1440, 900, { path: "/vendors?category=banker", answer, hold: true });
-  const search = page.getByRole("searchbox", { name: "Search" });
-  await page.locator(".record-skeleton").first().waitFor();
-  const shown = async () =>
-    `${await search.getAttribute("placeholder")} ${await page.locator("#resultSummary").textContent()}`;
-  assert.doesNotMatch(await shown(), /banker/, "a direct link never shows the slug");
-  assert.doesNotMatch(await shown(), /Checking/, "a direct link has no title until the name arrives");
-  await release();
-  const expected = [
-    1, 11, 21, 31, 51, 61, 7, 17, 27, 37, 47, 57, 3, 13, 23, 33, 43, 53, 9, 29, 39, 49, 59, 5, 15, 25, 35, 55, 45, 19,
-    41,
-  ].map((n) => `Demo Partner ${String(n).padStart(2, "0")}`);
-  await expect(page.locator(".record-row:visible .row-name")).toHaveText(expected);
-  await expect(page.locator("#directoryTiles")).toBeHidden();
-  await expect(page.locator("#resultSummary")).toHaveText("CPA / Financial · 31 vendors");
-  await expect(search).toHaveAttribute("placeholder", "Find in CPA / Financial");
+  const roster = vendorRoster({ banking: "CPA / Financial" });
+  const holdQuery = "category=banker";
+  const { page, heldList } = await openVendors(t, roster, { view: banking, holdQuery });
+  assert.ok(heldList);
+  await heldList.waitUntilHeld();
+  await expectVendorScreen(page, screenFor(roster, { view: banking, loading: true }));
+  heldList.release();
+  const loaded = screenFor(roster, { view: banking });
+  await expectVendorScreen(page, loaded);
 
   await page.getByRole("button", { name: "Categories", exact: true }).click();
-  await page.locator("a.directory-tile", { hasText: "CPA / Financial" }).click();
-  await page.locator(".record-skeleton").first().waitFor();
-  assert.equal(await page.locator(".summary-place").textContent(), "CPA / Financial", "a tile's name, while it loads");
-  assert.equal(await search.getAttribute("placeholder"), "Find in CPA / Financial");
+  await expectVendorScreen(page, screenFor(roster));
+  const tileList = await holdVendorList(page, holdQuery);
+  await page.getByRole("link", { name: /^CPA \/ Financial/ }).click();
+  await tileList.waitUntilHeld();
+  await expectVendorScreen(page, screenFor(roster, { view: banking, loading: true, fromTile: true }));
+  tileList.release();
+  await expectVendorScreen(page, loaded);
 });
 
 for (const [width, height] of [
@@ -154,8 +81,10 @@ for (const [width, height] of [
   [1440, 900],
 ] as const)
   test(`the relationship counts stay on one row with the card open at ${width}x${height}`, async (t) => {
-    const { page } = await openVendors(t, width, height);
-    await page.locator(".record-row .row-head").first().click();
+    const { page } = await openVendors(t, roster, { view: banking, width, height });
+    const vendor = roster.rows.find((row) => row.name === "Demo Partner 01");
+    assert.ok(vendor);
+    await page.locator(".record-row").filter({ hasText: vendor.name }).click();
     await page.locator("body[data-card-open]").waitFor();
     const tops = await page
       .locator(".table-filters .filter-count")
@@ -164,32 +93,32 @@ for (const [width, height] of [
     assert.equal(new Set(tops).size, 1, `every count shares one row: ${tops}`);
     const row = await page.locator(".table-filters").evaluate((el) => el.scrollWidth - el.clientWidth);
     assert.ok(row <= 0, `the row needs no scrolling (${row}px over)`);
+    await expectVendorScreen(page, screenFor(roster, { view: `${banking}&record=${vendor.id}` }));
   });
 
 test("the search hint shows whole for a long category name", async (t) => {
   const label = "Practice Management Consultant";
-  const answer = (url: string) => {
-    const payload = fixture(url);
-    for (const c of payload.facets?.categories ?? []) c.label = label;
-    return payload;
-  };
-  const { page } = await openVendors(t, 1280, 640, { answer });
-  await page.locator(".record-row").first().waitFor();
+  const roster = vendorRoster({ banking: label });
+  const { page } = await openVendors(t, roster, { view: banking, width: 1280, height: 640 });
+  const expected = screenFor(roster, { view: banking });
+  await expectVendorScreen(page, expected);
   const fit = await page.getByRole("searchbox", { name: "Search" }).evaluate((input: HTMLInputElement) => {
     const style = getComputedStyle(input);
     const context = document.createElement("canvas").getContext("2d");
     if (!context) return null;
     context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
     const room = input.clientWidth - Number.parseFloat(style.paddingLeft) - Number.parseFloat(style.paddingRight);
-    return { hint: context.measureText(input.placeholder).width, room, placeholder: input.placeholder };
+    return { hint: context.measureText(input.placeholder).width, room };
   });
-  assert.equal(fit?.placeholder, `Find in ${label}`);
   assert.ok(fit && fit.hint <= fit.room, `the hint (${fit?.hint}px) fits its box (${fit?.room}px)`);
+  await expectVendorScreen(page, expected);
 });
 
 test("a vendor's card follows the screen spec's order and ends with Where", async (t) => {
-  const { page } = await openVendors(t, 1440, 900);
-  await page.locator(".record-row").nth(1).click();
+  const { page } = await openVendors(t, roster, { view: banking });
+  const vendor = roster.rows.find((row) => row.name === "Demo Partner 11");
+  assert.ok(vendor);
+  await page.locator(".record-row").filter({ hasText: vendor.name }).click();
   await page.locator("#recordActivity").waitFor();
   const headings = await page
     .locator("#recordPanel .record-panel-body > section > h3, #recordPanel .detail-columns h3")
@@ -205,4 +134,5 @@ test("a vendor's card follows the screen spec's order and ends with Where", asyn
     `in the spec's order: ${headings.join(", ")}`,
   );
   assert.equal(headings.at(-2), "Where", "Where is the last vendor section before Recent activity");
+  await expectVendorScreen(page, screenFor(roster, { view: `${banking}&record=${vendor.id}` }));
 });
