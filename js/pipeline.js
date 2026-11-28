@@ -2812,8 +2812,9 @@ function wire() {
   document.addEventListener('click', async (event) => {
     const more = $('panelBody')?.querySelector('.deal-path-more[open]');
     if (more && (event.target.closest('[data-path-less]') || !more.contains(event.target))) {
+      const restoreFocus = event.target.closest('[data-path-less]') || document.activeElement === document.body;
       more.open = false;
-      more.querySelector('summary').focus();
+      if (restoreFocus) more.querySelector('summary').focus();
     }
 
     if ($('panelBody')?.querySelector('.deal-path-ask')
@@ -3076,7 +3077,7 @@ function wire() {
   });
   document.addEventListener('keydown', event => {
     const more = $('panelBody')?.querySelector('.deal-path-more[open]');
-    if (event.key === 'Escape' && more) {
+    if (event.key === 'Escape' && more && !document.querySelector('dialog[open]')) {
       event.preventDefault();
       more.open = false;
       more.querySelector('summary').focus();

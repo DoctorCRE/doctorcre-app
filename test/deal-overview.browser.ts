@@ -506,7 +506,16 @@ const longChecklist = {
       label: "Site selection",
       items: Array.from({ length: 8 }, (_, n) => ({
         id: `site_todo_${n}`,
-        label: `Example site to-do ${n + 1}`,
+        label: [
+          "Market survey",
+          "Representation agreement",
+          "Terms comparison",
+          "Agreed business terms",
+          "Lease draft to attorney",
+          "Executed lease",
+          "Invoice",
+          "Commission received",
+        ][n],
         status: n < 2 ? "complete" : n === 2 ? "overdue" : "not_recorded",
         due_on: n === 2 ? "2026-11-24" : null,
       })),
@@ -545,12 +554,12 @@ for (const [width, height] of [
     const path = page.locator(".deal-path-section");
     assert.ok((await path.evaluate((node) => node.getBoundingClientRect().height)) <= 200, "the path stays short");
     const current = page.locator('.deal-path-tile[data-place="current"]');
-    assert.equal(await current.locator("[data-todo]:visible").count(), 2);
+    assert.equal(await current.locator(":scope > ul [data-todo]").count(), 2);
     await current.getByText("6 more").click();
     assert.equal(
-      await current.locator(".deal-path-list-panel [data-todo]:visible").count(),
-      8,
-      "6 more opens the full list",
+      await current.locator(".deal-path-list-panel [data-todo]").count(),
+      6,
+      "6 more opens the remaining list",
     );
     await current.getByText("6 more").click();
     const columns = page.locator(".deal-overview-grid > *");
@@ -573,27 +582,28 @@ for (const [width, height] of [
     const { page } = await openDeal(t, width, height, [], fourDates(), {
       ...sideFacts,
       thread: Array.from({ length: 10 }, (_, n) => noteAt(n)),
-      checklist:
-        width === 1279
-          ? {
-              ...longChecklist,
-              phases: longChecklist.phases.map((phase) => ({
-                ...phase,
-                items: phase.items.map((item) => ({ ...item, label: `${item.label} with a longer description` })),
-              })),
-            }
-          : longChecklist,
+      checklist: longChecklist,
     });
-    if (width === 1280) {
-      await page.screenshot({ path: `${shots}/polish-1280x599-closed.png` });
+    {
+      await page.screenshot({ path: `${shots}/polish-${width}x${height}-closed.png` });
       const current = page.locator('.deal-path-tile[data-place="current"]');
       const more = current.getByText("6 more");
       const columns = page.locator(".deal-overview-grid");
       const before = await columns.boundingBox();
-      await more.click();
-      await page.screenshot({ path: `${shots}/polish-1280x599-open.png` });
+      for (const list of await current.locator(":scope > ul").all()) {
+        assert.equal(await list.evaluate((n) => n.scrollHeight <= n.clientHeight), true, "tile to-dos are not clipped");
+      }
+      await more.focus();
+      await page.keyboard.press("Enter");
+      await page.screenshot({ path: `${shots}/polish-${width}x${height}-open.png` });
       const panel = current.locator(".deal-path-list-panel");
-      assert.equal(await panel.locator("[data-todo]").count(), 8);
+      assert.equal(await panel.locator("[data-todo]").count(), 6);
+      assert.equal(await current.locator("[data-todo]").count(), 8);
+      await page.keyboard.press("Tab");
+      assert.equal(
+        await panel.getByRole("button", { name: "Show less" }).evaluate((n) => n === document.activeElement),
+        true,
+      );
       await page.waitForFunction(() => !!document.querySelector<HTMLElement>(".deal-path-list-panel")?.style.top);
       const box = await panel.boundingBox();
       const tile = await current.boundingBox();
@@ -602,7 +612,7 @@ for (const [width, height] of [
       assert.equal(
         await panel.evaluate((n) => n.scrollHeight > n.clientHeight),
         true,
-        "the full list scrolls inside the panel",
+        "the remaining list scrolls inside the panel",
       );
       await panel.evaluate((n) => {
         n.scrollTop = n.scrollHeight;
@@ -613,17 +623,32 @@ for (const [width, height] of [
       await panel.evaluate((n) => {
         n.scrollTop = 0;
       });
-      await page.screenshot({ path: `${shots}/polish-1280x599-open.png` });
+      await page.screenshot({ path: `${shots}/polish-${width}x${height}-open.png` });
       await panel.getByRole("button", { name: "Show less" }).click();
       assert.equal(await panel.isVisible(), false);
       assert.equal(await more.evaluate((n) => n === document.activeElement), true);
-      await more.click();
+      await page.keyboard.press("Space");
+      await page.evaluate(() => {
+        const dialog = document.createElement("dialog");
+        dialog.id = "test-dialog";
+        document.body.append(dialog);
+        dialog.show();
+      });
+      await page.keyboard.press("Escape");
+      assert.equal(await panel.isVisible(), true, "Escape leaves the panel open while a dialog is open");
+      await page.evaluate(() => document.querySelector("#test-dialog")?.remove());
       await page.keyboard.press("Escape");
       assert.equal(await panel.isVisible(), false);
       assert.equal(await more.evaluate((n) => n === document.activeElement), true);
       await more.click();
-      await page.locator("#deal-latest-heading").click();
+      const note = page.getByRole("textbox", { name: "Deal note" });
+      const noteBox = await note.boundingBox();
+      assert.ok(noteBox);
+      await note.click({ position: { x: noteBox.width - 10, y: 10 } });
       assert.equal(await panel.isVisible(), false);
+      assert.equal(await note.evaluate((n) => n === document.activeElement), true);
+      await more.click();
+      await page.locator(".deal-path-tile").first().getByText("Nothing listed").click();
       assert.equal(await more.evaluate((n) => n === document.activeElement), true);
       assert.deepEqual(await columns.boundingBox(), before, "closing preserves columns");
       await more.click();

@@ -76,7 +76,7 @@ function todoListHtml(todos: Todo[], view: PathView) {
   const rest = ordered.slice(SHOWN);
   if (!rest.length) return items(ordered);
   const open = rest.some((todo) => todo.id === view.focusedItem) ? " open" : "";
-  return `${items(ordered.slice(0, SHOWN))}<details class="deal-path-more"${open}><summary>${rest.length} more</summary><div class="deal-path-list-panel"><button type="button" data-path-less>Show less</button>${items(ordered)}</div></details>`;
+  return `${items(ordered.slice(0, SHOWN))}<details class="deal-path-more"${open}><summary>${rest.length} more</summary><div class="deal-path-list-panel"><button type="button" data-path-less>Show less</button>${items(rest)}</div></details>`;
 }
 
 function tileHtml(phase: Phase, place: Place, todos: Todo[] | undefined, view: PathView) {

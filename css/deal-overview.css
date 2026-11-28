@@ -36,9 +36,3 @@
 
 .app-layout-main:has(#workspace-overview:not([hidden]) > .deal-overview-grid) { scrollbar-width: none; }
 .app-layout-main:has(#workspace-overview:not([hidden]) > .deal-overview-grid)::-webkit-scrollbar { display: none; }
-
-/* 150px leaves usable columns at 600px tall when narrow tiles wrap their to-dos. */
-@media (min-width: 1100px) and (max-width: 1279px) {
-  #workspace-overview .deal-path { max-height: 150px; }
-  #workspace-overview .deal-path-tile > ul { overflow-y: auto; }
-}
