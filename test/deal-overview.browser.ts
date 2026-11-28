@@ -523,36 +523,65 @@ const longChecklist = {
   ],
 };
 
+const signingPlan = {
+  phases: [{ phase: "site_selection", from_on: "2026-11-23", expected_to_on: "2026-12-05" }],
+  rows: Array.from({ length: 25 }, (_, i) => ({
+    id: `date-${i}`,
+    kind: "critical_date",
+    phase: "site_selection",
+    label: `Example date ${i}`,
+    status: "open",
+    on: "2026-12-05",
+  })),
+  arrows: [],
+  expected_signing_on: "2026-12-05",
+  stale: null,
+};
+const automaticMove = {
+  source: "call_capture",
+  automatic: true,
+  event_id: "00000000-0000-4000-8000-00000000e160",
+  evidence_date: "2026-11-23",
+  undoable: true,
+  prior_phase: "research",
+  phase: "site_selection",
+  call: { happened_at: "2026-11-23T18:00:00Z" },
+};
+
+test("at 320x568 the move receipt, Undo and forecast each have their own tap target", async (t) => {
+  const { page } = await openDeal(t, 320, 568, [], [], { plan: signingPlan, phase_change: automaticMove });
+  const status = page.locator("#workspaceStatus");
+  const receipt = status.locator("summary");
+  const undo = status.getByRole("button", { name: "Undo" });
+  await receipt.tap({ timeout: 3000 });
+  await status
+    .locator("details[open]")
+    .getByText(/Call on /)
+    .waitFor();
+  await receipt.tap();
+  await undo.tap({ trial: true });
+  await status.getByRole("button", { name: "Lease signing expected Dec 5" }).tap();
+  assert.equal(await page.getByRole("tabpanel", { name: "Plan" }).isVisible(), true);
+});
+
+test("at 320x568 the Plan owner, zoom and Today controls each have their own tap target", async (t) => {
+  const { page } = await openDeal(t, 320, 568, [], [], { plan: signingPlan });
+  await page.getByRole("tab", { name: "Plan" }).tap();
+  const plan = page.getByRole("tabpanel", { name: "Plan" });
+  const month = plan.getByRole("button", { name: "Month", exact: true });
+  await month.tap({ timeout: 3000 });
+  assert.equal(await month.getAttribute("aria-pressed"), "true");
+  for (const name of ["Both", "Dell", "Joe", "Day", "Week", "Today"])
+    await plan.getByRole("button", { name, exact: true }).tap({ trial: true, timeout: 3000 });
+});
+
 for (const width of [900, 1280])
   test(`at ${width}x599 the deal status stays clear of the path and Plan fits`, async (t) => {
-    const plan = {
-      phases: [{ phase: "site_selection", from_on: "2026-11-23", expected_to_on: "2026-12-05" }],
-      rows: Array.from({ length: 25 }, (_, i) => ({
-        id: `date-${i}`,
-        kind: "critical_date",
-        phase: "site_selection",
-        label: `Example date ${i}`,
-        status: "open",
-        on: "2026-12-05",
-      })),
-      arrows: [],
-      expected_signing_on: "2026-12-05",
-      stale: null,
-    };
     const { page } = await openDeal(t, width, 599, [], fourDates(), {
       ...sideFacts,
       checklist: longChecklist,
-      plan,
-      phase_change: {
-        source: "call_capture",
-        automatic: true,
-        event_id: "00000000-0000-4000-8000-00000000e160",
-        evidence_date: "2026-11-23",
-        undoable: true,
-        prior_phase: "research",
-        phase: "site_selection",
-        call: { happened_at: "2026-11-23T18:00:00Z" },
-      },
+      plan: signingPlan,
+      phase_change: automaticMove,
     });
     const tabs = page.getByRole("tablist");
     assert.deepEqual(await tabs.getByRole("tab").allTextContents(), [
@@ -567,6 +596,8 @@ for (const width of [900, 1280])
     const fits = () => outer.evaluate((node) => node.scrollHeight <= node.clientHeight && node.scrollTop === 0);
     const signing = page.getByRole("button", { name: "Lease signing expected Dec 5" });
     await signing.waitFor();
+    const height = await signing.evaluate((node) => node.getBoundingClientRect().height);
+    assert.ok(height >= 28 && height <= 32, `the forecast button is ${height}px high with a mouse`);
     if (width === 1280) assert.equal(await fits(), true, "the forecast and all six tabs fit with Overview");
     const status = page.locator("#workspaceStatus");
     const receipt = status.locator("summary");

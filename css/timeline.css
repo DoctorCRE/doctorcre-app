@@ -178,6 +178,8 @@
   .deal-plan { grid-template-columns: minmax(0, 1fr); }
   .deal-plan-list, .timeline-search { display: none; }
   .deal-plan-chart .timeline { --list: 164px; }
+  #workspace-plan .timeline-tools { display: grid; grid-template-columns: 1fr auto; height: auto; }
+  #workspace-plan .timeline-filters { grid-column: 1 / -1; }
   .timeline-filters button, .timeline-tools button { padding-inline: 7px; }
 }
 .timeline-grip { position: absolute; z-index: 4; top: 5px; width: 20px; height: 24px; border-radius: var(--radius-2); cursor: ew-resize; touch-action: none; opacity: 0; }
