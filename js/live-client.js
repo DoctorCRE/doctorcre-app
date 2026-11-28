@@ -402,16 +402,6 @@ export function createLiveClient(opts = {}) {
       };
     },
 
-    // Use the client or vendor UUID, not a participant's party_id.
-    // A failed read leaves the context drawer unavailable.
-    async getPartyRecord({ dataset, id }) {
-      const res = await fetchReadImpl(`/api/v1/business/${dataset}/${id}`, {
-        headers: { accept: 'application/json' }, credentials: 'same-origin', cache: 'no-store',
-      });
-      if (!res.ok) throw Object.assign(new Error(`live business ${dataset} record -> HTTP ${res.status}`), {status:res.status});
-      return res.json();
-    },
-
     // The confirm strip, live: proposals distilled from a recorded call. The
     // label is built here from the candidate's own shape, never from a
     // server-supplied string, and every disposition goes through

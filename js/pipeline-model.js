@@ -421,6 +421,4 @@ export function noteText(value) {
   return text;
 }
 
-/* --------------------------------------------------------- V5-UX-B04: context */
-
 

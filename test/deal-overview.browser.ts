@@ -421,19 +421,11 @@ const noteAt = (n: number) => ({
   created_at: `2026-11-${String(10 + n).padStart(2, "0")}T15:00:00Z`,
 });
 const sideFacts = {
-  vendors: [
-    {
-      role: "landlord_rep",
-      party_id: "00000000-0000-4000-8000-00000000b001",
-      company: { name: "Example Realty" },
-      contact: { name: "Avery Sample" },
-    },
-    {
-      role: "attorney",
-      party_id: "00000000-0000-4000-8000-00000000b002",
-      company: { name: "Example Law" },
-      contact: null,
-    },
+  participants: [
+    { role: "referring_agent", name: "Rae Example", party_id: "00000000-0000-4000-8000-00000000b003" },
+    { role: "landlord_rep", name: "Avery Sample", party_id: "00000000-0000-4000-8000-00000000b001" },
+    { role: "attorney", name: "Example Law", party_id: "00000000-0000-4000-8000-00000000b002" },
+    { role: "client_contact", name: "Dr. Example", party_id: "00000000-0000-4000-8000-00000000b004" },
   ],
   invoice: {
     trigger: "lease_signed",
@@ -463,10 +455,12 @@ for (const [width, height] of laptops)
     assert.ok(middle.x >= steps.x + steps.width, "Latest activity sits beside Next steps");
 
     const people = overview.getByRole("region", { name: "People" });
-    assert.deepEqual(await people.getByRole("link").allTextContents(), [
+    assert.deepEqual(await people.getByRole("listitem").allTextContents(), [
       "Example Cedar Dental Client",
+      "Dr. Example Client contact",
       "Avery Sample Landlord's broker",
       "Example Law Attorney",
+      "Rae Example Referring agent",
     ]);
     assert.equal(
       await people.getByRole("link", { name: /Avery Sample/ }).getAttribute("href"),

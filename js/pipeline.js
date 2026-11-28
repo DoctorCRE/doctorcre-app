@@ -1975,7 +1975,7 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
       <div data-detail-read="latest">${renderLatestActivity(detail, { planTours, note: activityNoteDraft, canNote: Boolean(state.selfActor), ports: activityPorts })}</div>
       <div class="deal-overview-side">
         <div data-detail-read="invoice">${dealInvoiceHtml(detail.invoice, dateCaption)}</div>
-        <div data-detail-read="vendors">${dealPeopleHtml(d)}</div>
+        <div data-detail-read="vendors">${dealPeopleHtml(d, detail.participants)}</div>
         <div data-detail-read="client-portal">${websiteSetup}</div>${ownerHtml}${prospectHtml}${requirementEmailHtml(d)}
         <div class="deal-park-line" data-detail-read="parking" data-parked="${parked}" data-next-parking="${nextParking}" data-available="${controlsAvailable}">${controlsAvailable && !parked ? parkFormHtml(nextParking) : ''}</div>
       </div></div>` : `${stepsHtml(snapshotHtml)}

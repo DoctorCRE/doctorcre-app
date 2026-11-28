@@ -31,16 +31,53 @@ test("a deal read without an invoice shows no Invoice tile", () => {
   assert.equal(dealInvoiceHtml(undefined, words), "");
 });
 
-test("People names the client, then each vendor once with a plain role", () => {
-  const vendor = {
-    role: "landlord_rep",
-    party_id: "v1",
-    company: { name: "Example Realty" },
-    contact: { name: "Avery" },
+test("same-day payments show each date once", () => {
+  const sameDay = { sent_on: "2026-11-02", paid_on: "2026-11-20" };
+  const invoice = { trigger: "lease_signed" as const, triggered_on: "2026-11-01", payments: [sameDay, sameDay] };
+  assert.equal(text(dealInvoiceHtml(invoice, words)), "Invoice Invoice paid on 2026-11-20");
+  const sent = {
+    ...invoice,
+    payments: [
+      { ...sameDay, paid_on: null },
+      { ...sameDay, paid_on: null },
+    ],
   };
-  const people = dealPeople({ client_id: "c1", client_name: "Example Clinic", vendors: [vendor, vendor] });
-  assert.deepEqual(people, [
+  assert.equal(text(dealInvoiceHtml(sent, words)), "Invoice Triggered 2026-11-01 Sent 2026-11-02 Paid Not yet");
+});
+
+test("a partly paid deal shows its paid day under Paid, not the paid line", () => {
+  const invoice = {
+    trigger: "lease_signed" as const,
+    triggered_on: "2026-10-01",
+    payments: [
+      { sent_on: "2026-10-02", paid_on: "2026-10-30" },
+      { sent_on: "2026-10-02", paid_on: null },
+    ],
+  };
+  assert.equal(text(dealInvoiceHtml(invoice, words)), "Invoice Triggered 2026-10-01 Sent 2026-10-02 Paid 2026-10-30");
+});
+
+test("a deal of no known type names no trigger and still shows the marks", () => {
+  const html = dealInvoiceHtml({ trigger: null, triggered_on: null, payments: [] }, words);
+  assert.equal(text(html), "Invoice Triggered Not yet Sent Not yet Paid Not yet");
+});
+
+test("People lists every party by role in the owner's order, never the partners", () => {
+  const parties = [
+    { role: "listing_agent", name: "Lee Listing", party_id: "p5" },
+    { role: "referring_agent", name: "Rae Referrer", party_id: "p4" },
+    { role: "support", name: "Dell", party_id: "p6", actor: "dell" },
+    { role: "landlord_rep", name: "Avery Broker", party_id: "p3" },
+    { role: "attorney", name: "Example Law", party_id: "p2" },
+    { role: "client_contact", name: "Dr. Example", party_id: "p1" },
+    { role: "attorney", name: "Example Law", party_id: "p2" },
+  ];
+  assert.deepEqual(dealPeople({ client_id: "c1", client_name: "Example Clinic" }, parties), [
     { name: "Example Clinic", role: "Client", href: "/clients?record=c1" },
-    { name: "Avery", role: "Landlord's broker", href: "/vendors?record=v1" },
+    { name: "Dr. Example", role: "Client contact", href: "" },
+    { name: "Avery Broker", role: "Landlord's broker", href: "/vendors?record=p3" },
+    { name: "Example Law", role: "Attorney", href: "/vendors?record=p2" },
+    { name: "Rae Referrer", role: "Referring agent", href: "" },
+    { name: "Lee Listing", role: "Listing side", href: "" },
   ]);
 });
