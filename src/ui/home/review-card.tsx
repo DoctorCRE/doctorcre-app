@@ -86,7 +86,7 @@ function TalkToDoc({ request, href }: { request: DocLinkRequest | undefined; hre
     if (!request) return;
     const controller = new AbortController();
     void readDocLinkStatus(request, controller.signal).then((status) => {
-      if (!controller.signal.aborted) setStatus(status);
+      if (!controller.signal.aborted) setStatus(status?.status ?? null);
     });
     return () => controller.abort();
   }, [request]);

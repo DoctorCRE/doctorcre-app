@@ -35,8 +35,9 @@ doctrine section `3bb51d3e-2661-4ea2-a585-053540545b5d`.
 - Work starts from a GitHub issue. One issue gets one branch named
   `<issue>-<short-name>` and one pull request that says `Closes #<issue>`.
   Run `npm run check` before pushing.
-- Before a pull request merges, a separate Claude session that did not write
-  the change reviews it. The builder fixes what it finds, then turns on
+- Before a pull request merges, a separate session that did not write
+  the change reviews it. A reviewer from another model family is a bonus when
+  available, never a requirement. The builder fixes what it finds, then turns on
   auto-merge, which merges when CI is green. Never use `--admin` or any other
   bypass, and never push to main.
 - Work is done when it is merged and you have checked the result where it

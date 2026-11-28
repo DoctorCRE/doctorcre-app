@@ -506,7 +506,16 @@ const longChecklist = {
       label: "Site selection",
       items: Array.from({ length: 8 }, (_, n) => ({
         id: `site_todo_${n}`,
-        label: `Example site to-do ${n + 1}`,
+        label: [
+          "Market survey",
+          "Representation agreement",
+          "Terms comparison",
+          "Agreed business terms",
+          "Lease draft to attorney",
+          "Executed lease",
+          "Invoice",
+          "Commission received",
+        ][n],
         status: n < 2 ? "complete" : n === 2 ? "overdue" : "not_recorded",
         due_on: n === 2 ? "2026-11-24" : null,
       })),
@@ -545,9 +554,13 @@ for (const [width, height] of [
     const path = page.locator(".deal-path-section");
     assert.ok((await path.evaluate((node) => node.getBoundingClientRect().height)) <= 200, "the path stays short");
     const current = page.locator('.deal-path-tile[data-place="current"]');
-    assert.equal(await current.locator("[data-todo]:visible").count(), 2);
+    assert.equal(await current.locator(":scope > ul [data-todo]").count(), 2);
     await current.getByText("6 more").click();
-    assert.equal(await current.locator("[data-todo]:visible").count(), 8, "6 more opens the rest");
+    assert.equal(
+      await current.locator(".deal-path-list-panel [data-todo]").count(),
+      6,
+      "6 more opens the remaining list",
+    );
     await current.getByText("6 more").click();
     const columns = page.locator(".deal-overview-grid > *");
     for (const box of await columns.evaluateAll((all) => all.map((node) => node.getBoundingClientRect())))
@@ -559,6 +572,185 @@ for (const [width, height] of [
     assert.ok(await steps.evaluate((node) => node.scrollHeight > node.clientHeight), "the long Next steps scroll");
     assert.equal(await steps.evaluate((node) => getComputedStyle(node).scrollbarWidth), "none", "no bar at rest");
   });
+
+for (const [width, height] of [
+  [1280, 599],
+  [1100, 600],
+  [1279, 600],
+] as const) {
+  test(`Overview stays on screen at ${width}x${height} with more to-dos open`, async (t) => {
+    const { page } = await openDeal(t, width, height, [], fourDates(), {
+      ...sideFacts,
+      thread: Array.from({ length: 10 }, (_, n) => noteAt(n)),
+      checklist: longChecklist,
+    });
+    {
+      await page.screenshot({ path: `${shots}/polish-${width}x${height}-closed.png` });
+      const current = page.locator('.deal-path-tile[data-place="current"]');
+      const more = current.getByText("6 more");
+      const columns = page.locator(".deal-overview-grid");
+      const before = await columns.boundingBox();
+      for (const list of await current.locator(":scope > ul").all()) {
+        assert.equal(await list.evaluate((n) => n.scrollHeight <= n.clientHeight), true, "tile to-dos are not clipped");
+      }
+      await more.focus();
+      await page.keyboard.press("Enter");
+      await page.screenshot({ path: `${shots}/polish-${width}x${height}-open.png` });
+      const panel = current.locator(".deal-path-list-panel");
+      assert.equal(await panel.locator("[data-todo]").count(), 6);
+      assert.equal(await current.locator("[data-todo]").count(), 8);
+      await page.keyboard.press("Tab");
+      assert.equal(
+        await panel.getByRole("button", { name: "Show less" }).evaluate((n) => n === document.activeElement),
+        true,
+      );
+      await page.waitForFunction(() => !!document.querySelector<HTMLElement>(".deal-path-list-panel")?.style.top);
+      const box = await panel.boundingBox();
+      const tile = await current.boundingBox();
+      assert.ok(box && tile && box.y >= tile.y + tile.height && box.y + box.height <= height);
+      assert.deepEqual(await columns.boundingBox(), before, "opening does not resize columns");
+      assert.equal(
+        await panel.evaluate((n) => n.scrollHeight > n.clientHeight),
+        true,
+        "the remaining list scrolls inside the panel",
+      );
+      await panel.evaluate((n) => {
+        n.scrollTop = n.scrollHeight;
+      });
+      const last = await panel.locator('[data-todo="site_todo_1"]').boundingBox();
+      const scrolledPanel = await panel.boundingBox();
+      assert.ok(last && scrolledPanel && last.y + last.height <= scrolledPanel.y + scrolledPanel.height);
+      await panel.evaluate((n) => {
+        n.scrollTop = 0;
+      });
+      await page.screenshot({ path: `${shots}/polish-${width}x${height}-open.png` });
+      await panel.getByRole("button", { name: "Show less" }).click();
+      assert.equal(await panel.isVisible(), false);
+      assert.equal(await more.evaluate((n) => n === document.activeElement), true);
+      await page.keyboard.press("Space");
+      await page.evaluate(() => {
+        const dialog = document.createElement("dialog");
+        dialog.id = "test-dialog";
+        document.body.append(dialog);
+        dialog.show();
+      });
+      await page.keyboard.press("Escape");
+      assert.equal(await panel.isVisible(), true, "Escape leaves the panel open while a dialog is open");
+      await page.evaluate(() => document.querySelector("#test-dialog")?.remove());
+      await page.keyboard.press("Escape");
+      assert.equal(await panel.isVisible(), false);
+      assert.equal(await more.evaluate((n) => n === document.activeElement), true);
+      await more.click();
+      const note = page.getByRole("textbox", { name: "Deal note" });
+      const noteBox = await note.boundingBox();
+      assert.ok(noteBox);
+      await note.click({ position: { x: noteBox.width - 10, y: 10 } });
+      assert.equal(await panel.isVisible(), false);
+      assert.equal(await note.evaluate((n) => n === document.activeElement), true);
+      await more.click();
+      await page.locator(".deal-path-tile").first().getByText("Nothing listed").click();
+      assert.equal(await more.evaluate((n) => n === document.activeElement), true);
+      assert.deepEqual(await columns.boundingBox(), before, "closing preserves columns");
+      await more.click();
+    }
+    await page.screenshot({ path: `${shots}/polish-${width}x${height}.png` });
+    assert.equal(
+      await page.locator("#appMainSlot").evaluate((n) => n.scrollHeight === n.clientHeight),
+      true,
+      "page does not scroll",
+    );
+    for (const box of await page
+      .locator(".deal-overview-grid > *")
+      .evaluateAll((all) => all.map((n) => n.getBoundingClientRect())))
+      assert.ok(box.bottom <= height && box.height >= 180, "columns remain visible and usable");
+  });
+}
+
+const denseChecklist = {
+  schema_version: "deal-checklist.v1",
+  template_state: "current",
+  due_items: [],
+  phases: ["pending", "research", "site_selection", "negotiation", "legal", "due_diligence", "closing", "closed"].map(
+    (id) => ({
+      id,
+      label: id,
+      items: [
+        "Commencement letter and possession dates",
+        "Executed lease / amendment",
+        "RFP / LOI versions and submission",
+      ].map((label, n) => ({ id: `${id}_${n}`, label, status: "not_recorded" })),
+    }),
+  ),
+};
+
+for (const [width, height] of [
+  [1280, 599],
+  [1100, 600],
+  [1279, 600],
+] as const) {
+  test(`long phase labels fit the Overview at ${width}x${height}`, async (t) => {
+    const { page } = await openDeal(t, width, height, [], fourDates(), {
+      ...sideFacts,
+      thread: Array.from({ length: 10 }, (_, n) => noteAt(n)),
+      checklist: denseChecklist,
+    });
+    const path = page.locator(".deal-path");
+    await page.screenshot({ path: `${shots}/long-labels-${width}x${height}.png` });
+    assert.ok((await path.evaluate((n) => n.getBoundingClientRect().height)) <= 160, "the path remains compact");
+    assert.equal(await page.locator("#appMainSlot").evaluate((n) => n.scrollHeight === n.clientHeight), true);
+    for (const box of await page
+      .locator(".deal-overview-grid > *")
+      .evaluateAll((all) => all.map((n) => n.getBoundingClientRect())))
+      assert.ok(box.bottom <= height && box.height >= 180);
+    const names = path.locator(".deal-path-name");
+    assert.equal(
+      await names.evaluateAll((all) => all.every((n) => n.getAttribute("title") === n.textContent)),
+      true,
+      "the full phase name remains available",
+    );
+    assert.equal(
+      await path
+        .locator("button.deal-path-name")
+        .evaluateAll((all) =>
+          all.every(
+            (n) =>
+              Math.round(n.getBoundingClientRect().height) ===
+              Number.parseFloat(getComputedStyle(n).getPropertyValue("--touch")),
+          ),
+        ),
+      true,
+      "phase buttons stay at the control height",
+    );
+    const current = path.locator('[data-place="current"]');
+    const label = current.locator(":scope > ul [data-todo]").first().locator("summary");
+    assert.equal(await label.getAttribute("title"), "Commencement letter and possession dates");
+    assert.equal(await label.textContent(), "Commencement letter and possession dates");
+    assert.ok(
+      await label.locator("span").evaluate((n) => n.clientHeight <= 32),
+      "the tile label is limited to two lines",
+    );
+    await current.getByText("1 more").click();
+    const panelLabel = current.locator(".deal-path-list-panel").getByText("RFP / LOI versions and submission");
+    assert.equal(await panelLabel.count(), 1);
+    assert.equal(
+      await panelLabel.evaluate((n) => n.scrollHeight <= n.clientHeight),
+      true,
+      "the panel label is complete",
+    );
+    assert.equal(await page.locator("#appMainSlot").evaluate((n) => n.scrollHeight === n.clientHeight), true);
+  });
+}
+
+test("narrow Overview uses only one scrollbar", async (t) => {
+  const { page } = await openDeal(t, 1000, 700, [], fourDates(), { ...sideFacts, checklist: longChecklist });
+  const scroller = page.locator("#appMainSlot");
+  await scroller.evaluate((n) => {
+    n.scrollTop = 100;
+  });
+  await page.screenshot({ path: `${shots}/polish-1000x700.png` });
+  assert.equal(await scroller.evaluate((n) => getComputedStyle(n).scrollbarWidth), "none", "native bar is hidden");
+  assert.equal(await page.locator(".scroll-thumb").count(), 1, "the custom thumb is visible");
+});
 
 test("on a phone Overview is one column in the design's order with 16px text", async (t) => {
   const { page } = await openDeal(t, 390, 844, [], fourDates(), sideFacts);
