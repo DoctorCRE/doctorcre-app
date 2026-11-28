@@ -191,14 +191,15 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test.des
     await expect(header).toContainText('Demo Long Client Name Medical Practice Associates');
     await expect(header).toContainText('Legal');
     await expect(header).toContainText('Joe');
-    const workspaceTabs = await page.evaluate(async () => (await import('/js/pipeline.js')).workspaceTabs.filter(tab => tab.id !== 'client-portal'));
-    await expect(page.getByRole('tab')).toHaveText(workspaceTabs.map(tab => tab.label));
+    await expect(page.getByRole('tab')).toHaveText(['Overview', 'Activity', 'Tours', 'Documents']);
+    await expect(page.getByRole('tab', { name: 'Plan', exact: true })).toBeHidden();
+    const workspaceTabs = [{id:'overview',label:'Overview'}, {id:'activity',label:'Activity'}];
     await expect(page.locator('#workspace-overview')).toBeVisible();
     await expect(page.locator('.critical-dates')).toContainText('LOI');
     await expect(page.locator('#detailUpdateForm')).toBeVisible();
     await expect(page.getByRole('region',{name:'Deal snapshot',exact:true})).toContainText('Demo next action');
     await expect(page.locator('.deal-updates')).toContainText('Demo discovery meeting');
-    for (const {id:tab, label} of workspaceTabs.filter(tab => ['overview', 'activity'].includes(tab.id))) {
+    for (const {id:tab, label} of workspaceTabs) {
       await page.getByRole('tab', { name: label, exact: true }).click();
       await expect(page.getByRole('tab', { name: label, exact: true })).toHaveAttribute('aria-selected', 'true');
       await expect(page.locator(`#workspace-${tab}`)).toBeVisible();

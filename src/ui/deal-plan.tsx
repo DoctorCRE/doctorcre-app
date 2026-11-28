@@ -36,6 +36,11 @@ type Inputs = { today: string; viewer: string } & (
     }
   | { mode: "board"; deals: DealTimeline[]; toolsHost: HTMLElement }
 );
+export function signingRecorded(plan: Plan | null | undefined) {
+  return (
+    plan?.rows.some((row) => row.kind === "todo" && row.id === "executed_lease" && row.state === "finished") ?? false
+  );
+}
 const signingName = (recorded: boolean) => (recorded ? "Lease signed" : "Lease signing");
 const stepMap = (steps: SourceStep[]) => new Map(steps.map((step) => [`step:${step.id}`, step]));
 
@@ -118,9 +123,7 @@ function PlanScreen(props: Inputs) {
         }
     }
     links.push(...chartLinks(plan.arrows, plan.rows));
-    const signed = plan.rows.some(
-      (row) => row.kind === "todo" && row.id === "executed_lease" && row.state === "finished",
-    );
+    const signed = signingRecorded(plan);
     if (plan.expected_signing_on && (!recorded || signed) && groups.some((group) => group.id === "closing")) {
       milestones.push({
         group: "closing",
@@ -233,6 +236,8 @@ function PlanScreen(props: Inputs) {
     </div>
   );
   const selected = opened ? rowsById.get(opened) : undefined;
+  const selectedDay = selected ? rowDay(selected) : null;
+  const selectedDate = selected?.kind === "todo" ? selected.when : selectedDay && dayText(selectedDay, today);
   const foldKey = props.mode === "plan" ? `deal-${props.deal}` : "deals";
   return (
     <div className="deal-plan" data-board={board || undefined}>
@@ -306,12 +311,10 @@ function PlanScreen(props: Inputs) {
           controls={controls}
         />
         <div className="deal-plan-count">{groups.length ? count : "No matching items"}</div>
-        {!board && (
-          <footer className="deal-plan-footer">
-            <span>Recorded</span>
-            <span>Expected</span>
-          </footer>
-        )}
+        <footer className="deal-plan-footer">
+          <span>Recorded</span>
+          <span>Expected</span>
+        </footer>
       </div>
       {selected && (
         <section className="deal-plan-details" aria-label={selected.name}>
@@ -320,7 +323,7 @@ function PlanScreen(props: Inputs) {
           </button>
           <h3>{selected.name}</h3>
           <p>{selected.kind === "step" ? selected.owner : PHASES[selected.phase]}</p>
-          {rowDay(selected) && <p>{dayText(rowDay(selected) ?? today, today)}</p>}
+          {selectedDate && <p>{selectedDate}</p>}
         </section>
       )}
     </div>
