@@ -183,7 +183,8 @@ async function providePlan(page, plan, {canSave=false}={}) {
   state.nextDealSaves=canSave;
   state.client.getDeal=async (...args)=>{
    const step=window.timelineProbe.step;
-   const rows=step ? plan.rows.map(row=>row.id==='step:sample'?{...row,to_on:step.due_on,change_id:step.change_id}:row) : plan.rows;
+   const todoEnd=window.timelineProbe.todoEnd;
+   const rows=plan.rows.map(row=>row.id==='step:sample' && step?{...row,to_on:step.due_on,change_id:step.change_id}:row.id==='sign' && todoEnd?{...row,expected_to_on:todoEnd}:row);
    return {...await get(...args),plan:{...plan,rows},next_actions:[{id:'sample',description:'Call about the lease',change_id:step?.change_id??12}]};
   };
  },{plan,canSave});
@@ -239,7 +240,7 @@ test('moving another partner’s step from Plan uses its change version and can 
  await tab.getByText('Call about the lease moved to Oct 8.').waitFor();
  await tab.getByRole('button',{name:'Undo',exact:true}).click();
  await tab.getByText('Call about the lease date restored.').waitFor();
- assert.deepEqual(saves.map(({due_on,seen_change_id})=>[due_on,seen_change_id]),[['2026-10-08',12],['2026-10-07',13]]);
+ assert.deepEqual(saves.map(({due_on,seen_change_id,strict_version})=>[due_on,seen_change_id,strict_version]),[['2026-10-08',12,undefined],['2026-10-07',13,true]]);
  crossed=true;
  await grip.focus(); await grip.press('ArrowRight'); await grip.press('Enter');
  await tab.getByText('This step changed. Review the latest version.').waitFor();
@@ -301,28 +302,68 @@ test('live reflow includes filtered-out successors and moves the signing date an
  );
 });
 
-for (const matches of [true,false]) test('a rebased step save '+(matches?'recovers Undo from the refreshed version':'explains when the refreshed date has changed again'),async t=>{
+test('a keyboard date edit keeps its grip until saving outside Next two weeks',async t=>{
+ const {page}=await open(t,{width:1440,height:900});
+ const saves=[];
+ let release;
+ const gate=new Promise(resolve=>{release=resolve;});
+ await page.route('**/api/engine/deals/d14/plan-dates',async route=>{
+  saves.push(route.request().postDataJSON());
+  await gate;
+  await page.evaluate(()=>{window.timelineProbe.todoEnd='2026-10-24';});
+  await route.fulfill({json:{base_version:1,previous_on:null}});
+ });
+ const tab=await showPlan(page,{canSave:true});
+ const filter=tab.getByRole('button',{name:/Next two weeks/});
+ await filter.click();
+ const grip=tab.getByRole('button',{name:'Change date for Sign the lease'});
+ const focused=()=>grip.evaluate(node=>node===document.activeElement);
+ await grip.focus();
+ await grip.press('Shift+ArrowRight');
+ assert.equal(await grip.count(),1,'the filtered row stays mounted during preview');
+ assert.equal(await focused(),true);
+ await page.keyboard.press('Enter');
+ await tab.getByText('Saving…',{exact:true}).waitFor();
+ assert.equal(await focused(),true,'the grip stays focused while the save is pending');
+ release();
+ await tab.getByText('Sign the lease expected by Oct 24. What follows moved with it.').waitFor();
+ await page.waitForFunction(()=>document.querySelector('[data-row="sign"] .timeline-when')?.textContent==='exp. Oct 24');
+ assert.equal(await focused(),true);
+ assert.equal(await filter.getAttribute('aria-pressed'),'false','the row is shown at its new date');
+ assert.deepEqual(saves.map(({target_on})=>target_on),['2026-10-24']);
+});
+
+for (const receipt of ['written','crossed-again','old-engine']) test('a rebased step save guards Undo with the saved write version: '+receipt,async t=>{
  const {page}=await open(t,{width:1440,height:900});
  const saves=[];
  await page.route('**/api/engine/next-steps/sample/changes',async route=>{
   saves.push(route.request().postDataJSON());
-  if (saves.length===1) return route.fulfill({json:{rebased:true,intervening_change_ids:[13]}});
-  await route.fulfill({json:{change_id:15}});
+  if (saves.length===1) return route.fulfill({json:{
+   rebased:true,intervening_change_ids:[13],...(receipt==='old-engine'?{}:{write_change_id:14}),
+  }});
+  const {seen_change_id,strict_version}=saves[1];
+  if (receipt==='crossed-again' && strict_version && seen_change_id===14)
+   return route.fulfill({status:409,json:{error:'version_conflict',current_version:16}});
+  await route.fulfill({json:{change_id:17}});
  });
  const tab=await showPlan(page,{canSave:true});
  const grip=tab.getByRole('button',{name:'Change date for Call about the lease'});
  await grip.focus();
  await grip.press('ArrowRight');
- await page.evaluate(matches=>{window.timelineProbe.step={change_id:14,due_on:matches?'2026-10-08':'2026-10-09'};},matches);
+ await page.evaluate(receipt=>{window.timelineProbe.step={change_id:receipt==='crossed-again'?16:14,due_on:'2026-10-08'};},receipt);
  await grip.press('Enter');
  const undo=tab.getByRole('button',{name:'Undo',exact:true});
- if (matches) {
-  await undo.click({timeout:3000});
-  await tab.getByText('Call about the lease date restored.').waitFor();
-  assert.deepEqual(saves.map(({due_on,seen_change_id})=>[due_on,seen_change_id]),[['2026-10-08',12],['2026-10-07',14]]);
- } else {
+ if (receipt==='old-engine') {
   await tab.getByText(/Undo is unavailable/).waitFor({timeout:3000});
   assert.equal(await undo.count(),0);
+ } else {
+  await undo.click({timeout:3000});
+  const message=receipt==='crossed-again'?'This step changed. Review the latest version.':'Call about the lease date restored.';
+  await tab.getByText(message,{exact:true}).waitFor({timeout:3000});
+  assert.equal(await undo.count(),0);
+  assert.deepEqual(saves.map(({due_on,seen_change_id,strict_version})=>[due_on,seen_change_id,strict_version]),[
+   ['2026-10-08',12,undefined],['2026-10-07',14,true],
+  ]);
  }
 });
 

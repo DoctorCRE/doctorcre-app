@@ -129,15 +129,16 @@ type TimelineViewProps = TimelineProps & {
   controls?: ReactNode;
   toolsHost?: HTMLElement | undefined;
   board?: boolean;
-  reveal?: { group: string; row?: string | undefined; day: string } | undefined;
+  reveal?: { group: string; row?: string | undefined; day: string; focus?: boolean } | undefined;
   onOpen?: (id: string) => void;
   changeDate?:
     | {
         source: (id: string) => TimelineRow | undefined;
         canMove: (row: TimelineRow) => boolean;
         preview: { id: string; day: string } | null;
+        busy: boolean;
         show: (change: { id: string; day: string } | null) => void;
-        begin: (id: string) => (day: string) => void;
+        begin: (id: string) => (day: string, grip: HTMLButtonElement) => void;
       }
     | undefined;
 };
@@ -844,7 +845,7 @@ function DateGrip({
   today: string;
   px: number;
 }) {
-  type Edit = { day: string; save: (day: string) => void };
+  type Edit = { day: string; save: (day: string, grip: HTMLButtonElement) => void };
   const drag = useRef<(Edit & { x: number }) | null>(null);
   const keyEdit = useRef<Edit | null>(null);
   const { row, spec } = box;
@@ -861,9 +862,10 @@ function DateGrip({
       type="button"
       className="timeline-grip"
       aria-label={`Change date for ${row.name}`}
+      aria-disabled={change.busy || undefined}
       style={{ left: spec.left + spec.width - 10 }}
       onPointerDown={(event) => {
-        if (event.pointerType === "touch" || event.button !== 0) return;
+        if (change.busy || event.pointerType === "touch" || event.button !== 0) return;
         drag.current = { x: event.clientX, day: end, save: change.begin(row.id) };
         event.currentTarget.setPointerCapture(event.pointerId);
       }}
@@ -875,8 +877,8 @@ function DateGrip({
         const day = shifted(event, drag.current);
         const edit = drag.current;
         drag.current = null;
-        change.show(null);
-        if (day !== edit.day) edit.save(day);
+        if (day !== edit.day) edit.save(day, event.currentTarget);
+        else change.show(null);
       }}
       onLostPointerCapture={() => {
         if (drag.current) {
@@ -885,6 +887,7 @@ function DateGrip({
         }
       }}
       onKeyDown={(event) => {
+        if (change.busy) return;
         const current = change.preview?.id === row.id ? change.preview.day : end;
         if (["ArrowLeft", "ArrowRight"].includes(event.key)) {
           event.preventDefault();
@@ -898,13 +901,13 @@ function DateGrip({
           event.preventDefault();
           const edit = keyEdit.current;
           keyEdit.current = null;
-          change.show(null);
-          if (current !== edit.day) edit.save(current);
+          if (current !== edit.day) edit.save(current, event.currentTarget);
+          else change.show(null);
         }
       }}
       onBlur={() => {
         keyEdit.current = null;
-        if (!drag.current && change.preview?.id === row.id) change.show(null);
+        if (!change.busy && !drag.current && change.preview?.id === row.id) change.show(null);
       }}
     />
   );
@@ -934,6 +937,7 @@ export function Timeline({
   const pill = useRef<HTMLSpanElement>(null);
   const probe = useRef<HTMLSpanElement>(null);
   const tipRef = useRef<HTMLDivElement>(null);
+  const focusedReveal = useRef<TimelineViewProps["reveal"]>(undefined);
   const [pillWidth, setPillWidth] = useState(0);
   const [rowHeight, setRowHeight] = useState(DEFAULT_ROW_HEIGHT);
   const [font, setFont] = useState("");
@@ -980,7 +984,7 @@ export function Timeline({
   }, [view, now, start]);
 
   useLayoutEffect(() => {
-    if (!reveal || !scroller.current) return;
+    if (!reveal || reveal === focusedReveal.current || !scroller.current) return;
     const parent = groups.find((group) => group.id === reveal.group);
     if (!parent) return;
     if (reveal.row && (folds[parent.id] ?? parent.startsFolded)) {
@@ -1000,6 +1004,12 @@ export function Timeline({
         scroll.getBoundingClientRect().top -
         (corner.current?.offsetHeight ?? 0),
     });
+    if (reveal.focus) {
+      focusedReveal.current = reveal;
+      const target =
+        row.querySelector<HTMLElement>(".timeline-grip") ?? row.querySelector<HTMLElement>("button.timeline-name");
+      target?.focus({ preventScroll: true });
+    }
   }, [reveal, folds, groups, start, px]);
 
   function changeZoom(next: Zoom) {
