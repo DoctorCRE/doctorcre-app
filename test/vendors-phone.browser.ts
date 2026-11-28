@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
+import { expect } from "@playwright/test";
 import type { Page, Route } from "playwright";
 import { chromium } from "./browser-harness.mjs";
 import { ownedServer as startFixtureServer } from "./fixture-probe.ts";
@@ -32,6 +33,7 @@ async function openVendors(
   await page.route("https://**", (r) => r.abort());
   await page.route("**/api/v1/business/**", (r) => {
     const url = new URL(r.request().url());
+    url.searchParams.sort();
     if (
       hold &&
       url.pathname === "/api/v1/business/vendors" &&
@@ -131,8 +133,14 @@ test("while a category loads it is named, never by its slug", async (t) => {
   assert.doesNotMatch(await shown(), /banker/, "a direct link never shows the slug");
   assert.doesNotMatch(await shown(), /Checking/, "a direct link has no title until the name arrives");
   await release();
-  await page.locator(".record-row").first().waitFor();
-  assert.equal(await search.getAttribute("placeholder"), "Find in CPA / Financial");
+  const expected = [
+    1, 11, 21, 31, 51, 61, 7, 17, 27, 37, 47, 57, 3, 13, 23, 33, 43, 53, 9, 29, 39, 49, 59, 5, 15, 25, 35, 55, 45, 19,
+    41,
+  ].map((n) => `Demo Partner ${String(n).padStart(2, "0")}`);
+  await expect(page.locator(".record-row:visible .row-name")).toHaveText(expected);
+  await expect(page.locator("#directoryTiles")).toBeHidden();
+  await expect(page.locator("#resultSummary")).toHaveText("CPA / Financial · 31 vendors");
+  await expect(search).toHaveAttribute("placeholder", "Find in CPA / Financial");
 
   await page.getByRole("button", { name: "Categories", exact: true }).click();
   await page.locator("a.directory-tile", { hasText: "CPA / Financial" }).click();

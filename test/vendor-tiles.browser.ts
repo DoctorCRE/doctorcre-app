@@ -30,10 +30,18 @@ function withUncategorized(url: string) {
       source.searchParams.delete("no_category");
       // Removing the filter asks the same fixture for its vendor list.
       const all = directoryFixture(source.toString()) as typeof list;
-      list.rows = all.rows.slice(0, 3).map((row) => ({ ...row, recorded_category: null, categories: [] }));
+      list.rows = all.rows
+        .slice(0, 3)
+        .map((row, n) => ({ ...row, name: `Uncategorized ${n + 1}`, recorded_category: null, categories: [] }));
       list.page_size = 3;
       list.total = 3;
       list.page_count = 1;
+    } else if (request.searchParams.get("owner") === "joe" && !request.searchParams.has("category")) {
+      const source = new URL(url);
+      source.searchParams.delete("owner");
+      // This all-vendors page includes synthetic records from both categories.
+      const all = directoryFixture(source.toString()) as typeof list;
+      list.rows = all.rows.map((row) => ({ ...row, owner_label: "Joe" }));
     }
     return list;
   }
@@ -136,22 +144,34 @@ test("Vendors opens on a tile per category that opens its list, and Joe recounts
     "owner=joe&category=banker&contract=vendor-directory.v1",
     names(defaultBanker),
   );
+  await expect(page.locator("#directoryTiles")).toBeHidden();
+  await expect(page.locator("#resultSummary")).toHaveText("Banking · 31 vendors");
+  await expect(page).toHaveURL(/category=banker/);
   await page.getByRole("button", { name: "Categories", exact: true }).click();
+  await expect(page).toHaveURL(/\/vendors\?owner=joe$/);
+  await expect(page.locator("#directoryTiles")).toBeVisible();
   await page.locator("a.directory-tile", { hasText: "No category" }).waitFor();
   await clickList(
     page,
     page.locator("a.directory-tile", { hasText: "No category" }),
     "owner=joe&no_category=true&contract=vendor-directory.v1",
-    names([1, 11, 21]),
+    ["Uncategorized 1", "Uncategorized 2", "Uncategorized 3"],
   );
+  await expect(page.locator("#directoryTiles")).toBeHidden();
+  await expect(page.locator("#resultSummary")).toHaveText("No category · 3 vendors");
+  await expect(page).toHaveURL(/no_category=true/);
   await page.goBack();
+  await expect(page.locator("#directoryTiles")).toBeVisible();
   await page.locator("a.directory-tile", { hasText: "All vendors" }).waitFor();
   await clickList(
     page,
     page.locator("a.directory-tile", { hasText: "All vendors" }),
     "owner=joe&contract=vendor-directory.v1",
-    names(defaultBanker.slice(0, 25)),
+    names([1, 11, 16, 21, 26, 31, 36, 46, 51, 56, 61, 2, 7, 12, 17, 22, 27, 37, 42, 47, 57, 62, 3, 13, 18]),
   );
+  await expect(page.locator("#directoryTiles")).toBeHidden();
+  await expect(page.locator("#resultSummary")).toHaveText("31 vendors");
+  await expect(page).toHaveURL(/all=true/);
 });
 
 test("Find a vendor swaps the tiles for matches and clearing it brings them back", async (t) => {
