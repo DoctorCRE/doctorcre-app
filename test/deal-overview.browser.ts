@@ -660,12 +660,26 @@ for (const [width, height] of [
     const { page } = await openDeal(t, width, height, [], fourDates(), {
       ...sideFacts,
       thread: Array.from({ length: 10 }, (_, n) => noteAt(n)),
-      checklist: longChecklist,
+      checklist: {
+        ...longChecklist,
+        phases: longChecklist.phases.map((phase) => ({
+          ...phase,
+          items: [
+            ...phase.items,
+            ...Array.from({ length: 4 }, (_, i) => ({
+              id: `more-${i}`,
+              label: `Example unfinished checklist item ${i}`,
+              status: "not_recorded",
+              due_on: null,
+            })),
+          ],
+        })),
+      },
     });
     {
       await page.screenshot({ path: `${shots}/polish-${width}x${height}-closed.png` });
       const current = page.locator('.deal-path-tile[data-place="current"]');
-      const more = current.getByText("6 more");
+      const more = current.getByText("10 more");
       const columns = page.locator(".deal-overview-grid");
       const before = await columns.boundingBox();
       for (const list of await current.locator(":scope > ul").all()) {
@@ -675,8 +689,8 @@ for (const [width, height] of [
       await page.keyboard.press("Enter");
       await page.screenshot({ path: `${shots}/polish-${width}x${height}-open.png` });
       const panel = current.locator(".deal-path-list-panel");
-      assert.equal(await panel.locator("[data-todo]").count(), 6);
-      assert.equal(await current.locator("[data-todo]").count(), 8);
+      assert.equal(await panel.locator("[data-todo]").count(), 10);
+      assert.equal(await current.locator("[data-todo]").count(), 12);
       await page.keyboard.press("Tab");
       assert.equal(
         await panel.getByRole("button", { name: "Show less" }).evaluate((n) => n === document.activeElement),

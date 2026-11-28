@@ -481,7 +481,8 @@ for(const [width,height,touch] of [[1280,640,false],[1440,900,false],[390,844,tr
   await chart.getByRole('link',{name:/Example active deal with a longer heading/}).click();
   const title=page.getByRole('heading',{name:longDealName});
   await title.waitFor();
-  assert.ok(await title.evaluate(node=>node.scrollHeight===node.clientHeight && node.scrollWidth===node.clientWidth));
+  const bounds=await title.evaluate(node=>({height:node.clientHeight,contentHeight:node.scrollHeight,width:node.clientWidth,contentWidth:node.scrollWidth,lineHeight:getComputedStyle(node).lineHeight}));
+  assert.ok(bounds.height===bounds.contentHeight && bounds.width===bounds.contentWidth,JSON.stringify(bounds));
 
  }
  if(width===1280) {
