@@ -365,7 +365,7 @@ test("an engine read timeout leaves the legacy data path untouched", async (t) =
   );
   const pending = send("/api/v1/business/clients", { headers: { cookie } });
   await started.promise;
-  t.mock.timers.tick(2000);
+  t.mock.timers.tick(10_000);
   assert.equal((await pending).status, 503);
   assert.equal(calls.carr.length, 0);
   next.resolve(Response.json({ count: 0 }));

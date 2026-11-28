@@ -609,24 +609,93 @@ test("engine failure followed by CARR failure returns server error without signi
 });
 const leadsOn = new Map([["leads-from-engine", "on"]]);
 
-for (const [failure, answer] of [
-  ["timeout", () => new Promise<Response>(() => {})],
-  ["5xx", async () => new Response("down", { status: 502 })],
+const leadBoard = call("lead-board", { workspace: "leads" });
+const afterCutover = new Map([...leadsOn, ["deals-saves-from-engine", "on"]]);
+const beforeCutover = new Map([...leadsOn, ["deals-saves-from-engine", "off"]]);
+
+test("Lead board engine 5xx falls back only before cutover", async () => {
+  const answer = async () => new Response("down", { status: 502 });
+  const after = fixture(afterCutover, answer);
+  const before = fixture(beforeCutover, answer);
+  const [afterResponse, beforeResponse] = await Promise.all([after.send(leadBoard), before.send(leadBoard)]);
+  assert.equal(afterResponse.status, 503);
+  assert.deepEqual(await afterResponse.json(), { error: "engine_unavailable" });
+  assert.deepEqual(after.carr, []);
+  assert.equal(await beforeResponse.text(), "old");
+  assert.deepEqual(before.carr, [JSON.stringify(leadBoard)]);
+  assert.equal(before.engine.length, 1);
+  assert.equal(after.engine.length, 1);
+});
+
+// An engine answer that never comes; `asked` settles once the engine has the read.
+function silentEngine() {
+  let heard = () => {};
+  const asked = new Promise<void>((resolve) => {
+    heard = resolve;
+  });
+  let reply: (response: Response) => void = () => {};
+  const answer = () => {
+    heard();
+    return new Promise<Response>((resolve) => {
+      reply = resolve;
+    });
+  };
+  return { asked, answer, reply: (response: Response) => reply(response) };
+}
+
+for (const [cutover, switches] of [
+  ["Before", beforeCutover],
+  ["After", afterCutover],
+] as const)
+  test(`${cutover} cutover on the old sign-in a lead board read the engine has not answered in two seconds ends there`, async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const engine = silentEngine();
+    const f = fixture(switches, engine.answer);
+    const response = f.send(leadBoard);
+    await engine.asked;
+    t.mock.timers.tick(2_000);
+    const answered = await response;
+    assert.equal(answered.status, cutover === "Before" ? 200 : 503);
+    assert.deepEqual(f.carr, cutover === "Before" ? [JSON.stringify(leadBoard)] : []);
+  });
+
+// Production and staging: the old system answers nothing, so a read waits for the engine.
+function engineSignInFixture(answer: () => Promise<Response>) {
+  const f = fixture(leadsOn, answer);
+  Object.assign(f.env, { PARTNER_SIGN_IN: "engine", PARTNER_APP: f.env.ENGINE });
+  return f;
+}
+
+for (const [read, body] of [
+  ["lead board", leadBoard],
+  ["Deals board", call("deal-room-board", { workspace: "team" })],
 ] as const) {
-  test(`Lead board engine ${failure} falls back only before cutover`, async () => {
-    const body = call("lead-board", { workspace: "leads" });
-    const after = fixture(new Map([...leadsOn, ["deals-saves-from-engine", "on"]]), answer);
-    const before = fixture(new Map([...leadsOn, ["deals-saves-from-engine", "off"]]), answer);
-    const [afterResponse, beforeResponse] = await Promise.all([after.send(body), before.send(body)]);
-    assert.equal(afterResponse.status, 503);
-    assert.deepEqual(await afterResponse.json(), { error: "engine_unavailable" });
-    assert.deepEqual(after.carr, []);
-    assert.equal(await beforeResponse.text(), "old");
-    assert.deepEqual(before.carr, [JSON.stringify(body)]);
-    assert.equal(before.engine.length, 1);
-    assert.equal(after.engine.length, 1);
+  test(`On engine sign-in a ${read} answer slower than two seconds reaches the partner`, async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const engine = silentEngine();
+    const f = engineSignInFixture(engine.answer);
+    const response = f.send(body);
+    await engine.asked;
+    t.mock.timers.tick(9_999);
+    engine.reply(new Response(payload));
+    const reply = await (await response).json();
+    assert.equal(reply.result.content[0].text, payload);
+    assert.deepEqual(f.carr, []);
   });
 }
+
+test("On engine sign-in a read the engine never answers ends unavailable after ten seconds", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const engine = silentEngine();
+  const f = engineSignInFixture(engine.answer);
+  const response = f.send(leadBoard);
+  await engine.asked;
+  t.mock.timers.tick(10_000);
+  const answered = await response;
+  assert.equal(answered.status, 503);
+  assert.deepEqual(await answered.json(), { error: "engine_unavailable" });
+  assert.deepEqual(f.carr, []);
+});
 const cursor = { occurred_at: "2026-01-02T03:04:05.123+00:00", id: "00000000-0000-4000-8000-000000000002" };
 for (const [name, args, path] of [
   ["lead-board", { workspace: "leads" }, "/api/engine/leads?workspace=leads"],
