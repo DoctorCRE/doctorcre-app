@@ -141,7 +141,7 @@ export function validateLeadWorkspace(payload, parseTiming) {
   projection(new Set(leads.map(lead => lead.id)).size === leads.length);
   if (leads.length === payload.leads.length) return payload;
   console.error(`Leads: ${payload.leads.length - leads.length} left out; unreadable field: ${[...failedFields].join(", ")}`);
-  return { ...payload, leads, left_out: payload.leads.length - leads.length };
+  return { ...payload, leads, left_out: (payload.left_out ?? 0) + payload.leads.length - leads.length };
 }
 const validCorrespondence = entry => object(entry) && text(entry.id) && text(entry.kind) &&
   leadTimestamp(entry.occurred_at) !== null && optionalText(entry.summary) && optionalText(entry.detail);
