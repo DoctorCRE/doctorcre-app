@@ -1959,7 +1959,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
 });
 
 for (const width of [390, 1440]) {
-  test(`Home keeps a 90-character action on one line in Reminders and shows it in full when opened at ${width}px`, async t => {
+  test(`Home limits a 90-character Reminders action to two lines and shows it in full when opened at ${width}px`, async t => {
     const { page, open, state } = await dashboard(t, width, 'light');
     const title = 'Send the revised floor plan to the practice manager before the lease review next Thursday.';
     state.items[0] = step(1, title);
@@ -1967,13 +1967,14 @@ for (const width of [390, 1440]) {
     const heading = page.getByRole('region', { name: 'Reminders', exact: true })
       .getByRole('heading', { level: 3, name: title, exact: true });
     await heading.waitFor();
-    assert.deepEqual(await heading.evaluate(node => {
+    const link = heading.getByRole('link', { name: title, exact: true });
+    const preview = await link.evaluate(node => {
       const style = getComputedStyle(node);
-      const link = node.querySelector('a') ?? node;
-      const oneLine = node.getBoundingClientRect().height < 1.5 * parseFloat(getComputedStyle(link).lineHeight);
-      return { lineClamp: style.webkitLineClamp, oneLine };
-    }), { lineClamp: '1', oneLine: true });
-    await heading.getByRole('link', { name: title, exact: true }).click();
+      return { lineClamp: style.webkitLineClamp, height: node.getBoundingClientRect().height, lineHeight: parseFloat(style.lineHeight) };
+    });
+    assert.equal(preview.lineClamp, '2');
+    assert.ok(preview.height <= 2 * preview.lineHeight + 0.5);
+    await link.click();
     const details = page.getByRole('region', { name: `Details for ${title}` });
     await details.waitFor();
     const detailHeading = details.getByRole('heading', { level: 4, name: title, exact: true });
@@ -2578,7 +2579,11 @@ test('Home reply draft still lets the partner edit and save when storage throws'
     Storage.prototype.getItem = () => { throw new Error('denied'); };
     Storage.prototype.setItem = () => { throw new Error('denied'); };
   });
-  await message.fill('Typed while storage was blocked.');
+  await message.focus();
+  assert.equal(await message.evaluate(node => node === document.activeElement), true);
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.insertText('Typed while storage was blocked.');
+  assert.equal(await message.inputValue(), 'Typed while storage was blocked.');
   await review.getByRole('button', { name: 'Save draft', exact: true }).click();
   await review.getByText('Saved as a draft. Nothing was sent.', { exact: true }).waitFor();
   assert.equal(state.draft.body, 'Typed while storage was blocked.');
@@ -2970,17 +2975,25 @@ test('Home meetings rolls over at Central midnight even when the refresh fails, 
 });
 
 test('Home reviews a review-only meeting in Inbox and keeps its row after the answer', async t => {
-  const calendar = { follow_up_reviews: [meetingOutcome] };
+  const title = 'Review the sample practice schedule and the revised tour stops. '.repeat(12).trim();
+  const calendar = { follow_up_reviews: [{ ...meetingOutcome, title }] };
   const { page, meetings } = await meetingDashboard(t, calendar);
   await page.route('**/api/engine/activities', route => {
     calendar.follow_up_reviews = [];
     return route.fulfill({ status: 201, json: { activity_id: id(91), existing: false } });
   });
-  const row = meetings.locator('summary').filter({ hasText: scheduledMeeting.title });
+  const row = meetings.locator('summary').filter({ hasText: title });
   await row.getByText('Ended', { exact: true }).waitFor();
   assert.equal(await meetings.getByRole('button', { name: 'It happened', exact: true }).count(), 0);
   const review = inboxReview(page, scheduledMeeting.key);
-  await logMeeting(review);
+  const confirm = review.getByRole('button', { name: `Confirm ${title}`, exact: true });
+  const preview = confirm.locator('span');
+  const clamp = () => preview.evaluate(node => getComputedStyle(node).webkitLineClamp);
+  assert.equal(await clamp(), '2');
+  await confirm.press('Enter');
+  assert.equal(await clamp(), 'none');
+  await review.getByRole('combobox', { name: 'Deal', exact: true }).selectOption(meetingDeal.id);
+  await review.getByRole('button', { name: 'It happened', exact: true }).click();
   await page.getByText('Meeting logged on Example Dental.', { exact: true }).waitFor();
   await review.waitFor({ state: 'detached' });
   calendar.state = 'partial';

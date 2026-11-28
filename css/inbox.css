@@ -39,17 +39,28 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
 .home-slice .inbox-row:hover { background: var(--surface-2); }
 .home-slice .inbox-row > .inbox-copy { flex: 1 1 0; min-width: 0; }
 .home-slice .inbox-row > .inbox-copy h3 { margin: 0; font-size: var(--font-size-2); font-weight: 500; line-height: 1.4; }
-/* A line clamp cuts at the last whole word that fits; clip (unlike hidden) never scrolls when the link takes focus. */
-.home-slice[aria-label="Reminders"] .inbox-row > .inbox-copy h3 { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; line-clamp: 1; overflow: clip; }
-.home-slice .inbox-row > .inbox-copy h3 a { display: inline; min-height: 0; }
+.home-slice .inbox-row > .inbox-copy :is(h3:not(:has(> a)), h3 > a, .inbox-why),
+:is(.home-deal-name, .home-deal-reason, .home-today-title, .home-meeting-preview) {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+}
+.home-slice button[aria-expanded="true"] > .home-meeting-preview {
+  display: block;
+  -webkit-line-clamp: unset;
+  line-clamp: none;
+}
 .home-whole-word { white-space: nowrap; }
 .home-slice .inbox-row > .inbox-copy > .inbox-why { font-size: var(--font-size-1); line-height: 1.4; }
 .home-slice .inbox-row > .inbox-copy > .inbox-why:empty { display: none; }
-.home-slice .inbox-row > .inbox-copy > .inbox-why { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 /* In three columns a waiting item is one line when its title and its wait both fit; otherwise the wait wraps whole. */
 @container home (min-width: 936px) {
   .home-slice[aria-label="In motion and waiting"] .inbox-row > .inbox-copy { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: var(--space-2); }
-  .home-slice[aria-label="In motion and waiting"] .inbox-row > .inbox-copy > :is(h3, .inbox-why) { min-width: 0; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .home-slice[aria-label="In motion and waiting"] .inbox-row > .inbox-copy > :is(h3, .inbox-why) { min-width: 0; max-width: 100%; }
 }
 .home-slice .inbox-row > .inbox-actions { flex: none; width: auto; margin: 0; gap: var(--space-1); }
 .inbox-shell .home-slice .inbox-row > .inbox-actions button { min-height: var(--touch); padding: 0 var(--space-3); font-size: var(--font-size-1); }
@@ -61,7 +72,7 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
 .home-group { margin: var(--space-3) 0 var(--space-1); color: var(--fg-muted); font-size: var(--font-size-1); font-weight: 600; }
 .inbox-shell .home-fold { min-height: var(--touch); padding: 0; border: 0; background: transparent; color: var(--fg-muted); font-size: var(--font-size-1); }
 /* With a pointer, Inbox Snooze and Drop keep their own space at the row's end and show on hover or focus; the title shortens instead of sitting under them. */
-/* Reminders titles use the full row width. Hidden Snooze and Drop take no width; on hover or focus they overlay the right end without moving the title. The row stays at most two lines: the title and its instruction. */
+/* Reminders titles use the full row width. Snooze and Drop overlay the right end without moving the title. */
 @media (hover: hover) {
   .home-slice[aria-label="Inbox"] .inbox-row:not(:hover, :focus-within) > .inbox-actions { opacity: 0; }
   .home-slice[aria-label="Reminders"] .inbox-row { position: relative; }
@@ -80,8 +91,7 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
 }
 /* By touch, Snooze and Drop sit under the row's text. */
 @media (max-width: 999px), (hover: none) {
-  .home-slice .inbox-row > .inbox-copy h3 a { display: inline-flex; min-height: var(--touch); }
-  .home-slice[aria-label="Reminders"] .inbox-row > .inbox-copy h3 a { display: block; line-height: var(--touch); }
+  .home-slice .inbox-row > .inbox-copy h3 a { min-height: var(--touch); }
 }
 @media (hover: none) {
   .home-slice:is([aria-label="Reminders"], [aria-label="Inbox"]) .inbox-row > .inbox-actions { flex-basis: 100%; padding-left: calc(var(--touch) - var(--space-4) + var(--space-3)); }
@@ -96,15 +106,24 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
 .home-placeholder .skeleton-line { margin: 0; }
 .home-placeholder > header .skeleton-line { width: 40%; height: 14px; }
 .home-placeholder-row { display: grid; gap: var(--space-2); padding: var(--space-3) 0; border-top: 1px solid var(--hairline); }
-/* Home is three columns once its own box is as wide as a 1000px window leaves it, whatever else takes room beside it, and then exactly the screen tall with each tile scrolling its own rows. */
+/* In three columns, notices and the grid share the space below the app bar. */
 @container home (min-width: 936px) {
-  .home-sections { flex-direction: row; }
-  .home-column { display: flex; flex: 1 1 0; flex-direction: column; gap: var(--space-4); min-width: 0; }
+  .app-layout-main > main:has(.home-inbox),
+  .has-app-layout main:has(.home-inbox) .inbox-shell,
+  .home-inbox { block-size: 100%; }
+  .has-app-layout main:has(.home-inbox) .inbox-shell { padding-bottom: 0; }
+  .home-inbox { display: flex; flex-direction: column; }
+  .home-sections { flex: 1 1 0; min-block-size: 0; flex-direction: row; position: relative; }
+  .home-column { display: flex; flex: 1 1 0; flex-direction: column; gap: var(--space-4); min-width: 0; min-block-size: 0; overflow: auto; overscroll-behavior: contain; }
   .home-column:first-child { flex-grow: 1.15; }
   .home-column.home-side { flex-grow: 0.75; }
   .home-column:empty { display: none; }
+  .home-column > * { flex: none; max-block-size: 100%; overflow-y: auto; }
+  .home-column:not(.home-side) > :first-child { flex-grow: 1; }
+  .home-slice:has(> header) { --home-header-size: calc(var(--touch) + var(--space-3)); scroll-padding-block-start: var(--home-header-size); }
+  .home-slice > header { position: sticky; top: calc(-1 * var(--space-3)); z-index: 1; min-block-size: var(--home-header-size); margin-top: calc(-1 * var(--space-3)); padding-top: var(--space-3); background: var(--surface-1); }
+  .home-slice :is(a, button, summary) { scroll-margin-block: var(--space-2); }
   /* An opened item covers the middle and right columns beside Reminders; it stays in its row for reading order. */
-  .home-sections { position: relative; }
   .home-sections:has(.home-inline-review) > .home-column:not(:first-child) :is(.home-column > :not(:has(.home-inline-review)), .inbox-row:not(:has(.home-inline-review))) { visibility: hidden; }
   .home-sections .home-slice .inbox-row:has(> .home-inline-review) { position: static; }
   .home-sections .home-inline-review { visibility: visible; position: absolute; z-index: 2; inset-block: 0; inset-inline-end: 0; inset-inline-start: calc((100% - 2 * var(--space-4)) * 1.15 / 2.9 + var(--space-4)); overflow-y: auto; overscroll-behavior: contain; padding: var(--space-3) var(--space-4); border-top: 0; background: var(--surface-1); border-radius: var(--panel-radius); }
@@ -113,13 +132,6 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
 @container home (max-width: 935.98px) {
   .home-sections .home-inline-review { position: fixed; inset: 0 0 var(--layout-bottom) var(--layout-rail); z-index: 1150; overflow-y: auto; overscroll-behavior: contain; padding: calc(var(--space-4) + env(safe-area-inset-top)) var(--space-4) var(--space-4); border-top: 0; background: var(--surface-1); }
 }
-@container home (min-width: 936px) { @media (min-height: 600px) {
-  .has-app-layout main:has(.home-inbox) .inbox-shell { padding-bottom: 0; }
-  .home-sections { height: calc(100dvh - var(--topbar-height) - 2 * var(--pad)); }
-  .home-column > * { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
-  .home-column:not(.home-side) > :first-child { flex-grow: 1; }
-  .home-slice > header { position: sticky; top: calc(-1 * var(--space-3)); z-index: 1; margin-top: calc(-1 * var(--space-3)); padding-top: var(--space-3); background: var(--surface-1); }
-} }
 .home-inline-review{flex-basis:100%;min-width:0;padding:18px;border-top:1px solid var(--hairline);overflow-wrap:anywhere}.home-inline-review header{display:flex;justify-content:space-between;align-items:center;gap:12px}.home-inline-review h4{margin:0;min-width:0;font-size:16px}.home-inline-review header h4{flex:1}.home-inline-review header>button{flex:none;white-space:nowrap}.home-review-position{color:var(--fg-muted);font-size:12px;white-space:nowrap}.home-inline-review fieldset{border:0;padding:0;min-width:0}.home-inline-review legend{padding:14px 0;font-weight:600}.home-inline-review label{display:grid;gap:6px;margin:12px 0;font-size:13px}.home-inline-review input,.home-inline-review textarea,.home-inline-review select{box-sizing:border-box;width:100%;height:auto;min-height:var(--touch);padding:var(--space-1) 10px;color:var(--fg);background:var(--surface-1);border:1px solid var(--hairline);border-radius:6px;font:inherit}.home-inline-review textarea{padding-block:10px;resize:vertical}.home-inline-review .inbox-actions{margin:14px 0;width:auto}.home-inline-review p,.home-inline-review blockquote{font-size:13px;line-height:1.6;white-space:pre-wrap}.home-inline-review blockquote{margin:12px 0;padding-left:14px;border-left:2px solid var(--hairline)}.home-inline-review button{min-height:var(--touch)}.home-inline-review :focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 .home-inline-review .home-suggestion-instruction { field-sizing: content; resize: none; }
 .home-watch-slot{min-height:var(--touch)}

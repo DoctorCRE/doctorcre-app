@@ -138,10 +138,10 @@
 @media (prefers-reduced-motion: reduce) { .timeline * { transition: none; } }
 
 #boardTimeline:not([hidden]) { height: max(380px, calc(100dvh - 112px)); min-width: 0; }
-@media (width < 760px) {
+@media (width < 1280px) {
   #recordPanel:has(#workspace-plan:not([hidden])) > .workspace-header { position: static; }
 }
-@media (width >= 760px) {
+@media (width >= 1280px) {
   .app-layout-main:has(#workspace-plan:not([hidden])) { overflow: hidden; }
   #recordPanel:has(#workspace-plan:not([hidden])) { display: flex; flex-direction: column; height: 100%; }
   #recordPanel:has(#workspace-plan:not([hidden])) > #panelBody { display: flex; flex-direction: column; flex: 1; min-height: 0; padding-block: 8px 0; }
@@ -231,11 +231,7 @@
 @media (max-width: 760px) {
   #boardTimeline:not([hidden]) { height: max(380px, calc(100dvh - 214px)); }
 }
-@media (width = 760px), (hover: none) and (pointer: coarse) and (760px <= width <= 1023px) {
-  .app-layout-center:has(#workspace-plan:not([hidden])) { display: flex; flex-direction: column; height: calc(100dvh - var(--layout-bottom)); }
-  .app-layout-main:has(#workspace-plan:not([hidden])) { flex: 1; min-height: 0; padding-block-end: var(--space-3); }
-  #recordPanel:has(#workspace-plan:not([hidden])) > .workspace-header { position: static; }
-}
+#workspace-plan .timeline :is(.timeline-name, .timeline-label, .timeline-bar, .timeline-date-mark) { min-height: 0; min-width: 0; }
 
 #appTopbar > .dealroom-heading { flex: none; gap: 4px; margin: 0; }
 #appTopbar > .dealroom-heading .hero-meta { flex: none; gap: 4px; }

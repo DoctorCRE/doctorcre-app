@@ -10,11 +10,12 @@
 .home-today-row > summary, .home-tour { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; align-items: center; column-gap: var(--space-2); min-height: var(--touch); padding-inline: var(--space-2); border-radius: var(--radius-2); color: var(--fg); font-size: var(--font-size-2); text-decoration: none; cursor: pointer; list-style: none; }
 .home-today-row > summary::-webkit-details-marker { display: none; }
 .home-today-row > summary:hover, .home-tour:is(a):hover { background: var(--surface-2); }
-.home-today-time, .home-today-mark { color: var(--fg-quiet); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.home-today-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.home-today-title span { color: var(--fg-quiet); }
+.home-today-time, .home-today-mark, .home-today-context { color: var(--fg-quiet); font-size: var(--font-size-1); white-space: nowrap; }
+.home-today-time { font-variant-numeric: tabular-nums; }
+.home-today-title, .home-today-context, .home-tour-copy { min-width: 0; }
+.home-today-context { display: block; overflow: hidden; text-overflow: ellipsis; }
 .home-today-row[data-ended] .home-today-title { color: var(--fg-quiet); }
-details.home-today-row > :not(summary) { margin: 0 0 var(--space-1); padding-inline: calc(64px + 2 * var(--space-2)) var(--space-2); color: var(--fg-muted); font-size: var(--font-size-1); }
+details.home-today-row > :not(summary) { margin: 0 0 var(--space-1); padding-inline: var(--space-2); color: var(--fg-muted); font-size: var(--font-size-1); overflow-wrap: anywhere; }
 .home-today-row > a { display: inline-flex; align-items: center; min-height: var(--touch); }
 .home-now { height: 1px; margin: var(--space-1) var(--space-2); border: 0; background: var(--accent); }
 
@@ -31,7 +32,8 @@ details.home-today-row > :not(summary) { margin: 0 0 var(--space-1); padding-inl
 .home-deals ul, .home-coming-up ul { margin: 0; padding: 0; list-style: none; }
 /* Two phase columns when the tile has room, else one. */
 .home-phases { display: grid; grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)); column-gap: var(--space-2); }
-.home-deals :is(li > a, .home-deals-line), .home-coming-up li > a, .inbox-shell .home-short-fold-line { display: flex; align-items: center; gap: var(--space-2); min-height: 34px; padding: 0 var(--space-2); border-radius: var(--radius-2); color: var(--fg); text-decoration: none; transition: background-color var(--duration-hover) var(--ease-out); }
+.home-deals, .home-coming-up { --home-deal-control-size: max(34px, var(--touch)); }
+.home-deals :is(li > a, .home-deals-line), .home-coming-up li > a, .inbox-shell .home-short-fold-line { display: flex; align-items: center; gap: var(--space-2); min-height: var(--home-deal-control-size); padding: 0 var(--space-2); border-radius: var(--radius-2); color: var(--fg); text-decoration: none; transition: background-color var(--duration-hover) var(--ease-out); }
 .home-deals :is(li > a, .home-deals-line):hover, .home-coming-up li > a:hover, .inbox-shell .home-short-fold-line:hover { background: var(--surface-2); }
 .home-phases a { justify-content: space-between; color: var(--fg-muted); font-size: var(--font-size-1); white-space: nowrap; }
 .home-phases a span { color: var(--fg); font-weight: var(--font-weight-strong); font-variant-numeric: tabular-nums; }
@@ -42,21 +44,26 @@ details.home-today-row > :not(summary) { margin: 0 0 var(--space-1); padding-inl
 .home-deals-line small { flex-basis: 100%; color: var(--fg-muted); font-size: var(--font-size-1); }
 /* The engine's reason is a full sentence, so it sits under the deal's name. */
 .home-deals .home-deals-attention a { flex-wrap: wrap; row-gap: 0; padding-block: var(--space-1); }
-.home-deals .home-deals-attention a > span { flex-basis: 100%; margin-inline-start: calc(6px + var(--space-2)); white-space: normal; }
+.home-deals .home-deals-attention .home-deal-name { flex: 1; min-width: 0; margin: 0; color: inherit; font: inherit; white-space: normal; }
+.home-deals .home-deals-attention .home-deal-reason { flex-basis: 100%; margin-inline-start: calc(6px + var(--space-2)); white-space: normal; }
 .home-deals-attention a::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: var(--radius-round); background: var(--status-warn-ink); }
-.home-coming-up li > a { display: grid; grid-template-columns: 88px minmax(0, 1fr); }
-.home-coming-up li time { color: var(--fg-muted); font-size: var(--font-size-1); font-variant-numeric: tabular-nums; }
-.home-coming-up li > a > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.home-coming-up li span span { color: var(--fg-muted); }
+.home-today-row > summary, .home-coming-up li > a {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  gap: 0 var(--space-2);
+  padding-block: var(--space-1);
+}
+:is(.home-today-row > summary, .home-coming-up li > a) > .home-today-time { grid-area: 1 / 1; }
+:is(.home-today-row > summary, .home-coming-up li > a) > .home-today-context { grid-area: 1 / 2; }
+.home-today-row > summary > .home-today-mark { grid-area: 1 / 3; }
+:is(.home-today-row > summary, .home-coming-up li > a) > .home-today-title { grid-area: 2 / 1 / auto / -1; }
 .inbox-shell .home-short-fold-line { display: none; width: 100%; border: 0; background: transparent; font: inherit; text-align: start; }
-.home-short-fold-line strong { margin-inline-end: auto; font-weight: var(--font-weight-strong); }
+.home-short-fold-line strong { margin-inline-end: auto; font-weight: var(--font-weight-strong); white-space: nowrap; }
 /* A short computer screen folds the attention list and Coming up to one counted line each. */
 @container home (min-width: 936px) { @media (max-height: 720px) {
+  .home-column.home-side { gap: var(--space-3); }
   .inbox-shell .home-short-fold-line { display: flex; }
   .home-short-fold:not([data-open]) > :not(.home-short-fold-line) { display: none; }
+  .home-coming-up:has(.home-short-fold:not([data-open])) { scroll-padding-block-start: 0; }
   .home-coming-up:has(.home-short-fold:not([data-open])) > header { display: none; }
-  .home-deals .home-phases a { min-height: 30px; }
 } }
-@media (pointer: coarse) {
-  .home-deals :is(li > a, .home-deals-line), .home-coming-up li > a { min-height: var(--touch); }
-}

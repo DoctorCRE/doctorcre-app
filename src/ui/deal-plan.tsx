@@ -65,9 +65,9 @@ export function signingCaption(plan: Plan | null | undefined, today: string) {
 const signingName = (recorded: boolean) => (recorded ? "Lease signed" : "Lease signing");
 const stepMap = (steps: SourceStep[]) => new Map(steps.map((step) => [`step:${step.id}`, step]));
 
-const phonePlan = () => matchMedia("(width < 760px)");
-function subscribePhonePlan(change: () => void) {
-  const media = phonePlan();
+const listPlan = () => matchMedia("(width < 1280px)");
+function subscribeListPlan(change: () => void) {
+  const media = listPlan();
   media.addEventListener("change", change);
   return () => media.removeEventListener("change", change);
 }
@@ -121,7 +121,7 @@ function PlanDateList({
 function PlanScreen(props: Inputs) {
   const { today, viewer } = props;
   const board = props.mode === "board";
-  const phone = useSyncExternalStore(subscribePhonePlan, () => phonePlan().matches) && !board;
+  const list = useSyncExternalStore(subscribeListPlan, () => listPlan().matches) && !board;
   const [owner, setOwner] = useState("");
   const [filter, setFilter] = useState("");
   const [view, setView] = useState<View | null>(null);
@@ -658,7 +658,15 @@ function PlanScreen(props: Inputs) {
     );
   const detail = selected && (
     <section className="deal-plan-details" aria-label={selected.name}>
-      <button type="button" className="btn btn-quiet" aria-label="Close item" onClick={() => setOpened(undefined)}>
+      <button
+        type="button"
+        className="btn btn-quiet"
+        aria-label="Close item"
+        onClick={() => {
+          setOpened(undefined);
+          setEdit(undefined);
+        }}
+      >
         ×
       </button>
       <h3>{selected.name}</h3>
@@ -758,7 +766,7 @@ function PlanScreen(props: Inputs) {
       )}
     </>
   );
-  if (phone)
+  if (list)
     return (
       <div className="deal-plan-mobile">
         {planStatus}

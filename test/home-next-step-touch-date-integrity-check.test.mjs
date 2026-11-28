@@ -16,14 +16,22 @@ for (const [value, expected] of [
   ['2026-02-28T00:00:00Z', 'Last touch unavailable'],
   [null, 'No last touch'], ['2028-02-29', 'Last touch Feb 29'], ['2000-02-29', 'Last touch Feb 29'],
   ['2026-03-01', 'Last touch Mar 1'], ['0096-02-29', 'Last touch Feb 29'],
-]) test(`mount renders ${JSON.stringify(value)} as ${expected}`, async t => {
+]) test(`mount renders ${JSON.stringify(value)} as ${expected}`, { timeout: 5000 }, async t => {
   const dom = new JSDOM('<main></main>', { runScripts: 'dangerously', pretendToBeVisual: true });
   dom.window.eval(outputFiles[0].text);
   const host = dom.window.document.querySelector('main');
   const view = dom.window.Home.mountMissingNextStep(host, { joe: 'Joe' });
   t.after(() => { view.dispose(); dom.window.close(); });
-  view.update(await syntheticBoard({ last_touch: value }), 'mine');
-  await new Promise(resolve => setTimeout(resolve, 30));
+  const board = await syntheticBoard({ last_touch: value });
+  await new Promise(resolve => {
+    const observer = new dom.window.MutationObserver(() => {
+      observer.disconnect();
+      resolve();
+    });
+    observer.observe(host, { childList: true });
+    t.after(() => observer.disconnect());
+    view.update(board, 'mine');
+  });
   assert.equal(host.querySelector('a div span')?.textContent, expected);
   assert.equal(host.querySelector('a').getAttribute('href'), '/deals?deal=synthetic%2F0%3F&focus=next-step');
   assert.match(host.textContent, /Synthetic deal 0.*Negotiation/);

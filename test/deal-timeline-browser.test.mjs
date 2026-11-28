@@ -408,22 +408,64 @@ for (const receipt of ['written','crossed-again','old-engine']) test('a rebased 
  }
 });
 
+for (const width of [390,1280]) test(`closing an item cancels Drop and leaves Reset to typical working at ${width}px`,async t=>{
+ const {page}=await open(t,{width,height:844,touch:width===390});
+ const writes=[];
+ await page.route('**/api/engine/deals/d14/plan-dates',async route=>{
+  writes.push(route.request().postDataJSON());
+  await route.fulfill({json:{base_version:2}});
+ });
+ const deadline={id:'critical_date:example',kind:'critical_date',phase:'legal',label:'Example deadline',status:'open',on:'2026-10-15'};
+ await providePlan(page,{...plan,rows:[...planRows,deadline],own_dates:{sign:'2026-10-17'},base_version:1},{canSave:true});
+ await page.getByRole('button',{name:'Lease signing expected Oct 17',exact:true}).click();
+ const tab=page.getByRole('tabpanel',{name:'Plan'});
+ const status=page.locator('#workspacePlanStatus');
+ const items=width===390?tab.getByRole('list',{name:'Plan items'}):tab.locator('.timeline-scroll');
+ await items.getByRole('button',{name:'Example deadline',exact:true}).first().click();
+ const detail=tab.getByRole('region',{name:'Example deadline'});
+ await detail.getByRole('button',{name:'Drop',exact:true}).click();
+ await status.getByRole('button',{name:'Drop date',exact:true}).waitFor();
+ await detail.getByRole('button',{name:'Close item',exact:true}).click();
+ assert.equal(await status.getByRole('button',{name:'Drop date',exact:true}).count(),0);
+ const reset=status.getByRole('button',{name:'Reset to typical',exact:true});
+ await reset.waitFor({timeout:2000});
+ await reset.click();
+ await status.getByRole('region',{name:'Reset to typical'}).getByRole('button',{name:'Reset to typical',exact:true}).click();
+ await status.getByText('Typical lengths restored.',{exact:true}).waitFor();
+ assert.deepEqual(writes.map(({base_version})=>base_version),[1]);
+});
+
 test('Plan preserves visible filters and items across the chart boundary',async t=>{
- const {page}=await open(t,{width:1000,height:800});
+ const {page}=await open(t,{width:1440,height:900});
  const tab=await showPlan(page);
  const recorded=tab.getByRole('button',{name:'Recorded only',exact:true});
  const dell=tab.getByRole('button',{name:'Dell',exact:true});
  await recorded.click();
  await dell.click();
- await page.setViewportSize({width:700,height:800});
+ await tab.locator('.timeline-scroll').getByRole('button',{name:'Review the lease',exact:true}).first().click();
+ const detail=tab.getByRole('region',{name:'Review the lease'});
+ await detail.waitFor();
+ await page.setViewportSize({width:1279,height:800});
  const list=tab.getByRole('list',{name:'Plan items'});
  await list.waitFor({timeout:3000});
+ await detail.waitFor();
+ assert.equal(await list.getByRole('button',{name:'Review the lease',exact:true}).getAttribute('aria-expanded'),'true');
  assert.equal(await recorded.getAttribute('aria-pressed'),'true');
  assert.equal(await dell.getAttribute('aria-pressed'),'true');
- assert.deepEqual((await list.getByRole('button').allTextContents()).sort(),['Call about the lease','Review the lease']);
+ assert.deepEqual((await list.locator('.deal-plan-item > button').allTextContents()).sort(),['Call about the lease','Review the lease']);
  await recorded.click();
  await list.getByRole('button',{name:'Sign the lease',exact:true}).waitFor();
- await page.setViewportSize({width:760,height:800});
+ await page.setViewportSize({width:1280,height:800});
+ await tab.locator('.timeline-scroll').waitFor();
+ await detail.waitFor();
+ assert.equal(await recorded.getAttribute('aria-pressed'),'false');
+ assert.equal(await dell.getAttribute('aria-pressed'),'true');
+ await page.setViewportSize({width:1279,height:800});
+ await list.waitFor();
+ assert.equal(await list.getByRole('button',{name:'Review the lease',exact:true}).getAttribute('aria-expanded'),'true');
+ await page.setViewportSize({width:1280,height:800});
+ await tab.locator('.timeline-scroll').waitFor();
+ await detail.getByRole('button',{name:'Close item',exact:true}).click();
  await tab.getByRole('heading',{name:'Milestones'}).waitFor();
  assert.equal(await recorded.getAttribute('aria-pressed'),'false');
  assert.equal(await dell.getAttribute('aria-pressed'),'true');
@@ -445,7 +487,7 @@ test('Phone Plan lists items in date order and opens them inline',async t=>{
  assert.match(await detail.innerText(),/exp\. Oct 17/);
  assert.equal(await tab.locator('.timeline').count(),0);
  assert.deepEqual(errors,[]);
- await page.setViewportSize({width:760,height:844});
+ await page.setViewportSize({width:1280,height:844});
  await tab.getByRole('group',{name:'Zoom'}).waitFor();
  assert.equal(await tab.getByRole('list',{name:'Plan items'}).count(),0);
 
