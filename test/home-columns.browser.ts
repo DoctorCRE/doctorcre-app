@@ -239,6 +239,7 @@ async function openHome(
 for (const [width, height] of [
   [1440, 900],
   [1280, 640],
+  [1280, 599],
 ] as const)
   test(`Home shows Reminders, Inbox and the day side by side on one ${width}x${height} screen`, async (t) => {
     const page = await openHome(t, width, height);
@@ -268,6 +269,11 @@ for (const [width, height] of [
         return Math.abs(next.x - right.x) < 1 && (!above || next.y >= above.y + above.height);
       }),
       "meetings, Deals, Coming up and Leads stack in the right column",
+    );
+    assert.equal(
+      await page.locator("#appMainSlot").evaluate((main) => main.scrollHeight <= main.clientHeight),
+      true,
+      "the main area does not scroll",
     );
     assert.ok(leadsLine.y + leadsLine.height <= height, "Leads is on the first screen");
     assert.equal(
