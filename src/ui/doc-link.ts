@@ -3,12 +3,43 @@ const path = "/api/engine/doc/link";
 export const docLinkMessages = {
   not_set_up: "Doc isn't set up on your Mac yet.",
   mac_off: "Doc answers when your Mac is on.",
-  signed_out: "Sign in to Claude Code on your Mac.",
-  plan_limited: "Doc is paused until your Claude plan resets.",
+  signed_out: "On the Mac that runs Doc, sign in again to the AI app Doc was set up with.",
+  plan_limited: "Doc is paused until your model's plan resets.",
   ready: "Doc is ready on your Mac.",
 } as const;
 
 export type DocLinkStatus = keyof typeof docLinkMessages;
+export type DocBackend = "claude" | "codex" | null;
+export type DocLink = { status: DocLinkStatus; backend: DocBackend };
+
+const codeStatuses: Record<string, DocLinkStatus> = {
+  doc_not_set_up: "not_set_up",
+  doc_mac_off: "mac_off",
+  doc_signed_out: "signed_out",
+  doc_plan_limit: "plan_limited",
+  doc_ready: "ready",
+};
+
+function statusForCode(code: unknown): DocLinkStatus | undefined {
+  return typeof code === "string" && Object.hasOwn(codeStatuses, code) ? codeStatuses[code] : undefined;
+}
+
+export function docLinkMessage(status: DocLinkStatus, backend: DocBackend) {
+  const model = backend === "claude" ? "Claude Code" : backend === "codex" ? "Codex" : null;
+  if (model && status === "signed_out") return `Sign in to ${model} on your Mac.`;
+  if (model && status === "plan_limited") return `Doc is paused until your ${model} plan resets.`;
+  return docLinkMessages[status];
+}
+
+export function waitingMessage(text: string | null, code: string | null | undefined, backend: DocBackend) {
+  const status = statusForCode(code);
+  if (status === "ready") return text;
+  if (status) return docLinkMessage(status, backend);
+  if (text === "Sign in to Claude Code on your Mac.") return docLinkMessage("signed_out", backend);
+  if (text === "Doc is paused until your Claude plan resets.") return docLinkMessage("plan_limited", backend);
+  return text;
+}
+
 export type DocLinkRequest = (path: string, init: RequestInit) => Promise<Response>;
 
 function isDocLinkStatus(value: unknown): value is DocLinkStatus {
@@ -30,11 +61,17 @@ export async function requestDocLink(
   return response;
 }
 
-export async function readDocLinkStatus(request: DocLinkRequest, signal?: AbortSignal) {
+export async function readDocLinkStatus(request: DocLinkRequest, signal?: AbortSignal): Promise<DocLink | null> {
   try {
     const response = await requestDocLink(request, "GET", "", signal);
     const data: unknown = await response.json();
-    return data && typeof data === "object" && "status" in data && isDocLinkStatus(data.status) ? data.status : null;
+    if (!data || typeof data !== "object") return null;
+    const status =
+      statusForCode("readiness_code" in data ? data.readiness_code : null) ??
+      ("status" in data && isDocLinkStatus(data.status) ? data.status : undefined);
+    if (!status) return null;
+    const backend = "backend" in data && (data.backend === "claude" || data.backend === "codex") ? data.backend : null;
+    return { status, backend };
   } catch {
     return null;
   }

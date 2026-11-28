@@ -679,9 +679,10 @@ test("Backup answers are marked while Mac answers and waiting questions are not"
 test("A reopened Doc question keeps its place and lets the partner draft a follow-up as it refreshes", async (t) => {
   const waitingLines = [
     "Doc answers when your Mac is on.",
-    "Doc is paused until your Claude plan resets.",
-    "Sign in to Claude Code on your Mac.",
+    "Doc is paused until your model's plan resets.",
+    "On the Mac that runs Doc, sign in again to the AI app Doc was set up with.",
     "Doc is waiting for a free slot on your Mac.",
+    "Doc is waiting for a new reason.",
   ] as const;
   const saved = { ...answeredTurn, idempotency_key: id };
   let state = "queued";
@@ -713,7 +714,12 @@ test("A reopened Doc question keeps its place and lets the partner draft a follo
   await expect(send).toBeDisabled();
 
   for (const waiting_reason of waitingLines.slice(1)) {
-    waitingReason = waiting_reason;
+    waitingReason =
+      waiting_reason === "On the Mac that runs Doc, sign in again to the AI app Doc was set up with."
+        ? "Sign in to Claude Code on your Mac."
+        : waiting_reason === "Doc is paused until your model's plan resets."
+          ? "Doc is paused until your Claude plan resets."
+          : waiting_reason;
     await page.clock.runFor(5_000);
     await expect(page.getByText(waiting_reason, { exact: true })).toBeVisible();
   }
@@ -736,7 +742,7 @@ test("A reopened Doc question keeps its place and lets the partner draft a follo
   const linkPath = "/api/engine/doc/link";
   assert.deepEqual(
     docReads.filter((path) => path !== linkPath),
-    ["/api/engine/doc/conversations", ...Array(6).fill(detailPath)],
+    ["/api/engine/doc/conversations", ...Array(waitingLines.length + 2).fill(detailPath)],
   );
   assert.equal(
     docReads.filter((path) => path === linkPath).length,
@@ -1903,8 +1909,8 @@ for (const [status, line] of [
   ["ready", "Doc is ready on your Mac."],
   ["not_set_up", "Doc isn't set up on your Mac yet."],
   ["mac_off", "Doc answers when your Mac is on."],
-  ["signed_out", "Sign in to Claude Code on your Mac."],
-  ["plan_limited", "Doc is paused until your Claude plan resets."],
+  ["signed_out", "On the Mac that runs Doc, sign in again to the AI app Doc was set up with."],
+  ["plan_limited", "Doc is paused until your model's plan resets."],
 ] as const) {
   test(`Under the typing box one line gives the Mac's status: ${status}`, async (t) => {
     const { page, origin } = await docChatFixture(
@@ -1933,6 +1939,60 @@ for (const [status, line] of [
     else await expect(mac).toBeVisible();
   });
 }
+
+test("Doc uses the engine's model and waiting code on screen", async (t) => {
+  const { page, origin } = await docChatFixture(t, (request) => {
+    const path = new URL(request.url).pathname;
+    if (path === "/api/engine/doc/link")
+      return Response.json({ status: "mac_off", readiness_code: "doc_signed_out", backend: "codex" });
+    if (path === `/api/engine/doc/conversations/${id}`)
+      return Response.json({
+        conversation,
+        turns: [
+          { ...queuedTurn, waiting_reason: "old wording", waiting_reason_code: "doc_plan_limit", backend: "claude" },
+        ],
+      });
+    return Response.json({ conversations: [conversation], next_before: null });
+  });
+  await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
+  await expect(page.getByText("Doc is paused until your Claude Code plan resets.")).toBeVisible();
+  await expect(page.getByText("Sign in to Codex on your Mac.")).toBeVisible();
+});
+
+test("A conversation accepts a future backend and uses neutral waiting text", async (t) => {
+  const { page, origin } = await docChatFixture(t, (request) => {
+    const path = new URL(request.url).pathname;
+    if (path === `/api/engine/doc/conversations/${id}`)
+      return Response.json({
+        conversation,
+        turns: [
+          { ...queuedTurn, waiting_reason: "old text", waiting_reason_code: "doc_signed_out", backend: "future" },
+        ],
+      });
+    return Response.json({ conversations: [conversation], next_before: null });
+  });
+  await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
+  await expect(
+    page.getByText("On the Mac that runs Doc, sign in again to the AI app Doc was set up with."),
+  ).toBeVisible();
+});
+
+test("A sent question accepts a future backend", async (t) => {
+  const { page, origin } = await docChatFixture(t, async (request) => {
+    if (new URL(request.url).pathname === "/api/engine/doc/turns") {
+      const ask = await request.json();
+      return Response.json({
+        conversation_id: id,
+        turn: { ...answeredTurn, idempotency_key: ask.idempotency_key, backend: "future" },
+      });
+    }
+    return Response.json({ conversations: [], next_before: null });
+  });
+  await page.goto(`${origin}/doc-chats?mode=live`);
+  await page.getByLabel("Question for Doc").fill(question);
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByText(answeredTurn.answer.text)).toBeVisible();
+});
 
 test("The Mac status line shows nothing when its read fails and reads again when a waiting question is answered", async (t) => {
   let answer = false;
@@ -2032,8 +2092,13 @@ for (const [width, theme, conflict, unavailable] of [
   [1440, "dark", "draft_changed"],
   [390, "light", undefined, ["not_set_up", "Doc isn't set up on your Mac yet."]],
   [390, "dark", undefined, ["mac_off", "Doc answers when your Mac is on."]],
-  [1440, "light", undefined, ["signed_out", "Sign in to Claude Code on your Mac."]],
-  [1440, "dark", undefined, ["plan_limited", "Doc is paused until your Claude plan resets."]],
+  [
+    1440,
+    "light",
+    undefined,
+    ["signed_out", "On the Mac that runs Doc, sign in again to the AI app Doc was set up with."],
+  ],
+  [1440, "dark", undefined, ["plan_limited", "Doc is paused until your model's plan resets."]],
   [390, "dark", undefined, ["legacy", "Sign in with DoctorCRE to talk to Doc."]],
   [1440, "light", undefined, ["read_failed", "Couldn't check whether Doc is ready."]],
 ] as const) {
