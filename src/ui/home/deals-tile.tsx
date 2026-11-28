@@ -89,7 +89,8 @@ export function DealsTile() {
             {data.attention.map((deal) => (
               <li key={deal.id}>
                 <a href={`/deals?deal=${encodeURIComponent(deal.id)}`}>
-                  {deal.name} <span>{deal.reason}</span>
+                  <span className="home-deal-name">{deal.name}</span>{" "}
+                  <span className="home-deal-reason">{deal.reason}</span>
                 </a>
               </li>
             ))}

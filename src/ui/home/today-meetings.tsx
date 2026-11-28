@@ -43,12 +43,14 @@ function MeetingLine({ row: { meeting }, now }: { row: MeetingRow; now: number }
         <time className="home-today-time" dateTime={meeting.start}>
           {meeting.all_day === true ? "All day" : clock.format(new Date(meeting.start))}
         </time>
-        <span className="home-today-title">
-          {meeting.title}
-          {text(meeting.context_label) && <span> · {meeting.context_label}</span>}
-        </span>
+        <span className="home-today-title">{meeting.title}</span>
+        {text(meeting.context_label) && <span className="home-today-context"> · {meeting.context_label}</span>}
         {past && <span className="home-today-mark">Ended</span>}
       </summary>
+      <p>
+        {meeting.title}
+        {text(meeting.context_label) && <> · {meeting.context_label}</>}
+      </p>
       {names.length > 0 && <p>{names.join(", ")}</p>}
       {text(meeting.location) && <p>{meeting.location}</p>}
       {deal ? (
@@ -110,15 +112,20 @@ export function TodayMeetings({ data, today }: { data: MeetingRead; today: strin
           Calendar
         </a>
       </header>
-      {tours.isError && <p className="home-tile-status">Tours unavailable.</p>}
-      <div className="home-today-list">
+      {tours.isError && (
+        <p className="home-tile-status" role="status">
+          Tours unavailable.
+        </p>
+      )}
+      <section className="home-today-list">
         {tourRows.map((tour) => {
           const deal = href(tour.records[0]?.url);
           const body = (
             <>
               <span className="home-today-time">Tour</span>
-              <span className="home-today-title">
-                {tour.records[0]?.name} <span>· {tour.label}</span>
+              <span className="home-tour-copy">
+                <span className="home-today-title">{tour.records[0]?.name}</span>{" "}
+                <span className="home-today-context">· {tour.label}</span>
               </span>
             </>
           );
@@ -139,7 +146,7 @@ export function TodayMeetings({ data, today }: { data: MeetingRead; today: strin
           </Fragment>
         ))}
         {timed && line === rows.length && <hr className="home-now" aria-label="Now" />}
-      </div>
+      </section>
     </section>
   );
 }
