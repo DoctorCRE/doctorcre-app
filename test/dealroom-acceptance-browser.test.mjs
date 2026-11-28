@@ -1219,6 +1219,7 @@ for (const width of [1440, 390]) test(`a fresh automatic call move shows its evi
     const mark = caption(scope);
     await mark.getByText('Moved automatically', { exact: true }).waitFor({ timeout: 5000 });
     assert.equal(await mark.count(), 1);
+    if (await mark.locator('summary').count()) await mark.locator('summary').click();
     assert.equal(await mark.locator('time[datetime="2026-10-19"]').innerText(), 'Mon, Oct 19, 2026');
     assert.match(await mark.innerText(), /Oct 18, 9:30 PM/);
   };
