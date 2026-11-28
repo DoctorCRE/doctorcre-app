@@ -154,6 +154,7 @@ const criticalDate = (n: number, due_on: string) => ({
   done: false,
 });
 const comingUpDates = [criticalDate(1, "2026-11-27"), criticalDate(2, today), criticalDate(3, "2026-12-10")];
+const sampleMeeting = { title: "Sample site visit", start: "2026-11-25T20:00:00Z", end: "2026-11-25T21:00:00Z" };
 
 // Names of any Leads board or Quiet list read Home makes.
 const leadReads: string[] = [];
@@ -166,6 +167,7 @@ async function openHome(
   dates = comingUpDates,
   home: typeof dashboard = dashboard,
   leadCounts: unknown = { schema_version: "lead-counts.v1", new_from_email: 2, follow_ups_late: 1 },
+  right = { deals, meetings: [sampleMeeting] },
 ) {
   const browser = await chromium.launch();
   t.after(() => browser.close());
@@ -197,7 +199,7 @@ async function openHome(
         viewer: null,
         meetings: {
           state: "ready",
-          items: [{ title: "Sample site visit", start: "2026-11-25T20:00:00Z", end: "2026-11-25T21:00:00Z" }],
+          items: right.meetings,
         },
       },
     }),
@@ -226,7 +228,7 @@ async function openHome(
       json: {
         jsonrpc: "2.0",
         id: call.id,
-        result: { content: [{ type: "text", text: JSON.stringify({ board_from_engine: true, deals }) }] },
+        result: { content: [{ type: "text", text: JSON.stringify({ board_from_engine: true, deals: right.deals }) }] },
       },
     });
   });
@@ -239,7 +241,6 @@ async function openHome(
 for (const [width, height] of [
   [1440, 900],
   [1280, 640],
-  [1280, 599],
 ] as const)
   test(`Home shows Reminders, Inbox and the day side by side on one ${width}x${height} screen`, async (t) => {
     const page = await openHome(t, width, height);
@@ -512,36 +513,102 @@ test("At 1280x640 every right-column tile shows whole, and each Leads count keep
   }
 });
 
-test("At 1280x599 an expanded Coming up list scrolls without covering today's meeting", async (t) => {
-  const dates = Array.from({ length: 42 }, (_, index) => criticalDate(index + 1, today));
-  const page = await openHome(t, 1280, 599, [], dates);
-  const comingUp = page.getByRole("region", { name: "Coming up", exact: true });
-  await comingUp.getByRole("button", { name: "Coming up 42 dates in the next 14 days" }).click();
-
-  const meetings = page.getByRole("region", { name: "Today's meetings", exact: true });
-  const meeting = meetings.locator("details").filter({ hasText: "Sample site visit" });
-  const summary = meeting.locator("summary");
-  const [tile, heading, row] = await Promise.all([
-    meetings.boundingBox(),
-    meetings.locator("header").boundingBox(),
-    summary.boundingBox(),
-  ]);
-  assert.ok(tile && heading && row, "the meetings tile, heading and row are drawn");
-  assert.ok(row.y >= heading.y + heading.height, "the full meeting row starts below the heading");
-  assert.ok(row.y + row.height <= tile.y + tile.height, "the full meeting row fits inside its tile");
-  await summary.getByText("Sample site visit", { exact: true }).click();
-  assert.equal(await meeting.getAttribute("open"), "");
-
-  const lastDate = comingUp.getByRole("link", { name: /Due diligence ends/ }).last();
-  await lastDate.scrollIntoViewIfNeeded();
-  assert.ok(await comingUp.evaluate((tile) => tile.scrollTop > 0), "the dates scroll inside Coming up");
-  const leads = page.getByRole("region", { name: "Leads", exact: true });
-  assert.ok(await leads.evaluate((tile) => tile.scrollHeight <= tile.clientHeight), "the Leads line stays readable");
-  assert.equal(
-    await page.locator("#appMainSlot").evaluate((main) => main.scrollHeight <= main.clientHeight),
-    true,
-    "the main area does not scroll",
+test("Crowded Home tiles keep their headings and first rows readable", async (t) => {
+  const records = Array.from({ length: 42 }, (_, index) => index + 1);
+  const dates = records.map((n) => criticalDate(n, today));
+  const busyDeals = records.map((n) =>
+    deal(n, "Research", { attention: { reason: "A next step is late.", since: "2026-11-23" } }),
   );
+  const meetings = records.map((n) => ({ ...sampleMeeting, title: `Sample visit ${n}` }));
+  const waiting = records.map((n) =>
+    card(700 + n, `Sample waiting item ${n}`, {
+      section: "snoozed",
+      disposition: "snoozed",
+      returns_at: "2026-12-01T15:00:00Z",
+      waiting_reason: "Snoozed",
+    }),
+  );
+
+  for (const [width, height, waitingCount] of [
+    [1280, 599, 42],
+    [1280, 599, 1],
+    [1280, 640, 1],
+    [390, 844, 42],
+  ] as const) {
+    await t.test(`${width}x${height} with ${waitingCount} waiting`, async (t) => {
+      const page = await openHome(
+        t,
+        width,
+        height,
+        [],
+        dates,
+        {
+          ...dashboard,
+          reminders: group(records.map((n) => card(500 + n, `Sample reminder ${n}`))),
+          inbox: group(records.map((n) => reply(600 + n, `Sample inbox item ${n}`))),
+          waiting: group(waiting.slice(0, waitingCount)),
+        },
+        { schema_version: "lead-counts.v1", new_from_email: 42, follow_ups_late: 42 },
+        { deals: busyDeals, meetings },
+      );
+      const phone = width === 390;
+      const tile = (name: string) => page.getByRole("region", { name, exact: true });
+      const comingUp = tile("Coming up");
+      if (!phone) {
+        const deals = tile("Deals");
+        await deals.getByRole("button", { name: "42 need attention" }).click();
+        await deals.evaluate((region) => {
+          region.scrollTop = 0;
+        });
+        await comingUp.getByRole("button", { name: "Coming up 42 dates in the next 14 days" }).click();
+      }
+
+      const tiles = [
+        ["Today's meetings", "summary"],
+        ["Reminders", "article"],
+        ["Inbox", "article"],
+        ["Deals", ".home-deals-counts a"],
+        ["Coming up", "li a"],
+        ["Leads", ".home-door"],
+        ["In motion and waiting", "article"],
+      ] as const;
+      for (const [name, selector] of tiles) {
+        const region = tile(name);
+        const heading = region.locator(name === "Leads" ? "strong" : ":scope > header");
+        const first = region.locator(selector).first();
+        if (phone) await first.evaluate((row) => row.scrollIntoView({ block: "center" }));
+        const [bounds, head, row] = await Promise.all([
+          region.boundingBox(),
+          heading.boundingBox(),
+          first.boundingBox(),
+        ]);
+        assert.ok(bounds && head && row, `${name} draws its heading and first row`);
+        const visibleTop = Math.max(bounds.y, 0);
+        const visibleBottom = Math.min(bounds.y + bounds.height, height);
+        assert.ok(head.y >= visibleTop && head.y + head.height <= visibleBottom, `${name} heading fits`);
+        assert.ok(row.y >= (name === "Leads" ? visibleTop : head.y + head.height), `${name} row clears the heading`);
+        assert.ok(row.y + row.height <= visibleBottom + 1, `${name} first row fits`);
+      }
+
+      const viewport = await page.evaluate(() => ({
+        width: document.documentElement.scrollWidth,
+        height: document.scrollingElement?.scrollHeight ?? 0,
+      }));
+      assert.equal(viewport.width, width, "the page does not scroll sideways");
+      if (phone) assert.ok(viewport.height > height, "the stacked phone page scrolls vertically");
+      else {
+        assert.equal(viewport.height, height, "the desktop page does not scroll");
+        await comingUp.locator("li a").last().scrollIntoViewIfNeeded();
+        assert.ok(await comingUp.evaluate((region) => region.scrollTop > 0), "dates scroll inside Coming up");
+        assert.ok(
+          await page.locator("#appMainSlot").evaluate((main) => main.scrollHeight <= main.clientHeight),
+          "the main area does not scroll",
+        );
+      }
+      await tile("In motion and waiting").getByRole("link", { name: "Sample waiting item 1", exact: true }).click();
+      await tile("Details for Sample waiting item 1").waitFor();
+    });
+  }
 });
 
 test("Coming up is not drawn when no open deal has a date in the next 14 days", async (t) => {
