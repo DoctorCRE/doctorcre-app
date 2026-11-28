@@ -70,13 +70,13 @@ export function DealsTile() {
           Board
         </a>
       </header>
-      <p className="home-deals-counts" data-home-preview={heading.length ? "" : undefined}>
+      <p className="home-deals-counts">
         <a href="/deals">{heading.join(" · ")}</a>
       </p>
       <ul className="home-phases">
         {data.phases.map((phase) => (
           <li key={phase.slug}>
-            <a href={`/deals?column=${phase.slug}`} data-home-preview data-home-target>
+            <a href={`/deals?column=${phase.slug}`}>
               {phase.label} <span>{phase.count}</span>
             </a>
           </li>
@@ -92,7 +92,7 @@ export function DealsTile() {
           <ul className="home-deals-attention">
             {data.attention.map((deal) => (
               <li key={deal.id}>
-                <a href={`/deals?deal=${encodeURIComponent(deal.id)}`} data-home-open-preview>
+                <a href={`/deals?deal=${encodeURIComponent(deal.id)}`}>
                   {deal.name} <span>{deal.reason}</span>
                 </a>
               </li>

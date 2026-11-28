@@ -223,7 +223,7 @@ export function CardTile({
             {folded.map(row)}
           </section>
         ) : (
-          <button type="button" className="home-fold" data-home-preview onClick={() => setUnfolded(true)}>
+          <button type="button" className="home-fold" onClick={() => setUnfolded(true)}>
             {folded.length} more than two weeks late
           </button>
         ))}
@@ -248,6 +248,18 @@ function revealColumnFocus(column: HTMLElement, control: HTMLElement) {
   else if (below > 0) column.scrollTop += Math.ceil(below);
 }
 
+function homePreview(group: HTMLElement): HTMLElement[] {
+  const preview: HTMLElement[] = [];
+  for (const child of group.children) {
+    if (!(child instanceof HTMLElement) || !child.offsetHeight || child.matches("header, h2, h3, hr")) continue;
+    if (group.hasAttribute("data-open") && child.matches(".home-short-fold-line")) continue;
+    const rows = child.matches("section, ul, ol") ? homePreview(child) : [child];
+    preview.push(...(rows.length ? rows : [child]));
+    if (!preview.at(-1)?.matches('[role="status"]')) break;
+  }
+  return preview;
+}
+
 function fitHomeTiles(grid: HTMLDivElement) {
   const watched = new Set<Element>([grid]);
   const openFolds = new WeakSet<HTMLElement>();
@@ -269,14 +281,10 @@ function fitHomeTiles(grid: HTMLDivElement) {
         ? Array.from(grid.querySelectorAll<HTMLElement>(":scope > .home-column > .home-slice"), (tile) => {
             const header = tile.querySelector<HTMLElement>(":scope > header");
             const fold = tile.querySelector<HTMLElement>(":scope > [data-home-fold]");
-            const control = fold?.querySelector("button");
-            const open = fold?.hasAttribute("data-open") ? fold : null;
-            const result = control?.offsetHeight ? open?.querySelector<HTMLElement>("[data-home-open-preview]") : null;
-            const first = Array.from(tile.querySelectorAll<HTMLElement>("[data-home-preview]")).find(
-              (row) => row.offsetHeight > 0,
-            );
-            const targets = tile.querySelectorAll<HTMLElement>("[data-home-target]");
-            for (const node of [header, control, result, first, ...targets]) if (node) next.add(node);
+            const control = fold?.querySelector<HTMLButtonElement>(":scope > button");
+            const open = control?.offsetHeight && fold?.hasAttribute("data-open") ? fold : null;
+            const preview = homePreview(open ?? tile);
+            const last = preview.at(-1);
 
             const css = getComputedStyle(tile);
             const paddingStart = Number.parseFloat(css.paddingBlockStart);
@@ -285,31 +293,40 @@ function fitHomeTiles(grid: HTMLDivElement) {
             const stickyStart = header?.offsetHeight
               ? paddingStart + header.offsetHeight + Number.parseFloat(getComputedStyle(header).top)
               : 0;
-            const footerHeight = open ? 0 : (control?.offsetHeight ?? 0);
+            const footerHeight = open ? 0 : (control?.getBoundingClientRect().height ?? 0);
             const stickyEnd = footerHeight ? footerHeight + paddingEnd : 0;
+            const targets = footerHeight
+              ? Array.from(tile.querySelectorAll<HTMLElement>("a[href], button, summary")).filter(
+                  (target) => target.offsetHeight && !header?.contains(target) && !fold?.contains(target),
+                )
+              : [];
+            for (const node of [header, control, ...preview, ...targets]) if (node) next.add(node);
+
             const targetHeight = Math.max(
               0,
               ...Array.from(targets, (target) => {
                 const style = getComputedStyle(target);
                 return (
-                  target.offsetHeight +
+                  target.getBoundingClientRect().height +
                   Number.parseFloat(style.scrollMarginBlockStart) +
                   Number.parseFloat(style.scrollMarginBlockEnd)
                 );
               }),
             );
-            const firstEnd = first
-              ? first.getBoundingClientRect().bottom - tile.getBoundingClientRect().top + tile.scrollTop
-              : 0;
             // An open fold can scroll past the phases, but its first result and control fit together.
-            const body =
-              result && open
-                ? stickyStart + result.getBoundingClientRect().bottom - open.getBoundingClientRect().top
-                : Math.max(firstEnd, stickyStart + targetHeight);
-            const minimum = Math.ceil(body + paddingEnd + footerHeight);
-            const reveal = result && open && !openFolds.has(open) ? open : null;
+            const previewStart = open
+              ? open.getBoundingClientRect().top - stickyStart
+              : tile.getBoundingClientRect().top - tile.scrollTop;
+            const minimum = last
+              ? Math.ceil(
+                  Math.max(last.getBoundingClientRect().bottom - previewStart, stickyStart + targetHeight) +
+                    paddingEnd +
+                    footerHeight,
+                )
+              : null;
+            const reveal = last && open && !openFolds.has(open) ? open : null;
             if (fold) {
-              if (result && open) openFolds.add(open);
+              if (last && open) openFolds.add(open);
               else openFolds.delete(fold);
             }
             return { tile, minimum, stickyStart, stickyEnd, reveal };
@@ -331,12 +348,15 @@ function fitHomeTiles(grid: HTMLDivElement) {
         ["--home-sticky-start", stickyStart],
         ["--home-sticky-end", stickyEnd],
       ] as const) {
-        const pixels = `${value}px`;
+        const pixels = value === null ? "" : `${value}px`;
         if (tile.style.getPropertyValue(property) !== pixels) tile.style.setProperty(property, pixels);
       }
     }
     for (const { tile, minimum, stickyStart, stickyEnd, reveal } of sizes) {
-      tile.toggleAttribute("data-home-fitted", stickyEnd > 0 && tile.getBoundingClientRect().height >= minimum);
+      tile.toggleAttribute(
+        "data-home-fitted",
+        minimum !== null && stickyEnd > 0 && tile.getBoundingClientRect().height >= minimum,
+      );
       if (reveal) {
         tile.scrollTop += reveal.getBoundingClientRect().top - tile.getBoundingClientRect().top - stickyStart;
         tile.scrollIntoView({ block: "nearest", behavior: "instant" });

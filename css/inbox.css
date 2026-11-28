@@ -109,11 +109,11 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
   .home-column.home-side { flex-grow: 0.75; }
   .home-column:empty { display: none; }
   /* Expanded dates reach their measured minimum first. Other lists yield in proportion to their size. */
-  .home-column > * { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
-  .home-column > .home-tile-status { min-block-size: min-content; }
-  .home-column > .home-slice {
+  .home-column > * {
     /* When the minimums do not fit, the column scrolls rather than squeezing the tiles. */
-    min-block-size: var(--home-preview-size, 0px);
+    flex: 0 1 auto;
+    min-block-size: var(--home-preview-size, min-content);
+    overflow-y: auto;
     scroll-padding-block: var(--home-sticky-start, 0px) var(--home-sticky-end, 0px);
   }
   .home-column:not(.home-side) > :first-child { flex-grow: 1; }

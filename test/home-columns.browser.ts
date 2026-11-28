@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import test, { after, before, type TestContext } from "node:test";
+import type { Locator, Page } from "playwright";
 import { buildArtifact } from "../scripts/artifact.mjs";
 import { temporaryDirectory } from "../scripts/temp-directory.mjs";
 import { chromium } from "./browser-harness.mjs";
@@ -173,6 +174,8 @@ async function openHome(
     touch?: boolean;
     theme?: "light";
     failedRead?: "weekly review" | "critical dates";
+    beforeLoad?: (page: Page) => Promise<void>;
+    waitForReady?: false;
   } = {},
 ) {
   const browser = await chromium.launch();
@@ -250,7 +253,9 @@ async function openHome(
       },
     });
   });
+  await right.beforeLoad?.(page);
   await page.goto(`${server.origin}/?mode=live`);
+  if (right.waitForReady === false) return page;
   await page.getByRole("region", { name: "Reminders", exact: true }).waitFor();
   await page.waitForFunction(() => !document.querySelector(".home-placeholder"));
   return page;
@@ -982,6 +987,203 @@ test("At 1280x599 every control in the scrolling column stays visible in both Ta
         "the page and main area stay put",
       );
     });
+  }
+});
+
+async function assertHomePreview(tile: Locator, label: string, ...selectors: string[]) {
+  const { clipped, height } = await tile.evaluate((node, selectors) => {
+    node.scrollIntoView({ block: "start", behavior: "instant" });
+    const bounds = node.getBoundingClientRect();
+    const parent = node.closest(".home-column, #appMainSlot");
+    if (!parent) throw Error("Missing Home layout");
+    const column = parent.getBoundingClientRect();
+    const top = Math.max(bounds.top, column.top + parent.clientTop);
+    const bottom = Math.min(bounds.bottom, column.top + parent.clientTop + parent.clientHeight);
+    const parts = selectors.length ? selectors.map((selector) => node.querySelector(selector)) : [node];
+    const clipped = parts.map((part, index) => {
+      const box = part?.getBoundingClientRect();
+      if (!box?.height || !part) return `${selectors[index]} is missing`;
+      const cut = Math.max(top - box.top, box.bottom - bottom, part.scrollHeight - part.clientHeight);
+      return cut > 0.5 ? `${selectors[index] ?? "notice"} is clipped by ${cut}px` : null;
+    });
+    return { clipped: clipped.filter(Boolean), height: bounds.height };
+  }, selectors);
+  assert.equal(clipped.length, 0, `${label} (${height}px): ${clipped.join(", ")}`);
+}
+
+test("Home protects each rendered tile preview as reads change state", async (t) => {
+  const dates = Array.from({ length: 42 }, (_, index) => criticalDate(index + 1, today));
+  const attentionDeals = Array.from({ length: 42 }, (_, index) =>
+    deal(index + 1, "Research", { attention: { reason: "A next step is late." } }),
+  );
+  const crowded = {
+    ...dashboard,
+    reminders: group(dates.map((_, index) => card(600 + index, `Sample reminder ${index + 1}`))),
+    inbox: group(dates.map((_, index) => reply(700 + index, `Sample Inbox item ${index + 1}`))),
+    waiting: group(
+      dates.map((_, index) =>
+        card(800 + index, `Sample waiting item ${index + 1}`, {
+          section: "snoozed",
+          disposition: "snoozed",
+          returns_at: "2026-12-01T15:00:00Z",
+          waiting_reason: "Snoozed",
+        }),
+      ),
+    ),
+  };
+  const todayPath = "**/api/engine/home/today";
+  const emptyReads = [
+    [todayPath, { ok: true, schema_version: "home-today.v1", today, meetings: { state: "empty", items: [] } }],
+    [
+      "**/api/engine/home/inbox?view=dashboard&contract=home-inbox.v6",
+      { ...dashboard, reminders: group([]), inbox: group([]), waiting: group([]) },
+    ],
+    ["**/api/engine/weekly-reviews?week_of=2026-11-23", { items: [] }],
+    ["**/api/engine/calendar/critical-dates", { schema_version: "calendar-critical-dates.v1", critical_dates: [] }],
+    ["**/api/engine/leads/counts", { schema_version: "lead-counts.v1", new_from_email: 0, follow_ups_late: 0 }],
+  ] as const;
+  const tiles = [
+    ["Reminders", "article"],
+    ["Inbox", "article"],
+    ["In motion and waiting", "article"],
+    ["Today's meetings", "summary"],
+    ["Deals", ".home-deals-counts"],
+    ["Coming up", "li"],
+    ["Leads", ".home-door"],
+  ] as const;
+
+  for (const height of [599, 640, 900]) {
+    for (const touch of [false, true]) {
+      await t.test(`1280x${height} ${touch ? "touch" : "pointer"}`, async (t) => {
+        const todayRead = Promise.withResolvers<void>();
+        const holds = new Map([[todayPath, todayRead.promise]]);
+        let response: "fixture" | "failed" | "empty" = "fixture";
+        const page = await openHome(t, 1280, height, [], dates, crowded, undefined, {
+          touch,
+          deals: attentionDeals,
+          meetings: busyMeetings,
+          waitForReady: false,
+          beforeLoad: async (page) => {
+            for (const [path, json] of emptyReads) {
+              await page.route(path, async (route) => {
+                if (response === "failed") return route.fulfill({ status: 503 });
+                if (response === "empty") return route.fulfill({ json });
+                await holds.get(path);
+                return route.fallback();
+              });
+            }
+          },
+        });
+        const tile = (name: string) => page.getByRole("region", { name, exact: true });
+        const notice = (text: string) => page.getByText(text, { exact: true });
+        const skeletons = page.locator(".home-column > .home-placeholder");
+        const short = height < 900;
+        const attention = tile("Deals").getByRole("button", { name: "42 need attention" });
+        const datesFold = tile("Coming up").getByRole("button", { name: "Coming up 42 dates in the next 14 days" });
+        async function openFolds() {
+          if (!short) return;
+          await attention.click();
+          await datesFold.click();
+        }
+        try {
+          await tile("Leads").waitFor();
+          await openFolds();
+          await tile("Deals").locator(".home-deals-attention li").first().waitFor();
+          await tile("Coming up").waitFor();
+          await assertHomePreview(
+            page.locator(".home-side > .home-placeholder"),
+            "Meetings skeleton",
+            "header",
+            ".home-placeholder-row",
+          );
+        } finally {
+          todayRead.resolve();
+        }
+        for (const offline of [false, true]) {
+          if (offline) {
+            await page.context().setOffline(true);
+            await assertHomePreview(notice("Offline. Showing the last available update."), "Offline notice");
+          }
+          for (const [name, row] of tiles) {
+            const preview = short && name === "Deals" ? ".home-deals-attention li" : row;
+            const parts = name === "Leads" ? [preview] : ["header", preview];
+            if (short && (name === "Deals" || name === "Coming up")) parts.push(".home-short-fold-line");
+            await assertHomePreview(tile(name), name, ...parts);
+          }
+        }
+        await page.context().setOffline(false);
+        if (short) {
+          await attention.click();
+          await datesFold.click();
+          await tile("Deals").evaluate((node) => {
+            node.scrollTop = 0;
+          });
+          await assertHomePreview(
+            tile("Deals"),
+            "Closed Deals",
+            "header",
+            ".home-deals-counts",
+            ".home-short-fold-line",
+          );
+          await assertHomePreview(tile("Coming up"), "Closed Coming up", ".home-short-fold-line");
+        }
+        assert.deepEqual(
+          await page.evaluate(() => [scrollY, document.querySelector("#appMainSlot")?.scrollTop]),
+          [0, 0],
+        );
+
+        const toursPath = "**/api/engine/calendar/meetings?*";
+        await page.route(toursPath, (route) => route.fulfill({ status: 503 }));
+        await page.reload();
+        await notice("Tours unavailable.").waitFor();
+        await openFolds();
+        await assertHomePreview(
+          tile("Today's meetings"),
+          "Meetings with tours unavailable",
+          "header",
+          "[role=status]",
+          "summary",
+        );
+        await page.unroute(toursPath);
+
+        const otherReads = Promise.withResolvers<void>();
+        for (const [path] of emptyReads) if (path !== todayPath) holds.set(path, otherReads.promise);
+        try {
+          await page.reload();
+          await tile("Today's meetings").waitFor();
+          assert.equal(await tile("Leads").count(), 0, "Leads is omitted until its counts arrive");
+          const loading = await skeletons.all();
+          assert.equal(loading.length, 4, "Reminders, Inbox, Deals and Coming up show loading previews");
+          for (const skeleton of loading)
+            await assertHomePreview(skeleton, "Loading tile", "header", ".home-placeholder-row");
+        } finally {
+          otherReads.resolve();
+        }
+        await tile("Leads").waitFor();
+
+        response = "failed";
+        await page.reload();
+        await assertHomePreview(
+          page.getByRole("alert").filter({ hasText: "Reminders and Inbox unavailable" }),
+          "Inbox read failure",
+          "h2",
+          "p",
+          "button",
+        );
+        for (const text of ["Meetings unavailable.", "Deals unavailable.", "Coming up unavailable."])
+          await assertHomePreview(notice(text), text);
+        await assertHomePreview(tile("Leads"), "Leads read failure", ".home-door", ".home-door-detail");
+        assert.equal(await notice("Lead counts unavailable").count(), 1);
+
+        response = "empty";
+        await page.reload();
+        await page.locator(".home-sections").waitFor({ state: "attached" });
+        await page.waitForFunction(
+          () => !document.querySelector(".home-placeholder, .home-tile-status, .home-read-status"),
+        );
+        for (const [name] of tiles) assert.equal(await tile(name).count(), 0, `${name} is omitted when empty`);
+      });
+    }
   }
 });
 

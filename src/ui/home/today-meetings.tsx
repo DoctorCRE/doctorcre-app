@@ -39,7 +39,7 @@ function MeetingLine({ row: { meeting }, now }: { row: MeetingRow; now: number }
   const past = ended(meeting, now);
   return (
     <details className="home-today-row" data-ended={past || undefined}>
-      <summary data-home-preview>
+      <summary>
         <time className="home-today-time" dateTime={meeting.start}>
           {meeting.all_day === true ? "All day" : clock.format(new Date(meeting.start))}
         </time>
@@ -111,11 +111,11 @@ export function TodayMeetings({ data, today }: { data: MeetingRead; today: strin
         </a>
       </header>
       {tours.isError && (
-        <p className="home-tile-status" data-home-preview={count ? undefined : ""}>
+        <p className="home-tile-status" role="status">
           Tours unavailable.
         </p>
       )}
-      <div className="home-today-list">
+      <section className="home-today-list">
         {tourRows.map((tour) => {
           const deal = href(tour.records[0]?.url);
           const body = (
@@ -127,11 +127,11 @@ export function TodayMeetings({ data, today }: { data: MeetingRead; today: strin
             </>
           );
           return deal ? (
-            <a className="home-today-row home-tour" href={deal} key={tour.key} data-home-preview>
+            <a className="home-today-row home-tour" href={deal} key={tour.key}>
               {body}
             </a>
           ) : (
-            <div className="home-today-row home-tour" key={tour.key} data-home-preview>
+            <div className="home-today-row home-tour" key={tour.key}>
               {body}
             </div>
           );
@@ -143,7 +143,7 @@ export function TodayMeetings({ data, today }: { data: MeetingRead; today: strin
           </Fragment>
         ))}
         {timed && line === rows.length && <hr className="home-now" aria-label="Now" />}
-      </div>
+      </section>
     </section>
   );
 }

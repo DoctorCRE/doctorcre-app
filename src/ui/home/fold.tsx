@@ -20,13 +20,7 @@ export function Fold({
       data-open={open || undefined}
       data-home-fold={keepCollapsedVisible ? "" : undefined}
     >
-      <button
-        type="button"
-        className="home-short-fold-line"
-        data-home-preview={open ? undefined : ""}
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-      >
+      <button type="button" className="home-short-fold-line" aria-expanded={open} onClick={() => setOpen(!open)}>
         {line}
       </button>
       {children}
