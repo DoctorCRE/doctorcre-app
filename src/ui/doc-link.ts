@@ -3,8 +3,8 @@ const path = "/api/engine/doc/link";
 export const docLinkMessages = {
   not_set_up: "Doc isn't set up on your Mac yet.",
   mac_off: "Doc answers when your Mac is on.",
-  signed_out: "Sign in to Claude Code on your Mac.",
-  plan_limited: "Doc is paused until your Claude plan resets.",
+  signed_out: "Sign in to Doc's model on your Mac.",
+  plan_limited: "Doc is paused until your model's plan resets.",
   ready: "Doc is ready on your Mac.",
 } as const;
 
