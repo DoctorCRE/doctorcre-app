@@ -86,6 +86,14 @@ test("a saved link to My work keeps showing the vendors recorded as yours", asyn
   await expectVendorScreen(page, screenFor(roster, { view, page: 2 }));
 });
 
+test("reloading Banking reads the same list again", async (t) => {
+  const { page } = await openVendors(t, roster, { view: banking });
+  const expected = screenFor(roster, { view: banking });
+  await expectVendorScreen(page, expected);
+  await page.reload();
+  await expectVendorScreen(page, expected);
+});
+
 test("a refresh keeps keyboard focus on the same tile", async (t) => {
   const { page } = await openVendors(t, roster);
   await expectVendorScreen(page, screenFor(roster));

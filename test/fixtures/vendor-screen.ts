@@ -1,7 +1,6 @@
 import type { TestContext } from "node:test";
 import { expect } from "@playwright/test";
 import type { Page } from "playwright";
-import { parse } from "yaml";
 import { chromium } from "../browser-harness.mjs";
 import { ownedServer } from "../fixture-probe.ts";
 import { directoryFixture, PAGE_SIZE, type VendorRoster } from "./vendor-directory.synthetic.mjs";
@@ -10,11 +9,15 @@ const origin = "http://fixture.test";
 const fixtureTime = Date.parse("2026-11-28T15:30:00Z");
 const listPath = "/api/v1/business/vendors";
 const localParams = new Set(["record", "relationship", "market"]);
+const automationFields = new Set(["ref", "active", "cursor"]);
 
 type Address = ReturnType<typeof address>;
 type ListRequest = Address & { method: string };
-type ScreenRead = { navigation: number; query: string; readsList: boolean };
-const pageReads = new WeakMap<Page, { urls: ListRequest[]; navigation: number; previous?: ScreenRead }>();
+type ScreenRead = { navigation: number; document: number; query: string; readsList: boolean };
+const pageReads = new WeakMap<
+  Page,
+  { urls: ListRequest[]; navigation: number; document: number; previous?: ScreenRead }
+>();
 
 function address(url: URL) {
   return { path: url.pathname, query: [...url.searchParams.entries()].sort() };
@@ -69,8 +72,9 @@ export async function openVendors(
     );
   await page.clock.setFixedTime(fixtureTime);
   const listReads: ListRequest[] = [];
-  const reads = { urls: listReads, navigation: 0 };
+  const reads = { urls: listReads, navigation: 0, document: 0 };
   pageReads.set(page, reads);
+  page.on("domcontentloaded", () => reads.document++);
   page.on("framenavigated", (frame) => {
     if (frame !== page.mainFrame()) return;
     reads.navigation++;
@@ -137,17 +141,20 @@ function relationshipRank(vendor: Vendor) {
   return vendor.relationship_level === null ? 4 : 3 - vendor.relationship_level;
 }
 
-type AriaNode = string | { [role: string]: string | AriaNode[] };
-const node = (role: string, value?: string | AriaNode[]): AriaNode =>
-  value === undefined || value.length === 0 ? role : { [role]: value };
-const named = (role: string, label: string) => `${role} ${JSON.stringify(label)}`;
-const generic = (value: string | AriaNode[]) => node("generic", value);
-const text = (value: string) => node("text", value);
-const button = (label: string, pressed = false, children?: AriaNode[]) =>
-  node(named("button", label) + (pressed ? " [pressed]" : ""), children);
-const searchbox = (label: string, value: string) => node(named("searchbox", label), value);
-const link = (label: string, href: string, children: AriaNode[] = []) =>
-  node(named("link", label), [node("/url", href), ...children]);
+type AriaState = { name?: string; url?: string; pressed?: true; level?: number };
+type AriaNode = string | (AriaState & { role: string; text?: string; children?: AriaNode[] });
+function node(role: string, content?: string | AriaNode[], state: AriaState = {}): AriaNode {
+  return {
+    role,
+    ...state,
+    ...(content?.length && (typeof content === "string" ? { text: content } : { children: content })),
+  };
+}
+const generic = (content: string | AriaNode[]) => node("generic", content);
+const button = (name: string, pressed = false, children?: AriaNode[]) =>
+  node("button", children, { name, ...(pressed && { pressed: true }) });
+const searchbox = (name: string, value: string) => node("searchbox", value, { name });
+const link = (name: string, url: string, children?: AriaNode[]) => node("link", children, { name, url });
 const words = (...parts: (string | null)[]) => parts.filter(Boolean).join(" ");
 
 function vendorHref(params: URLSearchParams, record?: string) {
@@ -196,7 +203,7 @@ function tile(label: string, rows: Vendor[], phone: boolean, href: string) {
         ? [
             node(
               "list",
-              mix.map(({ label, count }) => node("listitem", [generic(String(count)), text(label)])),
+              mix.map(({ label, count }) => node("listitem", [generic(String(count)), label])),
             ),
           ]
         : []),
@@ -238,15 +245,9 @@ function rowAria(row: Vendor, query: URLSearchParams, phone: boolean, inCategory
       target ? generic([generic(row.name), generic(target)]) : generic(row.name),
       ...(visibleFacts.length === 1 ? visibleFacts : [generic(visibleFacts)]),
       ...(contact
-        ? [
-            generic([
-              generic("Last contacted"),
-              date ? node("time", date) : text(contact),
-              ...(days ? [text(days)] : []),
-            ]),
-          ]
+        ? [generic([generic("Last contacted"), date ? node("time", date) : contact, ...(days ? [days] : [])])]
         : []),
-      ...(owner ? [generic([generic("Owner:"), text(owner)])] : []),
+      ...(owner ? [generic([generic("Owner:"), owner])] : []),
     ]),
   ]);
 }
@@ -274,21 +275,26 @@ function territoryTiles(markets: VendorRoster["markets"], rows: Vendor[], select
     })),
   ];
   return node(
-    named("group", "Territories"),
+    "group",
     counts.map(({ id, label, count }) =>
       button(`${label} ${count}`, id === selected, [generic(label), generic(String(count))]),
     ),
+    { name: "Territories" },
   );
 }
 
 function tableControls(rows: Vendor[], counted: boolean, relation: string | null, quiet: boolean) {
   const counts = counted ? tally(rows).filter(({ key, count }) => count > 0 || key === relation) : [];
   const control = (label: string, count: number, pressed: boolean) =>
-    button(`${label} ${count}`, pressed, [text(label), generic(String(count))]);
-  return node(named("group", "Show only"), [
-    ...counts.map(({ key, label, count }) => control(label, count, key === relation)),
-    counted ? control("Quiet", rows.filter((row) => row.quiet).length, quiet) : button("Quiet", quiet),
-  ]);
+    button(`${label} ${count}`, pressed, [label, generic(String(count))]);
+  return node(
+    "group",
+    [
+      ...counts.map(({ key, label, count }) => control(label, count, key === relation)),
+      counted ? control("Quiet", rows.filter((row) => row.quiet).length, quiet) : button("Quiet", quiet),
+    ],
+    { name: "Show only" },
+  );
 }
 
 function listRequests(query: URLSearchParams, pages: number, markets: boolean) {
@@ -373,13 +379,13 @@ export function screenFor(
   const title = place ? `Vendors / ${place}` : "Vendors";
   const summary =
     place && phone
-      ? node("paragraph", [text(place), generic(`· ${status}`)])
+      ? node("paragraph", [place, generic(`· ${status}`)])
       : node("paragraph", place ? `${place} · ${status}` : loading && category ? "" : status);
   const ownerParams = new URLSearchParams(owner ? { owner } : {});
   const heading = generic([
-    `${named("heading", title)} [level=1]`,
+    node("heading", undefined, { name: title, level: 1 }),
     ...(inCategory ? [link("‹ Vendors /", vendorHref(ownerParams))] : []),
-    text(inCategory ? "/" : "‹/ /"),
+    inCategory ? "/" : "‹/ /",
     summary,
     ...(live ? [button("New vendor")] : []),
   ]);
@@ -420,32 +426,39 @@ export function screenFor(
   const noCategoryRows = owned.filter((row) => row.categories.length === 0);
   if (noCategoryRows.length)
     categoryTiles.push(tile("No category", noCategoryRows, phone, tileHref("no_category", "true")));
-  const stamp = node(
-    named("generic", "Status"),
-    loading ? "Checking…" : showTiles && !afterList ? "Updating…" : "Updated 9:30 AM",
+  const stamp = node("generic", loading ? "Checking…" : showTiles && !afterList ? "Updating…" : "Updated 9:30 AM", {
+    name: "Status",
+  });
+  const meetingsView = node(
+    "region",
+    [
+      node("heading", undefined, { name: "Research", level: 2 }),
+      generic(["Search people and offices", searchbox("Search people and offices", "")]),
+      generic([node("alert", "People could not be loaded. Try again."), button("Retry people")]),
+    ],
+    { name: "People worth meeting" },
   );
-  const meetingsView = node(named("region", "People worth meeting"), [
-    `${named("heading", "Research")} [level=2]`,
-    generic([text("Search people and offices"), searchbox("Search people and offices", "")]),
-    generic([node("alert", "People could not be loaded. Try again."), button("Retry people")]),
-  ]);
   return {
     address: address(url),
     requests: showTiles ? [] : listRequests(query, page, marketsEnabled),
     quietRows: showRows ? rows.filter((row) => row.quiet).map((row) => row.id) : [],
     tabs: [
-      node(named("group", "Vendors views"), [
-        heading,
-        ...(slottedSearch && !meetings ? [searchField] : []),
-        node(named("group", "Vendor views"), [
-          button("Categories", !meetings),
-          button("People worth meeting", meetings),
-        ]),
-        node(
-          named("group", "Record scope"),
-          ["All", "Joe", "Dell"].map((label) => button(label, (owner ?? "all") === label.toLowerCase())),
-        ),
-      ]),
+      node(
+        "group",
+        [
+          heading,
+          ...(slottedSearch && !meetings ? [searchField] : []),
+          node("group", [button("Categories", !meetings), button("People worth meeting", meetings)], {
+            name: "Vendor views",
+          }),
+          node(
+            "group",
+            ["All", "Joe", "Dell"].map((label) => button(label, (owner ?? "all") === label.toLowerCase())),
+            { name: "Record scope" },
+          ),
+        ],
+        { name: "Vendors views" },
+      ),
     ],
     main: [
       node(
@@ -458,11 +471,24 @@ export function screenFor(
                 : []),
               ...territories,
               ...(marketsEnabled ? filters : []),
-              node(named("region", title), [node("list", showTiles ? categoryTiles : list)]),
+              node("region", [node("list", showTiles ? categoryTiles : list)], { name: title }),
             ],
       ),
     ],
   };
+}
+
+function snapshotContent(value: unknown): unknown {
+  if (!Array.isArray(value)) return value;
+  return value.map((entry: unknown) =>
+    entry !== null && typeof entry === "object"
+      ? Object.fromEntries(
+          Object.entries(entry)
+            .filter(([key]) => !automationFields.has(key))
+            .map(([key, content]) => [key, key === "children" ? snapshotContent(content) : content]),
+        )
+      : entry,
+  );
 }
 
 export async function expectVendorScreen(page: Page, expected: ReturnType<typeof screenFor>) {
@@ -470,19 +496,19 @@ export async function expectVendorScreen(page: Page, expected: ReturnType<typeof
   if (!reads) throw new Error("Vendors request capture must start before navigation");
   const { previous } = reads;
   const query = JSON.stringify(expected.address.query.filter(([key]) => !localParams.has(key)));
-  // Opening a card or changing a local filter moves the address without fetching a list.
+  // A new document reads its list even when the query is the same. Local filters and cards only move the address.
   const readsList =
-    previous?.navigation === reads.navigation && previous.query === query
-      ? (previous?.readsList ?? true)
-      : previous?.query !== query;
+    previous?.document !== reads.document ||
+    (previous.navigation === reads.navigation && previous.query === query
+      ? previous.readsList
+      : previous.query !== query);
   const wanted = { ...expected, requests: readsList ? expected.requests : [] };
   await expect
     .poll(async () => {
       const [tabs, main] = await Promise.all(
         ["#appTabsSlot", "main.business-shell"].map(async (selector): Promise<unknown> => {
-          const snapshot = await page.locator(selector).ariaSnapshot({ mode: "ai" });
-          // AI mode includes visible content below hidden ancestors and adds transient automation metadata.
-          return parse(snapshot.replace(/ \[(?:ref=e\d+|active|cursor=pointer)\]/g, ""));
+          const snapshot: unknown = await page.locator(selector).ariaSnapshotJSON({ mode: "ai" });
+          return snapshotContent(snapshot);
         }),
       );
       const quietRows = await page
@@ -492,5 +518,5 @@ export async function expectVendorScreen(page: Page, expected: ReturnType<typeof
       return { address: address(new URL(page.url())), requests, quietRows, tabs, main };
     })
     .toEqual(wanted);
-  reads.previous = { navigation: reads.navigation, query, readsList };
+  reads.previous = { navigation: reads.navigation, document: reads.document, query, readsList };
 }
