@@ -102,16 +102,6 @@ const dashboard = {
   ]),
 };
 
-const lead = (n: number, fields: Record<string, unknown> = {}) => ({
-  id: `lead-${n}`,
-  stage: "new",
-  suppressed: false,
-  doctor_name: `Sample Lead ${n}`,
-  possible_clients: [],
-  ...fields,
-});
-const leads = [lead(1, { new_from_email: true }), lead(2), lead(3, { new_from_email: true }), lead(4)];
-
 const deal = (n: number, phase: string, fields: Record<string, unknown> = {}) => ({
   id: id(100 + n),
   name: `Example Deal ${n}`,
@@ -164,6 +154,9 @@ const criticalDate = (n: number, due_on: string) => ({
   done: false,
 });
 const comingUpDates = [criticalDate(1, "2026-11-27"), criticalDate(2, today), criticalDate(3, "2026-12-10")];
+
+// Names of any Leads board or Quiet list read Home makes.
+const leadReads: string[] = [];
 
 async function openHome(
   t: TestContext,
@@ -224,26 +217,17 @@ async function openHome(
   await page.route("**/api/engine/calendar/critical-dates", (route) =>
     route.fulfill({ json: { schema_version: "calendar-critical-dates.v1", critical_dates: dates } }),
   );
+  await page.route("**/api/engine/leads/counts", (route) =>
+    route.fulfill({ json: { schema_version: "lead-counts.v1", new_from_email: 2, follow_ups_late: 1 } }),
+  );
   await page.route("**/mcp", async (route) => {
     const call = route.request().postDataJSON();
-    const board = call.params.name === "deal-room-board" && { board_from_engine: true, deals };
-    const payload =
-      call.params.name === "lead-board"
-        ? { schema_version: "lead-workspace.v1", generated_at: "2026-11-25T15:00:00Z", leads }
-        : {
-            schema_version: "quiet-follow-ups.v1",
-            cadence: { lead_days: 45, vendor_days: 90 },
-            proposals: [
-              { subject_type: "lead", subject_id: "lead-2", ref: null, name: "Sample Lead Two", basis: "created_at" },
-            ].map((row) => ({ ...row, anchor_on: "2026-10-01", due_on: "2026-11-15", days_overdue: 10 })),
-            sent: false,
-            tasks_created: false,
-          };
+    if (["lead-board", "quiet-follow-ups"].includes(call.params.name)) leadReads.push(call.params.name);
     await route.fulfill({
       json: {
         jsonrpc: "2.0",
         id: call.id,
-        result: { content: [{ type: "text", text: JSON.stringify(board || payload) }] },
+        result: { content: [{ type: "text", text: JSON.stringify({ board_from_engine: true, deals }) }] },
       },
     });
   });
@@ -337,6 +321,7 @@ test("The Leads line counts new and late leads and opens Leads", async (t) => {
   const line = page.getByRole("region", { name: "Leads", exact: true }).getByRole("link");
   assert.equal(await line.textContent(), "Leads2 new from email · 1 follow-up late");
   assert.equal(await line.getAttribute("href"), "/leads");
+  assert.deepEqual(leadReads, [], "Home reads no Leads board or Quiet list");
 });
 
 test("At 1440 a waiting row keeps its whole return date and gives the rest to the title", async (t) => {

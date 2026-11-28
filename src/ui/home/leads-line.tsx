@@ -1,17 +1,21 @@
 import { useQuery } from "@tanstack/react-query";
-import type { leadBadgeCounts } from "../../../js/leads-model.js";
 
-type Counts = ReturnType<typeof leadBadgeCounts>;
-const sibling = (path: string) => import(new URL(path, import.meta.url).href);
+type Counts = { newFromEmail: number; followUpsLate: number };
+const count = (value: unknown) => (Number.isSafeInteger(value) && Number(value) >= 0 ? Number(value) : null);
 
-async function readLeadCounts(): Promise<Counts> {
-  const [{ createLeadBoardClient }, model] = await Promise.all([
-    sibling("./leads-client.js"),
-    sibling("./leads-model.js"),
-  ]);
-  const client = createLeadBoardClient();
-  const [workspace, quiet] = await Promise.all([client.getWorkspace(), client.getQuietFollowUps()]);
-  return model.leadBadgeCounts(workspace.leads, quiet.proposals);
+// The engine counts the Leads board's New from email and Follow-up late badges.
+async function readLeadCounts(signal: AbortSignal): Promise<Counts> {
+  const { sessionFetch } = await import(new URL("./private-session.js", import.meta.url).href);
+  const response: Response = await sessionFetch("/api/engine/leads/counts", {
+    signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
+  });
+  if (!response.ok) throw Error("Lead counts unavailable");
+  const answer = await response.json();
+  const newFromEmail = count(answer?.new_from_email);
+  const followUpsLate = count(answer?.follow_ups_late);
+  if (answer?.schema_version !== "lead-counts.v1" || newFromEmail === null || followUpsLate === null)
+    throw Error("Lead counts unavailable");
+  return { newFromEmail, followUpsLate };
 }
 
 function leadsSummary({ newFromEmail, followUpsLate }: Counts) {
@@ -27,7 +31,7 @@ function leadsSummary({ newFromEmail, followUpsLate }: Counts) {
 export function LeadsLine() {
   const leads = useQuery({
     queryKey: ["home-leads"],
-    queryFn: readLeadCounts,
+    queryFn: ({ signal }) => readLeadCounts(signal),
     // eslint-disable-next-line no-restricted-syntax -- The Leads counts read once a minute while visible and online.
     refetchInterval: () => (navigator.onLine && document.visibilityState === "visible" ? 60_000 : false),
   });
