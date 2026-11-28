@@ -11,12 +11,22 @@ export function Fold({ label, line, children }: { label: string; line: ReactNode
     const firstRow = button.parentElement?.querySelector(":scope > ul > li:first-child > a");
     if (!tile || !firstRow) return;
 
+    const margin = Number.parseFloat(getComputedStyle(firstRow).scrollMarginBlockStart);
+    const contentHeight = firstRow.getBoundingClientRect().bottom - button.getBoundingClientRect().top;
+    tile.style.setProperty("--home-open-fold-size", `${Math.ceil(margin + contentHeight)}px`);
+
     const { top, bottom } = tile.getBoundingClientRect();
-    const stickyBottom = tile.querySelector(":scope > header")?.getBoundingClientRect().bottom ?? top;
-    const spaceAboveButton = Math.floor(button.getBoundingClientRect().top - stickyBottom);
-    const rowOverflow = Math.ceil(firstRow.getBoundingClientRect().bottom - bottom);
-    const scroll = Math.min(Math.max(0, rowOverflow), spaceAboveButton);
+    const first = firstRow.getBoundingClientRect();
+    const buttonTop = button.getBoundingClientRect().top;
+    const visibleTop = top + margin;
+    const visibleHeight = bottom - visibleTop;
+    const targetTop = first.bottom - buttonTop <= visibleHeight ? buttonTop : first.top;
+    let scroll = Math.ceil(Math.max(0, first.bottom - bottom));
+    if (targetTop < visibleTop || first.height > visibleHeight) scroll = Math.floor(targetTop - visibleTop);
     if (scroll !== 0) tile.scrollBy({ top: scroll, behavior: "instant" });
+    return () => {
+      tile.style.removeProperty("--home-open-fold-size");
+    };
   }, [open]);
   return (
     <section className="home-short-fold" aria-label={label} data-open={open || undefined}>

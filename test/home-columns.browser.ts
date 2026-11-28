@@ -171,11 +171,12 @@ async function openHome(
     deals?: typeof deals;
     meetings?: (typeof sampleMeeting)[];
     touch?: boolean;
+    classicScrollbars?: boolean;
     theme?: "light";
     failedRead?: "weekly review" | "critical dates";
   } = {},
 ) {
-  const browser = await chromium.launch();
+  const browser = await chromium.launch(right.classicScrollbars ? { ignoreDefaultArgs: ["--hide-scrollbars"] } : {});
   t.after(() => browser.close());
   const page = await browser.newPage({
     viewport: { width, height },
@@ -583,17 +584,21 @@ const wrappedDeal = deal(1, "Research", {
   },
 });
 
-for (const [width, height, touch] of [
-  [1280, 640, false],
-  [1280, 640, true],
-  [1440, 900, false],
+for (const [width, height, touch, classicScrollbars] of [
+  [1280, 640, false, false],
+  [1280, 640, false, true],
+  [1280, 640, true, false],
+  [1280, 640, true, true],
+  [1440, 900, false, false],
 ] as const)
-  test(`At ${width}x${height} only overflowing Home tiles scroll and every heading is in view${touch ? " with touch" : ""}`, async (t) => {
+  test(`At ${width}x${height} only overflowing Home tiles scroll and every heading is in view${touch ? " with touch" : ""}${classicScrollbars ? " with 15px scrollbars" : ""}`, async (t) => {
     const short = height === 640;
     const dates = Array.from({ length: short ? 4 : 30 }, (_, index) => criticalDate(index + 1, today));
+    dates[0] = { ...criticalDate(1, today), kind: "Last day to confirm the revised due diligence terms" };
     const attention = Array.from({ length: short ? 5 : 30 }, (_, index) =>
       deal(index + 1, "Research", { attention: { reason: "A next step is late." } }),
     );
+    attention[0] = { ...wrappedDeal, name: "Sample practice second-floor renovation and parking study" };
     const page = await openHome(
       t,
       width,
@@ -615,9 +620,17 @@ for (const [width, height, touch] of [
         ),
       },
       undefined,
-      { deals: attention, meetings: busyMeetings, touch },
+      { deals: attention, meetings: busyMeetings, touch, classicScrollbars },
     );
     await page.getByRole("region", { name: "Leads", exact: true }).waitFor();
+    if (classicScrollbars) {
+      await page.addStyleTag({ content: ".home-slice::-webkit-scrollbar { width: 15px; }" });
+      const meetings = page.getByRole("region", { name: "Today's meetings", exact: true });
+      assert.equal(
+        await meetings.evaluate((tile) => Math.round(tile.getBoundingClientRect().width) - tile.clientWidth),
+        15,
+      );
+    }
     const tileNames = [
       "Reminders",
       "Inbox",
@@ -676,42 +689,43 @@ for (const [width, height, touch] of [
         tileNames.slice(0, 4),
       );
       const attentionFold = page.getByRole("button", { name: "5 need attention", exact: true });
-      assert.ok(
-        await attentionFold.evaluate((button) => {
-          const { left, top, width, height } = button.getBoundingClientRect();
-          return button.contains(document.elementFromPoint(left + width / 2, top + height / 2));
-        }),
-        "the Deals fold is visible before scrolling",
-      );
       const comingUpFold = page.getByRole("button", { name: "Coming up 4 dates in the next 14 days", exact: true });
       const dealsRow = page.getByRole("region", { name: "Needs attention", exact: true }).getByRole("link").first();
       const comingUpRow = page.getByRole("region", { name: "Coming up dates", exact: true }).getByRole("link").first();
-      for (const { fold, row } of [
-        { fold: attentionFold, row: dealsRow },
-        { fold: comingUpFold, row: comingUpRow },
+      const clipped = (control: typeof attentionFold) =>
+        control.evaluate((node) => {
+          const { top, bottom, left, right, width } = node.getBoundingClientRect();
+          const tile = node.closest(".home-slice")?.getBoundingClientRect();
+          const x = left + width / 2;
+          const fullyVisible =
+            tile &&
+            top >= Math.max(0, tile.top) &&
+            bottom <= Math.min(innerHeight, tile.bottom) &&
+            left >= Math.max(0, tile.left) &&
+            right <= Math.min(innerWidth, tile.right) &&
+            [top + 1, bottom - 1].every((y) => node.contains(document.elementFromPoint(x, y)));
+          return fullyVisible ? null : { label: node.textContent?.trim(), top, bottom, tileBottom: tile?.bottom };
+        });
+      for (const { fold, row, title } of [
+        { fold: attentionFold, row: dealsRow, title: dealsRow.locator(".home-deal-name") },
+        { fold: comingUpFold, row: comingUpRow, title: comingUpRow.locator(".home-today-title") },
       ]) {
-        await t.test(`Opening ${await fold.textContent()} shows the button and first row`, async () => {
+        const label = await fold.textContent();
+        await t.test(`${label} is fully visible while closed`, async () => {
+          assert.equal(await clipped(fold), null);
+        });
+        await t.test(`Opening ${label} shows the button and wrapped first row`, async () => {
           if (touch) await fold.tap();
           else await fold.click();
           assert.ok(await fold.evaluate((button) => button === document.activeElement), "the disclosure keeps focus");
-          const clipped = await Promise.all(
-            [fold, row].map((control) =>
-              control.evaluate((node) => {
-                const { top, bottom, left, right, width } = node.getBoundingClientRect();
-                const tile = node.closest(".home-slice")?.getBoundingClientRect();
-                const x = left + width / 2;
-                const fullyVisible =
-                  tile &&
-                  top >= Math.max(0, tile.top) &&
-                  bottom <= Math.min(innerHeight, tile.bottom) &&
-                  left >= Math.max(0, tile.left) &&
-                  right <= Math.min(innerWidth, tile.right) &&
-                  [top + 1, bottom - 1].every((y) => node.contains(document.elementFromPoint(x, y)));
-                return fullyVisible ? null : { label: node.textContent?.trim(), top, bottom, tileBottom: tile?.bottom };
-              }),
-            ),
-          );
-          assert.deepEqual(clipped.filter(Boolean), []);
+          const lines = await title.evaluate((node) => {
+            const text = document.createRange();
+            text.selectNodeContents(node);
+            return text.getClientRects().length;
+          });
+          assert.ok(lines >= 2, "the first row title wraps");
+          const clippedControls = await Promise.all([fold, row].map(clipped));
+          assert.deepEqual(clippedControls.filter(Boolean), []);
           const { overflowing, ...afterFold } = await layout();
           assert.deepEqual(afterFold, expected);
           assert.deepEqual(
@@ -719,6 +733,16 @@ for (const [width, height, touch] of [
             tileNames.slice(0, 5),
           );
         });
+      }
+      if (touch) {
+        await page.context().setOffline(true);
+        await page.getByText("Offline. Showing the last available update.", { exact: true }).waitFor();
+        assert.deepEqual(await Promise.all([attentionFold, dealsRow, comingUpFold, comingUpRow].map(clipped)), [
+          null,
+          null,
+          null,
+          null,
+        ]);
       }
     }
     assert.deepEqual(await layout(), { ...expected, overflowing: tileNames.slice(0, -1) });

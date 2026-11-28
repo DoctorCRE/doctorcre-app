@@ -62,18 +62,22 @@ details.home-today-row > :not(summary) { margin: 0 0 var(--space-1); padding-inl
 /* A short computer screen folds the attention list and Coming up to one counted line each. */
 @container home (min-width: 936px) { @media (max-height: 720px) {
   .home-column.home-side { gap: var(--space-2); }
+  .home-phases { grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr)); }
   .inbox-shell .home-short-fold-line { display: flex; }
   .home-short-fold:not([data-open]) > :not(.home-short-fold-line) { display: none; }
+  .home-short-fold > ul a { scroll-margin-block-start: var(--home-header-size); }
   /* Give the fold line below the phase counts room when meetings are long. */
   .home-deals:has(.home-short-fold:not([data-open])) { flex-shrink: 0.1; }
   .home-coming-up:has(.home-short-fold:not([data-open])) { flex: none; min-block-size: auto; }
   .home-coming-up:has(.home-short-fold:not([data-open])) > header { display: none; }
   @media (min-height: 640px) {
-    .home-coming-up:has(.home-short-fold[data-open]) {
-      min-block-size: calc(var(--home-header-size) + 2 * var(--home-deal-control-size) + 2 * var(--space-3));
+    /* The counted disclosure already labels the list. */
+    .home-short-fold > h3 { display: none; }
+    .home-side:has(.home-short-fold[data-open]) > .home-today {
+      min-block-size: calc(var(--home-header-size) + var(--space-4));
     }
-    .home-deals:has(.home-short-fold[data-open]) {
-      min-block-size: calc(var(--home-header-size) + 2 * var(--home-deal-control-size) + 2 * var(--space-3) + 2 * var(--space-4));
+    .home-slice:has(> .home-short-fold[data-open]) {
+      min-block-size: max(calc(2 * var(--home-header-size)), var(--home-open-fold-size, 0px));
     }
   }
 } }
