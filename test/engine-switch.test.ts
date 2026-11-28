@@ -90,6 +90,16 @@ for (const read of ["critical-dates", "meetings?from=2026-10-01&to=2026-10-31"])
     assert.deepEqual(carr, []);
   });
 
+test("Home's lead counts use the Leads switch and preserve the engine response", async () => {
+  const request = new Request(`${origin}/api/engine/leads/counts`, { headers: { cookie: "session=synthetic" } });
+  const on = fixture(new Map([["leads-from-engine", "on"]]), async () => new Response(payload));
+  assert.equal((await worker.fetch(request, on.env)).status, 200);
+  assert.equal(on.engine[0]?.url, request.url);
+  const off = fixture(new Map());
+  assert.equal((await worker.fetch(request, off.env)).status, 404);
+  assert.deepEqual(off.engine, []);
+});
+
 test("Leads saves use the board UUID and preserve the legacy request before cutover", async () => {
   const leadId = "00000000-0000-4000-8000-000000000010";
   const clientId = "00000000-0000-4000-8000-000000000011";
@@ -1845,6 +1855,20 @@ const movedToEngine = [
     { field: "phase", value: "negotiation", phase_from: "research" },
     changesPath,
     { seen_change_id: 23, phase: { from: "research", to: "negotiation" } },
+    { deal_id: dealId, change_id: 23 },
+    200,
+  ],
+  [
+    "patch-deal-field",
+    {
+      field: "phase",
+      value: "negotiation",
+      phase_from: "research",
+      change_reason: "Synthetic reason",
+      human_quote: "Synthetic quote",
+    },
+    changesPath,
+    { seen_change_id: 23, phase: { from: "research", to: "negotiation", reason: "Synthetic reason" } },
     { deal_id: dealId, change_id: 23 },
     200,
   ],

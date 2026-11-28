@@ -1885,7 +1885,7 @@ for (const width of [1440, 390]) test(`National Accounts saves inline changes an
     assert.equal(writes.length, 2);
   };
   await openClosing();
-  await dialog.getByRole('button', { name: 'Cancel, keep phase' }).click();
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
 
   await page.getByRole('button', { name: 'Back to deals', exact: true }).click();
   await phase.waitFor({ timeout: 5000 });

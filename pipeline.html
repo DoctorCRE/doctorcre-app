@@ -117,12 +117,10 @@
   <dialog id="completionDialog" class="dialog" aria-labelledby="completionTitle">
     <form id="completionForm">
       <header>
-        <div><h2 id="completionTitle">Move</h2><p class="dialog-context">Phase change</p></div>
-        <button class="btn icon-btn" type="button" id="completionDismiss" aria-label="Cancel">×</button>
+        <div><h2 id="completionTitle">Move</h2><p class="dialog-context" id="completionContext">Phase change</p></div>
+        <button class="btn icon-btn" type="button" id="completionDismiss" aria-label="Close">×</button>
       </header>
       <div class="dialog-body">
-
-
         <p class="field-hint error" id="completionErrors" tabindex="-1" hidden></p>
         <fieldset class="field" id="completionOutcomeField" hidden>
           <legend>Outcome</legend>
@@ -148,50 +146,14 @@
           <label for="completionLostReason">Reason the deal was lost</label>
           <input id="completionLostReason" type="text" maxlength="500">
         </div>
-        <div id="completionMoveDetails">
-        <div class="field">
-          <label for="completionEvidence">Evidence</label>
-          <textarea id="completionEvidence" rows="3" placeholder="What makes this the right phase now"></textarea>
-
-        </div>
-        <div class="field">
-          <label for="completionReason">Reason for this change</label>
-          <input id="completionReason" type="text" autocomplete="off" maxlength="120">
-
-        </div>
-        <div class="field">
-          <label for="completionQuote">In your words</label>
-          <textarea id="completionQuote" rows="3" placeholder="Say it the way you would say it out loud"></textarea>
-
-        </div>
-        <div class="field">
-          <label for="completionNextStep">Next item (2–4 words)</label>
-          <input id="completionNextStep" type="text" autocomplete="off" maxlength="100">
-        </div>
-        <div class="field-grid">
-          <div class="field">
-            <label for="completionNextWhen">When</label>
-            <input id="completionNextWhen" type="date">
-          </div>
-        </div>
-
-        <div class="field-grid">
-          <div class="field">
-            <label for="completionDate">Phase effective date</label>
-            <input id="completionDate" type="date">
-          </div>
-        </div>
-        <label class="check-option"><input type="checkbox" id="completionCritical"> <span>Record this as a critical date</span></label>
-        <div class="field" id="completionSourceField" hidden>
-          <label for="completionSource">Where did this date come from?</label>
-          <input id="completionSource" type="text" autocomplete="off">
-        </div>
+        <div class="field" id="completionMoveDetails">
+          <input id="completionReason" type="text" autocomplete="off" maxlength="500" placeholder="What changed (optional)" aria-label="What changed (optional)">
         </div>
 
       </div>
       <footer>
-        <button class="btn btn-quiet" type="button" id="completionCancel">Cancel, keep phase</button>
-        <button class="btn btn-primary" type="submit" id="completionConfirm">Move to the chosen column</button>
+        <button class="btn btn-quiet" type="button" id="completionCancel">Cancel</button>
+        <button class="btn btn-primary" type="submit" id="completionConfirm">Move</button>
       </footer>
     </form>
   </dialog>

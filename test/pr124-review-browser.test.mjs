@@ -315,21 +315,6 @@ test('R10 Home flagged personal URL reaches only flagged records for current act
  assert.equal(observed.filter,'joe');assert.equal(observed.scope,'flagged');assert.deepEqual(observed.shown,observed.expected);
 });
 
-
-test('R2 a move follow-up cannot replace an unanswered next-step intent or its receipt',async t=>{
- const {page}=await open(t);await detail(page);
- await page.evaluate(async()=>{const {state}=await import('/js/pipeline.js');window.calls=[];const send=state.client.addDealNote.bind(state.client);state.client.addDealNote=async r=>{calls.push(r);const result=await send(r);if(calls.length===1)throw Error('lost reply');return result;};});
- await page.locator('#dealUpdate').fill('Original intent');await page.locator('#detailUpdateForm button[type=submit]').click();await page.waitForTimeout(30);
- await page.getByRole('button', { name: 'Back to deals', exact: true }).click();
- await page.locator('.kanban-column [data-id="d14"]').focus();
- await page.keyboard.press('Enter');await page.keyboard.press('ArrowRight');await page.keyboard.press('Enter');
- await page.waitForFunction(()=>document.querySelector('#completionDialog').open);
- await page.locator('#completionNextStep').fill('Different move follow-up');await page.locator('#completionConfirm').click();await page.waitForFunction(()=>!document.querySelector('#completionDialog').open);
- assert.equal(await page.evaluate(()=>calls.length),1);
- await page.locator('#receiptDock [data-event="reconcile"]').click();await page.waitForTimeout(30);
- assert.deepEqual(await page.evaluate(()=>calls[0]),await page.evaluate(()=>calls[1]));
-});
-
 test('R6 command dock reconciliation settles the retained conflict and closes its chooser',async t=>{
  const {page}=await open(t);await parkingConflict(page);
  await page.evaluate(async()=>{const {state}=await import('/js/pipeline.js');window.calls=[];state.client.resolveConflict=async r=>{calls.push(r);if(calls.length===1)throw Error('lost reply');return {ok:true};};});
