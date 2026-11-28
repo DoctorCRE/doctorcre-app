@@ -31,7 +31,12 @@ async function openVendors(
   });
   await page.route("https://**", (r) => r.abort());
   await page.route("**/api/v1/business/**", (r) => {
-    if (hold && !r.request().url().includes("/summary")) {
+    const url = new URL(r.request().url());
+    if (
+      hold &&
+      url.pathname === "/api/v1/business/vendors" &&
+      url.searchParams.toString() === "category=banker&contract=vendor-directory.v1"
+    ) {
       held.push(r);
       routeHeld();
       return;

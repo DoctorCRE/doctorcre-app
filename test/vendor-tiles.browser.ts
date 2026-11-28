@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import test, { type TestContext } from "node:test";
+import { expect } from "@playwright/test";
+import type { Locator, Page } from "playwright";
 import { chromium } from "./browser-harness.mjs";
 import { ownedServer as startFixtureServer } from "./fixture-probe.ts";
 import { directoryFixture } from "./fixtures/vendor-directory.synthetic.mjs";
@@ -14,7 +16,28 @@ type Summary = { all: Counts; no_category: Counts; categories: ({ slug: string; 
 // Three made-up vendors nobody categorized, so the No category tile shows.
 function withUncategorized(url: string) {
   const payload = directoryFixture(url);
-  if (!new URL(url).pathname.endsWith("/summary")) return payload;
+  const request = new URL(url);
+  if (request.pathname === "/api/v1/business/vendors") {
+    // The fixture returns a loose record; this route carries the vendor list.
+    const list = payload as {
+      rows: { name: string; recorded_category: string | null; categories: unknown[] }[];
+      total: number;
+      page_count: number;
+      page_size: number;
+    };
+    if (request.searchParams.has("no_category")) {
+      const source = new URL(url);
+      source.searchParams.delete("no_category");
+      // Removing the filter asks the same fixture for its vendor list.
+      const all = directoryFixture(source.toString()) as typeof list;
+      list.rows = all.rows.slice(0, 3).map((row) => ({ ...row, recorded_category: null, categories: [] }));
+      list.page_size = 3;
+      list.total = 3;
+      list.page_count = 1;
+    }
+    return list;
+  }
+  if (!request.pathname.endsWith("/summary")) return payload;
   // The fixture is declared as a loose record; its summary answer carries the tile counts.
   const summary = payload as unknown as Summary;
   summary.no_category = { count: 3, quiet: 0, relationship: { ...summary.all.relationship, not_rated: 3 } };
@@ -68,9 +91,28 @@ async function openVendors(
 }
 
 const tileNames = (page: import("playwright").Page) => page.locator("a.directory-tile .tile-name").allTextContents();
+const names = (numbers: number[]) => numbers.map((n) => `Demo Partner ${String(n).padStart(2, "0")}`);
+const banker = Array.from({ length: 31 }, (_, n) => n * 2 + 1);
+const defaultBanker = [
+  1, 11, 21, 31, 51, 61, 7, 17, 27, 37, 47, 57, 3, 13, 23, 33, 43, 53, 9, 29, 39, 49, 59, 5, 15, 25, 35, 55, 45, 19, 41,
+];
+
+async function clickList(page: Page, control: Locator, query: string, expected: string[]) {
+  const response = page.waitForResponse((r) => {
+    const url = new URL(r.url());
+    const actual = new URLSearchParams(url.search);
+    const wanted = new URLSearchParams(query);
+    actual.sort();
+    wanted.sort();
+    return url.pathname === "/api/v1/business/vendors" && actual.toString() === wanted.toString();
+  });
+  await control.click();
+  await response;
+  await expect(page.locator(".record-row:visible .row-name")).toHaveText(expected);
+}
 
 test("Vendors opens on a tile per category that opens its list, and Joe recounts them", async (t) => {
-  const { page, asked } = await openVendors(t, 1440, 900);
+  const { page } = await openVendors(t, 1440, 900);
   assert.deepEqual(
     await tileNames(page),
     ["All vendors", "Architecture", "Banking", "No category"],
@@ -87,32 +129,29 @@ test("Vendors opens on a tile per category that opens its list, and Joe recounts
   await page.getByRole("button", { name: "Joe", exact: true }).click();
   await page.waitForURL(/owner=joe/);
   await page.waitForFunction(() => document.querySelector(".directory-tile .tile-count")?.textContent === "31");
-  assert.equal(asked.at(-1)?.search, "?owner=joe");
 
-  await page.locator("a.directory-tile", { hasText: "Banking" }).click();
-  await page.waitForURL(/category=banker/);
-  await page.locator(".record-row").first().waitFor();
-  assert.equal(await page.locator("#directoryTiles").isHidden(), true);
-  const list = asked.at(-1);
-  assert.equal(list?.searchParams.get("category"), "banker");
-  assert.equal(list?.searchParams.get("owner"), "joe");
-
-  await page.getByRole("button", { name: "Categories", exact: true }).click();
-  await page.waitForURL((url) => url.pathname === "/vendors" && url.search === "?owner=joe");
-  const noCategory = page.waitForResponse(
-    (response) => new URL(response.url()).searchParams.get("no_category") === "true",
+  await clickList(
+    page,
+    page.locator("a.directory-tile", { hasText: "Banking" }),
+    "owner=joe&category=banker&contract=vendor-directory.v1",
+    names(defaultBanker),
   );
-  await page.locator("a.directory-tile", { hasText: "No category" }).click();
-  await noCategory;
-  await page.waitForURL(/no_category=true/);
-  await page.waitForFunction(() => document.querySelector("#directoryTiles")?.hasAttribute("hidden"));
-  assert.equal(asked.at(-1)?.searchParams.get("no_category"), "true");
-
+  await page.getByRole("button", { name: "Categories", exact: true }).click();
+  await page.locator("a.directory-tile", { hasText: "No category" }).waitFor();
+  await clickList(
+    page,
+    page.locator("a.directory-tile", { hasText: "No category" }),
+    "owner=joe&no_category=true&contract=vendor-directory.v1",
+    names([1, 11, 21]),
+  );
   await page.goBack();
-  await page.locator("a.directory-tile", { hasText: "All vendors" }).click();
-  await page.waitForURL(/all=true/);
-  await page.locator(".record-row").first().waitFor();
-  assert.equal(asked.at(-1)?.searchParams.has("all"), false, "All vendors is the plain list read");
+  await page.locator("a.directory-tile", { hasText: "All vendors" }).waitFor();
+  await clickList(
+    page,
+    page.locator("a.directory-tile", { hasText: "All vendors" }),
+    "owner=joe&contract=vendor-directory.v1",
+    names(defaultBanker.slice(0, 25)),
+  );
 });
 
 test("Find a vendor swaps the tiles for matches and clearing it brings them back", async (t) => {
@@ -203,22 +242,18 @@ test("inside a category the relationship counts and Quiet filter the one table, 
   const quietRows = await page.locator(".record-row .contact-note.quiet").count();
   assert.ok(quietRows > 0, "the category holds quiet vendors");
   assert.equal(await quiet.locator(".tile-n").textContent(), String(quietRows), "Quiet counts the quiet vendors");
-  await quiet.click();
-  await page.waitForURL(/quiet=true/);
-  await page.waitForFunction(() => document.querySelectorAll(".record-row .contact-note.quiet").length > 0);
-  assert.equal(asked.at(-1)?.searchParams.get("quiet"), "true");
-  assert.equal(await page.locator(".record-row .contact-note:not(.quiet)").count(), 0, "every quiet row says how long");
-  await quiet.click();
-  await page.waitForURL((url) => !url.searchParams.has("quiet"));
-
-  const sorted = page.waitForResponse((response) => new URL(response.url()).searchParams.get("sort") === "name");
-  await page.locator('[data-column-sort="name"]').click();
-  await sorted;
-  await page.waitForURL(/sort=name/);
-  assert.equal(asked.at(-1)?.searchParams.get("sort"), "name");
-  assert.equal(await page.locator('[data-column-sort="name"]').getAttribute("aria-pressed"), "true");
-  await page.locator('[data-column-sort="name"]').click();
-  await page.waitForURL((url) => !url.searchParams.has("sort"));
+  await clickList(
+    page,
+    quiet,
+    "category=banker&quiet=true&contract=vendor-directory.v1",
+    names(defaultBanker.filter((n) => (n - 1) % 4 === 0)),
+  );
+  assert.equal(await page.locator(".record-row .contact-note:not(.quiet)").count(), 0);
+  await clickList(page, quiet, "category=banker&contract=vendor-directory.v1", names(defaultBanker));
+  const nameHeading = page.locator('[data-column-sort="name"]');
+  await clickList(page, nameHeading, "category=banker&sort=name&contract=vendor-directory.v1", names(banker));
+  assert.equal(await nameHeading.getAttribute("aria-pressed"), "true");
+  await clickList(page, nameHeading, "category=banker&contract=vendor-directory.v1", names(defaultBanker));
   assert.equal(await page.locator(".list-head [data-fact=Category]").count(), 0, "no Category column inside one");
 });
 
