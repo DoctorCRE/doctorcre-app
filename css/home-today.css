@@ -33,8 +33,8 @@ details.home-today-row > :not(summary) { margin: 0 0 var(--space-1); padding-inl
 /* Two phase columns when the tile has room, else one. */
 .home-phases { display: grid; grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)); column-gap: var(--space-2); }
 .home-deals, .home-coming-up { --home-deal-control-size: max(34px, var(--touch)); }
-.home-deals :is(li > a, .home-deals-line), .home-coming-up li > a, .inbox-shell .home-short-fold-line { display: flex; align-items: center; gap: var(--space-2); min-height: var(--home-deal-control-size); padding: 0 var(--space-2); border-radius: var(--radius-2); color: var(--fg); text-decoration: none; transition: background-color var(--duration-hover) var(--ease-out); }
-.home-deals :is(li > a, .home-deals-line):hover, .home-coming-up li > a:hover, .inbox-shell .home-short-fold-line:hover { background: var(--surface-2); }
+.home-deals :is(li > a, .home-deals-line), .home-coming-up li > a { display: flex; align-items: center; gap: var(--space-2); min-height: var(--home-deal-control-size); padding: 0 var(--space-2); border-radius: var(--radius-2); color: var(--fg); text-decoration: none; transition: background-color var(--duration-hover) var(--ease-out); }
+.home-deals :is(li > a, .home-deals-line):hover, .home-coming-up li > a:hover, .home-fold-disclosure:hover { background: var(--surface-2); }
 .home-phases a { justify-content: space-between; color: var(--fg-muted); font-size: var(--font-size-1); white-space: nowrap; }
 .home-phases a span { color: var(--fg); font-weight: var(--font-weight-strong); font-variant-numeric: tabular-nums; }
 .home-short-fold h3 { margin: var(--space-2) var(--space-2) var(--space-1); color: var(--fg-muted); font-size: var(--font-size-1); font-weight: var(--font-weight-strong); }
@@ -57,13 +57,20 @@ details.home-today-row > :not(summary) { margin: 0 0 var(--space-1); padding-inl
 :is(.home-today-row > summary, .home-coming-up li > a) > .home-today-context { grid-area: 1 / 2; }
 .home-today-row > summary > .home-today-mark { grid-area: 1 / 3; }
 :is(.home-today-row > summary, .home-coming-up li > a) > .home-today-title { grid-area: 2 / 1 / auto / -1; }
-.inbox-shell .home-short-fold-line { display: none; width: 100%; border: 0; background: transparent; font: inherit; text-align: start; }
-.home-short-fold-line strong { margin-inline-end: auto; font-weight: var(--font-weight-strong); white-space: nowrap; }
-/* A short computer screen folds the attention list and Coming up to one counted line each. */
+.home-fold-disclosure { display: none; background: transparent; border-radius: var(--radius-2); }
 @container home (min-width: 936px) { @media (max-height: 720px) {
-  .home-column.home-side { gap: var(--space-3); }
-  .inbox-shell .home-short-fold-line { display: flex; }
-  .home-short-fold:not([data-open]) > :not(.home-short-fold-line) { display: none; }
-  .home-coming-up:has(.home-short-fold:not([data-open])) { scroll-padding-block-start: 0; }
-  .home-coming-up:has(.home-short-fold:not([data-open])) > header { display: none; }
+  .home-column.home-side { gap: var(--space-2); }
+  .home-side > :is(.home-today, .home-deals, .home-coming-up) { flex: 1 1 0; max-block-size: max-content; }
+  .home-phases { grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr)); }
+  .home-slice:is(.home-deals, .home-coming-up) { --home-header-size: 44px; scroll-padding-block-start: 0; }
+  .home-slice:is(.home-deals, .home-coming-up) > header { block-size: var(--home-header-size); padding-top: 0; }
+  .home-coming-up > header > h2 { white-space: nowrap; }
+  .home-slice > header > .home-fold-disclosure { display: inline-block; min-block-size: var(--home-header-size); padding-block: 0; white-space: normal; }
+  .home-coming-up > header > .home-fold-disclosure { padding-inline: var(--space-1); }
+  .home-slice:is(.home-deals, .home-coming-up) :is(a, button) { scroll-margin-block-start: var(--home-header-size); }
+  .home-deals .home-short-fold li:first-child > a { scroll-margin-block-end: var(--space-4); }
+  .home-short-fold:not([data-open]), .home-short-fold > h3, .home-coming-up > header h2 span { display: none; }
+  .home-coming-up:has(.home-short-fold:not([data-open])) { flex: none; min-block-size: auto; }
+  /* Meetings take the spare space while dates are folded. */
+  .home-side:has(> .home-coming-up > .home-short-fold:not([data-open])) > .home-today { flex-grow: 2; }
 } }

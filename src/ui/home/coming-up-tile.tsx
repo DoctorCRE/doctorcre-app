@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { comingUp, parseCriticalDates } from "./deal-tiles";
-import { counted, Fold } from "./fold";
+import { counted, useHomeFold } from "./fold";
 import { day, PlaceholderTile } from "./sections";
 
 const weekday = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" });
@@ -16,6 +16,7 @@ async function readDates(signal: AbortSignal) {
 
 /** Open critical dates on open deals in the next 14 days; each row opens Calendar on its day. */
 export function ComingUpTile() {
+  const fold = useHomeFold();
   const { data, isPending } = useQuery({
     queryKey: ["home-coming-up"],
     queryFn: ({ signal }) => readDates(signal),
@@ -31,6 +32,7 @@ export function ComingUpTile() {
     );
   const rows = comingUp(data, day(new Date()));
   if (!rows.length) return null;
+  const nextDates = counted(rows.length, "date in the next 14 days", "dates in the next 14 days");
   return (
     <section className="home-slice home-coming-up" aria-label="Coming up">
       <header>
@@ -40,15 +42,11 @@ export function ComingUpTile() {
             <a href="/calendar">{rows.length}</a>
           </span>
         </h2>
+        <button {...fold.disclosure} aria-label={`Coming up ${nextDates}`}>
+          {nextDates}
+        </button>
       </header>
-      <Fold
-        label="Coming up dates"
-        line={
-          <>
-            <strong>Coming up</strong> {counted(rows.length, "date in the next 14 days", "dates in the next 14 days")}
-          </>
-        }
-      >
+      <section {...fold.list} aria-label="Coming up dates">
         <ul>
           {rows.map((row) => (
             <li key={row.id}>
@@ -62,7 +60,7 @@ export function ComingUpTile() {
             </li>
           ))}
         </ul>
-      </Fold>
+      </section>
     </section>
   );
 }

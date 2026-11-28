@@ -2123,6 +2123,21 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   await meetings.waitFor({ state: 'detached' });
 });
 
+test('Home stacked layout has no nested scrollers at 900x599', async t => {
+  const { page, open, state } = await dashboard(t, 900, 'dark');
+  await page.setViewportSize({ width: 900, height: 599 });
+  state.items = [...state.items, ...Array.from({ length: 30 }, (_, index) => step(200 + index, `Check sample ${index + 1}`))];
+  await page.clock.install({ time: now });
+  await open('/?mode=live');
+  const reminders = page.getByRole('region', { name: 'Reminders', exact: true });
+  await reminders.getByRole('button', { name: /^See all/ }).waitFor();
+  assert.equal(await reminders.locator('article.inbox-row').count(), 4);
+  assert.equal(await page.evaluate(() => {
+    const scrolls = node => /^(auto|scroll)$/.test(getComputedStyle(node).overflowY) && node.scrollHeight > node.clientHeight;
+    return [...document.querySelectorAll('*')].some(node => scrolls(node) && [...node.querySelectorAll('*')].some(scrolls));
+  }), false);
+});
+
 for (const [width, height] of [[1280, 800], [1440, 900]]) for (const theme of ['light', 'dark']) test(`Home fits one screen with Reminders alone at ${width}x${height} in ${theme}`, async t => {
   const { page, open, state } = await dashboard(t, width, theme);
   await page.setViewportSize({ width, height });
@@ -2149,7 +2164,7 @@ for (const [width, height] of [[1280, 800], [1440, 900]]) for (const theme of ['
   assert.ok(band.y + band.height <= 60, 'the page controls take one compact band');
   assert.ok(tile.y >= band.y + band.height, 'the top bar never covers the tile title');
   assert.deepEqual(await page.evaluate(() => [document.scrollingElement, document.getElementById('appMainSlot')].every(node => node.scrollHeight <= node.clientHeight)), true, 'the page itself does not scroll');
-  assert.deepEqual(await reminders.evaluate(node => node.scrollHeight > node.clientHeight), true, 'the long list scrolls inside its tile');
+  assert.ok(await reminders.evaluate(node => node.scrollHeight > node.clientHeight), 'the long list scrolls inside its tile');
   await reminders.getByRole('heading', { name: /^Reminders/ }).waitFor();
 });
 
@@ -2170,7 +2185,7 @@ for (const [width, height, withMeeting] of [[1280, 800, false], [1440, 900, fals
   const waiting = page.getByRole('region', { name: 'In motion and waiting', exact: true });
   const meeting = page.getByRole('region', { name: "Today's meetings", exact: true });
   if (meetings.length) await meeting.getByRole('heading', { name: "Today's meetings 1" }).waitFor();
-  const [first, second, grid] = await Promise.all([reminders, waiting, page.locator('.home-sections')].map(node => node.boundingBox()));
+  const [first, second, grid] = await Promise.all([reminders.locator('..'), waiting.locator('..'), page.locator('.home-sections')].map(node => node.boundingBox()));
   assert.deepEqual(await page.evaluate(() => [document.scrollingElement, document.getElementById('appMainSlot')].every(node => node.scrollHeight <= node.clientHeight)), true, 'the page itself does not scroll');
   assert.equal(grid.y + grid.height, height - 12, 'the grid ends at the bottom of the screen');
   for (const box of [first, second]) assert.equal(box.y + box.height, grid.y + grid.height, 'each column reaches the bottom');
@@ -2180,7 +2195,7 @@ for (const [width, height, withMeeting] of [[1280, 800, false], [1440, 900, fals
     assert.ok(row.y + row.height <= last.y + last.height, 'the meetings tile shows its heading and its meeting');
     assert.ok(heading.y >= last.y, 'the meetings heading is not cut off');
   }
-  for (const tile of [reminders, waiting]) assert.equal(await tile.evaluate(node => node.scrollHeight > node.clientHeight), true, 'each long list scrolls inside its tile');
+  for (const tile of [reminders, waiting]) assert.ok(await tile.evaluate(node => node.scrollHeight > node.clientHeight), 'each long list scrolls inside its tile');
 });
 
 for (const [width, height] of [[1280, 800], [1440, 779]]) test(`Home shows a grouped reminder once and saves each step it covers at ${width}x${height}`, async t => {
@@ -2863,6 +2878,7 @@ for (const save of ['single', 'review']) test(`Home keeps grouped cards after a 
 
 for (const width of [390, 900, 1440]) for (const theme of ['light', 'dark']) test(`Home polls in place at ${width}px in ${theme}`, async t => {
   const { page, open, state } = await dashboard(t, width, theme);
+  if (width === 900) await page.setViewportSize({ width, height: 599 });
   // Safari has no scroll anchoring, so Home keeps the page's place itself.
   if (width < 1000) await page.addInitScript(() => addEventListener('DOMContentLoaded', () =>
     document.head.append(Object.assign(document.createElement('style'), { textContent: '* { overflow-anchor: none !important; }' }))));
@@ -2879,6 +2895,11 @@ for (const width of [390, 900, 1440]) for (const theme of ['light', 'dark']) tes
   const draftTitle = inbox.getByRole('link', { name: draft.title });
   await draftTitle.click();
   const review = inbox.getByRole('region', { name: `Details for ${draft.title}` });
+  if (width === 900) {
+    assert.equal(await review.getByRole('button', { name: 'Back', exact: true }).isVisible(), true);
+    assert.deepEqual(await review.boundingBox(), { x: 64, y: 0, width: 836, height: 599 },
+      'the review covers the screen beside the navigation rail');
+  }
   await review.getByRole('button', { name: 'Edit', exact: true }).click();
   const originalCard = await draftTitle.elementHandle();
   const message = review.getByRole('textbox', { name: 'Message', exact: true });

@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { dealsAtAGlance, reviewCounts, reviewWeek } from "./deal-tiles";
-import { counted, Fold } from "./fold";
+import { counted, useHomeFold } from "./fold";
 import { day, PlaceholderTile } from "./sections";
 
 const sibling = (path: string) => import(new URL(path, import.meta.url).href);
@@ -35,6 +35,7 @@ const line = (parts: [number, string][]) =>
 
 /** The heading counts this week's Monday review items, so its parts add up to the review total; the phases and attention list are the Deals board's. */
 export function DealsTile() {
+  const fold = useHomeFold();
   const { data, isPending } = useQuery({
     queryKey: ["home-deals"],
     queryFn: ({ signal }) => readDeals(signal),
@@ -66,6 +67,9 @@ export function DealsTile() {
         <h2 tabIndex={-1}>
           <a href="/deals">Deals</a>
         </h2>
+        {data.attention.length > 0 && (
+          <button {...fold.disclosure}>{counted(data.attention.length, "needs attention", "need attention")}</button>
+        )}
         <a className="home-tile-door" href="/deals">
           Board
         </a>
@@ -83,7 +87,7 @@ export function DealsTile() {
         ))}
       </ul>
       {data.attention.length > 0 && (
-        <Fold label="Needs attention" line={counted(data.attention.length, "needs attention", "need attention")}>
+        <section {...fold.list} aria-label="Needs attention">
           <h3>Needs attention</h3>
           <ul className="home-deals-attention">
             {data.attention.map((deal) => (
@@ -95,7 +99,7 @@ export function DealsTile() {
               </li>
             ))}
           </ul>
-        </Fold>
+        </section>
       )}
       {data.missingNextStep > 0 && (
         <a className="home-deals-line" href="/deals?view=list&filter=no-next-step">
