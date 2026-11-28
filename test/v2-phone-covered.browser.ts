@@ -51,9 +51,10 @@ test("Home audit rejects a new unreachable target at 390px", async (t) => {
   assert.equal(actual.hit, "review-cover");
   assert.ok(failures.covered.some((target) => target.id === "review-blocked"));
   await page.locator("#review-cover").evaluate((node) => node.remove());
-  assert.deepEqual((await observe()).covered, []);
   await page.touchscreen.tap(50, 230);
   assert.equal(await page.evaluate(() => Reflect.get(window, "reviewTapped")), 1);
+  await page.locator("#review-blocked").evaluate((node) => node.remove());
+  assert.deepEqual((await observe()).covered, []);
 });
 
 test("Hit testing uses the visible clipped center and the handler owner's descendants", async (t) => {

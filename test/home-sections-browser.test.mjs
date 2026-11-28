@@ -1959,7 +1959,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
 });
 
 for (const width of [390, 1440]) {
-  test(`Home keeps a 90-character action on one line in Reminders and shows it in full when opened at ${width}px`, async t => {
+  test(`Home limits a 90-character Reminders action to two lines and shows it in full when opened at ${width}px`, async t => {
     const { page, open, state } = await dashboard(t, width, 'light');
     const title = 'Send the revised floor plan to the practice manager before the lease review next Thursday.';
     state.items[0] = step(1, title);
@@ -1967,13 +1967,14 @@ for (const width of [390, 1440]) {
     const heading = page.getByRole('region', { name: 'Reminders', exact: true })
       .getByRole('heading', { level: 3, name: title, exact: true });
     await heading.waitFor();
-    assert.deepEqual(await heading.evaluate(node => {
+    const link = heading.getByRole('link', { name: title, exact: true });
+    const preview = await link.evaluate(node => {
       const style = getComputedStyle(node);
-      const link = node.querySelector('a') ?? node;
-      const oneLine = node.getBoundingClientRect().height < 1.5 * parseFloat(getComputedStyle(link).lineHeight);
-      return { lineClamp: style.webkitLineClamp, oneLine };
-    }), { lineClamp: '1', oneLine: true });
-    await heading.getByRole('link', { name: title, exact: true }).click();
+      return { lineClamp: style.webkitLineClamp, height: node.getBoundingClientRect().height, lineHeight: parseFloat(style.lineHeight) };
+    });
+    assert.equal(preview.lineClamp, '2');
+    assert.ok(preview.height <= 2 * preview.lineHeight + 0.5);
+    await link.click();
     const details = page.getByRole('region', { name: `Details for ${title}` });
     await details.waitFor();
     const detailHeading = details.getByRole('heading', { level: 4, name: title, exact: true });

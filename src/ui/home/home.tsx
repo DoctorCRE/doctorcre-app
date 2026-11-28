@@ -957,7 +957,8 @@ function Inbox({ client, docLinkRequest, drafts }: InboxProps) {
     const titleId = `home-title-${item.item_id}`;
     const reasonId = `home-reason-${item.item_id}`;
     const previewReason = line.filter(Boolean).join(" · ");
-    const openedReason = tile === "reminders" ? presentation?.why || previewReason : previewReason;
+    const openedReason =
+      tile === "reminders" || feedbackReview || isDoneStep(item) ? presentation?.why || previewReason : previewReason;
     return (
       <article
         key={cardKey(item)}
