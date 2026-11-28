@@ -297,7 +297,7 @@ function useDealLinks(load: CardSectionProps<ClientDeal[]>["load"]) {
     if (before.phase !== "ready") return { ok: false, problem: { error: "vendor_save_in_progress" } };
     const saving: Link = { ...before, phase: "saving" };
     updateLink(key, saving);
-    // eslint-disable-next-line no-restricted-syntax -- One 10-second display deadline per write; the POST keeps running.
+    // eslint-disable-next-line no-restricted-syntax -- A single 10-second display timer is cleared when the write settles.
     const deadline = window.setTimeout(() => updateLink(key, { ...saving, phase: "slow" }), 10_000);
     const answer = await save()
       .catch((): { ok: false; pending: true } => ({ ok: false, pending: true }))

@@ -382,9 +382,14 @@ test("Mark chosen puts an introduced vendor on the deal in the role picked, and 
   assert.deepEqual(sent, [{ path: "/api/engine/deals/d1/parties", body: { party_id: "v2", role: "lender" } }]);
 });
 
+async function freezeUndoClock(page: Page) {
+  await page.clock.install();
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
+}
+
 test("Remove asks once, takes the vendor off the deal, and Undo puts them back within 3 seconds", async (t) => {
   const { page, deal, box, shows, sent } = await openParties(t);
-  await page.clock.install();
+  await freezeUndoClock(page);
   await box("Example Pelican Bank").click();
   const menu = page.getByRole("dialog", { name: "Example Pelican Bank on Example second office" });
   await menu.getByRole("button", { name: "Remove from this deal" }).click();
@@ -420,11 +425,12 @@ test("a second removal inside 3 seconds keeps the first removal's Undo for its o
     introduction_id: null,
   });
   const { page, deal, box, shows } = await openParties(t, engine);
-  await page.clock.install();
+  await freezeUndoClock(page);
   const remove = async (name: string) => {
     await box(name).click();
     await page.getByRole("button", { name: "Remove from this deal" }).click();
     await page.getByRole("button", { name: "Remove", exact: true }).click();
+    await deal.locator(".client-deal-undo", { hasText: name }).waitFor();
     await page.clock.runFor(1_000);
   };
   await remove("Example Halloran Title");
@@ -435,7 +441,7 @@ test("a second removal inside 3 seconds keeps the first removal's Undo for its o
     "Removed Example Halloran Title from Example second office. Undo",
     "Removed Example Pelican Bank from Example second office. Undo",
   ]);
-  await page.clock.runFor(2_100);
+  await page.clock.runFor(1_100);
   assert.deepEqual(await undo.allTextContents(), ["Removed Example Pelican Bank from Example second office. Undo"]);
   await page.clock.runFor(1_000);
   await undo.waitFor({ state: "detached" });
@@ -452,8 +458,9 @@ test("a removal that stops partway re-reads the diagram and says how far it got"
   await page.getByRole("button", { name: "Remove", exact: true }).click();
   const alert = page.locator(".deal-vendor-menu").getByRole("alert");
   assert.equal(await alert.textContent(), "That vendor isn't on this deal anymore. 1 of 2 roles were removed.");
-  assert.match((await box("Example Pelican Bank").textContent()) ?? "", /Title/);
-  assert.doesNotMatch((await box("Example Pelican Bank").textContent()) ?? "", /Lender/);
+  const remaining = box("Example Pelican Bank").filter({ hasNotText: "Lender" });
+  await remaining.waitFor();
+  assert.match((await remaining.textContent()) ?? "", /Title/);
   assert.equal(await deal.locator(".client-deal-undo").count(), 0);
 });
 
