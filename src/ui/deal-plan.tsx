@@ -376,7 +376,8 @@ function PlanScreen(props: Inputs) {
     const visible = rowsById.get(id);
     if (props.mode !== "plan" || preview?.id !== id || visible?.kind !== "todo") return visible;
     const original = factsFor(id);
-    return original && chartRow(original, original.phase ?? props.phase, today, new Map(), new Set());
+    if (!original) return undefined;
+    return chartRow(original, original.phase ?? props.phase, today, new Map(), new Set()) ?? undefined;
   };
   const selected = opened ? rowsById.get(opened) : undefined;
   const selectedDay = selected ? rowDay(selected) : null;
