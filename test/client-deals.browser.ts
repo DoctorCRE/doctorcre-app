@@ -1098,3 +1098,67 @@ test("a lost Add reply has one Check again while the form is open and after clos
   await check.waitFor();
   assert.equal(await check.count(), 1);
 });
+
+test("a fresh read clears the Set conflict once the other source is removed", async (t) => {
+  const engine = partyEngine();
+  const { page, article, vendor, menu } = await openSource(t, engine);
+  const deal = engine.list[2];
+  const dell = engine.list[0]?.introductions.find((row) => row.introduced_by === "dell");
+  assert.ok(deal && dell);
+  const held = await holdDealReads(t, page);
+  await page.route("**/api/engine/introductions", (route) => {
+    deal.introductions = [{ ...dell, vendor_id: titleVendor, vendor_name: "Example Halloran Title" }];
+    return route.fulfill({ status: 409, json: { error: "introduction_already_recorded" } });
+  });
+  await menu.getByRole("button", { name: "Joe" }).click();
+  await menu.getByRole("button", { name: "Set", exact: true }).click();
+  const refusal = page.getByText(/A source is already recorded/);
+  await refusal.waitFor();
+  await held.started;
+  await page.locator("#recordClose").click();
+  await article.waitFor({ state: "detached" });
+  deal.introductions = [];
+  held.release();
+  await page.locator(`a[data-record-id="${recordId}"]`).click();
+  await vendor.click();
+  await menu.getByText("Brought in by: not recorded", { exact: true }).waitFor();
+  await menu.getByRole("button", { name: "Set", exact: true }).waitFor();
+  assert.equal(await refusal.count(), 0);
+});
+
+test("a refused Not recorded Add is visible on the reopened deal without reopening Add", async (t) => {
+  const { page, deal, box } = await openParties(t);
+  const form = await addVendor(page, deal, "Not recorded");
+  const started = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  t.after(() => release.resolve());
+  await page.route("**/api/engine/deals/d1/parties", async (route) => {
+    started.resolve();
+    await release.promise;
+    await route.fulfill({ status: 422, json: { error: "database_refused_the_statement" } });
+  });
+  await form.getByRole("button", { name: "Add", exact: true }).click();
+  await started.promise;
+  await page.locator("#recordClose").click();
+  await deal.waitFor({ state: "detached" });
+  const refused = page.waitForResponse(
+    (response) => response.url().endsWith("/d1/parties") && response.status() === 422,
+  );
+  release.resolve();
+  await refused;
+  await page.locator(`a[data-record-id="${recordId}"]`).click();
+  await deal.waitFor();
+  const notice = deal.getByRole("alert").filter({ hasText: /The database turned this down/ });
+  await notice.waitFor({ timeout: 3000 });
+  assert.equal(await box("Example Harbor Bank").count(), 0);
+  assert.equal(await form.count(), 0);
+  const reopenedForm = await addVendor(page, deal, "Not recorded");
+  await reopenedForm.getByRole("alert").waitFor();
+  await deal.getByRole("button", { name: "Open Example second office large" }).click();
+  const opened = page.getByRole("region", { name: "Example second office", exact: true });
+  await opened
+    .getByRole("alert")
+    .filter({ hasText: /The database turned this down/ })
+    .waitFor();
+  assert.equal(await page.getByText(/The database turned this down/).count(), 1);
+});

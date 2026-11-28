@@ -93,7 +93,15 @@ function afterRead(link: VendorLink, value: LinkValue): LinkState {
     }
     case "refused": {
       const { operation } = state.save;
-      if (reflects(value, operation) || (operation.kind === "restore" && !sameRoles(link, value)))
+      const sourceConflictCleared =
+        operation.kind === "source" &&
+        state.failure.problem?.error === "introduction_already_recorded" &&
+        value.introductions.length === 0;
+      if (
+        sourceConflictCleared ||
+        reflects(value, operation) ||
+        (operation.kind === "restore" && !sameRoles(link, value))
+      )
         return { kind: "idle" };
       return state;
     }

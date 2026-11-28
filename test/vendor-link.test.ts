@@ -129,3 +129,60 @@ test("a refused restore cannot be retried after its role snapshot is superseded"
   assert.equal(transitionLink(link, received(party([lender]))).state, link.state);
   assert.equal(undoFor(transitionLink(link, received(empty))), undefined);
 });
+
+const conflictingSource: LinkValue = {
+  ...empty,
+  introductions: [
+    {
+      id: "intro",
+      vendor_id: "vendor",
+      vendor_name: "Example Vendor",
+      made_by: "team",
+      introduced_by: "dell",
+      introduced_on: null,
+      introduced_party_id: "client",
+      introduced_party_name: "Example Client",
+      note: null,
+      chosen: false,
+    },
+  ],
+};
+const sourceRefused: State = {
+  kind: "refused",
+  save: { id: 2, operation: { kind: "source", by: "joe" } },
+  failure: { ok: false, problem: { error: "introduction_already_recorded" } },
+};
+const rejectedAdd: State = { kind: "refused", save: add, failure };
+const refusalCases: { name: string; link: VendorLink; event: Event; state: State }[] = [
+  {
+    name: "read in refused Set clears an absent source conflict",
+    link: makeLink(sourceRefused, conflictingSource),
+    event: received(empty),
+    state: { kind: "idle" },
+  },
+  {
+    name: "read in refused Set keeps a conflict that still exists",
+    link: makeLink(sourceRefused, conflictingSource),
+    event: received(conflictingSource),
+    state: sourceRefused,
+  },
+  {
+    name: "answer in saving records a refused Not recorded Add on a link without a vendor box",
+    link: makeLink({ kind: "saving", save: add, slow: false }),
+    event: { type: "answer", id: 2, revision: 3, answer: failure, changes: {} },
+    state: rejectedAdd,
+  },
+  {
+    name: "read in refused Not recorded Add retains the refusal without a vendor box",
+    link: makeLink(rejectedAdd),
+    event: received(empty),
+    state: rejectedAdd,
+  },
+];
+for (const { name, link, event, state } of refusalCases) {
+  test(name, () => {
+    const next = transitionLink(link, event);
+    assert.deepEqual(next.state, state);
+    if (event.type === "read") assert.deepEqual(next.introductions, event.value.introductions);
+  });
+}

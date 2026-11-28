@@ -228,9 +228,8 @@ function LinkNotice({
         : "ready";
   const notice = <VendorSaveStatus phase={phase} problem={refusalMessage(link)} check={check} />;
   if (target) return createPortal(notice, target);
-  if (state.kind === "refused") return null;
   return (
-    <div className="client-deal-undo">
+    <div className={state.kind === "refused" ? undefined : "client-deal-undo"}>
       <span>{name}</span>
       {notice}
     </div>
@@ -409,14 +408,15 @@ function withRoles(link: VendorLink, roles: Role[]): Pick<LinkValue, "party"> {
 
 function ClientDeals({ subject: client, load, stage, doors = null }: CardSectionProps<ClientDeal[]>) {
   const { read, deals, reload, check, write, links } = useDealLinks(load);
-  const [targets, setTargets] = useState(new Map<string, HTMLElement[]>());
+  const [targets, setTargets] = useState(new Map<string, { node: HTMLElement; expanded: boolean }[]>());
   const registerNotice = useCallback((deal: string, vendor: string, node: HTMLElement) => {
     const key = linkKey(deal, vendor);
-    setTargets((now) => new Map(now).set(key, [...(now.get(key) ?? []), node]));
+    const target = { node, expanded: Boolean(node.closest(".client-deal-opened")) };
+    setTargets((now) => new Map(now).set(key, [...(now.get(key) ?? []), target]));
     return () =>
       setTargets((now) => {
         const next = new Map(now);
-        const remaining = next.get(key)?.filter((target) => target !== node) ?? [];
+        const remaining = next.get(key)?.filter((registered) => registered !== target) ?? [];
         if (remaining.length) next.set(key, remaining);
         else next.delete(key);
         return next;
@@ -513,6 +513,24 @@ function ClientDeals({ subject: client, load, stage, doors = null }: CardSection
     ));
   if (read.state === "loading" || (read.state === "ready" && read.value.length === 0)) return null;
   const openedDeal = deals.find((deal) => deal.id === opened);
+  const noticesFor = (deal: ClientDeal, expanded = false) =>
+    [...links.values()]
+      .filter((link) => link.deal === deal.id)
+      .map((link) => (
+        <LinkNotice
+          key={link.vendor}
+          link={link}
+          deal={deal}
+          target={
+            targets
+              .get(linkKey(deal.id, link.vendor))
+              ?.filter((slot) => slot.expanded === expanded)
+              .at(-1)?.node
+          }
+          check={() => check(deal.id, link.vendor)}
+          restore={(id) => restore(deal, link.vendor, id)}
+        />
+      ));
   const close = () => {
     setOpened(null);
     if (opened) openers.current.get(opened)?.focus();
@@ -542,18 +560,7 @@ function ClientDeals({ subject: client, load, stage, doors = null }: CardSection
               open={() => setOpened(deal.id)}
             />
           </header>
-          {[...links.values()]
-            .filter((link) => link.deal === deal.id)
-            .map((link) => (
-              <LinkNotice
-                key={link.vendor}
-                link={link}
-                deal={deal}
-                target={targets.get(linkKey(deal.id, link.vendor))?.at(-1)}
-                check={() => check(deal.id, link.vendor)}
-                restore={(id) => restore(deal, link.vendor, id)}
-              />
-            ))}
+          {opened !== deal.id && noticesFor(deal)}
           <DealDiagram client={client} deal={deal} menu={menuFor(deal)} />
           {doors && <AddVendor deal={deal} doors={doors} actions={actionsFor(deal, doors)} />}
         </article>
@@ -561,6 +568,7 @@ function ClientDeals({ subject: client, load, stage, doors = null }: CardSection
       {openedDeal &&
         createPortal(
           <OpenedFrame label={openedDeal.name} title={<DealTitle deal={openedDeal} />} close={close}>
+            {noticesFor(openedDeal, true)}
             <DealDiagram client={client} deal={openedDeal} menu={menuFor(openedDeal)} large />
           </OpenedFrame>,
           stage,
