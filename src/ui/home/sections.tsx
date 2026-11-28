@@ -266,11 +266,23 @@ function fitHomeTiles(grid: HTMLDivElement) {
             const css = getComputedStyle(tile);
             const paddingStart = Number.parseFloat(css.paddingBlockStart);
             const paddingEnd = Number.parseFloat(css.paddingBlockEnd);
+            // Sticky controls can cover the tile padding as well as the rows.
             const stickyStart = header?.offsetHeight
-              ? header.offsetHeight + Number.parseFloat(getComputedStyle(header).top)
+              ? paddingStart + header.offsetHeight + Number.parseFloat(getComputedStyle(header).top)
               : 0;
-            const stickyEnd = open ? 0 : (control?.offsetHeight ?? 0);
-            const targetHeight = Math.max(0, ...Array.from(targets, (target) => target.offsetHeight));
+            const footerHeight = open ? 0 : (control?.offsetHeight ?? 0);
+            const stickyEnd = footerHeight ? footerHeight + paddingEnd : 0;
+            const targetHeight = Math.max(
+              0,
+              ...Array.from(targets, (target) => {
+                const style = getComputedStyle(target);
+                return (
+                  target.offsetHeight +
+                  Number.parseFloat(style.scrollMarginBlockStart) +
+                  Number.parseFloat(style.scrollMarginBlockEnd)
+                );
+              }),
+            );
             const firstEnd = first
               ? first.getBoundingClientRect().bottom - tile.getBoundingClientRect().top + tile.scrollTop
               : 0;
@@ -278,8 +290,8 @@ function fitHomeTiles(grid: HTMLDivElement) {
             const body =
               result && open
                 ? stickyStart + result.getBoundingClientRect().bottom - open.getBoundingClientRect().top
-                : Math.max(firstEnd, paddingStart + stickyStart + targetHeight);
-            const minimum = Math.ceil(body + paddingEnd + stickyEnd);
+                : Math.max(firstEnd, stickyStart + targetHeight);
+            const minimum = Math.ceil(body + paddingEnd + footerHeight);
             const reveal = result && open && !openFolds.has(open) ? open : null;
             if (fold) {
               if (result && open) openFolds.add(open);

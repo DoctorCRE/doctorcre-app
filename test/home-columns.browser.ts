@@ -660,6 +660,71 @@ const wrappedDeal = deal(1, "Research", {
   },
 });
 
+test("At 1280x599 an offline notice fits without scrolling Home's main area", async (t) => {
+  const page = await openHome(t, 1280, 599);
+  await page.context().setOffline(true);
+  const notice = page.getByText("Offline. Showing the last available update.", { exact: true });
+  await notice.waitFor();
+  const main = page.locator("#appMainSlot");
+  const bounds = (await main.boundingBox()) ?? assert.fail("Home's main area is drawn");
+  await page.mouse.move(bounds.x + 2, bounds.y + bounds.height - 3);
+  await page.mouse.wheel(0, 300);
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  assert.deepEqual(
+    await main.evaluate((slot) => [scrollY, slot.scrollTop, slot.scrollHeight - slot.clientHeight]),
+    [0, 0, 0],
+    "the page and main area stay still and fit the viewport",
+  );
+  const [bar, heading, message] = await Promise.all([
+    page.locator("#appTopbar").boundingBox(),
+    page.getByRole("heading", { name: /^Reminders/ }).boundingBox(),
+    notice.boundingBox(),
+  ]);
+  assert.ok(bar && heading && message, "the heading and notice are drawn");
+  assert.ok(heading.y >= bar.y + bar.height, "the app bar does not cover the heading");
+  assert.ok(message.y + message.height <= bounds.y + bounds.height, "the notice stays in the viewport");
+});
+
+test("At 1280x599 Tab keeps the Deals phases and their focus rings clear of the closed fold", async (t) => {
+  const page = await openHome(t, 1280, 599, [], comingUpDates, dashboard, undefined, {
+    meetings: busyMeetings,
+  });
+  const tile = page.getByRole("region", { name: "Deals", exact: true });
+  const phases = tile.locator(".home-phases a");
+  await phases.last().waitFor();
+  assert.equal(await phases.count(), 7);
+  await tile.locator(".home-deals-counts a").focus();
+  for (const phase of await phases.all()) {
+    await page.keyboard.press("Tab");
+    const [result, header, fold, bounds] = await Promise.all([
+      phase.evaluate((link) => {
+        const css = getComputedStyle(link);
+        const { top, bottom, left, right } = link.getBoundingClientRect();
+        const outset = Number.parseFloat(css.outlineWidth) + Number.parseFloat(css.outlineOffset);
+        return {
+          name: link.textContent,
+          focused: link.matches(":focus-visible") && css.outlineStyle !== "none",
+          outset,
+          top,
+          bottom,
+          left,
+          right,
+        };
+      }),
+      tile.locator("header").boundingBox(),
+      tile.getByRole("button", { name: "2 need attention" }).boundingBox(),
+      tile.boundingBox(),
+    ]);
+    assert.ok(result.focused && result.outset > 0 && header && fold && bounds, `Tab draws a ring on ${result.name}`);
+    assert.ok(result.top - result.outset >= header.y + header.height, `${result.name}'s ring is below the heading`);
+    assert.ok(result.bottom + result.outset <= fold.y, `${result.name}'s ring is above the fold`);
+    assert.ok(
+      result.left - result.outset >= bounds.x && result.right + result.outset <= bounds.x + bounds.width,
+      `both sides of ${result.name}'s ring fit`,
+    );
+  }
+});
+
 test("At 1280x599 every phase is a full touch target under the closed Deals fold", async (t) => {
   const page = await openHome(t, 1280, 599, [], comingUpDates, dashboard, undefined, {
     touch: true,

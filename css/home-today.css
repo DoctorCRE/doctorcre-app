@@ -57,5 +57,7 @@ details.home-today-row > :not(summary) { margin: 0 0 var(--space-1); padding-inl
   .home-short-fold:not([data-open]) > :not(.home-short-fold-line) { display: none; }
   .home-coming-up:has(.home-short-fold:not([data-open])) > header { display: none; }
   [data-home-fitted] > [data-home-fold]:not([data-open]) { position: sticky; inset-block-end: 0; z-index: 1; background: var(--surface-1); }
+  .home-deals > .home-phases { padding-block-end: var(--space-2); }
+  .home-deals [data-home-target] { scroll-margin-block: var(--space-2); }
   .home-coming-up:has(.home-short-fold[data-open]) { flex: 1 1 0; }
 } }
