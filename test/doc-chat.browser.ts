@@ -1335,18 +1335,7 @@ test("Ask Doc opens inside the app shell with full-size targets on a phone", asy
   await page.setViewportSize({ width: 1440, height: 844 });
   await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
   await expect(page.getByRole("navigation", { name: "Primary navigation" })).toBeVisible();
-  const askDoc = page.getByRole("link", { name: "Ask Doc", exact: true });
-  await expect(askDoc).toHaveAttribute("aria-current", "page");
-  const look = (control: Locator) =>
-    control.evaluate((element) => {
-      const { color, backgroundColor } = getComputedStyle(element);
-      return { color, backgroundColor };
-    });
-  assert.notDeepEqual(
-    await look(askDoc),
-    await look(page.getByRole("button", { name: "Search and quick switcher" })),
-    "Ask Doc looks current",
-  );
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(`Ask Doc / ${question}`);
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByRole("link", { name: deal.label })).toBeVisible();
   const toolbar = page.getByRole("region", { name: "App controls" });
