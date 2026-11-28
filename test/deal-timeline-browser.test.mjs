@@ -408,8 +408,13 @@ for (const receipt of ['written','crossed-again','old-engine']) test('a rebased 
  }
 });
 
-for (const width of [390,1280]) test(`closing an item cancels Drop and leaves Reset to typical working at ${width}px`,async t=>{
- const {page}=await open(t,{width,height:844,touch:width===390});
+for (const {width,height,dismiss} of [
+ {width:390,height:844,dismiss:'Close item'},
+ {width:1280,height:844,dismiss:'Close item'},
+ {width:1024,height:768,dismiss:'Typical lengths'},
+ {width:1280,height:599,dismiss:'Typical lengths'},
+]) test(`${dismiss} cancels Drop and leaves Reset to typical working at ${width}x${height}`,async t=>{
+ const {page}=await open(t,{width,height,touch:width===390});
  const writes=[];
  await page.route('**/api/engine/deals/d14/plan-dates',async route=>{
   writes.push(route.request().postDataJSON());
@@ -420,12 +425,19 @@ for (const width of [390,1280]) test(`closing an item cancels Drop and leaves Re
  await page.getByRole('button',{name:'Lease signing expected Oct 17',exact:true}).click();
  const tab=page.getByRole('tabpanel',{name:'Plan'});
  const status=page.locator('#workspacePlanStatus');
- const items=width===390?tab.getByRole('list',{name:'Plan items'}):tab.locator('.timeline-scroll');
+ const items=width<1280?tab.getByRole('list',{name:'Plan items'}):tab.locator('.timeline-scroll');
  await items.getByRole('button',{name:'Example deadline',exact:true}).first().click();
  const detail=tab.getByRole('region',{name:'Example deadline'});
  await detail.getByRole('button',{name:'Drop',exact:true}).click();
  await status.getByRole('button',{name:'Drop date',exact:true}).waitFor();
- await detail.getByRole('button',{name:'Close item',exact:true}).click();
+ if (dismiss==='Typical lengths') {
+  await page.route('**/api/engine/typical-lengths?*',route=>route.fulfill({json:{items:[]}}));
+  await tab.getByRole('button',{name:'Typical lengths',exact:true}).click({timeout:3000});
+  await tab.getByRole('button',{name:'Close typical lengths',exact:true}).click({timeout:3000});
+ } else {
+  await detail.getByRole('button',{name:'Close item',exact:true}).click();
+ }
+ assert.equal(await detail.count(),0);
  assert.equal(await status.getByRole('button',{name:'Drop date',exact:true}).count(),0);
  const reset=status.getByRole('button',{name:'Reset to typical',exact:true});
  await reset.waitFor({timeout:2000});

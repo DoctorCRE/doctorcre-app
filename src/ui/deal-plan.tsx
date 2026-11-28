@@ -367,7 +367,7 @@ function PlanScreen(props: Inputs) {
       type="button"
       onClick={() => {
         setLengths(true);
-        setOpened(undefined);
+        closeItem();
         setReset(false);
       }}
     >
@@ -433,8 +433,7 @@ function PlanScreen(props: Inputs) {
       if (!response.ok) {
         if (response.status === 409) {
           setUndo(undefined);
-          setEdit(undefined);
-          setOpened(undefined);
+          closeItem();
           setStatus(
             path.startsWith("next-steps/")
               ? "This step changed. Review the latest version."
@@ -556,6 +555,10 @@ function PlanScreen(props: Inputs) {
       version != null &&
       Boolean(selectedFacts?.kind === "todo" && selectedFacts.state === "expected" && selectedFacts.expected_from_on));
   const foldKey = props.mode === "plan" ? `deal-${props.deal}` : "deals";
+  function closeItem() {
+    setOpened(undefined);
+    setEdit(undefined);
+  }
   function openItem(id: string) {
     setOpened(id);
     setEdit(undefined);
@@ -625,8 +628,7 @@ function PlanScreen(props: Inputs) {
             type="button"
             className="btn btn-quiet"
             onClick={() => {
-              setOpened(undefined);
-              setEdit(undefined);
+              closeItem();
               setReset(true);
             }}
           >
@@ -658,15 +660,7 @@ function PlanScreen(props: Inputs) {
     );
   const detail = selected && (
     <section className="deal-plan-details" aria-label={selected.name}>
-      <button
-        type="button"
-        className="btn btn-quiet"
-        aria-label="Close item"
-        onClick={() => {
-          setOpened(undefined);
-          setEdit(undefined);
-        }}
-      >
+      <button type="button" className="btn btn-quiet" aria-label="Close item" onClick={closeItem}>
         ×
       </button>
       <h3>{selected.name}</h3>
