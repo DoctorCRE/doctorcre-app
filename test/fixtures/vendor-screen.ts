@@ -7,9 +7,14 @@ import { directoryFixture, PAGE_SIZE, type VendorRoster } from "./vendor-directo
 
 const origin = "http://fixture.test";
 const listPath = "/api/v1/business/vendors";
+const localParams = new Set(["record", "relationship", "market"]);
+
+type Address = ReturnType<typeof address>;
+type ScreenRead = { navigation: number; query: string; readsList: boolean };
+const pageReads = new WeakMap<Page, { urls: Map<string, Address>; navigation: number; previous?: ScreenRead }>();
 
 function address(url: URL) {
-  return { path: url.pathname, query: [...url.searchParams].sort() };
+  return { path: url.pathname, query: [...url.searchParams.entries()].sort() };
 }
 
 export function matchesVendorRequest(url: URL, path: string) {
@@ -18,8 +23,8 @@ export function matchesVendorRequest(url: URL, path: string) {
   return actual.path === wanted.path && JSON.stringify(actual.query) === JSON.stringify(wanted.query);
 }
 
-export function vendorListRequest(query: string) {
-  return `${listPath}?contract=vendor-directory.v1&${query}`;
+function vendorListRequest(query: string) {
+  return `${listPath}?contract=vendor-directory.v1${query ? `&${query}` : ""}`;
 }
 
 export async function holdVendorList(page: Page, query: string) {
@@ -59,10 +64,20 @@ export async function openVendors(
     await page.addInitScript(() =>
       localStorage.setItem("doctorcre.visual-preferences", JSON.stringify({ theme: "light" })),
     );
-  const asked: URL[] = [];
+  const listReads = new Map<string, Address>();
+  const reads = { urls: listReads, navigation: 0 };
+  pageReads.set(page, reads);
+  page.on("framenavigated", (frame) => {
+    if (frame !== page.mainFrame()) return;
+    reads.navigation++;
+    listReads.clear();
+  });
   page.on("request", (request) => {
     const url = new URL(request.url());
-    if (url.pathname.startsWith("/api/v1/business/")) asked.push(url);
+    if (url.pathname === listPath) {
+      const target = address(url);
+      listReads.set(JSON.stringify(target), target);
+    }
   });
   await page.route("**/api/v1/business/**", (route) =>
     route.fulfill({ json: directoryFixture(route.request().url(), { roster }) }),
@@ -100,7 +115,7 @@ export async function openVendors(
   const url = new URL(view, server.url);
   if (live) url.searchParams.set("mode", "live");
   await page.goto(url.href);
-  return { page, asked, heldList };
+  return { page, heldList };
 }
 
 const relationships = [
@@ -184,6 +199,32 @@ function territoryTiles(markets: VendorRoster["markets"], rows: Vendor[], select
   ];
 }
 
+function filterControl(label: string, pressed: boolean, count = "") {
+  return { label, count, pressed };
+}
+
+function tableControls(rows: Vendor[], counted: boolean, relation: string | null, quiet: boolean) {
+  const counts = relationships.flatMap(([key, label], rank) => {
+    const count = rows.filter((row) => relationshipRank(row) === rank).length;
+    return count || key === relation ? [filterControl(label, key === relation, String(count))] : [];
+  });
+  return [
+    ...(counted ? counts : []),
+    filterControl("Quiet", quiet, counted ? String(rows.filter((row) => row.quiet).length) : ""),
+  ];
+}
+
+function listRequests(query: URLSearchParams, pages: number, markets: boolean) {
+  const params = new URLSearchParams(query);
+  for (const key of localParams) params.delete(key);
+  params.delete("all");
+  if (markets) params.set("markets", "true");
+  return Array.from({ length: pages }, (_, i) => {
+    if (i) params.set("page", String(i + 1));
+    return address(new URL(vendorListRequest(params.toString()), origin));
+  }).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+}
+
 export function screenFor(
   roster: VendorRoster,
   {
@@ -230,14 +271,22 @@ export function screenFor(
   const matching = placeRows.filter((row) => (!quiet || row.quiet) && row.name.toLowerCase().includes(search));
   const count = `${matching.length} ${matching.length === 1 ? "vendor" : "vendors"}`;
   const status = loading ? "Checking…" : count;
+  const byName = (a: Vendor, b: Vendor) => a.name.localeCompare(b.name);
+  const byTerritory = (a: Vendor, b: Vendor) =>
+    Number(a.territory === null) - Number(b.territory === null) ||
+    (a.territory ?? "").toLowerCase().localeCompare((b.territory ?? "").toLowerCase()) ||
+    byName(a, b);
   const ranked = matching.toSorted(
-    (a, b) => (sort === "name" ? 0 : relationshipRank(a) - relationshipRank(b)) || a.name.localeCompare(b.name),
+    sort === "territory"
+      ? byTerritory
+      : sort === "name"
+        ? byName
+        : (a, b) => relationshipRank(a) - relationshipRank(b) || byName(a, b),
   );
   const window = inCategory || marketsEnabled ? ranked : ranked.slice(0, page * PAGE_SIZE);
   const relation = query.get("relationship");
-  const rows = window.filter(
-    (row) => inMarket(row, market) && (!relation || relationships[relationshipRank(row)]?.[0] === relation),
-  );
+  const marketRows = window.filter((row) => inMarket(row, market));
+  const rows = marketRows.filter((row) => !relation || relationships[relationshipRank(row)]?.[0] === relation);
   const showRows = !showTiles && !loading && !meetings;
   const categories = roster.categories.map(
     ({ label, slug }) => [label, owned.filter((row) => row.categories.some((entry) => entry.slug === slug))] as const,
@@ -247,6 +296,21 @@ export function screenFor(
     heading: phone ? place : place ? `${place} · ${status}` : loading && category ? "" : status,
     placeholder: meetings ? "" : place ? `Find in ${place}` : "Find a vendor",
     loading,
+    groups: {
+      territories: marketsEnabled && !meetings,
+      filters: showRows,
+      tiles: showTiles && !meetings,
+      list: !showTiles && !meetings,
+    },
+    filters: showRows ? tableControls(marketRows, inCategory || marketsEnabled, relation, quiet) : [],
+    owners: ["All", "Joe", "Dell"].map((label) => filterControl(label, (owner ?? "all") === label.toLowerCase())),
+    sortControls:
+      !phone && showRows && rows.length > 0
+        ? ["Name", "Relationship", "Territory"].map((label) =>
+            filterControl(label, (sort ?? "relationship") === label.toLowerCase()),
+          )
+        : [],
+    requests: showTiles ? [] : listRequests(query, page, marketsEnabled),
     categoryColumn: !phone && showRows && !inCategory && !query.has("record") && rows.length > 0,
     territories: marketsEnabled && !meetings ? territoryTiles(roster.markets, placeRows, market) : [],
     tiles:
@@ -264,6 +328,16 @@ export function screenFor(
 }
 
 export async function expectVendorScreen(page: Page, expected: ReturnType<typeof screenFor>) {
+  const reads = pageReads.get(page);
+  if (!reads) throw new Error("Vendors request capture must start before navigation");
+  const { previous } = reads;
+  const query = JSON.stringify(expected.address.query.filter(([key]) => !localParams.has(key)));
+  // Opening a card or changing a local filter moves the address without fetching a list.
+  const readsList =
+    previous?.navigation === reads.navigation && previous.query === query
+      ? (previous?.readsList ?? true)
+      : previous?.query !== query;
+  const wanted = { ...expected, requests: readsList ? expected.requests : [] };
   await expect
     .poll(async () => {
       const screen = await page.evaluate(() => {
@@ -274,13 +348,13 @@ export async function expectVendorScreen(page: Page, expected: ReturnType<typeof
         }
         const find = (selector: string, parent: ParentNode = document) =>
           [...parent.querySelectorAll(selector)].filter(visible);
-        function visibleText(element: HTMLElement): string {
+        function visibleText(element: HTMLElement, omit?: Element | null): string {
           return [...element.childNodes]
             .map((node) =>
               node.nodeType === Node.TEXT_NODE
                 ? node.textContent
-                : node instanceof Element && visible(node)
-                  ? visibleText(node)
+                : node instanceof Element && node !== omit && visible(node)
+                  ? visibleText(node, omit)
                   : "",
             )
             .join("");
@@ -289,6 +363,13 @@ export async function expectVendorScreen(page: Page, expected: ReturnType<typeof
           const element = find(selector, parent)[0];
           return element ? visibleText(element).trim().replace(/\s+/g, " ") : "";
         }
+        function control(button: HTMLElement) {
+          return {
+            label: visibleText(button, button.querySelector(".tile-n")).trim().replace(/\s+/g, " "),
+            count: text(button, ".tile-n"),
+            pressed: button.getAttribute("aria-pressed") === "true",
+          };
+        }
         const fact = (row: HTMLElement, label: string) => text(row, `[data-fact="${label}"] .fact-value`);
         const input = document.querySelector<HTMLInputElement>("#searchInput");
         return {
@@ -296,6 +377,15 @@ export async function expectVendorScreen(page: Page, expected: ReturnType<typeof
           heading: text(document, "#resultSummary"),
           placeholder: input && visible(input) ? input.placeholder : "",
           loading: find(".record-skeleton, #directoryTiles .skeleton-line").length > 0,
+          groups: {
+            territories: visible(document.querySelector("#vendorTerritories")),
+            filters: visible(document.querySelector("#tableFilters")),
+            tiles: visible(document.querySelector("#directoryTiles")),
+            list: visible(document.querySelector("#listRegion")),
+          },
+          filters: find("#tableFilters button").map(control),
+          owners: find("#scopeSwitch button").map(control),
+          sortControls: find(".list-head [data-column-sort]").map(control),
           categoryColumn: find('.list-head [data-fact="Category"]').length > 0,
           territories: find("#vendorTerritories button").map((button) => ({
             label: text(button, "span:first-child"),
@@ -322,7 +412,9 @@ export async function expectVendorScreen(page: Page, expected: ReturnType<typeof
         };
       });
       const { href, ...visible } = screen;
-      return { address: address(new URL(href)), ...visible };
+      const requests = [...reads.urls].sort(([a], [b]) => a.localeCompare(b)).map(([, url]) => url);
+      return { address: address(new URL(href)), ...visible, requests };
     })
-    .toEqual(expected);
+    .toEqual(wanted);
+  reads.previous = { navigation: reads.navigation, query, readsList };
 }

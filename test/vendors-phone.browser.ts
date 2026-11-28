@@ -82,6 +82,7 @@ for (const [width, height] of [
 ] as const)
   test(`the relationship counts stay on one row with the card open at ${width}x${height}`, async (t) => {
     const { page } = await openVendors(t, roster, { view: banking, width, height });
+    await expectVendorScreen(page, screenFor(roster, { view: banking }));
     const vendor = roster.rows.find((row) => row.name === "Demo Partner 01");
     assert.ok(vendor);
     await page.locator(".record-row").filter({ hasText: vendor.name }).click();
@@ -116,6 +117,7 @@ test("the search hint shows whole for a long category name", async (t) => {
 
 test("a vendor's card follows the screen spec's order and ends with Where", async (t) => {
   const { page } = await openVendors(t, roster, { view: banking });
+  await expectVendorScreen(page, screenFor(roster, { view: banking }));
   const vendor = roster.rows.find((row) => row.name === "Demo Partner 11");
   assert.ok(vendor);
   await page.locator(".record-row").filter({ hasText: vendor.name }).click();
