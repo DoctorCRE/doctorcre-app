@@ -364,7 +364,7 @@ function PlanScreen(props: Inputs) {
     if (!grip) return;
     setPreview(null);
     if (!saved) return;
-    if (!soon(day)) setView((current) => (current === "soon" ? null : current));
+    if (!board && !soon(day)) setView((current) => (current === "soon" ? null : current));
     const group = groups.find(({ rows }) => rows.some((item) => item.id === id));
     if (group && (document.activeElement === grip || (!grip.isConnected && document.activeElement === document.body))) {
       setReveal({ group: group.id, row: id, day, focus: true });
