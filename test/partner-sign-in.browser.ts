@@ -1296,7 +1296,7 @@ test("Doc settings show each Mac status and keep link codes private", async (t) 
   await settings.getByText("Doc answers when your Mac is on.").waitFor();
   assert.equal(await code.count(), 0);
   for (const [status, copy] of [
-    ["signed_out", "On your Mac, sign in to the app you use for Doc: Claude Code or Codex."],
+    ["signed_out", "On the Mac that runs Doc, sign in again to the AI app Doc was set up with."],
     ["plan_limited", "Doc is paused until your model's plan resets."],
     ["ready", "Doc is ready on your Mac."],
   ] as const) {

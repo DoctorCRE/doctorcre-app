@@ -680,7 +680,7 @@ test("A reopened Doc question keeps its place and lets the partner draft a follo
   const waitingLines = [
     "Doc answers when your Mac is on.",
     "Doc is paused until your model's plan resets.",
-    "On your Mac, sign in to the app you use for Doc: Claude Code or Codex.",
+    "On the Mac that runs Doc, sign in again to the AI app Doc was set up with.",
     "Doc is waiting for a free slot on your Mac.",
     "Doc is waiting for a new reason.",
   ] as const;
@@ -715,7 +715,7 @@ test("A reopened Doc question keeps its place and lets the partner draft a follo
 
   for (const waiting_reason of waitingLines.slice(1)) {
     waitingReason =
-      waiting_reason === "On your Mac, sign in to the app you use for Doc: Claude Code or Codex."
+      waiting_reason === "On the Mac that runs Doc, sign in again to the AI app Doc was set up with."
         ? "Sign in to Claude Code on your Mac."
         : waiting_reason === "Doc is paused until your model's plan resets."
           ? "Doc is paused until your Claude plan resets."
@@ -1909,7 +1909,7 @@ for (const [status, line] of [
   ["ready", "Doc is ready on your Mac."],
   ["not_set_up", "Doc isn't set up on your Mac yet."],
   ["mac_off", "Doc answers when your Mac is on."],
-  ["signed_out", "On your Mac, sign in to the app you use for Doc: Claude Code or Codex."],
+  ["signed_out", "On the Mac that runs Doc, sign in again to the AI app Doc was set up with."],
   ["plan_limited", "Doc is paused until your model's plan resets."],
 ] as const) {
   test(`Under the typing box one line gives the Mac's status: ${status}`, async (t) => {
@@ -1972,7 +1972,9 @@ test("A conversation accepts a future backend and uses neutral waiting text", as
     return Response.json({ conversations: [conversation], next_before: null });
   });
   await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
-  await expect(page.getByText("On your Mac, sign in to the app you use for Doc: Claude Code or Codex.")).toBeVisible();
+  await expect(
+    page.getByText("On the Mac that runs Doc, sign in again to the AI app Doc was set up with."),
+  ).toBeVisible();
 });
 
 test("A sent question accepts a future backend", async (t) => {
@@ -2090,7 +2092,12 @@ for (const [width, theme, conflict, unavailable] of [
   [1440, "dark", "draft_changed"],
   [390, "light", undefined, ["not_set_up", "Doc isn't set up on your Mac yet."]],
   [390, "dark", undefined, ["mac_off", "Doc answers when your Mac is on."]],
-  [1440, "light", undefined, ["signed_out", "On your Mac, sign in to the app you use for Doc: Claude Code or Codex."]],
+  [
+    1440,
+    "light",
+    undefined,
+    ["signed_out", "On the Mac that runs Doc, sign in again to the AI app Doc was set up with."],
+  ],
   [1440, "dark", undefined, ["plan_limited", "Doc is paused until your model's plan resets."]],
   [390, "dark", undefined, ["legacy", "Sign in with DoctorCRE to talk to Doc."]],
   [1440, "light", undefined, ["read_failed", "Couldn't check whether Doc is ready."]],

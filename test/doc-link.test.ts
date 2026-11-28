@@ -5,7 +5,7 @@ import { docLinkMessage, readDocLinkStatus, waitingMessage } from "../src/ui/doc
 const cases = [
   ["doc_not_set_up", "Doc isn't set up on your Mac yet."],
   ["doc_mac_off", "Doc answers when your Mac is on."],
-  ["doc_signed_out", "On your Mac, sign in to the app you use for Doc: Claude Code or Codex."],
+  ["doc_signed_out", "On the Mac that runs Doc, sign in again to the AI app Doc was set up with."],
   ["doc_plan_limit", "Doc is paused until your model's plan resets."],
   ["doc_ready", "Doc is ready on your Mac."],
 ] as const;
