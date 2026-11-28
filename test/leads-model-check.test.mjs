@@ -5,6 +5,7 @@ import {marketFeatures,marketLocation} from '../js/leads-territory-map.js';
 import {lead,leads,detail,workspace,id,emptyQuietFollowUps} from './leads-workspace-fixture.mjs';
 import { readFile } from 'node:fs/promises';
 import { JSDOM } from 'jsdom';
+import { validateLeadWorkspace } from '../js/leads-client.js';
 import { mountLeadsWorkspace } from '../js/leads-workspace-app.js';
 const projectMarkets = (rows, places) => marketFeatures(marketCounts(rows, {}, row => marketLocation(row, places)));
 test('six stages, filter-only archive, exact lifecycle exclusions, suppression everywhere',()=>{
@@ -15,6 +16,19 @@ test('six stages, filter-only archive, exact lifecycle exclusions, suppression e
  assert.equal(visibleLeads([lead(1,{stage:'closed_lost'})])[0].id,lead(1).id);
  assert.equal(visibleLeads([lead(1,{stage:'closed_won'})]).length,0);
  assert.equal(eligibleLead(lead(1,{possible_clients:[{name:'Example'}]})),true);
+});
+test('All markets shows leads with a market and without one, as the engine sends them',()=>{
+ const board=validateLeadWorkspace({...workspace(),leads:[lead(1,{market:{id:'example-market',name:'Example Market'}}),lead(2,{market:null,city:null,state:null})]});
+ assert.equal(board.leads.length,2);
+ assert.equal(visibleLeads(board.leads).length,2);
+ assert.deepEqual(marketCounts(board.leads).map(g=>[g.key,g.count]).sort(),[['Example Market',1],['Leads without a market',1]]);
+});
+test('leads dropped by the client read and by the app read are counted together',()=>{
+ const parseTiming=value=>{if(value==='bad')throw Object.assign(new Error('timing'),{code:'invalid_projection'})};
+ const raw={...workspace(),leads:[lead(1),lead(2,{market:'x'}),lead(3,{opportunity_timing:'bad'})]};
+ const afterClient=validateLeadWorkspace(raw);
+ assert.equal(afterClient.left_out,1);
+ assert.equal(validateLeadWorkspace(afterClient,parseTiming).left_out,2);
 });
 test('title priority and smart titles discard referral decorations',()=>{
  assert.equal(leadTitle(lead(1,{doctor_name:'Dr. Example (via referral)',practice_name:'Practice'})),'Dr. Example');

@@ -104,34 +104,44 @@ export function createLeadBoardClient(options = {}) {
 const object = value => value !== null && typeof value === "object" && !Array.isArray(value);
 const text = value => typeof value === "string" && value.trim().length > 0;
 const optionalText = value => value == null || typeof value === "string";
-function projection(condition) {
-  if (!condition) throw Object.assign(new Error("Leads update unavailable"), { code: "invalid_projection" });
+function projection(condition, field) {
+  if (!condition) throw Object.assign(new Error("Leads update unavailable"), { code: "invalid_projection", field });
 }
 export function hasLeadVersion(lead) {
   return Number.isSafeInteger(lead?.base_version) && lead.base_version > 0;
 }
 function validateLead(lead, parseTiming) {
-  projection(object(lead) && text(lead.id) && text(lead.stage) && typeof lead.suppressed === "boolean");
-  for (const key of ["registry_ref", "party_id", "doctor_name", "practice_name", "entity_name", "name", "owner", "city", "state", "market", "specialty", "vertical", "plan_type"]) projection(optionalText(lead[key]));
-  for (const key of ["is_client", "linked_client", "is_past_client", "is_deal", "do_not_contact", "new_from_email"]) projection(lead[key] == null || typeof lead[key] === "boolean");
-  projection(lead.score == null || (["string", "number"].includes(typeof lead.score) && Number.isFinite(Number(lead.score))));
-  projection(Array.isArray(lead.possible_clients) && lead.possible_clients.every(match => object(match) && text(match.client_id) && text(match.name)));
-  projection(lead.last_stage_move == null || object(lead.last_stage_move));
-  if (lead.opportunity_timing !== undefined && parseTiming) parseTiming(lead.opportunity_timing);
+  projection(object(lead) && text(lead.id), "id");
+  projection(text(lead.stage), "stage");
+  projection(typeof lead.suppressed === "boolean", "suppressed");
+  for (const key of ["registry_ref", "party_id", "doctor_name", "practice_name", "entity_name", "name", "owner", "city", "state", "specialty", "vertical", "plan_type"]) projection(optionalText(lead[key]), key);
+  projection(lead.market == null || (object(lead.market) && text(lead.market.id) && text(lead.market.name)), "market");
+  for (const key of ["is_client", "linked_client", "is_past_client", "is_deal", "do_not_contact", "new_from_email"]) projection(lead[key] == null || typeof lead[key] === "boolean", key);
+  projection(lead.score == null || (["string", "number"].includes(typeof lead.score) && Number.isFinite(Number(lead.score))), "score");
+  projection(Array.isArray(lead.possible_clients) && lead.possible_clients.every(match => object(match) && text(match.client_id) && text(match.name)), "possible_clients");
+  projection(lead.last_stage_move == null || object(lead.last_stage_move), "last_stage_move");
+  if (lead.opportunity_timing !== undefined && parseTiming) {
+    try { parseTiming(lead.opportunity_timing); }
+    catch (error) { throw Object.assign(error, { field: "opportunity_timing" }); }
+  }
   return lead;
 }
 export function validateLeadWorkspace(payload, parseTiming) {
   projection(object(payload) && payload.schema_version === "lead-workspace.v1" && leadTimestamp(payload.generated_at) !== null && Array.isArray(payload.leads));
+  const failedFields = new Set();
   const leads = payload.leads.filter(lead => {
     try { validateLead(lead, parseTiming); return true; }
     catch (error) {
       if (error?.code !== "invalid_projection") throw error;
+      failedFields.add(error.field);
       return false;
     }
   });
   projection(!payload.leads.length || leads.length > 0);
   projection(new Set(leads.map(lead => lead.id)).size === leads.length);
-  return leads.length === payload.leads.length ? payload : { ...payload, leads };
+  if (leads.length === payload.leads.length) return payload;
+  console.error(`Leads: ${payload.leads.length - leads.length} left out; unreadable field: ${[...failedFields].join(", ")}`);
+  return { ...payload, leads, left_out: (payload.left_out ?? 0) + payload.leads.length - leads.length };
 }
 const validCorrespondence = entry => object(entry) && text(entry.id) && text(entry.kind) &&
   leadTimestamp(entry.occurred_at) !== null && optionalText(entry.summary) && optionalText(entry.detail);

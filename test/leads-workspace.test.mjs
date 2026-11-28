@@ -1,6 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {readFile} from 'node:fs/promises';import {JSDOM} from 'jsdom';
 import {mountLeadsWorkspace} from '../js/leads-workspace-app.js';import {workspace,detail,id} from './leads-workspace-fixture.mjs';
-import {createLeadBoardClient,validateLeadDetail} from '../js/leads-client.js';
+import {createLeadBoardClient,validateLeadDetail,validateLeadWorkspace} from '../js/leads-client.js';
 import {settles} from './browser-harness.mjs';
 const tick=()=>new Promise(r=>setTimeout(r,10));
 async function setup(overrides={},mapFactory=async()=>({update(){},dispose(){}}),configure=()=>{}){
@@ -1146,4 +1146,18 @@ test('Lead details keep names and plans readable and omit absent facts', async t
   await s.app.readDetail(id(2));
   assert.match(body.querySelector('.detail-summary').textContent, /Lead score78\/ 100/);
   assert.match(body.querySelector('.detail-overview').textContent, /MarketPensacola, FL/);
+});
+
+test('a lead the app cannot read is counted on the board and named in the console, and the others still show',async t=>{
+ const errors=t.mock.method(console,'error',()=>{});
+ const b=workspace();b.leads[0].market='not an object';b.leads[1].score='high';
+ const s=await setup({getWorkspace:async()=>validateLeadWorkspace(structuredClone(b))});
+ try{
+  const shown=[...s.d.querySelectorAll('#leadBoard .lead-card')].map(n=>n.dataset.leadId);
+  assert.ok(shown.includes(b.leads[2].id));assert.ok(!shown.includes(b.leads[0].id)&&!shown.includes(b.leads[1].id));
+  const note=s.d.getElementById('leadBoardError');
+  assert.equal(note.hidden,false);assert.match(note.textContent,/2 leads couldn't be shown/);
+  assert.equal(errors.mock.callCount(),1);
+  assert.match(errors.mock.calls[0].arguments[0],/market, score/);
+ }finally{s.close()}
 });

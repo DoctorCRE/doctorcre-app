@@ -3046,6 +3046,31 @@ test("Party saves and their read reach the engine only with Clients and Vendors 
   }
 });
 
+test("An introduction saves only with Clients and Vendors, Deals and Deal saves on the engine", async () => {
+  const id = "00000000-0000-4000-8000-000000000001";
+  const clientsVendors = ["clients-vendors-from-engine", "on"] as const;
+  const dealsRead = ["deals-from-engine", "on"] as const;
+  const dealSaves = ["deals-saves-from-engine", "on"] as const;
+  for (const path of ["/api/engine/introductions", `/api/engine/introductions/${id}`]) {
+    const request = () =>
+      new Request(origin + path, { method: "POST", headers: { cookie: "session=synthetic", origin }, body: "{}" });
+    for (const routing of [
+      [],
+      [clientsVendors],
+      [clientsVendors, dealsRead],
+      [clientsVendors, dealSaves],
+      [dealsRead, dealSaves],
+    ]) {
+      const off = fixture(new Map(routing));
+      assert.equal((await worker.fetch(request(), off.env)).status, 404, `${path} with ${routing.map(([k]) => k)}`);
+      assert.deepEqual(off.engine, []);
+    }
+    const on = fixture(new Map([clientsVendors, dealsRead, dealSaves]));
+    assert.equal((await worker.fetch(request(), on.env)).status, 200, path);
+    assert.equal(on.engine[0]?.url, origin + path);
+  }
+});
+
 test("A Deals client search still answers while Clients and Vendors read the old system", async () => {
   const deals = fixture(
     new Map([

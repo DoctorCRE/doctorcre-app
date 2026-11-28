@@ -58,7 +58,7 @@ test("view and composed filters keep exact map and unlocated membership", () => 
       ...row,
       id,
       reachability: parseReachability(row.reachability),
-      market: "Austin",
+      market: { id: "example-market", name: "Austin" },
       owner: "joe",
       specialty: "Dental",
     };

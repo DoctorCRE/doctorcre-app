@@ -11,10 +11,13 @@ const longMarket =
 function shoutedBoard() {
   const board = workspace();
   board.leads = [
-    lead(1, { doctor_name: "ACME CARE PARTNERS LLC", market: longMarket }),
-    lead(2, { doctor_name: "O'NEIL FAMILY DENTISTRY OF EXAMPLE, P.C.", market: longMarket }),
-    lead(3, { doctor_name: "SAMPLE SMILES DDS", market: longMarket }),
-    lead(4, { doctor_name: "Example McKay Dental", market: "Mobile, AL" }),
+    lead(1, { doctor_name: "ACME CARE PARTNERS LLC", market: { id: "long-market", name: longMarket } }),
+    lead(2, {
+      doctor_name: "O'NEIL FAMILY DENTISTRY OF EXAMPLE, P.C.",
+      market: { id: "long-market", name: longMarket },
+    }),
+    lead(3, { doctor_name: "SAMPLE SMILES DDS", market: { id: "long-market", name: longMarket } }),
+    lead(4, { doctor_name: "Example McKay Dental", market: { id: "mobile", name: "Mobile, AL" } }),
   ];
   return board;
 }
