@@ -30,6 +30,9 @@ export function vendorRoster(options?: {
   noQuietContact?: boolean;
 }): VendorRoster;
 
-export function directoryFixture(url: string, options?: { roster: VendorRoster }): Record<string, unknown>;
+export function directoryFixture(
+  url: string,
+  options?: { roster: VendorRoster; now?: number },
+): Record<string, unknown>;
 
 export declare const PAGE_SIZE: number;

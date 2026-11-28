@@ -16,11 +16,12 @@ test("Vendors opens on a tile per category that opens its list, and Joe recounts
   await expectVendorScreen(page, screenFor(roster));
   await page.screenshot({ path: `${shots}/tiles-1440.png` });
 
-  const joeTiles = screenFor(roster, { view: "/vendors?owner=joe" });
+  const joeView = "/vendors?owner=joe";
+  const joeTiles = screenFor(roster, { view: joeView, afterList: true });
   const tile = (label: string) =>
     page.locator("a.directory-tile").filter({ has: page.getByText(label, { exact: true }) });
   await page.getByRole("button", { name: "Joe", exact: true }).click();
-  await expectVendorScreen(page, joeTiles);
+  await expectVendorScreen(page, screenFor(roster, { view: joeView }));
 
   await tile("Banking").click();
   await expectVendorScreen(page, screenFor(roster, { view: `${banking}&owner=joe` }));
@@ -47,7 +48,7 @@ test("Find a vendor swaps the tiles for matches and clearing it brings them back
   await find.fill("Partner 0");
   await expectVendorScreen(page, screenFor(roster, { view: "/vendors?q=Partner+0" }));
   await find.fill("");
-  await expectVendorScreen(page, screenFor(roster));
+  await expectVendorScreen(page, screenFor(roster, { afterList: true }));
 });
 
 test("on a phone the tiles are two across", async (t) => {
@@ -208,7 +209,7 @@ test("territory tiles combine with search and clear in place", async (t) => {
   await expectVendorScreen(page, bankingScreen);
 
   await page.getByRole("button", { name: "Categories", exact: true }).click();
-  await expectVendorScreen(page, screenFor(marketRoster));
+  await expectVendorScreen(page, screenFor(marketRoster, { afterList: true }));
   await page.getByRole("link", { name: /^All vendors / }).click();
   const all = "/vendors?all=true";
   await expectVendorScreen(page, screenFor(marketRoster, { view: all }));

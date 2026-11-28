@@ -67,7 +67,7 @@ test("while a category loads it is named, never by its slug", async (t) => {
   await expectVendorScreen(page, loaded);
 
   await page.getByRole("button", { name: "Categories", exact: true }).click();
-  await expectVendorScreen(page, screenFor(roster));
+  await expectVendorScreen(page, screenFor(roster, { afterList: true }));
   const tileList = await holdVendorList(page, holdQuery);
   await page.getByRole("link", { name: /^CPA \/ Financial/ }).click();
   await tileList.waitUntilHeld();

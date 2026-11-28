@@ -1,18 +1,20 @@
 import type { TestContext } from "node:test";
 import { expect } from "@playwright/test";
 import type { Page } from "playwright";
+import { parse } from "yaml";
 import { chromium } from "../browser-harness.mjs";
 import { ownedServer } from "../fixture-probe.ts";
 import { directoryFixture, PAGE_SIZE, type VendorRoster } from "./vendor-directory.synthetic.mjs";
-import { captureSurface, installSurfaceCapture, type SurfaceElement } from "./vendor-surface.ts";
 
 const origin = "http://fixture.test";
+const fixtureTime = Date.parse("2026-11-28T15:30:00Z");
 const listPath = "/api/v1/business/vendors";
 const localParams = new Set(["record", "relationship", "market"]);
 
 type Address = ReturnType<typeof address>;
+type ListRequest = Address & { method: string };
 type ScreenRead = { navigation: number; query: string; readsList: boolean };
-const pageReads = new WeakMap<Page, { urls: Address[]; navigation: number; previous?: ScreenRead }>();
+const pageReads = new WeakMap<Page, { urls: ListRequest[]; navigation: number; previous?: ScreenRead }>();
 
 function address(url: URL) {
   return { path: url.pathname, query: [...url.searchParams.entries()].sort() };
@@ -65,8 +67,8 @@ export async function openVendors(
     await page.addInitScript(() =>
       localStorage.setItem("doctorcre.visual-preferences", JSON.stringify({ theme: "light" })),
     );
-  await installSurfaceCapture(page);
-  const listReads: Address[] = [];
+  await page.clock.setFixedTime(fixtureTime);
+  const listReads: ListRequest[] = [];
   const reads = { urls: listReads, navigation: 0 };
   pageReads.set(page, reads);
   page.on("framenavigated", (frame) => {
@@ -76,10 +78,10 @@ export async function openVendors(
   });
   page.on("request", (request) => {
     const url = new URL(request.url());
-    if (url.pathname === listPath) listReads.push(address(url));
+    if (url.pathname === listPath) listReads.push({ ...address(url), method: request.method() });
   });
   await page.route("**/api/v1/business/**", (route) =>
-    route.fulfill({ json: directoryFixture(route.request().url(), { roster }) }),
+    route.fulfill({ json: directoryFixture(route.request().url(), { roster, now: fixtureTime }) }),
   );
   await page.route("**/mcp", (route) =>
     route.fulfill({
@@ -135,15 +137,44 @@ function relationshipRank(vendor: Vendor) {
   return vendor.relationship_level === null ? 4 : 3 - vendor.relationship_level;
 }
 
-const element = (role: string, name?: string): SurfaceElement => (name ? { role, name } : { role });
-const hidden = (role: string, name?: string): SurfaceElement => ({ ...element(role, name), hidden: true });
-const text = (value: string): SurfaceElement => ({ text: value });
-const button = (label: string, pressed?: boolean, count = ""): SurfaceElement => ({
-  role: "button",
-  name: count ? `${label} ${count}` : label,
-  text: label,
-  ...(pressed !== undefined && { pressed: String(pressed) }),
-});
+type AriaNode = string | { [role: string]: string | AriaNode[] };
+const node = (role: string, value?: string | AriaNode[]): AriaNode =>
+  value === undefined || value.length === 0 ? role : { [role]: value };
+const named = (role: string, label: string) => `${role} ${JSON.stringify(label)}`;
+const generic = (value: string | AriaNode[]) => node("generic", value);
+const text = (value: string) => node("text", value);
+const button = (label: string, pressed = false, children?: AriaNode[]) =>
+  node(named("button", label) + (pressed ? " [pressed]" : ""), children);
+const searchbox = (label: string, value: string) => node(named("searchbox", label), value);
+const link = (label: string, href: string, children: AriaNode[] = []) =>
+  node(named("link", label), [node("/url", href), ...children]);
+const words = (...parts: (string | null)[]) => parts.filter(Boolean).join(" ");
+
+function vendorHref(params: URLSearchParams, record?: string) {
+  const keys = [
+    "scope",
+    "q",
+    "owner",
+    "territory",
+    "category",
+    "no_category",
+    "stage",
+    "disposition",
+    "quiet",
+    "sort",
+    "all",
+    "relationship",
+    "market",
+  ];
+  const query = new URLSearchParams(
+    keys.flatMap((key) => {
+      const value = params.get(key);
+      return value ? [[key, value]] : [];
+    }),
+  );
+  if (record) query.set("record", record);
+  return query.size ? `/vendors?${query}` : "/vendors";
+}
 
 function tally(rows: Vendor[]) {
   return relationships.map(([key, label], rank) => ({
@@ -153,67 +184,71 @@ function tally(rows: Vendor[]) {
   }));
 }
 
-function tile(label: string, rows: Vendor[], phone: boolean): SurfaceElement[] {
+function tile(label: string, rows: Vendor[], phone: boolean, href: string) {
   const quiet = rows.filter((row) => row.quiet).length;
   const mix = phone ? [] : tally(rows).filter(({ count }) => count > 0);
   const footer = quiet ? `${quiet} quiet` : "";
-  const name = `${label}${rows.length}${mix.length ? ` ${mix.map(({ label, count }) => `${count} ${label}`).join(" ")}${footer ? " " : ""}` : ""}${footer}`;
-  return [
-    element("listitem", name),
-    element("link", name),
-    text(label),
-    text(String(rows.length)),
-    ...(!phone ? [element("list")] : []),
-    ...mix.flatMap(({ label, count }) => [
-      { role: "listitem", name: `${count} ${label}`, text: label },
-      text(String(count)),
+  const name = words(label, String(rows.length), ...mix.map(({ label, count }) => `${count} ${label}`), footer);
+  return node("listitem", [
+    link(name, href, [
+      generic([generic(label), generic(String(rows.length))]),
+      ...(!phone
+        ? [
+            node(
+              "list",
+              mix.map(({ label, count }) => node("listitem", [generic(String(count)), text(label)])),
+            ),
+          ]
+        : []),
+      ...(footer ? [generic(footer)] : []),
     ]),
-    ...(footer ? [text(footer)] : []),
-  ];
+  ]);
 }
 
-function rowSurface(
-  row: Vendor,
-  { phone, inCategory, cardOpen }: { phone: boolean; inCategory: boolean; cardOpen: boolean },
-): SurfaceElement[] {
+function rowAria(row: Vendor, query: URLSearchParams, phone: boolean, inCategory: boolean) {
   const rank = relationshipRank(row);
-  const relation = relationships[rank]?.[1] ?? "";
+  const related = relationships[rank]?.[1] ?? "";
   const target = row.is_target && rank !== 6 ? "Want to meet" : "";
   const contacted = row.relationship.last_contacted_at;
   const date = contacted
     ? new Date(contacted).toLocaleDateString("en-US", { dateStyle: "medium", timeZone: "America/Chicago" })
     : "";
   const days = date && row.quiet && row.quiet_days !== null ? `· ${row.quiet_days} days` : "";
-  const lastContact = date ? [date, days].filter(Boolean).join(" ") : row.quiet ? "No contact yet" : "";
-  const location = phone || cardOpen ? "" : `${row.city}, ${row.state}`;
-  const category = phone || cardOpen || inCategory ? "" : row.recorded_category_label;
-  const owner = phone ? "" : row.owner_label;
+  const contact = date || (row.quiet ? "No contact yet" : "");
+  const expanded = !phone && !query.has("record");
   const facts = [
-    ["Relationship", relation],
-    ["Category", category],
+    ["Relationship", related],
+    ["Category", expanded && !inCategory ? row.recorded_category_label : ""],
     ["Territory", row.territory],
-    ["Location", location],
+    ["Location", expanded ? `${row.city}, ${row.state}` : ""],
   ];
-  const name =
-    row.name +
-    target +
-    facts.map(([label, value]) => (value ? label + value : "")).join("") +
-    (lastContact ? `Last contacted ${lastContact}` : "") +
-    (owner ? `Owner: ${owner}` : "");
-  return [
-    element("listitem", name),
-    element("link", name),
-    text(row.name),
-    ...(target ? [text(target)] : []),
-    ...facts.flatMap(([, value]) => (value ? [text(value)] : [])),
-    ...(lastContact
-      ? [
-          { ...(row.quiet && { quiet: true as const }), ...(!date ? text(lastContact) : days ? text(days) : {}) },
-          ...(date ? [text(date)] : []),
-        ].filter((part) => Object.keys(part).length)
-      : []),
-    ...(owner ? [text(owner)] : []),
-  ];
+  const owner = phone ? "" : row.owner_label;
+  const name = words(
+    row.name,
+    target,
+    ...facts.map(([label, value]) => (value ? words(label ?? "", value) : "")),
+    contact ? words("Last contacted", contact, days) : "",
+    owner ? `Owner: ${owner}` : "",
+  );
+  const visibleFacts = facts.flatMap(([label, value]) =>
+    label && value ? [generic([generic(label), generic(value)])] : [],
+  );
+  return node("listitem", [
+    link(name, vendorHref(query, row.id), [
+      target ? generic([generic(row.name), generic(target)]) : generic(row.name),
+      ...(visibleFacts.length === 1 ? visibleFacts : [generic(visibleFacts)]),
+      ...(contact
+        ? [
+            generic([
+              generic("Last contacted"),
+              date ? node("time", date) : text(contact),
+              ...(days ? [text(days)] : []),
+            ]),
+          ]
+        : []),
+      ...(owner ? [generic([generic("Owner:"), text(owner)])] : []),
+    ]),
+  ]);
 }
 
 function inMarket(row: Vendor, market: string) {
@@ -238,25 +273,22 @@ function territoryTiles(markets: VendorRoster["markets"], rows: Vendor[], select
       count: rows.filter((row) => inMarket(row, id)).length,
     })),
   ];
-  return [
-    element("group", "Territories"),
-    ...counts.flatMap(({ id, label, count }) => [
-      { role: "button", name: label + count, pressed: String(id === selected) },
-      text(label),
-      text(String(count)),
-    ]),
-  ];
+  return node(
+    named("group", "Territories"),
+    counts.map(({ id, label, count }) =>
+      button(`${label} ${count}`, id === selected, [generic(label), generic(String(count))]),
+    ),
+  );
 }
 
 function tableControls(rows: Vendor[], counted: boolean, relation: string | null, quiet: boolean) {
   const counts = counted ? tally(rows).filter(({ key, count }) => count > 0 || key === relation) : [];
-  const quietCount = counted ? String(rows.filter((row) => row.quiet).length) : "";
-  return [
-    element("group", "Show only"),
-    ...counts.flatMap(({ key, label, count }) => [button(label, key === relation, String(count)), text(String(count))]),
-    button("Quiet", quiet, quietCount),
-    ...(quietCount ? [text(quietCount)] : []),
-  ];
+  const control = (label: string, count: number, pressed: boolean) =>
+    button(`${label} ${count}`, pressed, [text(label), generic(String(count))]);
+  return node(named("group", "Show only"), [
+    ...counts.map(({ key, label, count }) => control(label, count, key === relation)),
+    counted ? control("Quiet", rows.filter((row) => row.quiet).length, quiet) : button("Quiet", quiet),
+  ]);
 }
 
 function listRequests(query: URLSearchParams, pages: number, markets: boolean) {
@@ -266,7 +298,7 @@ function listRequests(query: URLSearchParams, pages: number, markets: boolean) {
   if (markets) params.set("markets", "true");
   return Array.from({ length: pages }, (_, i) => {
     if (i) params.set("page", String(i + 1));
-    return address(new URL(vendorListRequest(params.toString()), origin));
+    return { ...address(new URL(vendorListRequest(params.toString()), origin)), method: "GET" };
   }).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
 }
 
@@ -280,6 +312,7 @@ export function screenFor(
     fromTile = false,
     meetings = false,
     live = false,
+    afterList = false,
   }: {
     view?: string;
     layout?: "desktop" | "phone";
@@ -288,6 +321,7 @@ export function screenFor(
     fromTile?: boolean;
     meetings?: boolean;
     live?: boolean;
+    afterList?: boolean;
   } = {},
 ) {
   const url = new URL(view, origin);
@@ -335,90 +369,98 @@ export function screenFor(
   const marketRows = window.filter((row) => inMarket(row, market));
   const rows = marketRows.filter((row) => !relation || relationships[relationshipRank(row)]?.[0] === relation);
   const showRows = !showTiles && !loading && !meetings;
-  const categories = roster.categories.map(
-    ({ label, slug }) => [label, owned.filter((row) => row.categories.some((entry) => entry.slug === slug))] as const,
-  );
-  const searchbox: SurfaceElement = {
-    role: "searchbox",
-    name: "Search",
-    value: query.get("q") ?? "",
-    placeholder: place ? `Find in ${place}` : "Find a vendor",
-  };
-  const back: SurfaceElement[] = inCategory ? [{ role: "link", name: "Vendors", text: "Vendors" }] : [];
-  const heading = place
-    ? [text(place), ...(!phone ? [text(`· ${status}`)] : [])]
-    : phone || (loading && category)
-      ? []
-      : [text(status)];
-  const activeTerritories = marketsEnabled && !meetings;
-  const slottedSearch = roster.markets.length > 0 && !phone;
-  const filters = showRows
-    ? tableControls(marketRows, inCategory || marketsEnabled, relation, quiet)
-    : [hidden("group", "Show only")];
-  const columns = [
-    button("Name", sort === "name"),
-    button("Relationship", (sort ?? "relationship") === "relationship"),
-    ...(!inCategory && !query.has("record") ? [text("Category")] : []),
-    button("Territory", sort === "territory"),
-    ...(!query.has("record") ? [text("Location")] : []),
-    text("Last contacted"),
-    text("Owner"),
-  ];
-  const headers = !phone ? [element("listitem", columns.map((column) => column.text).join("")), ...columns] : [];
-  const noMatches = "No vendors match these filters";
-  const list = loading
-    ? Array.from({ length: 8 }, () => element("listitem"))
-    : rows.length === 0
-      ? [element("listitem", `${noMatches} Clear filters`), text(noMatches), button("Clear filters")]
-      : [...headers, ...rows.flatMap((row) => rowSurface(row, { phone, inCategory, cardOpen: query.has("record") }))];
-  const categoryTiles = showTiles
-    ? [
-        element("generic"),
-        element("list"),
-        ...tile("All vendors", owned, phone),
-        ...[...categories, ["No category", owned.filter((row) => row.categories.length === 0)] as const]
-          .filter(([, rows]) => rows.length > 0)
-          .flatMap(([label, rows]) => tile(label, rows, phone)),
-      ]
-    : [hidden("generic")];
+  const searchField = generic([generic("Search"), searchbox("Search", query.get("q") ?? "")]);
+  const title = place ? `Vendors / ${place}` : "Vendors";
+  const summary =
+    place && phone
+      ? node("paragraph", [text(place), generic(`· ${status}`)])
+      : node("paragraph", place ? `${place} · ${status}` : loading && category ? "" : status);
+  const ownerParams = new URLSearchParams(owner ? { owner } : {});
+  const heading = generic([
+    `${named("heading", title)} [level=1]`,
+    ...(inCategory ? [link("‹ Vendors /", vendorHref(ownerParams))] : []),
+    text(inCategory ? "/" : "‹/ /"),
+    summary,
+    ...(live ? [button("New vendor")] : []),
+  ]);
 
+  const slottedSearch = roster.markets.length > 0 && !phone;
+  const territories = marketsEnabled ? [territoryTiles(roster.markets, placeRows, market)] : [];
+  const filters = showRows ? [tableControls(marketRows, inCategory || marketsEnabled, relation, quiet)] : [];
+  const sortable = (label: string) => button(label, (sort ?? "relationship") === label.toLowerCase());
+  const wide = !query.has("record");
+  const headers = phone
+    ? []
+    : [
+        node("listitem", [
+          sortable("Name"),
+          generic([
+            sortable("Relationship"),
+            ...(!inCategory && wide ? [generic("Category")] : []),
+            sortable("Territory"),
+            ...(wide ? [generic("Location")] : []),
+          ]),
+          generic("Last contacted"),
+          generic("Owner"),
+        ]),
+      ];
+  const list = loading
+    ? Array.from({ length: 8 }, () => node("listitem"))
+    : rows.length === 0
+      ? [node("listitem", [node("paragraph", "No vendors match these filters"), button("Clear filters")])]
+      : [...headers, ...rows.map((row) => rowAria(row, query, phone, inCategory))];
+  const tileHref = (key: string, value: string) => vendorHref(new URLSearchParams([...ownerParams, [key, value]]));
+  const categoryTiles = [
+    tile("All vendors", owned, phone, tileHref("all", "true")),
+    ...roster.categories.flatMap(({ label, slug }) => {
+      const vendors = owned.filter((row) => row.categories.some((entry) => entry.slug === slug));
+      return vendors.length ? [tile(label, vendors, phone, tileHref("category", slug))] : [];
+    }),
+  ];
+  const noCategoryRows = owned.filter((row) => row.categories.length === 0);
+  if (noCategoryRows.length)
+    categoryTiles.push(tile("No category", noCategoryRows, phone, tileHref("no_category", "true")));
+  const stamp = node(
+    named("generic", "Status"),
+    loading ? "Checking…" : showTiles && !afterList ? "Updating…" : "Updated 9:30 AM",
+  );
+  const meetingsView = node(named("region", "People worth meeting"), [
+    `${named("heading", "Research")} [level=2]`,
+    generic([text("Search people and offices"), searchbox("Search people and offices", "")]),
+    generic([node("alert", "People could not be loaded. Try again."), button("Retry people")]),
+  ]);
   return {
     address: address(url),
     requests: showTiles ? [] : listRequests(query, page, marketsEnabled),
-    elements: [
-      element("group", "Vendors views"),
-      ...back,
-      ...heading,
-      ...(live ? [button("New vendor")] : []),
-      ...(slottedSearch && !meetings ? [searchbox] : []),
-      element("group", "Vendor views"),
-      button("Categories", !meetings),
-      button("People worth meeting", meetings),
-      element("group", "Record scope"),
-      ...["All", "Joe", "Dell"].map((label) => button(label, (owner ?? "all") === label.toLowerCase())),
-      element("main"),
-      ...(!meetings && !slottedSearch ? [searchbox] : []),
-      ...(!meetings && (!activeTerritories || phone) ? [hidden("group")] : []),
-      ...(!meetings && !activeTerritories ? filters : []),
-      hidden("group", "Active filters"),
-      ...(activeTerritories ? territoryTiles(roster.markets, placeRows, market) : [hidden("group", "Territories")]),
-      ...(activeTerritories ? filters : []),
-      hidden("status"),
-      ...(meetings
-        ? [
-            hidden("region", place ? `Vendors / ${place}` : "Vendors"),
-            element("region", "People worth meeting"),
-            { role: "heading", name: "Research", text: "Research" },
-            text("Search people and offices"),
-            { role: "searchbox", name: "Search people and offices", value: "" },
-            { role: "alert", text: "People could not be loaded. Try again." },
-            button("Retry people"),
-          ]
-        : [
-            element("region", place ? `Vendors / ${place}` : "Vendors"),
-            ...categoryTiles,
-            ...(showTiles ? [hidden("generic")] : [element("generic"), element("list"), ...list]),
-          ]),
+    quietRows: showRows ? rows.filter((row) => row.quiet).map((row) => row.id) : [],
+    tabs: [
+      node(named("group", "Vendors views"), [
+        heading,
+        ...(slottedSearch && !meetings ? [searchField] : []),
+        node(named("group", "Vendor views"), [
+          button("Categories", !meetings),
+          button("People worth meeting", meetings),
+        ]),
+        node(
+          named("group", "Record scope"),
+          ["All", "Joe", "Dell"].map((label) => button(label, (owner ?? "all") === label.toLowerCase())),
+        ),
+      ]),
+    ],
+    main: [
+      node(
+        "main",
+        meetings
+          ? [meetingsView]
+          : [
+              ...(!marketsEnabled || phone
+                ? [generic([...(!slottedSearch ? [searchField] : []), ...(!marketsEnabled ? filters : []), stamp])]
+                : []),
+              ...territories,
+              ...(marketsEnabled ? filters : []),
+              node(named("region", title), [node("list", showTiles ? categoryTiles : list)]),
+            ],
+      ),
     ],
   };
 }
@@ -436,9 +478,18 @@ export async function expectVendorScreen(page: Page, expected: ReturnType<typeof
   const wanted = { ...expected, requests: readsList ? expected.requests : [] };
   await expect
     .poll(async () => {
-      const { href, elements } = await captureSurface(page);
+      const [tabs, main] = await Promise.all(
+        ["#appTabsSlot", "main.business-shell"].map(async (selector): Promise<unknown> => {
+          const snapshot = await page.locator(selector).ariaSnapshot({ mode: "ai" });
+          // AI mode includes visible content below hidden ancestors and adds transient automation metadata.
+          return parse(snapshot.replace(/ \[(?:ref=e\d+|active|cursor=pointer)\]/g, ""));
+        }),
+      );
+      const quietRows = await page
+        .locator("main.business-shell .record-row:visible:has(.contact-note.quiet)")
+        .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-record-id")));
       const requests = reads.urls.toSorted((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
-      return { address: address(new URL(href)), requests, elements };
+      return { address: address(new URL(page.url())), requests, quietRows, tabs, main };
     })
     .toEqual(wanted);
   reads.previous = { navigation: reads.navigation, query, readsList };
