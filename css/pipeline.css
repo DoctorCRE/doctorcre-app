@@ -447,3 +447,6 @@ html:has(#workspace-tours:not([hidden]) .tour-editor) { scroll-padding-bottom: v
 .deal-open-steps :is(p, small) { margin: 0; color: var(--fg-muted); }
 .deal-open-steps button[aria-disabled="true"] { color: var(--fg-muted); cursor: wait; }
 #detailStepStatus:empty { margin: 0; }
+
+/* A phase move is one short question; the shell sizes dialogs for wide forms. */
+.has-app-layout #completionDialog { width: min(560px, calc(100vw - 32px)); }
