@@ -45,9 +45,6 @@ test('one card-body tap reads one detail and leaves unopened supporting sections
   await page.getByRole('tab', {name:'Activity'}).click();
   await page.locator('#panelEvidence .correspondence-evidence').waitFor();
   assert.equal(await page.evaluate(() => window.panelReads.getDeal), 1);
-  await page.getByRole('tab',{name:'Overview',exact:true}).click();
-  await page.locator('#panelContextOpen').click();
-  await page.waitForFunction(() => window.panelReads.getRelationshipNetwork === 1);
 });
 
 for (const hold of ['holdBoard', 'holdFeed']) test(`an exact deal opens while the unrelated ${hold} read is pending`, async t => {

@@ -331,8 +331,10 @@ test("Park is a quiet line at the bottom and a parked deal shows Revive at the t
   const overview = open.page.locator("#workspace-overview");
   const park = overview.locator(".deal-park-line");
   assert.equal(await park.locator("summary").textContent(), "Park deal");
-  const last = await overview.evaluate((section) => section.lastElementChild?.className);
-  assert.equal(last, "deal-park-line", "Park is the last thing on Overview");
+  const last = await overview.evaluate(
+    (section) => section.lastElementChild?.lastElementChild?.lastElementChild?.className,
+  );
+  assert.equal(last, "deal-park-line", "Park ends the last column of Overview");
   const parked = await openDeal(t, { width: 1440, height: 772 }, { parked: true });
   const line = parked.page.locator(".deal-parked-line");
   assert.match((await line.textContent()) ?? "", /Client paused.*Waiting on the partner's buy-in.*Parked on/);

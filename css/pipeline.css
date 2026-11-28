@@ -239,7 +239,7 @@
 .deal-snapshot-facts dd { margin:0; overflow-wrap:anywhere; }
 /* Facts sit beside the next steps so both fit the first screen on a computer. */
 @media (min-width:1100px) {
-  .deal-opening-snapshot { display:grid; grid-template-columns:minmax(0,1fr) minmax(12rem,16rem); column-gap:var(--space-6); align-items:start; }
+  .deal-opening-snapshot:not(.deal-overview-grid > *) { display:grid; grid-template-columns:minmax(0,1fr) minmax(12rem,16rem); column-gap:var(--space-6); align-items:start; }
   .deal-opening-snapshot > * { grid-column:1; }
   .deal-opening-snapshot > [data-detail-read="snapshot"] { grid-column:2; grid-row:1 / span 2; }
   .deal-opening-snapshot .deal-snapshot-facts { flex-direction:column; }

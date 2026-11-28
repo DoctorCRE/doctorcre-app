@@ -79,6 +79,7 @@ async function openDeal(
   height: number,
   planned: { id: string; planned_on: string }[] = [],
   dates = fourDates(),
+  extra: { thread?: Record<string, unknown>[]; [fact: string]: unknown } = {},
 ) {
   const server = await startWorkerFixture({
     assets: await appAssetSnapshot(),
@@ -90,6 +91,8 @@ async function openDeal(
   const page = await browser.newPage({ viewport: { width, height } });
   await page.clock.setFixedTime(new Date("2026-11-25T17:00:00Z"));
   const writes: [string, unknown][] = [];
+  const { thread = [], ...facts } = extra;
+  const notes = [...thread];
   const deal = () => ({
     id: dealId,
     deal_id: dealId,
@@ -125,6 +128,8 @@ async function openDeal(
       },
     ],
     documents: [{ id: "00000000-0000-4000-8000-00000000f001", name: "Example lease.pdf", version: 1 }],
+    thread: notes,
+    ...facts,
   });
   const env = {
     GIT_SHA: "0".repeat(40),
@@ -142,6 +147,13 @@ async function openDeal(
           assert.ok(date);
           date.status = body.resolution ?? "open";
           return Response.json({ critical_date_id: date.id, status: date.status });
+        }
+        if (request.method === "POST" && path === "/api/engine/activities") {
+          const body = await request.json();
+          writes.push([path, body.summary]);
+          const id = `00000000-0000-4000-8000-0000000ee${String(notes.length).padStart(3, "0")}`;
+          notes.push({ id, kind: "note", text: body.summary, actor: "joe", created_at: body.happened_at });
+          return Response.json({ activity_id: id }, { status: 201 });
         }
         if (path === `/api/engine/deals/${dealId}`) return Response.json(deal());
         if (path === `/api/engine/deals/${dealId}/tours`)
@@ -389,11 +401,94 @@ for (const [width, height] of laptops)
     assert.ok(open.y < file.y + file.height && open.x > file.x + file.width, "Open text sits on the file's row");
 
     await page.getByRole("tab", { name: "Activity" }).click();
-    const email = page.locator(".activity-row").filter({ hasText: "Example suite floor plan" });
+    const email = page
+      .getByRole("tabpanel", { name: "Activity" })
+      .locator(".activity-row")
+      .filter({ hasText: "Example suite floor plan" });
     const [title, meta] = [await box(email.locator(".activity-title")), await box(email.locator(".activity-meta"))];
     assert.ok(meta.y >= title.y + title.height - 1, "the sender and time sit on the row's second line");
     assert.match((await email.locator(".activity-meta").textContent()) ?? "", /Example Broker · Nov 24, 9:00 AM/);
 
     const event = await box(email);
     assert.ok(event.height <= 64 && event.height >= 34, `a two-line activity row is 34 to 64px, not ${event.height}`);
+  });
+
+const noteAt = (n: number) => ({
+  id: `00000000-0000-4000-8000-0000000e10${String(n).padStart(2, "0")}`,
+  kind: "note",
+  text: `Example note ${n}`,
+  actor: n % 2 ? "dell" : "joe",
+  created_at: `2026-11-${String(10 + n).padStart(2, "0")}T15:00:00Z`,
+});
+const sideFacts = {
+  vendors: [
+    {
+      role: "landlord_rep",
+      party_id: "00000000-0000-4000-8000-00000000b001",
+      company: { name: "Example Realty" },
+      contact: { name: "Avery Sample" },
+    },
+    {
+      role: "attorney",
+      party_id: "00000000-0000-4000-8000-00000000b002",
+      company: { name: "Example Law" },
+      contact: null,
+    },
+  ],
+  invoice: {
+    trigger: "lease_signed",
+    triggered_on: "2026-11-20",
+    payments: [{ id: "p1", sent_on: "2026-11-23", paid_on: null }],
+  },
+};
+
+for (const [width, height] of laptops)
+  test(`Overview ends with Latest activity, Invoice and People, and no watch or context controls at ${width}`, async (t) => {
+    const thread = Array.from({ length: 10 }, (_, n) => noteAt(n));
+    const { page, writes } = await openDeal(t, width, height, [], fourDates(), { ...sideFacts, thread });
+    await page.screenshot({ path: `${shots}/overview-side-${width}.png`, fullPage: true });
+    const overview = page.getByRole("tabpanel", { name: "Overview" });
+    for (const gone of ["Deal watch settings", "Client & vendor context", "Updates"])
+      assert.equal(await page.locator("#recordPanel").getByText(gone, { exact: true }).count(), 0, `no "${gone}"`);
+
+    const latest = overview.getByRole("region", { name: "Latest activity" });
+    const rows = latest.locator(".activity-title");
+    assert.equal(await rows.count(), 8, "the last eight things");
+    assert.deepEqual(
+      (await rows.allTextContents()).slice(0, 2),
+      ["Example suite floor plan", "Example note 9"],
+      "newest first",
+    );
+    const [steps, middle] = [await box(overview.locator(".deal-next-steps")), await box(latest)];
+    assert.ok(middle.x >= steps.x + steps.width, "Latest activity sits beside Next steps");
+
+    const people = overview.getByRole("region", { name: "People" });
+    assert.deepEqual(await people.getByRole("link").allTextContents(), [
+      "Example Cedar Dental Client",
+      "Avery Sample Landlord's broker",
+      "Example Law Attorney",
+    ]);
+    assert.equal(
+      await people.getByRole("link", { name: /Avery Sample/ }).getAttribute("href"),
+      "/vendors?record=00000000-0000-4000-8000-00000000b001",
+    );
+    const invoice = overview.getByRole("region", { name: "Invoice" });
+    assert.deepEqual(await invoice.locator("dl > div").allInnerTexts(), [
+      "Triggered\nNov 20, 2026",
+      "Sent\nNov 23, 2026",
+      "Paid\nNot yet",
+    ]);
+
+    const note = latest.getByLabel("Deal note", { exact: true });
+    await note.fill("Example landlord called back");
+    await note.press("Enter");
+    await rows.first().filter({ hasText: "Example landlord called back" }).waitFor();
+    assert.deepEqual(writes.at(-1), ["/api/engine/activities", "Example landlord called back"], "Enter saves the note");
+
+    await rows.nth(2).click();
+    const activity = page.getByRole("tabpanel", { name: "Activity" });
+    await activity.getByRole("heading", { name: "Example note 9" }).waitFor();
+    await page.getByRole("tab", { name: "Overview" }).click();
+    await latest.getByRole("button", { name: "All activity" }).click();
+    assert.equal(await activity.isVisible(), true, "All activity opens Activity");
   });

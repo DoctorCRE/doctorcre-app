@@ -23,10 +23,10 @@ import { readFile } from "node:fs/promises";
 import { createFixtureClient } from "../js/fixture-client.js";
 import { PHASES, PHICON, phaseLabel } from "../js/client.js";
 import {
-  CLOSED_SLUG, COLUMNS, DEAL_OUTCOMES, attachedParties, closedColumnCaption,
-  columnBySlug, columnByValue, columnLabel, completionPlan, contextDrawerSections,
-  boardHeadline, groupByColumn, isDealOutcome, keyboardTarget, loadDealContext, moveIntent, moveSummary,
-  moveTitle, partyRoleLabel, presenceChip,
+  CLOSED_SLUG, COLUMNS, DEAL_OUTCOMES, closedColumnCaption,
+  columnBySlug, columnByValue, columnLabel, completionPlan,
+  boardHeadline, groupByColumn, isDealOutcome, keyboardTarget, moveIntent, moveSummary,
+  moveTitle, presenceChip,
 } from "../js/pipeline-model.js";
 import {
   ingestChangeEvents, performUndo, receiptViews,
@@ -211,68 +211,6 @@ test("a partner's lease reads as a chip, and the viewer's own never does", () =>
   assert.equal(presenceChip(presence, "d01", { selfActor: "joe", field: "phase", actorLabel: label }), null);
   assert.equal(presenceChip(presence, "d03", { selfActor: "joe", field: "phase", actorLabel: label }), null);
   assert.equal(presenceChip([], "d01", { selfActor: "joe" }), null);
-});
-
-/* ------------------------------------------ V5-UX-B04: record/client/vendor context */
-
-test("attached parties are the external deal_participant roles only; lead and support stay off the drawer", () => {
-  const participants = [
-    { role: "lead", name: "Joe", actor: "joe" },
-    { role: "support", name: "Dell", actor: "dell" },
-    { role: "client_contact", name: "Dr. Example", party_id: "p-1" },
-    { role: "referring_agent", name: "Referrer Example", party_id: "p-2" },
-    { role: "listing_side", name: "Listing Example", party_id: "p-3" },
-  ];
-  assert.deepEqual(attachedParties(participants).map((row) => row.role),
-    ["client_contact", "referring_agent", "listing_side"]);
-  assert.deepEqual(attachedParties([]), []);
-  assert.equal(partyRoleLabel("client_contact"), "Client contact");
-  assert.equal(partyRoleLabel("referring_agent"), "Referring agent");
-  assert.equal(partyRoleLabel("listing_side"), "Listing side");
-  assert.equal(partyRoleLabel("something_new"), "something_new", "an unmapped role is the wire value, never invented");
-});
-
-test("loadDealContext never guesses a party's contact record from its party_id", async () => {
-  // deal_participant.party_id and client.id/vendor.id are different id spaces
-  // (see the comment on loadDealContext); a client with a getPartyRecord that
-  // would happily answer ANY id must still never be asked for a party_id.
-  const asked = [];
-  const client = {
-    async getPartyRecord({ dataset, id }) {
-      asked.push(`${dataset}/${id}`);
-      return { record: { id, name: "should never be shown" } };
-    },
-  };
-  const detail = {
-    deal: { account_client_id: null },
-    participants: [{ role: "client_contact", name: "Dr. Example", party_id: "p-should-not-be-fetched" }],
-    critical_dates: [],
-  };
-  const context = await loadDealContext(client, detail);
-  assert.deepEqual(asked, [], "no read was made for a participant's party_id");
-  assert.equal(context.client.status, "not_linked");
-  assert.equal(context.parties.length, 1);
-  assert.equal(context.parties[0].name, "Dr. Example");
-});
-
-test("contextDrawerSections renders recorded context and labels unavailable sections", () => {
-  assert.deepEqual(contextDrawerSections({client:{status:'not_linked'},parties:[],criticalDates:[]}),[]);
-  assert.equal(contextDrawerSections({client:{status:'unavailable'},parties:[],criticalDates:[]})[0].state,'unavailable');
-  const ok = contextDrawerSections({
-    client: { status: "ok", record: { name: "Demo Dental North", phone: "205-555-0142", email: "a@example.com", city: "Demo City", state: "DM" } },
-    parties: [{ role: "client_contact", name: "Dr. Example" }],
-    criticalDates: [{ label: "LOI expires", date: "2026-10-01", source: "email" }],
-  }, { dateLabel: (v) => v });
-  assert.equal(ok[0].state, undefined, "an ok read carries no state attribute");
-  assert.equal(ok[0].lines[0], "Demo Dental North");
-  assert.match(ok[0].lines[1], /205-555-0142/);
-  assert.match(ok[0].lines[1], /a@example\.com/);
-  assert.deepEqual(ok[1].lines, ["Client contact · Dr. Example"]);
-  assert.deepEqual(ok[2].lines, ["LOI expires · 2026-10-01 · email"]);
-});
-
-test("empty context has no placeholder sections",()=>{
- assert.deepEqual(contextDrawerSections({client:{status:'not_linked'},parties:[],criticalDates:[]}),[]);
 });
 
 /* -------------------------------------------------------- the fixture round trip */
@@ -498,59 +436,6 @@ test("a lost response is reconciled by resending the SAME idempotency key, not b
   const changes = await client.getChanges(null);
   const revertEvents = changes.events.filter((event) => event.subject_id === "d20" && event.verb === "revert-deal-field");
   assert.equal(revertEvents.length, 1, "the reconciled retry replayed the stored answer instead of writing a second time");
-});
-
-/* ---------------------------- V5-UX-B04: the fixture round trip, three deals */
-
-test("a populated deal: the linked client's contact record and the attached parties both resolve", async () => {
-  const client = await newClient();
-  const detail = await client.getDeal("d01");
-  assert.ok(detail.deal.account_client_id, "d01 names a client");
-  assert.equal(attachedParties(detail.participants).length, 3);
-
-  const context = await loadDealContext(client, detail);
-  assert.equal(context.client.status, "ok");
-  assert.equal(context.client.record.name, "Demo Dental North");
-  assert.match(context.client.record.phone, /205-555-0142/);
-  assert.match(context.client.record.email, /@/);
-  assert.deepEqual(context.parties.map((row) => row.role),
-    ["client_contact", "referring_agent", "listing_side"]);
-
-  const sections = contextDrawerSections(context, { dateLabel: (v) => v });
-  assert.equal(sections[0].lines[0], "Demo Dental North");
-  assert.equal(sections[1].lines.length, 3);
-});
-
-test("a deal with no parties: the drawer states plainly that none are recorded, and never fabricates a client", async () => {
-  const client = await newClient();
-  const detail = await client.getDeal("d08");
-  assert.equal(detail.deal.account_client_id, null, "d08 names no client");
-  assert.equal(attachedParties(detail.participants).length, 0);
-
-  const context = await loadDealContext(client, detail);
-  assert.equal(context.client.status, "not_linked");
-  assert.deepEqual(context.parties, []);
-
-  const sections = contextDrawerSections(context, { dateLabel: (v) => v });
-  assert.equal(sections.some(s=>s.title === "Client" || s.title === "Attached parties"),false);
-});
-
-test("a fetch failure reading the client record: the drawer says the read failed, not that the client is empty", async () => {
-  const client = await newClient();
-  const detail = await client.getDeal("d02");
-  assert.equal(detail.deal.account_client_id, "demo-account-002-unlisted");
-
-  // The fixture's own client throws for this id, exactly as a live 404 would;
-  // loadDealContext must turn that rejection into a labelled state, not let
-  // it propagate, and the label must be "could not be read", never
-  // "not linked" (a different, false claim about this same deal).
-  await assert.rejects(client.getPartyRecord({ dataset: "clients", id: "demo-account-002-unlisted" }));
-  const context = await loadDealContext(client, detail);
-  assert.equal(context.client.status, "unavailable");
-  assert.equal(context.client.reason, "fetch_failed");
-
-  const sections = contextDrawerSections(context, { dateLabel: (v) => v });
-  assert.equal(sections.find(s=>s.title === "Client").state,"unavailable");
 });
 
 test("the fixture accepts every one of the eight phases by its board value", async () => {

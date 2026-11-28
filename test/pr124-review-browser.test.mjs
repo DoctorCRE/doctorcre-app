@@ -84,8 +84,6 @@ for(const status of [401,403]) test('PR129 R1 loaded detail clears protected sta
  const {page,errors}=await open(t);await detail(page);
  const reads=await liveDetailRead(page);
  await page.locator('#dealUpdate').fill('Private unsaved draft');
- await page.locator('#panelContextOpen').click();
- await page.waitForFunction(()=>document.querySelector('#contextDrawer').open);
  reads.status=status;
  await page.clock.fastForward(60_000);
  await page.waitForFunction(()=>!document.querySelector('#panelBody .deal-opening-snapshot'));
@@ -93,9 +91,6 @@ for(const status of [401,403]) test('PR129 R1 loaded detail clears protected sta
  assert.equal(await page.locator('#panelTitle').textContent(),'Deal');
  assert.match(await page.locator('#panelBody').textContent(),/Unavailable/);
  assert.equal(await page.locator('#panelBody input, #panelBody textarea, #panelBody select').count(),0);
- assert.equal(await page.locator('#contextDrawer').evaluate(e=>e.open),false);
- assert.equal(await page.locator('#contextDrawerBody').textContent(),'');
- assert.equal(await page.locator('#panelContextOpenWrap').isVisible(),false);
  reads.status=200;
  await page.locator('[data-refresh-detail]').click();
  await page.waitForSelector('#detailUpdateForm');
@@ -141,22 +136,6 @@ for (const status of [401,403]) for (const outcome of ['ok','refused']) test(`PR
  else assert.match(await page.locator('#receiptDock').textContent(),/synthetic refusal/);
 });
 
-test('PR129 R1 an older successful detail read cannot repopulate refused detail',async t=>{
- const {page,errors}=await open(t);await detail(page);
- const reads=await liveDetailRead(page);
- reads.delayNext=true;await readPanel(page);
- assert.equal(typeof reads.delayed,'function');
- await page.evaluate(async()=>{const {state}=await import('/js/pipeline.js');state.client.getPartyRecord=async()=>{throw Object.assign(new Error('Synthetic refused context'),{status:401});};});
- await page.locator('#panelContextOpen').click();
- await page.locator('#panelBody a[href="/auth/login"]').first().waitFor();
- assert.match(await page.locator('#panelBody').textContent(),/Unavailable/);
- const response=page.waitForResponse(r=>new URL(r.url()).pathname==='/mcp'&&r.status()===200);
- reads.delayed();await response;await page.waitForTimeout(30);
- assert.equal(await page.evaluate(async()=>(await import('/js/pipeline.js')).state.panelDetail),null);
- assert.equal(await page.locator('#detailUpdateForm').count(),0);
- assert.deepEqual(errors,[]);
-});
-
 test('PR129 R1 refused next-step revalidation clears detail without sending the draft',async t=>{
  const {page,errors}=await open(t);await detail(page);
  const reads=await liveDetailRead(page);
@@ -170,41 +149,6 @@ test('PR129 R1 refused next-step revalidation clears detail without sending the 
  assert.equal(await page.evaluate(()=>window.nextSends),1);
  assert.equal(await page.evaluate(async()=>(await import('/js/pipeline.js')).state.panelDetail),null);
  assert.match(await page.locator('#panelBody').textContent(),/Unavailable/);
- assert.deepEqual(errors,[]);
-});
-
-test('PR129 R1 a context read survives an authorized detail poll but not a refusal/reopen',async t=>{
- const {page,errors}=await open(t);
- await page.evaluate(async()=>{
-   const {state}=await import('/js/pipeline.js');
-   const read=state.client.getDeal.bind(state.client);
-   state.client.getDeal=async id=>{const detail=await read(id);detail.deal.account_client_id='synthetic-client';return detail;};
-   window.contextReads=[];
-   state.client.getPartyRecord=()=>document.querySelector('#contextDrawer').open ? new Promise(resolve=>contextReads.push(resolve)) : Promise.resolve({record:{id:'demo-account-001',name:'Synthetic Client'}});
- });
- await detail(page);const reads=await liveDetailRead(page);
- await page.locator('#panelContextOpen').click();
- await page.waitForFunction(()=>contextReads.length===1);
- await page.evaluate(async()=>{window.beforeContextPoll=(await import('/js/pipeline.js')).state.panelDetail;});
- await readPanel(page);
- await waitForAsync(page,async()=>(await import('/js/pipeline.js')).state.panelDetail!==window.beforeContextPoll);
- await page.evaluate(()=>contextReads[0]({record:{name:'Authorized client'}}));
- await page.waitForFunction(()=>document.querySelector('#contextDrawerBody').textContent.includes('Authorized client'));
- await page.locator('#contextDrawerClose').click();
- await page.locator('#panelContextOpen').click();
- await page.waitForFunction(()=>contextReads.length===2);
- reads.status=401;await readPanel(page);
- await page.waitForFunction(()=>!document.querySelector('#contextDrawer').open);
- assert.equal(await page.locator('#contextDrawer').evaluate(e=>e.open),false);
- reads.status=200;await page.locator('[data-refresh-detail]').click();
- await page.waitForSelector('#detailUpdateForm');
- await page.locator('#panelContextOpen').click();
- await page.waitForFunction(()=>contextReads.length===3);
- await page.evaluate(()=>contextReads[2]({record:{name:'Revalidated client'}}));
- await page.waitForFunction(()=>document.querySelector('#contextDrawerBody').textContent.includes('Revalidated client'));
- await page.evaluate(()=>contextReads[1]({record:{name:'Refused old client'}}));
- await page.waitForTimeout(30);
- assert.doesNotMatch(await page.locator('#contextDrawerBody').textContent(),/Refused old client/);
  assert.deepEqual(errors,[]);
 });
 

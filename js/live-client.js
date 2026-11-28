@@ -393,7 +393,7 @@ export function createLiveClient(opts = {}) {
         documents: page.documents || [],
         ...(isEngineDealDetail(page) ? {
           email_follow_ups: page.email_follow_ups, next_deal_saves: page.next_deal_saves === true,
-          imported_deal_history, correspondence, properties,
+          imported_deal_history, correspondence, properties, invoice: page.invoice ?? null,
         } : Object.hasOwn(page, 'email_threads') ? { email_threads } : {}),
         lease: page.lease ?? null,
         checklist: page.checklist ?? null,

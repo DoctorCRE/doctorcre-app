@@ -68,6 +68,7 @@ export const UI_ENTRIES = {
   'ui-inbox': 'inbox-entry',
   'ui-email-fold': 'home/email-signature',
   'ui-deal-activity': 'deal-activity',
+  'ui-deal-overview-side': 'deal-overview-side',
   'ui-home-today': 'home/today-panel',
   'ui-next-step': 'home/missing-next-step',
   'ui-task-done': 'home/task-done',
