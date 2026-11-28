@@ -182,17 +182,25 @@ const planRows=[
  {id:'step:sample',kind:'step',phase:'legal',owner:'dell',state:'open',from_on:'2026-10-04',to_on:'2026-10-07',done_on:null,label:'Call about the lease',change_id:12},
 ];
 const plan={phases:[planPhase],rows:planRows,arrows:[{from:'review',to:'sign',at_risk:false}],expected_signing_on:'2026-10-17',stale:null,own_dates:{},base_version:0};
-async function providePlan(page, plan) {
- await page.evaluate(async plan=>{
+async function providePlan(page, plan, {canSave=false}={}) {
+ await page.evaluate(async ({plan,canSave})=>{
   const {state}=await import('/js/pipeline.js');
   const get=state.client.getDeal.bind(state.client);
-  state.client.getDeal=async (...args)=>({...await get(...args),plan,next_actions:[{id:'sample',description:'Call about the lease',change_id:12}]});
- },plan);
+  state.nextDealSaves=canSave;
+  state.client.getDeal=async (...args)=>{
+   const step=window.timelineProbe.step;
+   const todoEnd=window.timelineProbe.todoEnd;
+   const rows=plan.rows.map(row=>row.id==='step:sample' && step?{...row,to_on:step.due_on,change_id:step.change_id}:row.id==='sign' && todoEnd?{...row,expected_to_on:todoEnd}:row);
+   const arrows=plan.arrows.map(arrow=>arrow.to==='deadline' && todoEnd?{...arrow,at_risk:false}:arrow);
+   const updated=todoEnd?rows.map(row=>row.id==='deadline'?{...row,at_risk:false}:row):rows;
+   return {...await get(...args),plan:{...plan,rows:updated,arrows},next_actions:[{id:'sample',description:'Call about the lease',change_id:step?.change_id??12}]};
+  };
+ },{plan,canSave});
  await page.getByRole('button',{name:'Back to deals',exact:true}).click();
  await page.locator('.kanban-card[data-id="d14"] .card-open').click();
 }
-async function showPlan(page) {
- await providePlan(page,plan);
+async function showPlan(page, options={}) {
+ await providePlan(page,plan,options);
  await page.getByRole('button',{name:'Lease signing expected Oct 17'}).click({timeout:3000});
  return page.getByRole('tabpanel',{name:'Plan'});
 }
@@ -217,6 +225,227 @@ for(const [width,height] of [[1280,640],[1440,900]]) {
   assert.deepEqual(errors,[]);
  });
 }
+
+test('moving another partner’s step from Plan uses its change version and can be undone',async t=>{
+ const {page}=await open(t,{width:1280,height:640});
+ const saves=[];
+ let crossed=false;
+ await page.route('**/api/engine/next-steps/sample/changes',async route=>{
+  saves.push(route.request().postDataJSON());
+  if(crossed) return route.fulfill({status:409,json:{error:'version_conflict'}});
+  await route.fulfill({json:{change_id:12+saves.length}});
+ });
+ const tab=await showPlan(page,{canSave:true});
+ const grip=tab.getByRole('button',{name:'Change date for Call about the lease'});
+ await grip.focus(); await grip.press('ArrowRight');
+ await tab.getByText('Thu, Oct 8',{exact:true}).waitFor();
+ await grip.press('Enter');
+ await page.locator('#workspacePlanStatus').getByText('Call about the lease moved to Oct 8.').waitFor();
+ await page.locator('#workspacePlanStatus').getByRole('button',{name:'Undo',exact:true}).click();
+ await page.locator('#workspacePlanStatus').getByText('Call about the lease date restored.').waitFor();
+ assert.deepEqual(saves.map(({due_on,seen_change_id,strict_version})=>[due_on,seen_change_id,strict_version]),[['2026-10-08',12,undefined],['2026-10-07',13,true]]);
+ crossed=true;
+ await grip.focus(); await grip.press('ArrowRight'); await grip.press('Enter');
+ await page.locator('#workspacePlanStatus').getByText('This step changed. Review the latest version.').waitFor();
+ assert.equal(await page.locator('#workspacePlanStatus').getByRole('button',{name:'Undo',exact:true}).count(),0);
+});
+
+test('a keyboard edit to the exact start day retains focus and saves',async t=>{
+ const {page}=await open(t,{width:1440,height:900});
+ const saves=[];
+ await page.route('**/api/engine/deals/d14/plan-dates',async route=>{
+  saves.push(route.request().postDataJSON());
+  await route.fulfill({json:{base_version:1,previous_on:null}});
+ });
+ const tab=await showPlan(page,{canSave:true});
+ const grip=tab.getByRole('button',{name:'Change date for Sign the lease'});
+ await grip.focus();
+ await grip.press('Shift+ArrowLeft');
+ await tab.getByText('Sat, Oct 10',{exact:true}).waitFor();
+ assert.equal(await page.evaluate(()=>document.activeElement.getAttribute('aria-label')),'Change date for Sign the lease');
+ await page.keyboard.press('Enter');
+ await page.locator('#workspacePlanStatus').getByText('Sign the lease expected by Oct 10. What follows moved with it.').waitFor();
+ assert.deepEqual(saves.map(({target_on})=>target_on),['2026-10-10']);
+});
+
+test('live reflow includes filtered-out successors and moves the signing date and phase spans',async t=>{
+ const {page}=await open(t,{width:1440,height:900});
+ await providePlan(page,{
+  ...plan,
+  phases:[
+   {...planPhase,expected_to_on:'2026-10-24'},
+   {phase:'due_diligence',from_on:null,to_on:null,expected_from_on:'2026-10-24',expected_to_on:'2026-10-24'},
+   {phase:'closing',from_on:null,to_on:null,expected_from_on:'2026-10-24',expected_to_on:'2026-10-31'},
+  ],
+  rows:[
+   planRows[0],
+   {...planRows[1],id:'business_terms',label:'Lease terms'},
+   {...planRows[1],id:'attorney_comments',label:'Attorney comments',expected_from_on:'2026-10-17',expected_to_on:'2026-10-24'},
+   {...planRows[1],id:'executed_lease',label:'Lease signing',phase:'closing',expected_from_on:'2026-10-24',expected_to_on:'2026-10-31'},
+  ],
+  arrows:[{from:'review',to:'business_terms',at_risk:false},{from:'business_terms',to:'attorney_comments',at_risk:false},{from:'attorney_comments',to:'executed_lease',at_risk:false}],
+  expected_signing_on:'2026-10-31',
+ },{canSave:true});
+ await page.getByRole('tab',{name:'Plan',exact:true}).click();
+ const tab=page.getByRole('tabpanel',{name:'Plan'});
+ await tab.getByRole('textbox',{name:'Filter steps'}).fill('Lease');
+ assert.equal(await tab.getByRole('button',{name:'Attorney comments',exact:true}).count(),0);
+ const signing=tab.locator('[data-row="executed_lease"] .timeline-when');
+ const milestone=tab.locator('.deal-plan-list').getByRole('button',{name:/Lease signing/});
+ const span=phase=>tab.locator('[data-group="'+phase+'"] .timeline-phase-bar');
+ const width=phase=>span(phase).evaluate(node=>parseFloat(node.style.width));
+ const left=phase=>span(phase).evaluate(node=>parseFloat(node.style.left));
+ const legal=await width('legal');
+ const closing=await left('closing');
+ const dayWidth=Number(await tab.locator('.timeline').getAttribute('data-day-width'));
+ await tab.getByRole('button',{name:'Change date for Lease terms'}).press('ArrowLeft');
+ assert.deepEqual(
+  [await signing.innerText(),(await milestone.innerText()).replace(/\s+/g,' '),await width('legal'),await left('closing')],
+  ['exp. Oct 30','Lease signing exp. Oct 30',legal-dayWidth,closing-dayWidth],
+ );
+});
+
+for (const view of ['Next two weeks','At risk']) test('a filtered date edit keeps its grip and then focuses the next row: '+view,async t=>{
+ const {page}=await open(t,{width:1440,height:900});
+ const atRisk=view==='At risk';
+ const deadlines=atRisk?[
+  {id:'deadline',kind:'critical_date',phase:'legal',label:'Letter expires',at_risk:true,on:'2026-10-16',status:'open'},
+  {id:'other-deadline',kind:'critical_date',phase:'legal',label:'Other deadline',at_risk:true,on:'2026-10-14',status:'open'},
+ ]:[];
+ const saves=[];
+ let release;
+ const gate=new Promise(resolve=>{release=resolve;});
+ const day=atRisk?'2026-10-16':'2026-10-24';
+ await page.route('**/api/engine/deals/d14/plan-dates',async route=>{
+  saves.push(route.request().postDataJSON());
+  await gate;
+  await page.evaluate(day=>{window.timelineProbe.todoEnd=day;},day);
+  await route.fulfill({json:{base_version:1,previous_on:null}});
+ });
+ await providePlan(page,{...plan,rows:[...planRows,...deadlines],arrows:atRisk?[...plan.arrows,{from:'sign',to:'deadline',at_risk:true}]:plan.arrows},{canSave:true});
+ await page.getByRole('tab',{name:'Plan',exact:true}).click();
+ const tab=page.getByRole('tabpanel',{name:'Plan'});
+ const filter=tab.getByRole('button',{name:new RegExp(view)});
+ await filter.click();
+ const grip=tab.getByRole('button',{name:'Change date for Sign the lease'});
+ const focused=()=>grip.evaluate(node=>node===document.activeElement);
+ await grip.focus();
+ await grip.press(atRisk?'ArrowLeft':'Shift+ArrowRight');
+ assert.equal(await grip.count(),1,'the filtered row stays mounted during preview');
+ assert.equal(await focused(),true);
+ await page.keyboard.press('Enter');
+ await page.locator('#workspacePlanStatus').getByText('Saving…',{exact:true}).waitFor();
+ assert.equal(await focused(),true,'the grip stays focused while the save is pending');
+ release();
+ await page.locator('#workspacePlanStatus').getByText(/Sign the lease expected by/).waitFor();
+ await grip.waitFor({state:'detached'});
+ const expectedFocus=atRisk?'Other deadline':'Change date for Call about the lease';
+ assert.equal(await tab.getByRole('button',{name:expectedFocus,exact:true}).evaluate(node=>node===document.activeElement),true);
+ assert.equal(await filter.getAttribute('aria-pressed'),'true','the selected filter stays on');
+ assert.deepEqual(saves.map(({target_on})=>target_on),[day]);
+});
+
+for (const width of [390,1440]) test(`consecutive dates from a single open step panel use the last saved version at ${width}`,async t=>{
+ const {page}=await open(t,{width,height:900,touch:width===390});
+ const saves=[];
+ await page.route('**/api/engine/next-steps/sample/changes',async route=>{
+  const body=route.request().postDataJSON();
+  saves.push(body);
+  if(body.seen_change_id!==11+saves.length) return route.fulfill({status:409,json:{error:'version_conflict'}});
+  await route.fulfill({json:{change_id:12+saves.length}});
+ });
+ const tab=await showPlan(page,{canSave:true});
+ const items=width===390?tab.getByRole('list',{name:'Plan items'}):tab.locator('[data-row="step:sample"] .timeline-label');
+ await items.getByRole('button',{name:'Call about the lease',exact:true}).click();
+ const detail=tab.getByRole('region',{name:'Call about the lease'});
+ for (const day of ['08','09']) {
+  await detail.getByRole('button',{name:'Change date',exact:true}).click();
+  await detail.getByLabel('New date').fill('2026-10-'+day);
+  await detail.getByRole('button',{name:'Save date',exact:true}).click();
+  await detail.getByText('Oct '+Number(day),{exact:true}).waitFor({timeout:2500});
+  const receipt=page.locator('#workspacePlanStatus').getByRole('status');
+  await receipt.getByText('Call about the lease moved to Oct '+Number(day)+'.',{exact:true}).waitFor();
+  assert.ok(await receipt.evaluate(node=>{
+   const {top,bottom}=node.getBoundingClientRect();
+   return top>=document.getElementById('appTopbar').getBoundingClientRect().bottom-1 && bottom<=innerHeight;
+  }),'save receipt stays in view');
+
+ }
+ assert.deepEqual(saves.map(({seen_change_id})=>seen_change_id),[12,13]);
+});
+
+for (const receipt of ['written','crossed-again','old-engine']) test('a rebased step save guards Undo with the saved write version: '+receipt,async t=>{
+ const {page}=await open(t,{width:1440,height:900});
+ const saves=[];
+ await page.route('**/api/engine/next-steps/sample/changes',async route=>{
+  saves.push(route.request().postDataJSON());
+  if (saves.length===1) return route.fulfill({json:{
+   rebased:true,intervening_change_ids:[13],...(receipt==='old-engine'?{}:{write_change_id:14}),
+  }});
+  const {seen_change_id,strict_version}=saves[1];
+  if (receipt==='crossed-again' && strict_version && seen_change_id===14)
+   return route.fulfill({status:409,json:{error:'version_conflict',current_version:16}});
+  await route.fulfill({json:{change_id:17}});
+ });
+ const tab=await showPlan(page,{canSave:true});
+ const grip=tab.getByRole('button',{name:'Change date for Call about the lease'});
+ await grip.focus();
+ await grip.press('ArrowRight');
+ await page.evaluate(receipt=>{window.timelineProbe.step={change_id:receipt==='crossed-again'?16:14,due_on:'2026-10-08'};},receipt);
+ await grip.press('Enter');
+ const undo=page.locator('#workspacePlanStatus').getByRole('button',{name:'Undo',exact:true});
+ if (receipt==='old-engine') {
+  await page.locator('#workspacePlanStatus').getByText(/Undo is unavailable/).waitFor({timeout:3000});
+  assert.equal(await undo.count(),0);
+ } else {
+  await undo.click({timeout:3000});
+  const message=receipt==='crossed-again'?'This step changed. Review the latest version.':'Call about the lease date restored.';
+  await page.locator('#workspacePlanStatus').getByText(message,{exact:true}).waitFor({timeout:3000});
+  assert.equal(await undo.count(),0);
+  assert.deepEqual(saves.map(({due_on,seen_change_id,strict_version})=>[due_on,seen_change_id,strict_version]),[
+   ['2026-10-08',12,undefined],['2026-10-07',14,true],
+  ]);
+ }
+});
+
+for (const {width,height,dismiss} of [
+ {width:390,height:844,dismiss:'Close item'},
+ {width:1280,height:844,dismiss:'Close item'},
+ {width:1024,height:768,dismiss:'Typical lengths'},
+ {width:1280,height:599,dismiss:'Typical lengths'},
+]) test(`${dismiss} cancels Drop and leaves Reset to typical working at ${width}x${height}`,async t=>{
+ const {page}=await open(t,{width,height,touch:width===390});
+ const writes=[];
+ await page.route('**/api/engine/deals/d14/plan-dates',async route=>{
+  writes.push(route.request().postDataJSON());
+  await route.fulfill({json:{base_version:2}});
+ });
+ const deadline={id:'critical_date:example',kind:'critical_date',phase:'legal',label:'Example deadline',status:'open',on:'2026-10-15'};
+ await providePlan(page,{...plan,rows:[...planRows,deadline],own_dates:{sign:'2026-10-17'},base_version:1},{canSave:true});
+ await page.getByRole('button',{name:'Lease signing expected Oct 17',exact:true}).click();
+ const tab=page.getByRole('tabpanel',{name:'Plan'});
+ const status=page.locator('#workspacePlanStatus');
+ const items=width<1280?tab.getByRole('list',{name:'Plan items'}):tab.locator('.timeline-scroll');
+ await items.getByRole('button',{name:'Example deadline',exact:true}).first().click();
+ const detail=tab.getByRole('region',{name:'Example deadline'});
+ await detail.getByRole('button',{name:'Drop',exact:true}).click();
+ await status.getByRole('button',{name:'Drop date',exact:true}).waitFor();
+ if (dismiss==='Typical lengths') {
+  await page.route('**/api/engine/typical-lengths?*',route=>route.fulfill({json:{items:[]}}));
+  await tab.getByRole('button',{name:'Typical lengths',exact:true}).click({timeout:3000});
+  await tab.getByRole('button',{name:'Close typical lengths',exact:true}).click({timeout:3000});
+ } else {
+  await detail.getByRole('button',{name:'Close item',exact:true}).click();
+ }
+ assert.equal(await detail.count(),0);
+ assert.equal(await status.getByRole('button',{name:'Drop date',exact:true}).count(),0);
+ const reset=status.getByRole('button',{name:'Reset to typical',exact:true});
+ await reset.waitFor({timeout:2000});
+ await reset.click();
+ await status.getByRole('region',{name:'Reset to typical'}).getByRole('button',{name:'Reset to typical',exact:true}).click();
+ await status.getByText('Typical lengths restored.',{exact:true}).waitFor();
+ assert.deepEqual(writes.map(({base_version})=>base_version),[1]);
+});
 
 test('Plan preserves visible filters and items across the chart boundary',async t=>{
  const {page}=await open(t,{width:1440,height:900});
@@ -254,6 +483,7 @@ test('Plan preserves visible filters and items across the chart boundary',async 
  assert.equal(await dell.getAttribute('aria-pressed'),'true');
  await tab.getByRole('button',{name:'Sign the lease',exact:true}).first().waitFor();
 });
+
 test('Phone Plan lists items in date order and opens them inline',async t=>{
  const {page,errors}=await open(t,{width:390,height:844,touch:true});
  const tab=await showPlan(page);
@@ -272,6 +502,7 @@ test('Phone Plan lists items in date order and opens them inline',async t=>{
  await page.setViewportSize({width:1280,height:844});
  await tab.getByRole('group',{name:'Zoom'}).waitFor();
  assert.equal(await tab.getByRole('list',{name:'Plan items'}).count(),0);
+
 });
 
 test('Overview names the signing date as recorded after the signing to-do is finished', async t=>{
@@ -369,4 +600,36 @@ for(const [width,height,touch] of [[1280,640,false],[1440,900,false],[390,844,tr
   await picker.selectOption('closed');
   assert.equal(await page.getByRole('button',{name:'Closed deals',exact:true}).getAttribute('aria-pressed'),'true');
  }
+});
+
+test('a pointer drag previews and saves an expected to-do date, and Typical lengths uses the measured days',async t=>{
+ const {page}=await open(t,{width:1440,height:900});
+ const own=[];
+ const lengths=[];
+ await page.route('**/api/engine/deals/d14/plan-dates',async route=>{
+  own.push(route.request().postDataJSON());
+  await route.fulfill({json:{base_version:1,previous_on:null}});
+ });
+ await page.route('**/api/engine/typical-lengths*',async route=>{
+  if(route.request().method()==='GET') return route.fulfill({json:{items:[
+   {phase:'legal',todo:'review',label:'Review the lease',days:7,base_version:5,measured_days:9,measured_count:5},
+  ]}});
+  lengths.push(route.request().postDataJSON());
+  await route.fulfill({json:{days:9,base_version:6}});
+ });
+ const tab=await showPlan(page,{canSave:true});
+ const grip=tab.getByRole('button',{name:'Change date for Sign the lease'});
+ const {x,y,width,height}=await grip.boundingBox();
+ await page.mouse.move(x+width/2,y+height/2); await page.mouse.down();
+ await page.mouse.move(x+width/2+24,y+height/2);
+ await tab.getByText('Mon, Oct 19',{exact:true}).waitFor();
+ assert.equal(await tab.locator('.timeline-drag-original').count(),1);
+ assert.equal(own.length,0);
+ await page.mouse.up();
+ await page.locator('#workspacePlanStatus').getByText('Sign the lease expected by Oct 19. What follows moved with it.').waitFor();
+ assert.deepEqual(own.map(({todo,target_on,base_version})=>[todo,target_on,base_version]),[['sign','2026-10-19',0]]);
+ await tab.getByRole('button',{name:'Typical lengths',exact:true}).click();
+ await tab.getByRole('button',{name:'Use measured',exact:true}).click();
+ await page.locator('#workspacePlanStatus').getByText('Review the lease saved.').waitFor();
+ assert.deepEqual(lengths.map(({days,base_version})=>[days,base_version]),[[9,5]]);
 });

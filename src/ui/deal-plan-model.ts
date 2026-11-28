@@ -201,3 +201,61 @@ export function range(groups: TimelineGroup[], today: string) {
   to.sort();
   return { from: from[0] ?? today, to: dateAfter(to.at(-1) ?? today, 15) };
 }
+
+export function previewPlanDates(plan: Plan, change: { id: string; day: string }): Plan {
+  const rows = new Map(plan.rows.map((row) => [row.id, row] as const));
+  const original = rows.get(change.id);
+  if (original?.kind !== "todo" || original.state !== "expected" || !original.expected_from_on) return plan;
+
+  const next = new Map(
+    plan.arrows.filter((arrow) => rows.get(arrow.to)?.kind === "todo").map(({ from, to }) => [from, to]),
+  );
+  const updated = new Map<string, PlanRow>();
+  const phaseEnds = new Map<TimelinePhase, string>();
+  let edge = original.expected_from_on;
+  let successor: string | undefined = change.id;
+  for (const row of plan.rows) {
+    if (row.id !== successor) continue;
+    const { id } = row;
+    successor = next.get(id);
+    if (row.kind !== "todo") break;
+    if (row.state === "finished") continue;
+    if (row.state !== "expected" || !row.expected_from_on || !row.expected_to_on || row.typical_days == null) break;
+    const target = id === change.id ? change.day : (plan.own_dates?.[id] ?? dateAfter(edge, row.typical_days));
+    const end = dateAfter(edge, Math.max(0, dayOf(target) - dayOf(edge)));
+    updated.set(id, { ...row, expected_from_on: edge, expected_to_on: end });
+    edge = end;
+    phaseEnds.set(row.phase, end);
+  }
+
+  const arrows = plan.arrows.map((arrow) => {
+    const todo = updated.get(arrow.from);
+    const date = rows.get(arrow.to);
+    if (todo?.kind !== "todo" || todo.state !== "expected" || !todo.expected_to_on || date?.kind !== "critical_date")
+      return arrow;
+    const at_risk = date.status !== "cleared" && todo.expected_to_on > date.on;
+    updated.set(date.id, { ...date, at_risk });
+    return { ...arrow, at_risk };
+  });
+
+  let previousEnd: string | null = null;
+  const phases = plan.phases.map((span) => {
+    const end = phaseEnds.get(span.phase);
+    if (previousEnd === null && !end) return span;
+    const expected_from_on = span.expected_from_on && (previousEnd ?? span.expected_from_on);
+    const expected_to_on =
+      span.expected_to_on &&
+      (end ?? (span.expected_to_on === span.expected_from_on ? expected_from_on : span.expected_to_on));
+    previousEnd = expected_to_on;
+    return { ...span, expected_from_on, expected_to_on };
+  });
+  const signing = updated.get("executed_lease");
+  return {
+    ...plan,
+    rows: plan.rows.map((row) => updated.get(row.id) ?? row),
+    phases,
+    arrows,
+    expected_signing_on:
+      signing?.kind === "todo" && signing.state === "expected" ? signing.expected_to_on : plan.expected_signing_on,
+  };
+}
