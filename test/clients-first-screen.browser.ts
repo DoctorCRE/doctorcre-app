@@ -17,7 +17,8 @@ async function openClients(
     path = "/clients?all=true",
     ready = ".record-row",
     held,
-  }: { path?: string; ready?: string; held?: Promise<void> } = {},
+    sortFixture = false,
+  }: { path?: string; ready?: string; held?: Promise<void>; sortFixture?: boolean } = {},
 ) {
   const server = await startFixtureServer();
   t.after(() => server.stop());
@@ -25,13 +26,49 @@ async function openClients(
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width, height } });
   await page.clock.install({ time: new Date("2026-10-01T18:00:00Z") });
-  const listReads: URL[] = [];
   await page.route("https://**", (r) => r.abort());
   await page.route("**/api/v1/business/**", async (r) => {
     await held;
     const url = new URL(r.request().url());
-    if (url.pathname === "/api/v1/business/clients") listReads.push(url);
-    return r.fulfill({ json: directoryFixture(url.href) });
+    const fixture = directoryFixture(url.href);
+    if (sortFixture && url.pathname === "/api/v1/business/clients" && !url.searchParams.has("tiles")) {
+      const source = directoryFixture("http://fixture.test/api/v1/business/clients?contract=vendor-directory.v2");
+      assert.ok(Array.isArray(source.rows));
+      const rows = source.rows.slice(0, 6).map((row: unknown, index: number) => {
+        assert.ok(row && typeof row === "object" && "name" in row && typeof row.name === "string");
+        assert.ok("owner_label" in row && typeof row.owner_label === "string");
+        return {
+          ...row,
+          name: row.name,
+          owner_label: row.owner_label,
+          recorded_status: index % 2 ? "past_client" : "active_deal",
+          recorded_status_label: index % 2 ? "Past client" : "Active deal",
+          vertical: ["B", "A", "D", "C", "F", "E"][index] ?? "",
+          city: ["C", "D", "A", "B", "E", "F"][index] ?? "",
+          updated_at: `2026-09-0${index + 1}T12:00:00Z`,
+        };
+      });
+      const sort = url.searchParams.get("sort") || "name";
+      rows.sort((a, b) => {
+        const value = (row: (typeof rows)[number]) =>
+          sort === "status"
+            ? row.recorded_status
+            : sort === "owner"
+              ? row.owner_label
+              : sort === "territory"
+                ? row.city
+                : sort === "vertical"
+                  ? row.vertical
+                  : row.name;
+        return sort === "recent"
+          ? b.updated_at.localeCompare(a.updated_at)
+          : value(a).localeCompare(value(b)) || a.name.localeCompare(b.name);
+      });
+      fixture.rows = rows;
+      fixture.total = 6;
+      fixture.page_count = 1;
+    }
+    return r.fulfill({ json: fixture });
   });
   await page.route("**/mcp", (route) => {
     const request = route.request().postDataJSON();
@@ -41,7 +78,7 @@ async function openClients(
   });
   await page.goto(`${server.url}${path}`);
   await page.locator(ready).first().waitFor();
-  return { page, listReads };
+  return { page };
 }
 
 const firstScreen = (page: Page) =>
@@ -167,23 +204,34 @@ test("loading Clients shows row-height placeholders that fill the list", async (
 });
 
 test("a column name sorts the list and a second click returns to name order", async (t) => {
-  const { page, listReads } = await openClients(t, 1280, 800);
-  for (const [label, sort] of [
-    ["Status", "status"],
-    ["Practice type", "vertical"],
-    ["Territory", "territory"],
-    ["Owner", "owner"],
-    ["Updated", "recent"],
-  ] as const) {
+  const { page } = await openClients(t, 1280, 800, { sortFixture: true });
+  async function sortBy(label: string, sort: string | null, order: number[]) {
     const heading = page.locator(".list-head").getByRole("button", { name: label, exact: true });
-    await heading.click();
-    await page.waitForURL(new RegExp(`sort=${sort}`));
-    await page.locator(".record-row").first().waitFor();
-    assert.equal(listReads.at(-1)?.searchParams.get("sort"), sort, `${label} asks the engine for its order`);
-    assert.equal(await heading.getAttribute("aria-pressed"), "true");
+    const [response] = await Promise.all([
+      page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        const expected = new URLSearchParams({ contract: "vendor-directory.v2" });
+        if (sort) expected.set("sort", sort);
+        url.searchParams.sort();
+        expected.sort();
+        return url.pathname === "/api/v1/business/clients" && url.searchParams.toString() === expected.toString();
+      }),
+      heading.click(),
+    ]);
+    assert.equal(response.ok(), true);
+    const names = order.map((n) => `Demo Practice ${String(n).padStart(2, "0")}`);
+    await page.waitForFunction((expected) => {
+      const actual = [...document.querySelectorAll(".record-row .row-name")].map((row) => row.textContent);
+      return JSON.stringify(actual) === JSON.stringify(expected);
+    }, names);
+    assert.equal(await heading.getAttribute("aria-pressed"), sort ? "true" : "false");
   }
-  await page.locator(".list-head").getByRole("button", { name: "Updated", exact: true }).click();
-  await page.waitForURL((url) => !url.searchParams.has("sort"));
+  await sortBy("Status", "status", [1, 3, 5, 2, 4, 6]);
+  await sortBy("Practice type", "vertical", [2, 1, 4, 3, 6, 5]);
+  await sortBy("Territory", "territory", [3, 4, 1, 2, 5, 6]);
+  await sortBy("Owner", "owner", [2, 4, 6, 1, 3, 5]);
+  await sortBy("Updated", "recent", [6, 5, 4, 3, 2, 1]);
+  await sortBy("Updated", null, [1, 2, 3, 4, 5, 6]);
   for (const label of ["Open deal", "Client type"])
     assert.equal(
       await page.locator(".list-head").getByRole("button", { name: label }).count(),
