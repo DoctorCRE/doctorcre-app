@@ -9,6 +9,7 @@
 .doc-chat__chats { grid-area: 1 / 1 / 3; min-width: 0; }
 .doc-chat__layout > section { grid-area: 1 / 2; min-width: 0; }
 .doc-chat__dock { grid-area: 2 / 2; min-width: 0; }
+#askDocLink { display: none; }
 .doc-chat-topbar { display: flex; align-items: center; gap: var(--space-1); }
 .doc-chat-topbar h1 { min-width: 0; margin: 0; overflow: hidden; font: inherit; white-space: nowrap; text-overflow: ellipsis; }
 .doc-chat__title { color: var(--fg-muted); font-weight: var(--font-weight-regular); }

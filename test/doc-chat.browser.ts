@@ -1438,6 +1438,7 @@ for (const [width, height] of [
     assert.equal(await inView(page.getByRole("button", { name: "Send", exact: true })), true, "Send stays on screen");
     assert.equal(await inView(page.getByRole("link", { name: "New chat" })), true);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(`Ask Doc / ${question}`);
+    await expect(page.getByRole("link", { name: "Ask Doc", exact: true })).toHaveCount(0);
     await expect(page.getByRole("heading", { level: 1 })).toBeInViewport();
     await expect(page.getByRole("heading", { name: "Recent chats" })).toHaveCount(0);
     const chat = page.getByRole("link", { name: chatTitle(15) });
