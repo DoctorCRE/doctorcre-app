@@ -25,13 +25,25 @@ async function openVendors(
   t: TestContext,
   width: number,
   height: number,
-  { path = "/vendors", live = false, light = false, ready = ".directory-tile[href]" } = {},
+  {
+    path = "/vendors",
+    live = false,
+    light = false,
+    territoryTiles = false,
+    touch = false,
+    ready = ".directory-tile[href]",
+  } = {},
 ) {
   const server = await startFixtureServer();
   t.after(() => server.stop());
   const browser = await chromium.launch();
   t.after(() => browser.close());
-  const page = await browser.newPage({ viewport: { width, height }, colorScheme: light ? "light" : "dark" });
+  const page = await browser.newPage({
+    viewport: { width, height },
+    colorScheme: light ? "light" : "dark",
+    hasTouch: touch,
+    isMobile: touch,
+  });
   if (light)
     await page.addInitScript(() =>
       localStorage.setItem("doctorcre.visual-preferences", JSON.stringify({ theme: "light" })),
@@ -40,7 +52,7 @@ async function openVendors(
   await page.route("https://**", (r) => r.abort());
   await page.route("**/api/v1/business/**", (r) => {
     asked.push(new URL(r.request().url()));
-    return r.fulfill({ json: withUncategorized(r.request().url()) });
+    return r.fulfill({ json: territoryTiles ? withMarkets(r.request().url()) : withUncategorized(r.request().url()) });
   });
   await page.route("**/mcp", (r) =>
     r.fulfill({
@@ -51,13 +63,18 @@ async function openVendors(
     await page.route("**/auth/session", (r) =>
       r.fulfill({ json: { actor: { slug: "joe" }, csrf_token: "synthetic" } }),
     );
+  }
+  if (live || territoryTiles) {
     await page.route(
       (url) => url.pathname === "/vendors",
       async (r) => {
         const response = await r.fetch();
         return r.fulfill({
           response,
-          body: (await response.text()).replace("<html ", "<html data-clients-vendors-from-engine "),
+          body: (await response.text()).replace(
+            "<html ",
+            `<html ${live ? "data-clients-vendors-from-engine " : ""}${territoryTiles ? "data-vendor-territory-tiles " : ""}`,
+          ),
         });
       },
     );
@@ -245,3 +262,154 @@ for (const width of [320, 390])
     );
     assert.deepEqual(touching, []);
   });
+
+const MARKETS = [
+  "Mobile",
+  "Eastern Shore",
+  "Orange Beach / Gulf Shores",
+  "Dothan",
+  "Pensacola",
+  "Pace",
+  "Milton",
+  "Gulf Breeze",
+  "Navarre",
+  "Crestview",
+  "Niceville",
+  "Fort Walton Beach",
+  "Destin",
+  "Miramar Beach",
+  "30A / Santa Rosa Beach",
+  "Freeport",
+  "Panama City Beach",
+  "Panama City",
+  "Tallahassee",
+].map((name, index) => ({ id: `00000000-0000-4000-8000-${String(800 + index).padStart(12, "0")}`, name }));
+
+function withMarkets(url: string) {
+  const requested = new URL(url);
+  const payload = directoryFixture(url);
+  if (requested.pathname.endsWith("/summary")) {
+    // The synthetic adapter returns the summary envelope for this route.
+    const summary = payload as unknown as Summary;
+    const coverage = (count: number, bucketSize: number) => ({
+      markets: MARKETS.slice()
+        .reverse()
+        .map((market) => ({ ...market, count: market.name === "Mobile" ? bucketSize : count - 2 * bucketSize }))
+        .filter((market) => market.count),
+      elsewhere: bucketSize,
+      no_territory: bucketSize,
+    });
+    Object.assign(summary.all, coverage(summary.all.count, requested.searchParams.has("owner") ? 1 : 2));
+    for (const counts of [summary.no_category, ...summary.categories])
+      Object.assign(counts, coverage(counts.count, Number(counts.count > 0)));
+  } else if (requested.searchParams.get("markets") === "true" && Array.isArray(payload.rows)) {
+    assert.ok(payload.query && typeof payload.query === "object");
+    Object.assign(payload.query, { markets: true });
+    for (const row of payload.rows) {
+      const n = Number(row.id.slice(-12));
+      row.markets = n <= 4 && n >= 3 ? [] : n <= 2 ? MARKETS : MARKETS.slice(1);
+      if (n === 3 || n === 4) row.territory = null;
+      if (n === 5 || n === 6) row.markets = [];
+    }
+  }
+  return payload;
+}
+
+test("territory tiles combine with search and clear in place", async (t) => {
+  const { page, asked } = await openVendors(t, 1440, 900, {
+    path: "/vendors?category=banker",
+    territoryTiles: true,
+    ready: ".record-row",
+  });
+  const group = page.getByRole("group", { name: "Territories" });
+  const mobile = group.getByRole("button", { name: "Mobile 1" });
+  await mobile.waitFor();
+  assert.deepEqual(await group.locator("button span:first-child").allTextContents(), [
+    "All territories",
+    ...MARKETS.map(({ name }) => name),
+    "Elsewhere",
+    "No territory",
+  ]);
+  assert.equal(await page.locator(".record-row").count(), 31);
+  const reads = asked.length;
+  await mobile.click();
+  assert.equal(await mobile.getAttribute("aria-pressed"), "true");
+  assert.equal(await page.locator(".record-row").count(), 1);
+  assert.equal(asked.length, reads, "choosing a territory does not read the list again");
+  await mobile.click();
+  assert.equal(await page.locator(".record-row").count(), 31);
+  await group.getByRole("button", { name: "Elsewhere 1" }).click();
+  assert.match((await page.locator(".record-row").textContent()) ?? "", /Demo Partner 05/);
+  await group.getByRole("button", { name: "No territory 1" }).click();
+  assert.match((await page.locator(".record-row").textContent()) ?? "", /Demo Partner 03/);
+  await page.getByPlaceholder("Find in Banking").fill("missing");
+  await page.getByText("No vendors match these filters").waitFor();
+  await page.getByRole("button", { name: "Clear filters" }).click();
+  await page.locator(".record-row").first().waitFor();
+  assert.equal(await group.getByRole("button", { name: "All territories 31" }).getAttribute("aria-pressed"), "true");
+  assert.equal(await page.getByPlaceholder("Find in Banking").inputValue(), "");
+  await page.screenshot({ path: `${shots}/territories-1440.png` });
+  await page.getByRole("button", { name: "Categories", exact: true }).click();
+  await page.locator("a.directory-tile", { hasText: "All vendors" }).click();
+  await group.getByRole("button", { name: "All territories 62" }).waitFor();
+  await page.getByRole("button", { name: "Dell", exact: true }).click();
+  await group.getByRole("button", { name: "All territories 31" }).waitFor();
+  await group.getByRole("button", { name: "Mobile 1" }).click();
+  assert.match((await page.locator(".record-row").textContent()) ?? "", /Demo Partner 02/);
+});
+
+for (const [width, height, touch] of [
+  [1280, 640, false],
+  [390, 844, true],
+] as const) {
+  test(`territory tiles fit at ${width}×${height}`, async (t) => {
+    const { page } = await openVendors(t, width, height, {
+      path: "/vendors?category=banker",
+      territoryTiles: true,
+      touch,
+      light: touch,
+      ready: ".record-row",
+    });
+    const group = page.getByRole("group", { name: "Territories" });
+    await page.evaluate(() => (document.documentElement.dataset.colorAssist = "on"));
+    await group.waitFor();
+    if (touch) {
+      assert.ok(await group.evaluate((row) => row.scrollWidth > row.clientWidth));
+      const firstTile = await group.getByRole("button").first().boundingBox();
+      assert.ok(firstTile && firstTile.height >= 44);
+      await group.getByRole("button", { name: "No territory 1" }).tap();
+      assert.equal(await page.locator(".record-row").count(), 1);
+      await group.getByRole("button", { name: "All territories 31" }).tap();
+    } else {
+      const wholeRows = await page.locator("#listRegion").evaluate((region) => {
+        const edge = region.getBoundingClientRect();
+        return [...region.querySelectorAll(".record-row")].filter((row) => {
+          const box = row.getBoundingClientRect();
+          return box.top >= edge.top && box.bottom <= Math.min(edge.bottom, innerHeight);
+        }).length;
+      });
+      assert.ok(wholeRows >= 11, `${wholeRows} whole vendor rows`);
+      const region = page.locator("#listRegion");
+      const top = await group.boundingBox();
+      await region.evaluate((list) => {
+        list.scrollTop = 200;
+      });
+      assert.ok(await region.evaluate((list) => list.scrollTop > 0));
+      assert.deepEqual(await group.boundingBox(), top);
+    }
+    await page.screenshot({ path: `${shots}/territories-${width}.png` });
+  });
+}
+
+test("territory tiles and market reads stay off before rollout", async (t) => {
+  const { page, asked } = await openVendors(t, 1440, 900, {
+    path: "/vendors?category=banker&market=elsewhere",
+    ready: ".record-row",
+  });
+  assert.equal(await page.getByRole("group", { name: "Territories" }).isVisible(), false);
+  assert.equal(
+    asked.some((url) => url.searchParams.has("markets")),
+    false,
+  );
+  assert.equal(new URL(page.url()).searchParams.has("market"), false);
+});
