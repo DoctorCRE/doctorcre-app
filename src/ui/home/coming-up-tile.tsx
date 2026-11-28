@@ -53,10 +53,11 @@ export function ComingUpTile() {
           {rows.map((row) => (
             <li key={row.id}>
               <a href={`/calendar?day=${row.day}`}>
-                <time dateTime={row.day}>{weekday.format(new Date(`${row.day}T00:00:00Z`))}</time>
-                <span>
-                  {row.kind} <span>· {row.dealName}</span>
-                </span>
+                <time className="home-today-time" dateTime={row.day}>
+                  {weekday.format(new Date(`${row.day}T00:00:00Z`))}
+                </time>
+                <span className="home-today-title">{row.kind}</span>
+                <span className="home-today-context"> · {row.dealName}</span>
               </a>
             </li>
           ))}

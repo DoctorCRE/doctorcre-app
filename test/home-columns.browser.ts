@@ -154,6 +154,7 @@ const criticalDate = (n: number, due_on: string) => ({
   done: false,
 });
 const comingUpDates = [criticalDate(1, "2026-11-27"), criticalDate(2, today), criticalDate(3, "2026-12-10")];
+const sampleMeeting = { title: "Sample site visit", start: "2026-11-25T20:00:00Z", end: "2026-11-25T21:00:00Z" };
 
 // Names of any Leads board or Quiet list read Home makes.
 const leadReads: string[] = [];
@@ -166,13 +167,26 @@ async function openHome(
   dates = comingUpDates,
   home: typeof dashboard = dashboard,
   leadCounts: unknown = { schema_version: "lead-counts.v1", new_from_email: 2, follow_ups_late: 1 },
+  right: {
+    deals?: typeof deals;
+    meetings?: (typeof sampleMeeting)[];
+    touch?: boolean;
+    theme?: "light";
+    failedRead?: "weekly review" | "critical dates";
+  } = {},
 ) {
   const browser = await chromium.launch();
   t.after(() => browser.close());
-  const page = await browser.newPage({ viewport: { width, height }, timezoneId: "America/Chicago" });
+  const page = await browser.newPage({
+    viewport: { width, height },
+    timezoneId: "America/Chicago",
+    hasTouch: right.touch ?? width <= 760,
+  });
   await page.clock.setFixedTime(new Date("2026-11-25T16:00:00Z"));
-  await page.addInitScript(() =>
-    localStorage.setItem("doctorcre.visual-preferences", JSON.stringify({ walkthroughSeen: { joe: true } })),
+  await page.addInitScript(
+    (theme) =>
+      localStorage.setItem("doctorcre.visual-preferences", JSON.stringify({ walkthroughSeen: { joe: true }, theme })),
+    right.theme,
   );
   await page.route("**/auth/session", (route) =>
     route.fulfill({ json: { actor: { slug: "joe" }, csrf_token: "synthetic" } }),
@@ -197,7 +211,7 @@ async function openHome(
         viewer: null,
         meetings: {
           state: "ready",
-          items: [{ title: "Sample site visit", start: "2026-11-25T20:00:00Z", end: "2026-11-25T21:00:00Z" }],
+          items: right.meetings ?? [sampleMeeting],
         },
       },
     }),
@@ -213,10 +227,14 @@ async function openHome(
       }),
     );
   await page.route("**/api/engine/weekly-reviews?week_of=2026-11-23", (route) =>
-    route.fulfill({ json: { items: reviewItems } }),
+    route.fulfill(right.failedRead === "weekly review" ? { status: 503 } : { json: { items: reviewItems } }),
   );
   await page.route("**/api/engine/calendar/critical-dates", (route) =>
-    route.fulfill({ json: { schema_version: "calendar-critical-dates.v1", critical_dates: dates } }),
+    route.fulfill(
+      right.failedRead === "critical dates"
+        ? { status: 503 }
+        : { json: { schema_version: "calendar-critical-dates.v1", critical_dates: dates } },
+    ),
   );
   await page.route("**/api/engine/leads/counts", (route) => route.fulfill({ json: leadCounts }));
   await page.route("**/mcp", async (route) => {
@@ -226,7 +244,9 @@ async function openHome(
       json: {
         jsonrpc: "2.0",
         id: call.id,
-        result: { content: [{ type: "text", text: JSON.stringify({ board_from_engine: true, deals }) }] },
+        result: {
+          content: [{ type: "text", text: JSON.stringify({ board_from_engine: true, deals: right.deals ?? deals }) }],
+        },
       },
     });
   });
@@ -268,6 +288,11 @@ for (const [width, height] of [
         return Math.abs(next.x - right.x) < 1 && (!above || next.y >= above.y + above.height);
       }),
       "meetings, Deals, Coming up and Leads stack in the right column",
+    );
+    assert.equal(
+      await page.locator("#appMainSlot").evaluate((main) => main.scrollHeight <= main.clientHeight),
+      true,
+      "the main area does not scroll",
     );
     assert.ok(leadsLine.y + leadsLine.height <= height, "Leads is on the first screen");
     assert.equal(
@@ -346,7 +371,7 @@ for (const [width, height] of [
   [1440, 900],
   [390, 844],
 ] as const)
-  test(`At ${width} a tour row in Today's meetings shows Tour at the row start and its whole title`, async (t) => {
+  test(`At ${width} a tour row in Today's meetings shows Tour at the row start with its title and stop count`, async (t) => {
     const page = await openHome(t, width, height, [
       {
         id: "tour-1",
@@ -371,7 +396,8 @@ for (const [width, height] of [
     };
     assert.ok(drawn.markOffset < 16, `Tour sits at the row start, not ${drawn.markOffset}px in`);
     assert.equal(drawn.titlePadding, "0px");
-    assert.equal(drawn.titleText, "Example Dental · 3 stops");
+    assert.equal(drawn.titleText, "Example Dental");
+    assert.ok(await row.getByText("· 3 stops", { exact: true }).isVisible());
     assert.equal(drawn.titleCut, false, "the title is not cut off");
   });
 
@@ -459,8 +485,8 @@ for (const width of [1440, 500] as const)
     await list.scrollIntoViewIfNeeded();
     const [first, second] = await list.evaluate((ul) =>
       [...ul.querySelectorAll("a")].map((link) => {
-        const label = link.firstChild;
-        const reason = link.querySelector("span")?.getBoundingClientRect();
+        const label = link.querySelector(".home-deal-name");
+        const reason = link.querySelector(".home-deal-reason")?.getBoundingClientRect();
         if (!label || !reason) throw Error("a deal line has a name and a reason");
         const name = document.createRange();
         name.selectNodeContents(label);
@@ -472,6 +498,45 @@ for (const width of [1440, 500] as const)
     const own = first.reasonTop - first.bottom;
     const next = second.top - first.reasonBottom;
     assert.ok(own < next, `a reason sits ${own}px under its deal and ${next}px above the next deal`);
+  });
+
+for (const [width, height] of [
+  [1280, 599],
+  [390, 844],
+] as const)
+  test(`At ${width}x${height} long Calendar previews keep their context visible`, async (t) => {
+    const title = "Confirm revised sample plans before the next site visit. ".repeat(20).trim();
+    const label = "Sample Cedar Suite";
+    const meetingFixture = { ...sampleMeeting, title, context_label: label };
+    const page = await openHome(
+      t,
+      width,
+      height,
+      [],
+      [{ ...criticalDate(1, today), kind: title, deal_name: label }],
+      dashboard,
+      undefined,
+      { meetings: [meetingFixture] },
+    );
+    const meeting = page.getByRole("region", { name: "Today's meetings" }).locator("summary");
+    const comingUp = page.getByRole("region", { name: "Coming up", exact: true });
+    const dates = comingUp.getByRole("link", { name: new RegExp(label) });
+    if (width === 1280) await comingUp.getByRole("button", { name: /Coming up 1 date/ }).click();
+    for (const row of [meeting, dates]) {
+      await row.scrollIntoViewIfNeeded();
+      const context = row.getByText(label, { exact: false });
+      assert.ok(
+        await context.evaluate((node) => {
+          const { x, y, width, height } = node.getBoundingClientRect();
+          return node.contains(document.elementFromPoint(x + width / 2, y + height / 2));
+        }),
+        "the context takes a visible line of its own",
+      );
+    }
+    const closed = (await meeting.boundingBox())?.height;
+    await meeting.press("Enter");
+    assert.equal((await meeting.boundingBox())?.height, closed, "opening leaves the disclosure control short");
+    await meeting.locator("..").locator("p").filter({ hasText: title }).waitFor();
   });
 
 test("At 1280x640 the attention list and Coming up fold to one line each that opens in place", async (t) => {
@@ -506,6 +571,274 @@ test("At 1280x640 every right-column tile shows whole, and each Leads count keep
   }
 });
 
+const busyMeetings = Array.from({ length: 42 }, (_, index) => ({
+  ...sampleMeeting,
+  title: `Sample visit ${index + 1}`,
+}));
+const wrappedDeal = deal(1, "Research", {
+  name: "Sample practice",
+  attention: {
+    reason:
+      "The practice asked us to confirm the revised lease terms, parking instructions, the second-floor buildout scope, the updated tour schedule, and which documents are needed before the next site visit.",
+  },
+});
+
+test("At 1280x599 an offline notice fits without scrolling Home's main area", async (t) => {
+  const page = await openHome(t, 1280, 599);
+  await page.context().setOffline(true);
+  const notice = page.getByText("Offline. Showing the last available update.", { exact: true });
+  await notice.waitFor();
+  const main = page.locator("#appMainSlot");
+  const bounds = (await main.boundingBox()) ?? assert.fail("Home's main area is drawn");
+  await page.mouse.move(bounds.x + 2, bounds.y + bounds.height - 3);
+  await page.mouse.wheel(0, 300);
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  assert.deepEqual(
+    await main.evaluate((slot) => [scrollY, slot.scrollTop, slot.scrollHeight - slot.clientHeight]),
+    [0, 0, 0],
+    "the page and main area stay still and fit the viewport",
+  );
+  const [bar, heading, message] = await Promise.all([
+    page.locator("#appTopbar").boundingBox(),
+    page.getByRole("heading", { name: /^Reminders/ }).boundingBox(),
+    notice.boundingBox(),
+  ]);
+  assert.ok(bar && heading && message, "the heading and notice are drawn");
+  assert.ok(heading.y >= bar.y + bar.height, "the app bar does not cover the heading");
+  assert.ok(message.y + message.height <= bounds.y + bounds.height, "the notice stays in the viewport");
+});
+
+test("At 1280x599 every phase is a full touch target under the closed Deals fold", async (t) => {
+  const page = await openHome(t, 1280, 599, [], comingUpDates, dashboard, undefined, {
+    touch: true,
+    meetings: busyMeetings,
+  });
+  const phases = page.getByRole("region", { name: "Deals", exact: true }).locator(".home-phases a");
+  await phases.last().waitFor();
+  assert.equal(await phases.count(), 7);
+  for (const phase of await phases.all()) {
+    const hit = await phase.evaluate((link) => {
+      link.scrollIntoView({ block: "center", behavior: "instant" });
+      const box = link.getBoundingClientRect();
+      const x = box.left + box.width / 2;
+      return (
+        box.height >= 44 && [box.top + 1, box.bottom - 1].every((y) => link.contains(document.elementFromPoint(x, y)))
+      );
+    });
+    assert.ok(hit, `Both edges of ${await phase.textContent()} are tappable`);
+  }
+});
+
+test("Deals attention keeps its full accessible reason and caps its preview at two lines", async (t) => {
+  const page = await openHome(t, 1280, 599, [], comingUpDates, dashboard, undefined, {
+    touch: true,
+    deals: [wrappedDeal],
+    meetings: busyMeetings,
+  });
+  const tile = page.getByRole("region", { name: "Deals", exact: true });
+  await tile.getByRole("button", { name: "1 needs attention" }).tap();
+  const result = tile.getByRole("link", { name: /Sample practice .*next site visit/ });
+  const lines = await result
+    .locator(".home-deal-reason")
+    .evaluate(
+      (reason) => reason.getBoundingClientRect().height / Number.parseFloat(getComputedStyle(reason).lineHeight),
+    );
+  assert.ok(lines > 1 && lines <= 2.05, "the reason wraps to two lines");
+});
+
+test("At 1280x599 wheel and touch scroll the column after reaching the end of a tile", async (t) => {
+  const dates = Array.from({ length: 42 }, (_, index) => criticalDate(index + 1, today));
+  for (const touch of [false, true]) {
+    await t.test(touch ? "touch swipe" : "mouse wheel", async (t) => {
+      const page = await openHome(t, 1280, 599, [], dates, dashboard, undefined, {
+        touch,
+        deals: [wrappedDeal],
+        meetings: busyMeetings,
+      });
+      await page.getByRole("button", { name: "Coming up 42 dates in the next 14 days" }).click();
+      await page.getByRole("button", { name: "1 needs attention" }).click();
+      const meetings = page.getByRole("region", { name: "Today's meetings", exact: true });
+      const column = page.locator(".home-side");
+      const leads = page.getByRole("region", { name: "Leads", exact: true }).locator("strong");
+      await column.evaluate((region) => {
+        region.scrollTop = 0;
+      });
+      await meetings.evaluate((tile) => {
+        tile.scrollTop = tile.scrollHeight;
+      });
+      const [list, right, heading] = await Promise.all([
+        meetings.boundingBox(),
+        column.boundingBox(),
+        leads.boundingBox(),
+      ]);
+      assert.ok(
+        list && right && heading && heading.y + heading.height > right.y + right.height,
+        "Leads starts below the column viewport",
+      );
+      assert.ok(
+        await meetings.evaluate(
+          (tile) => tile.scrollTop > 0 && Math.abs(tile.scrollHeight - tile.clientHeight - tile.scrollTop) <= 1,
+        ),
+        "the input starts at the tile's lower limit",
+      );
+      const x = Math.round(list.x + list.width / 2);
+      const y = Math.round(list.y + list.height - 8);
+      if (touch) {
+        const input = await page.context().newCDPSession(page);
+        await input.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+        for (const offset of [30, 75, 125])
+          await input.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x, y: y - offset }] });
+        await input.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      } else {
+        await page.mouse.move(x, y);
+        await page.mouse.wheel(0, 600);
+      }
+      await page.waitForFunction(() => (document.querySelector(".home-side")?.scrollTop ?? 0) > 0);
+      assert.deepEqual(
+        await page.evaluate(() => [scrollY, document.querySelector("#appMainSlot")?.scrollTop]),
+        [0, 0],
+        "the page stays put",
+      );
+    });
+  }
+});
+
+test("At 1280x599 every control in the scrolling column stays visible in both Tab directions", async (t) => {
+  const dates = Array.from({ length: 42 }, (_, index) => criticalDate(index + 1, today));
+  for (const touch of [false, true]) {
+    await t.test(touch ? "touch layout" : "pointer layout", async (t) => {
+      const page = await openHome(t, 1280, 599, [], dates, dashboard, undefined, {
+        touch,
+        deals: [wrappedDeal],
+        meetings: busyMeetings,
+      });
+      await page.context().setOffline(true);
+      await page.getByText("Offline. Showing the last available update.", { exact: true }).waitFor();
+      await page.getByRole("button", { name: "Coming up 42 dates in the next 14 days" }).click();
+      await page.getByRole("button", { name: "1 needs attention" }).click();
+      const column = page.locator(".home-side");
+      assert.ok(await column.evaluate((region) => region.scrollHeight > region.clientHeight));
+      const controls = await column.locator("a[href]:visible, button:enabled:visible, summary:visible").all();
+      const leads = controls.at(-1) ?? assert.fail("Leads is the last control");
+      assert.equal(await leads.getAttribute("href"), "/leads");
+      await leads.focus();
+
+      for (const [key, targets] of [
+        ["Shift+Tab", controls.slice(0, -1).reverse()],
+        ["Tab", controls.slice(1)],
+      ] as const) {
+        for (const target of targets) {
+          await page.keyboard.press(key);
+          const result = await target.evaluate(async (control) => {
+            await new Promise((resolve) => requestAnimationFrame(resolve));
+            const { top, left, width, height } = control.getBoundingClientRect();
+            return {
+              label: control.textContent?.trim(),
+              focused: document.activeElement === control,
+              visible: control.contains(document.elementFromPoint(left + width / 2, top + height / 2)),
+            };
+          });
+          assert.ok(result.focused, `${key} focuses ${result.label}`);
+          assert.ok(result.visible, `${key} makes ${result.label} visible`);
+        }
+      }
+      assert.deepEqual(
+        await page.evaluate(() => [scrollY, document.querySelector("#appMainSlot")?.scrollTop]),
+        [0, 0],
+        "the page and main area stay put",
+      );
+    });
+  }
+});
+
+test("Home caps a 959-character title and reason at two lines at 1280x599", async (t) => {
+  const title = "Confirm the sample practice's next site visit and the revised lease terms. ".repeat(14).slice(0, 959);
+  const reason = "The practice requested further estimates for parking and the second floor. ".repeat(14).trim();
+  assert.equal(title.length, 959);
+  for (const touch of [false, true]) {
+    await t.test(touch ? "touch" : "pointer", async (t) => {
+      const page = await openHome(
+        t,
+        1280,
+        599,
+        [],
+        comingUpDates,
+        {
+          ...dashboard,
+          inbox: group([
+            reply(601, "Short Inbox title"),
+            { ...reply(602, title), why: reason },
+            reply(603, "Next short Inbox title"),
+          ]),
+        },
+        undefined,
+        { touch },
+      );
+      const inbox = page.getByRole("region", { name: "Inbox", exact: true });
+      const row = inbox.getByRole("article").filter({ has: page.getByRole("link", { name: title, exact: true }) });
+      const target = row.getByRole("link", { name: title, exact: true });
+      await row.getByRole("heading", { name: title, exact: true }).waitFor();
+      const preview = await row.evaluate((node) => {
+        const fields = Array.from(node.querySelectorAll("h3 a, .inbox-why"));
+        return fields.map((field) => {
+          const style = getComputedStyle(field);
+          return {
+            lines: field.getBoundingClientRect().height / Number.parseFloat(style.lineHeight),
+            clamp: style.webkitLineClamp,
+            overflow: style.textOverflow,
+          };
+        });
+      });
+      assert.equal(preview.length, 2);
+      for (const { lines, clamp, overflow } of preview) {
+        assert.ok(lines <= 2.05, `the preview takes ${lines} lines`);
+        assert.equal(clamp, "2");
+        assert.equal(overflow, "ellipsis");
+      }
+      assert.equal(await inbox.getByRole("article", { name: reason }).count(), 1);
+      await target.click();
+      const opened = page.getByRole("region", { name: `Details for ${title}` });
+      await opened.getByText(title, { exact: true }).waitFor();
+      await opened.getByText(reason).waitFor();
+    });
+  }
+});
+
+test("At 1280x599 failed-read notices are readable beside expanded lists", async (t) => {
+  const dates = Array.from({ length: 42 }, (_, index) => criticalDate(index + 1, today));
+  const attentionDeals = Array.from({ length: 42 }, (_, index) =>
+    deal(index + 1, "Research", { attention: { reason: "A next step is late." } }),
+  );
+  for (const [failedRead, notice, fold] of [
+    ["weekly review", "Deals unavailable.", "Coming up 42 dates in the next 14 days"],
+    ["critical dates", "Coming up unavailable.", "42 need attention"],
+  ] as const) {
+    await t.test(notice, async (t) => {
+      const page = await openHome(t, 1280, 599, [], dates, dashboard, undefined, {
+        failedRead,
+        meetings: busyMeetings,
+        deals: attentionDeals,
+      });
+      await page.getByRole("button", { name: fold, exact: true }).click();
+      const status = page.getByText(notice, { exact: true });
+      await status.evaluate((node) => node.scrollIntoView({ block: "center", behavior: "instant" }));
+      const { height, contentHeight, clippedByColumn } = await status.evaluate((node) => {
+        const column = node.closest(".home-column");
+        if (!column) throw Error("Missing Home column");
+        const { top, bottom } = node.getBoundingClientRect();
+        const columnTop = column.getBoundingClientRect().top + column.clientTop;
+        return {
+          height: node.clientHeight,
+          contentHeight: node.scrollHeight,
+          clippedByColumn: Math.max(columnTop - top, bottom - (columnTop + column.clientHeight)),
+        };
+      });
+      assert.ok(height >= contentHeight, `${notice} shows only ${height}px of ${contentHeight}px`);
+      assert.ok(clippedByColumn <= 0.5, `${notice} fits inside the column`);
+    });
+  }
+});
+
 test("Coming up is not drawn when no open deal has a date in the next 14 days", async (t) => {
   const page = await openHome(
     t,
@@ -522,58 +855,22 @@ for (const [width, height] of [
   [1440, 900],
   [1280, 640],
 ] as const)
-  test(`At ${width}x${height} a long reminder stays two lines on the list and shows its full instruction when opened`, async (t) => {
+  test(`At ${width}x${height} a long reminder stays short and shows its full instruction when opened`, async (t) => {
     const page = await openHome(t, width, height);
-    const shortRow = page.getByRole("region", { name: "Today", exact: true }).getByRole("article");
     const row = page.getByRole("region", { name: "No date", exact: true }).getByRole("article");
     const title = row.getByRole("heading", { level: 3 });
     const caption = row.locator(".inbox-why");
     assert.equal(await title.textContent(), longTitle);
     assert.equal(await caption.textContent(), "Example Dental");
     assert.ok(
-      await title.evaluate(
-        (node) => node.getBoundingClientRect().height < 1.5 * parseFloat(getComputedStyle(node).lineHeight),
-      ),
-      "the action heading stays on one line",
+      await title
+        .locator("a")
+        .evaluate(
+          (node) => node.getBoundingClientRect().height <= 2 * parseFloat(getComputedStyle(node).lineHeight) + 0.5,
+        ),
+      "the action heading takes at most two lines",
     );
-    assert.ok(
-      await caption.evaluate(
-        (node) => node.getBoundingClientRect().height < 1.5 * parseFloat(getComputedStyle(node).lineHeight),
-      ),
-      "the second line stays on one line",
-    );
-    const shortBox = (await shortRow.boundingBox()) ?? assert.fail("short row is not drawn");
-    const longBox = (await row.boundingBox()) ?? assert.fail("long row is not drawn");
-    assert.ok(
-      Math.abs(longBox.height - shortBox.height) <= 2,
-      `long row height ${longBox.height}px matches a two-line row ${shortBox.height}px`,
-    );
-    assert.equal(
-      await page.evaluate(() => document.scrollingElement?.scrollHeight),
-      height,
-      "the page does not scroll",
-    );
-    assert.ok(
-      await title.evaluate((node) => {
-        const text = node.textContent ?? "";
-        const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
-        const top = node.getBoundingClientRect().top;
-        let seen = 0;
-        let lastOnLine = -1;
-        for (let text_node = walker.nextNode(); text_node; text_node = walker.nextNode()) {
-          const range = document.createRange();
-          for (let at = 0; at < (text_node.textContent ?? "").length; at += 1) {
-            range.setStart(text_node, at);
-            range.setEnd(text_node, at + 1);
-            const rect = range.getBoundingClientRect();
-            if (rect.width > 0 && rect.top < top + 4) lastOnLine = seen + at;
-          }
-          seen += (text_node.textContent ?? "").length;
-        }
-        return lastOnLine >= 0 && lastOnLine < text.length - 1 && /\s/.test(text.slice(lastOnLine, lastOnLine + 2));
-      }),
-      "the heading is cut between whole words",
-    );
+    assert.equal(await page.evaluate(() => document.scrollingElement?.scrollHeight), height);
     await row.getByRole("link", { name: longTitle }).click();
     const details = page.getByRole("region", { name: `Details for ${longTitle}` });
     await details.waitFor();
@@ -594,7 +891,7 @@ for (const [width, height] of [
   [1440, 900],
   [1280, 640],
 ] as const)
-  test(`At ${width}x${height} three copies of a long reminder show once as two lines and open with every covered name`, async (t) => {
+  test(`At ${width}x${height} three copies of a long reminder show once and open with every covered name`, async (t) => {
     const names = ["Maya Example", "Sam Example", "Lee Example"];
     const grouped = card(50, longTitle, {
       context_label: names[0],
@@ -619,12 +916,6 @@ for (const [width, height] of [
     const caption = row.locator(".inbox-why");
     assert.equal(await title.textContent(), longTitle);
     assert.equal(await caption.textContent(), "Covers 3 reminders · Maya Example, Sam Example and Lee Example");
-    assert.ok(
-      await title.evaluate(
-        (node) => node.getBoundingClientRect().height < 1.5 * parseFloat(getComputedStyle(node).lineHeight),
-      ),
-      "grouped action heading stays on one line",
-    );
     await row.getByRole("link", { name: longTitle }).click();
     const details = page.getByRole("region", { name: `Details for ${longTitle}` });
     await details.waitFor();

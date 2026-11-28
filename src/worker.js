@@ -258,6 +258,8 @@ ${await response.text()}`;
   const { homeToday, dealsFromEngine, dealSavesFromEngine, clientsVendorsFromEngine, dealToursFromEngine } = switches ?? await pageSwitches(env);
   const tourPlanner = path === '/pipeline.html' && dealToursFromEngine;
   const partnerSignIn = engineSignIn(env);
+  const vendorTerritoryTiles = new URL(request.url).pathname === '/vendors'
+    && (clientsVendorsFromEngine || partnerSignIn) && await switchedOn(env, 'vendor-territory-tiles');
   if (!partnerSignIn && !homeToday && !dealsFromEngine && !dealSavesFromEngine && !clientsVendorsFromEngine && !tourPlanner) return asset;
   const date = dealSavesFromEngine && ['/pipeline.html', '/lease-anniversaries.html', '/workspace.html', '/inbox.html'].includes(path)
     ? await env.ENGINE_ROUTING.get('deal-cutover-date', { cacheTtl: 30 }).catch(() => null)
@@ -270,6 +272,7 @@ ${await response.text()}`;
         node.setAttribute('data-partner-sign-in', 'engine');
       }
       if (clientsVendorsFromEngine) node.setAttribute('data-clients-vendors-from-engine', '');
+      if (vendorTerritoryTiles) node.setAttribute('data-vendor-territory-tiles', '');
       if (tourPlanner) node.setAttribute('data-deal-tours-from-engine', '');
       if (dealsFromEngine) node.setAttribute('data-deals-from-engine', '');
       if (dealSavesFromEngine) node.setAttribute('data-deals-saves-from-engine', /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : '');
@@ -1264,14 +1267,16 @@ self.addEventListener('activate', event => event.waitUntil((async () => {
         || ((dealRead || pathname.startsWith('/api/engine/documents/')) && !await routeToEngine(env, DEALS))
         || (pathname === '/api/engine/leads/counts' && !await routeToEngine(env, LEADS)))
       return json({ error: 'not_found' }, 404);
+    const introductionDoor = /^\/api\/engine\/introductions(?:\/[0-9a-fA-F-]{36}(?:\/remove)?)?$/.test(pathname);
     const nextDealsOnly = (pathname === '/api/engine/parties/search' && url.searchParams.has('role'))
       || /^\/api\/engine\/clients\/[^/]+\/leases$/.test(pathname)
       || /^\/api\/engine\/deals\/[^/]+\/parties(?:\/remove)?$/.test(pathname)
-      || /^\/api\/engine\/introductions(?:\/[0-9a-fA-F-]{36})?$/.test(pathname);
+      || introductionDoor;
     if (nextDealsOnly && (!await routeToEngine(env, DEALS) || !await routeToEngine(env, NEXT_DEAL_SAVES)))
       return json({ error: 'not_found' }, 404);
     // Party saves and their read land in the new database, so they follow the Clients and Vendors switch.
-    const partyDoor = (request.method === 'POST' && /^\/api\/engine\/(?:parties|clients|vendors|party-links|introductions)(?:\/[0-9a-fA-F-]{36})?$/.test(pathname))
+    const partyDoor = (request.method === 'POST' && /^\/api\/engine\/(?:parties|clients|vendors|party-links)(?:\/[0-9a-fA-F-]{36})?$/.test(pathname))
+      || (request.method === 'POST' && introductionDoor)
       || /^\/api\/engine\/parties\/[0-9a-fA-F-]{36}$/.test(pathname)
       // Link's search names no role, so it reads the new database; a Deals client search names its role.
       || (pathname === '/api/engine/parties/search' && !url.searchParams.has('role'));

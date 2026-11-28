@@ -127,7 +127,7 @@ export function HomeTile({
 /** A tile's shape while its read is in flight: a title bar and three card rows. */
 export function PlaceholderTile() {
   return (
-    <div className="home-slice home-placeholder" aria-hidden="true">
+    <div className="home-slice home-placeholder" inert>
       <header>
         <span className="skeleton-line short" />
       </header>
@@ -233,6 +233,7 @@ export function CardTile({
 }
 
 type Anchor = { node: Element; top: number };
+
 export class HomeGrid extends Component<{ children: ReactNode; snapshot: unknown; calendar?: unknown }> {
   private grid: HTMLDivElement | null = null;
 

@@ -6,6 +6,9 @@ import { chromium, pausedClock, settles, returnToTab, waitForAsync } from './bro
 import { relationshipNetworkFixture } from '../js/relationship-network-fixture.js';
 import { createFixtureClient } from '../js/fixture-client.js';
 import axe from 'axe-core';
+import { isUiAsset, uiAssets } from '../scripts/ui-bundle.mjs';
+
+const assets = await uiAssets(path => readFile(new URL(`../${path}`, import.meta.url)));
 
 const NOW = new Date('2026-10-01T15:00:00Z');
 const { routes } = (await import("../js/routes.js")).routeContract;
@@ -93,8 +96,11 @@ async function open(t, { isolateMeetingReviews = false, meetingReviewsResponse, 
     if (meetingReviewsResponse && url.pathname === '/js/home-meeting-reviews.js') await meetingReviewsResponse();
     if (blockUi && url.pathname === '/js/ui-next-step.generated.js') return route.abort();
     const file = url.pathname === '/deals' && url.searchParams.get('view') === 'national' ? 'index.html' : routes[url.pathname] || url.pathname.slice(1);
-    try { return route.fulfill({ body: await readFile(new URL(`../${file}`, import.meta.url)), contentType: /\.m?js$/.test(file) ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' }); }
-    catch { return route.fulfill({ status: 404, body: '' }); }
+    try {
+      const body = isUiAsset(file) ? assets.get(file) : await readFile(new URL(`../${file}`, import.meta.url));
+      if (!body) return route.fulfill({ status: 404, body: '' });
+      return route.fulfill({ body, contentType: /\.m?js$/.test(file) ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' });
+    } catch { return route.fulfill({ status: 404, body: '' }); }
   });
   await page.goto(`${origin}/review-workflows?mode=live`);
   if (!hangDetails) await page.waitForFunction(() => /Active deals: \d/.test(document.querySelector('#dealCounts')?.textContent || '') || /unavailable/i.test(document.querySelector('#observedAt')?.textContent || ''));
