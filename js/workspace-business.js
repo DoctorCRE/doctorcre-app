@@ -182,23 +182,21 @@ const vendorDoors = {
 async function saveDealParty(deal, suffix, party_id, role) {
   const client = await dealroomClient();
   const path = `/api/engine/deals/${encodeURIComponent(deal)}/parties${suffix}`;
-  return client.savePartnerRecord(path, `client-deal${suffix}:${deal}:${party_id}:${role}`, "party_id", { party_id, role });
+  return client.savePartnerRecordOnce(path, "party_id", { party_id, role });
 }
 
 async function removeIntroduction({ id, version }) {
   const client = await dealroomClient();
-  return client.savePartnerRecord(`/api/engine/introductions/${encodeURIComponent(id)}/remove`, `remove-introduction:${id}`, "introduction_id", { version });
+  return client.savePartnerRecordOnce(`/api/engine/introductions/${encodeURIComponent(id)}/remove`, "introduction_id", { version });
 }
 
 async function saveIntroduction({ deal, client, vendor, by, on, replaces, guarded }) {
   const session = await dealroomClient();
-  const key = `client-deal-introduction:${deal}:${vendor}`;
-  const pending = session.hasPendingPartnerRecord(key);
-  if (!pending && by === "unrecorded") {
+  if (by === "unrecorded") {
     const outcome = replaces ? await removeIntroduction(replaces) : { ok: true };
     return outcome.ok ? { ok: true, introduction: null } : outcome;
   }
-  const args = pending ? undefined : {
+  const args = {
     made_by: by === "client" ? "client" : "team",
     ...(by === "client" ? {} : { introduced_by: by }),
     introduced_party_id: client,
@@ -209,7 +207,7 @@ async function saveIntroduction({ deal, client, vendor, by, on, replaces, guarde
     ...(replaces && { replaces: replaces.id, replace_version: replaces.version }),
   };
   if (!guarded && replaces) return { ok: false, problem: { error: "introduction_already_recorded" } };
-  const result = await session.savePartnerRecord("/api/engine/introductions", key, "introduction_id", args);
+  const result = await session.savePartnerRecordOnce("/api/engine/introductions", "introduction_id", args);
   if (!result.ok) return result;
   const { made_by, introduced_by, introduction_id, version, introduced_on, introduced_party_id } = result.data;
   const savedBy = made_by === "client" ? "client" : introduced_by;

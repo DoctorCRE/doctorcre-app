@@ -1,14 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { centralToday } from "./central-time.ts";
-import {
-  type ClientDeal,
-  dated,
-  type Introduction,
-  type Role,
-  type SourceChoice,
-  type Vendor,
-  type VendorMenuControls,
-} from "./deal-diagram.tsx";
+import { type ClientDeal, dated, type Introduction, type Role, type Vendor } from "./deal-diagram.tsx";
 
 type SaveFailed = { ok: false; problem?: { error?: string }; done?: number; pending?: boolean };
 export type Saved = { ok: true } | SaveFailed;
@@ -20,13 +12,20 @@ export interface FoundVendor {
 const SOURCES = { dell: "Dell", joe: "Joe", client: "The client", unrecorded: "Not recorded" } as const;
 export type BroughtBy = keyof typeof SOURCES;
 type IntroductionVersion = { id: string; version: string };
-type RecordedSource = { id: string; version?: string; by: Exclude<BroughtBy, "unrecorded"> };
-type SourceReceipt = RecordedSource & {
+export type RecordedSource = { id: string; version?: string; by: Exclude<BroughtBy, "unrecorded"> };
+type SavedSource = RecordedSource & {
   on: string;
   party: string;
 };
-type SourceSave = { ok: true; introduction: SourceReceipt | null } | SaveFailed;
-export type SourceChanged = (vendor: FoundVendor, source: SourceReceipt | null, replaces?: string) => void;
+type SourceSave = { ok: true; introduction: SavedSource | null } | SaveFailed;
+export interface VendorActions {
+  phase(vendor: string): "saving" | "checking" | "ready";
+  setSource(vendor: FoundVendor, by: BroughtBy, replaces?: RecordedSource): Promise<Saved>;
+  removeIntroduction(vendor: FoundVendor, introduction: IntroductionVersion): Promise<Saved>;
+  add(vendor: FoundVendor, role: Role): Promise<Saved>;
+  remove(vendor: Vendor): Promise<Saved>;
+  refresh(): void;
+}
 
 export function sourceOf(introduction: Introduction | null | undefined): RecordedSource | null {
   if (!introduction || introduction.made_by === "vendor") return null;
@@ -53,8 +52,6 @@ export interface VendorDoors {
   openVendor(party: string): void;
 }
 export const broughtBy = (by: BroughtBy) => SOURCES[by];
-export const sourceMismatch = (by: RecordedSource["by"]) =>
-  `${broughtBy(by)} was saved as the source. Use the new choice to change it.`;
 
 export function SourceChoices({
   by,
@@ -124,9 +121,9 @@ export function refusal(problem: { error?: string } = {}) {
 }
 
 // Sends one save per role, stopping at the first refusal.
-export async function eachRole(roles: Role[], save: (role: string) => Promise<Saved>): Promise<Saved> {
+export async function eachRole(roles: Role[], save: (role: Role) => Promise<Saved>): Promise<Saved> {
   // eslint-disable-next-line no-restricted-syntax -- Only one save per role the vendor holds on this deal, no retries.
-  for (const [done, { role }] of roles.entries()) {
+  for (const [done, role] of roles.entries()) {
     const saved = await save(role);
     if (!saved.ok) return { ...saved, done };
   }
@@ -148,40 +145,25 @@ type Step =
   | { at: "role"; roles: Role[] | null; role: string }
   | { at: "confirm" }
   | { at: "remove-introduction"; introduction: IntroductionVersion }
-  | { at: "source"; by: SourceChoice | null };
+  | { at: "source"; by: BroughtBy | null };
 
-interface Props extends VendorMenuControls {
+interface Props {
   deal: ClientDeal;
-  client: string;
   vendor: Vendor;
   doors: VendorDoors;
-  sourceChanged: SourceChanged;
+  actions: VendorActions;
+  close: () => void;
   // A save landed; a removal carries what Undo puts back.
   saved: (removal?: Removal) => void;
-  // A save failed after some of it may have landed, so the diagram reads the deal again.
-  reread: () => void;
 }
 
-export function DealVendorMenu({
-  deal,
-  client,
-  vendor,
-  doors,
-  close,
-  choice,
-  confirmSource,
-  sourceChanged,
-  saved,
-  reread,
-}: Props) {
-  const [localStep, setStep] = useState<Step>({ at: "menu" });
-  const step: Step = choice ? { at: "source", by: choice } : localStep;
-  const recorded = choice ? sourceOf(vendor.introduction) : null;
-  const [busy, setBusy] = useState(false);
+export function DealVendorMenu({ deal, vendor, doors, actions, close, saved }: Props) {
+  const [step, setStep] = useState<Step>({ at: "menu" });
+  const phase = actions.phase(vendor.id);
+  const busy = phase !== "ready";
   const [problem, setProblem] = useState("");
   const panel = useRef<HTMLDivElement>(null);
   const picking = step.at === "role";
-  // Each step, and the roles arriving, hands focus to its first control.
   const focusKey = picking ? `role:${Boolean(step.roles)}` : step.at;
   useEffect(() => {
     if (focusKey) panel.current?.querySelector<HTMLElement>("select:enabled, button:enabled, a")?.focus();
@@ -196,37 +178,19 @@ export function DealVendorMenu({
     return () => controller.abort();
   }, [doors, picking]);
   async function run(save: () => Promise<Saved>, removal?: Removal) {
-    setBusy(true);
     setProblem("");
-    const answer = await save().catch((): Saved => ({ ok: false, pending: true }));
-    setBusy(false);
+    const answer = await save();
     if (!answer.ok) {
-      reread();
+      if (answer.pending) {
+        setStep({ at: "menu" });
+        return setProblem("Check the introduction and roles before trying again.");
+      }
       return setProblem(
-        `${answer.pending ? "Couldn’t confirm the save. Try again." : refusal(answer.problem)}${answer.done ? ` ${answer.done} of ${vendor.roles.length} roles were removed.` : ""}`,
+        `${refusal(answer.problem)}${answer.done ? ` ${answer.done} of ${vendor.roles.length} roles were removed.` : ""}`,
       );
     }
-    close();
-    saved(removal);
-  }
-  async function setSource(by: SourceChoice) {
-    setBusy(true);
-    setProblem("");
-    const result = await recordSource(doors, deal, client, vendor.id, by, recorded ?? undefined);
-    setBusy(false);
-    if (!result.ok) {
-      if (!result.pending) reread();
-      return setProblem(result.pending ? "Couldn’t confirm the save. Try again." : refusal(result.problem));
-    }
-    if (result.introduction && result.introduction.by !== by && panel.current) {
-      confirmSource(by);
-      sourceChanged(vendor, result.introduction);
-      reread();
-      return;
-    }
     if (panel.current) close();
-    sourceChanged(vendor, result.introduction, recorded?.id);
-    saved();
+    saved(removal);
   }
   const onDeal = vendor.roles.length > 0;
   const introduction = vendor.introduction;
@@ -246,10 +210,15 @@ export function DealVendorMenu({
       <p className="deal-vendor-menu-who">
         {vendor.name}
         {role && ` · ${role}`}
-        <span>{introduced(vendor)}</span>
+        <span>{phase === "checking" ? "Checking the save…" : introduced(vendor)}</span>
         {vendor.introduction?.note && <q>{vendor.introduction.note}</q>}
       </p>
-      {step.at === "menu" && (
+      {phase === "checking" && (
+        <button type="button" onClick={actions.refresh}>
+          Check again
+        </button>
+      )}
+      {step.at === "menu" && phase === "ready" && (
         <>
           {!vendor.chosen && (
             <button type="button" onClick={() => setStep({ at: "role", roles: null, role: "" })}>
@@ -296,7 +265,8 @@ export function DealVendorMenu({
         <form
           onSubmit={(event) => {
             event.preventDefault();
-            void run(() => doors.add(deal.id, vendor.id, step.role));
+            const role = step.roles?.find((role) => role.role === step.role);
+            if (role) void run(() => actions.add(vendor, role));
           }}
         >
           <label>
@@ -332,20 +302,13 @@ export function DealVendorMenu({
             event.preventDefault();
             const by = step.by;
             if (busy || !by) return;
-            void setSource(by);
+            void run(() => actions.setSource(vendor, by));
           }}
         >
-          <SourceChoices
-            by={step.by}
-            select={(by) => {
-              if (by !== "unrecorded") setStep({ at: "source", by });
-            }}
-            client
-            disabled={busy || Boolean(recorded)}
-          />
+          <SourceChoices by={step.by} select={(by) => setStep({ at: "source", by })} client disabled={busy} />
           <span className="deal-vendor-menu-row">
             <button type="submit" disabled={busy || !step.by}>
-              {recorded ? "Use new choice" : "Set"}
+              Set
             </button>
             <button type="button" disabled={busy} onClick={close}>
               Cancel
@@ -362,13 +325,7 @@ export function DealVendorMenu({
             <button
               type="button"
               disabled={busy}
-              onClick={() =>
-                void run(async () => {
-                  const answer = await doors.removeIntroduction(step.introduction);
-                  if (answer.ok) sourceChanged(vendor, null, step.introduction.id);
-                  return answer;
-                })
-              }
+              onClick={() => void run(() => actions.removeIntroduction(vendor, step.introduction))}
             >
               Remove
             </button>
@@ -387,9 +344,7 @@ export function DealVendorMenu({
             <button
               type="button"
               disabled={busy}
-              onClick={() =>
-                void run(() => eachRole(vendor.roles, (r) => doors.remove(deal.id, vendor.id, r)), { deal, vendor })
-              }
+              onClick={() => void run(() => actions.remove(vendor), { deal, vendor })}
             >
               Remove
             </button>
@@ -399,9 +354,9 @@ export function DealVendorMenu({
           </span>
         </>
       )}
-      {(problem || recorded) && (
+      {problem && (
         <p className="deal-vendor-menu-problem" role="alert">
-          {problem || (recorded && sourceMismatch(recorded.by))}
+          {problem}
         </p>
       )}
     </div>

@@ -270,7 +270,7 @@ const catalog = [
 ];
 
 // A made-up engine: the deals read answers what the saves left, deriving Chosen as the engine does.
-function partyEngine(refuse: string | null = null, after = 0, loseIntroductionReceipt: boolean | "request" = false) {
+function partyEngine(refuse: string | null = null, after = 0, lostResponse: "replacement" | "role" | false = false) {
   const list = structuredClone(deals);
   const sent: { path: string; body: Record<string, unknown> }[] = [];
   const chosen = (d: ClientDeal) =>
@@ -299,6 +299,7 @@ function partyEngine(refuse: string | null = null, after = 0, loseIntroductionRe
         roles: role("Lender"),
         introduction_id: intro?.id ?? null,
       });
+    if (lostResponse === "role" && body.party_id === "v9") return route.abort();
     return route.fulfill({ json: { deal_id: deal.id, ...body } });
   };
   const receipts = new Map<string, { introduction_id: string }>();
@@ -307,7 +308,6 @@ function partyEngine(refuse: string | null = null, after = 0, loseIntroductionRe
     assert.match(String(idempotency_key), /^[0-9a-f-]{36}$/);
     const path = new URL(route.request().url()).pathname;
     sent.push({ path, body });
-    if (loseIntroductionReceipt === "request" && sent.length === 1) return route.abort();
     const prior = receipts.get(idempotency_key);
     if (prior) return route.fulfill({ status: 201, json: { ...prior, replayed: true } });
     if (path.endsWith("/remove")) {
@@ -349,7 +349,7 @@ function partyEngine(refuse: string | null = null, after = 0, loseIntroductionRe
     deal.vendors = deal.vendors.map((v) => (v.party_id === body.vendor_id ? { ...v, introduction_id: id } : v));
     const receipt = { introduction_id: id, version, ...body };
     receipts.set(idempotency_key, receipt);
-    if (loseIntroductionReceipt === true && receipts.size === 1) return route.abort();
+    if (lostResponse === "replacement" && body.replaces) return route.abort();
     return route.fulfill({ status: 201, json: receipt });
   };
   return { read, save, introduce, sent, list };
@@ -650,27 +650,6 @@ for (const [width, height, scheme] of [
     await page.screenshot({ path: `${shots}/long-name-${width}-${scheme}.png` });
   });
 
-test("Add vendor recovers a lost receipt then uses the changed source without duplicating the introduction", async (t) => {
-  const engine = partyEngine(null, 0, true);
-  const { page, deal, shows, sent } = await openParties(t, engine);
-  const form = await addVendor(page, deal, "Joe");
-  await form.getByRole("button", { name: "Add", exact: true }).click();
-  assert.match((await form.getByRole("alert").textContent()) ?? "", /Couldn’t confirm/);
-  await form.getByRole("button", { name: "The client" }).click();
-  await form.getByRole("button", { name: "Retry" }).click();
-  assert.match((await form.getByRole("alert").textContent()) ?? "", /Joe was saved as the source/);
-  assert.deepEqual(sent[0], sent[1]);
-  await form.getByRole("button", { name: "Use new choice" }).click();
-  await shows("Example Harbor Bank", "chosen");
-  const introductions = engine.list[0]?.introductions.filter((i) => i.vendor_id === "v9");
-  assert.deepEqual(
-    introductions?.map((i) => i.made_by),
-    ["client"],
-  );
-  assert.equal(engine.list[0]?.vendors.filter((v) => v.party_id === "v9").length, 1);
-  await deal.locator(".deal-diagram > ul > li > .deal-diagram-vendor", { hasText: "Example Harbor Bank" }).waitFor();
-});
-
 test("Set records the client on a linked deal and removal leaves the chosen role", async (t) => {
   const engine = partyEngine();
   const linkedDeal = engine.list[2];
@@ -704,82 +683,166 @@ test("Set records the client on a linked deal and removal leaves the chosen role
   assert.equal(engine.list[2]?.vendors[0]?.roles[0]?.role, "title");
 });
 
-async function recoverSet(t: TestContext, hold = false) {
-  const engine = partyEngine(null, 0, "request");
+async function openSource(t: TestContext, engine = partyEngine()) {
   const { page, panel, sent } = await openParties(t, engine);
   const article = panel.locator(".client-deal", { hasText: "Example first office" });
+  const vendor = article.getByRole("button", { name: /Example Halloran Title/ });
   const menu = page.getByRole("dialog", { name: "Example Halloran Title on Example first office" });
+  await vendor.click();
+  await menu.getByRole("button", { name: "Set", exact: true }).click();
+  return { page, panel, article, vendor, menu, sent };
+}
+
+async function holdDealReads(t: TestContext, page: Page) {
   const release = Promise.withResolvers<void>();
-  const reread = Promise.withResolvers<void>();
-  if (hold) {
-    await article.getByRole("button", { name: /Example Halloran Title/ }).waitFor();
-    t.after(() => release.resolve());
-    await page.route("**/api/engine/clients/*/deals", async (route) => {
-      reread.resolve();
-      await release.promise;
-      await route.fallback();
-    });
-  }
-  await article.getByRole("button", { name: /Example Halloran Title/ }).click();
-  await menu.getByRole("button", { name: "Set", exact: true }).click();
-  await menu.getByRole("button", { name: "Joe", exact: true }).click();
-  const lose = page.waitForEvent("requestfailed", (request) => request.url().endsWith("/api/engine/introductions"));
-  await menu.getByRole("button", { name: "Set", exact: true }).click();
-  await lose;
-  assert.match((await menu.getByRole("alert").textContent({ timeout: 3000 })) ?? "", /Couldn’t confirm/);
-  await menu.getByRole("button", { name: "The client" }).click();
-  await menu.getByRole("button", { name: "Set", exact: true }).click();
-  await menu.getByText(/Joe was saved as the source/).waitFor({ timeout: 3000 });
-  assert.deepEqual(sent[0], sent[1]);
-  assert.equal(engine.list[2]?.introductions[0]?.introduced_by, "joe");
-  return { engine, panel, article, menu, sent, held: reread.promise, release: release.resolve };
-}
-
-test("Set shows the recovered source and confirms a changed choice before replacing it", async (t) => {
-  const { engine, article, menu } = await recoverSet(t);
-  await menu.getByRole("button", { name: "Use new choice" }).click();
-  await article
-    .locator(".deal-diagram > ul > li > .deal-diagram-vendor", { hasText: "Example Halloran Title" })
-    .waitFor();
-  assert.deepEqual(
-    engine.list[2]?.introductions.map((entry) => entry.made_by),
-    ["client"],
-  );
-});
-
-for (const action of ["outside click", "vendor toggle", "Cancel", "Escape"]) {
-  test(`dismissing recovered Set with ${action} shows the saved source`, async (t) => {
-    const { panel, article, menu, sent } = await recoverSet(t);
-    if (action === "outside click") await panel.getByRole("heading", { name: "Deals", exact: true }).click();
-    else if (action === "vendor toggle") await article.getByRole("button", { name: /Example Halloran Title/ }).click();
-    else if (action === "Escape") await menu.getByRole("button", { name: "Use new choice" }).press("Escape");
-    else await menu.getByRole("button", { name: "Cancel", exact: true }).click();
-    await menu.waitFor({ state: "hidden" });
-    const chosen = article.getByRole("button", { name: /Example Halloran Title.*Title · Chosen/ });
-    await chosen.click({ timeout: 3000 });
-    assert.match((await menu.textContent()) ?? "", /Introduced .* by Joe/);
-    assert.equal(await menu.getByRole("button", { name: "Set", exact: true }).count(), 0);
-    assert.equal(sent.length, 2);
+  const started = Promise.withResolvers<void>();
+  t.after(() => release.resolve());
+  await page.route("**/api/engine/clients/*/deals", async (route) => {
+    started.resolve();
+    await release.promise;
+    await route.fallback();
   });
+  return { started: started.promise, release: release.resolve };
 }
 
-test("reopening recovered Set shows Joe while the deals reread is held", async (t) => {
-  const { panel, article, menu, held, release } = await recoverSet(t, true);
-  await panel.getByRole("heading", { name: "Deals", exact: true }).click();
-  await held;
-  await article.getByRole("button", { name: /Example Halloran Title/ }).click();
-  assert.match((await menu.textContent()) ?? "", /Introduced .* by Joe/);
-  release();
+test("an introduction removed before the reread no longer shows a source", async (t) => {
+  const engine = partyEngine();
+  const { page, article, vendor, menu } = await openSource(t, engine);
+  const held = await holdDealReads(t, page);
+  await menu.getByRole("button", { name: "Joe" }).click();
+  await menu.getByRole("button", { name: "Set", exact: true }).click();
+  await held.started;
+  const deal = engine.list[2];
+  assert.ok(deal?.introductions.some((row) => row.introduced_by === "joe"));
+  deal.introductions = [];
+  deal.vendors = deal.vendors.map((row) => ({ ...row, introduction_id: null }));
+  deal.closed_on = "2024-04-17";
+  held.release();
+  await article.getByText("Closed Apr 2024", { exact: true }).waitFor();
+  await vendor.click();
+  await menu.getByRole("button", { name: "Set", exact: true }).waitFor({ timeout: 3000 });
+  assert.match((await menu.textContent()) ?? "", /Brought in by: not recorded/);
 });
 
-test("a confirmed Set cannot be attempted again while the deals reread is held", async (t) => {
-  const { article, menu, sent, held, release } = await recoverSet(t, true);
-  await menu.getByRole("button", { name: "Use new choice" }).click();
-  await menu.waitFor({ state: "hidden" });
-  await held;
-  await article.getByRole("button", { name: /Example Halloran Title/ }).click();
-  assert.match((await menu.textContent()) ?? "", /Introduced .* by the client/);
-  assert.equal(await menu.getByRole("button", { name: "Set", exact: true }).count(), 0);
-  assert.equal(sent.length, 3);
-  release();
+async function addWithKnownSource(t: TestContext) {
+  const engine = partyEngine(null, 0, "replacement");
+  const { page, deal, sent, shows } = await openParties(t, engine);
+  await page.route(
+    "**/api/engine/deals/d1/parties",
+    (route) => route.fulfill({ status: 422, json: { error: "database_refused_the_statement" } }),
+    { times: 1 },
+  );
+  const form = await addVendor(page, deal, "Joe");
+  const submit = form.locator('button[type="submit"]');
+  await submit.click();
+  await form
+    .getByRole("alert")
+    .getByText(/recorded as introduced by Joe/)
+    .waitFor();
+  await form.getByRole("button", { name: "The client" }).click();
+  return { engine, page, deal, sent, shows, form, submit };
+}
+
+test("a lost replacement waits for a fresh read before retrying the role", async (t) => {
+  const { page, form, submit, shows, sent } = await addWithKnownSource(t);
+  const held = await holdDealReads(t, page);
+  await submit.click();
+  await held.started;
+  await form.getByRole("alert").getByText(/check/i).waitFor();
+  assert.equal(await submit.isEnabled(), false);
+  held.release();
+  await form.getByText(/Recorded as introduced by The client/).waitFor();
+  await submit.click();
+  await shows("Example Harbor Bank", "chosen");
+  assert.equal(sent.filter((row) => row.body.replaces).length, 1);
+});
+
+test("removing a checked replacement lets Set record Dell as a new source", async (t) => {
+  const { engine, page, deal, form, submit, shows } = await addWithKnownSource(t);
+  await submit.click();
+  await form.getByRole("alert").getByText(/check/i).waitFor();
+  await deal.locator(".deal-diagram > ul > li > .deal-diagram-vendor", { hasText: "Example Harbor Bank" }).waitFor();
+  await submit.click();
+  await shows("Example Harbor Bank", "chosen");
+  const vendor = deal.getByRole("button", { name: /^Example Harbor Bank/ });
+  const menu = page.getByRole("dialog", { name: "Example Harbor Bank on Example second office" });
+  await vendor.click();
+  await menu.getByRole("button", { name: "Remove introduction" }).click();
+  await menu.getByRole("button", { name: "Remove", exact: true }).click();
+  await deal.locator('.deal-diagram-junction [data-tone="onDeal"]', { hasText: "Example Harbor Bank" }).waitFor();
+  await vendor.click();
+  await menu.getByRole("button", { name: "Set", exact: true }).click();
+  await menu.getByRole("button", { name: "Dell" }).click();
+  const request = page.waitForRequest((request) => request.url().endsWith("/api/engine/introductions"));
+  await menu.getByRole("button", { name: "Set", exact: true }).click();
+  assert.equal((await request).postDataJSON().introduced_by, "dell");
+  await vendor.click();
+  await menu.getByText(/Introduced .* by Dell/).waitFor({ timeout: 3000 });
+  assert.equal(engine.list[0]?.introductions.find((row) => row.vendor_id === "v9")?.introduced_by, "dell");
+});
+
+test("an earlier reread cannot hide a role after the Add vendor save lands", async (t) => {
+  const engine = partyEngine();
+  const { page, panel, deal, shows } = await openParties(t, engine);
+  const form = await addVendor(page, deal, "Joe");
+  const allowRole = Promise.withResolvers<void>();
+  const roleStarted = Promise.withResolvers<void>();
+  t.after(() => allowRole.resolve());
+  await page.route("**/api/engine/deals/d1/parties", async (route) => {
+    if (route.request().postDataJSON().party_id === "v9") {
+      roleStarted.resolve();
+      await allowRole.promise;
+    }
+    await route.fallback();
+  });
+  const releaseStale = Promise.withResolvers<void>();
+  const releaseFresh = Promise.withResolvers<void>();
+  const staleCaptured = Promise.withResolvers<void>();
+  t.after(() => {
+    releaseStale.resolve();
+    releaseFresh.resolve();
+  });
+  await page.route("**/api/engine/clients/*/deals", async (route) => {
+    const snapshot = structuredClone(engine.list);
+    if (snapshot[0]?.vendors.some((vendor) => vendor.party_id === "v9")) {
+      await releaseFresh.promise;
+    } else {
+      staleCaptured.resolve();
+      await releaseStale.promise;
+    }
+    await route.fulfill({ json: { deals: snapshot } }).catch(() => {});
+  });
+  await form.locator('button[type="submit"]').click();
+  await roleStarted.promise;
+  // This unrelated Set starts a reread even if Add vendor has not asked for one yet.
+  const other = panel.locator(".client-deal", { hasText: "Example first office" });
+  await other.getByRole("button", { name: /Example Halloran Title/ }).click();
+  const menu = page.getByRole("dialog", { name: "Example Halloran Title on Example first office" });
+  await menu.getByRole("button", { name: "Set", exact: true }).click();
+  await menu.getByRole("button", { name: "Dell" }).click();
+  await menu.getByRole("button", { name: "Set", exact: true }).click();
+  await staleCaptured.promise;
+  allowRole.resolve();
+  await form.waitFor({ state: "hidden" });
+  releaseStale.resolve();
+  await deal.locator('[data-tone="chosen"]', { hasText: "Example Harbor Bank" }).waitFor({ timeout: 3000 });
+  releaseFresh.resolve();
+  await shows("Example Harbor Bank", "chosen");
+});
+
+test("a lost Add role response checks the deal before allowing another save", async (t) => {
+  const engine = partyEngine(null, 0, "role");
+  const { page, deal, sent, shows } = await openParties(t, engine);
+  const form = await addVendor(page, deal, "Not recorded");
+  const held = await holdDealReads(t, page);
+  const submit = form.getByRole("button", { name: "Add", exact: true });
+  await submit.click();
+  await held.started;
+  await form.getByRole("status").getByText("Checking the save…").waitFor();
+  assert.equal(await submit.isEnabled(), false);
+  held.release();
+  await shows("Example Harbor Bank", "onDeal");
+  await submit.click();
+  await form.waitFor({ state: "hidden" });
+  assert.equal(sent.filter((row) => row.body.party_id === "v9").length, 1);
 });

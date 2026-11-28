@@ -12,10 +12,12 @@ import {
 import {
   DealVendorMenu,
   eachRole,
+  type FoundVendor,
   type Removal,
+  recordSource,
   refusal,
   type Saved,
-  type SourceChanged,
+  type VendorActions,
   type VendorDoors,
 } from "./deal-vendor-menu.tsx";
 
@@ -174,62 +176,117 @@ function Undo({
   );
 }
 
-type SourceChange = { deal: string; introduction: Introduction | null };
+type LinkValue = {
+  introductions: Introduction[];
+  party: ClientDeal["vendors"][number] | null;
+};
+type Link = LinkValue & {
+  deal: string;
+  vendor: string;
+  acknowledged: number;
+  phase: ReturnType<VendorActions["phase"]>;
+};
+const linkKey = (deal: string, vendor: string) => JSON.stringify([deal, vendor]);
 
-function applySourceChanges(deal: ClientDeal, changes: ReadonlyMap<string, SourceChange>): ClientDeal {
-  if (!changes.size) return deal;
-  const present = new Set(deal.introductions.map((i) => i.id));
-  const pending = new Map(
-    [...changes].filter(([id, change]) => change.deal === deal.id && present.has(id) !== Boolean(change.introduction)),
-  );
-  if (!pending.size) return deal;
-  const introductions = deal.introductions.filter((i) => !pending.has(i.id));
-  for (const { introduction } of pending.values()) {
-    if (!introduction) continue;
-    const chosen = deal.vendors.some((vendor) => vendor.party_id === introduction.vendor_id);
-    introductions.push({ ...introduction, chosen });
-  }
-  const latest = new Map(introductions.map((i) => [i.vendor_id, i.id]));
+function readLink(deal: ClientDeal | undefined, vendor: string): LinkValue {
   return {
-    ...deal,
-    introductions,
-    vendors: deal.vendors.map((vendor) =>
-      vendor.introduction_id && !pending.has(vendor.introduction_id)
-        ? vendor
-        : { ...vendor, introduction_id: latest.get(vendor.party_id) ?? null },
-    ),
+    introductions: deal?.introductions.filter((row) => row.vendor_id === vendor) ?? [],
+    party: deal?.vendors.find((row) => row.party_id === vendor) ?? null,
   };
 }
 
-function ClientDeals({ subject: client, load, stage, doors = null }: CardSectionProps<ClientDeal[]>) {
-  const [read, retry, refresh] = useRead(load);
-  const [sourceChanges, setSourceChanges] = useState(() => new Map<string, SourceChange>());
-  useEffect(() => {
-    if (read.state !== "ready") return;
-    setSourceChanges((changes) => {
-      const remaining = new Map(
-        [...changes].filter(([id, change]) => {
-          const found = read.value.some(
-            (deal) => deal.id === change.deal && deal.introductions.some((i) => i.id === id),
-          );
-          return found !== Boolean(change.introduction);
-        }),
-      );
-      return remaining.size === changes.size ? changes : remaining;
-    });
-  }, [read]);
+function applyLinks(deal: ClientDeal, links: ReadonlyMap<string, Link>): ClientDeal {
+  let introductions = deal.introductions;
+  let vendors = deal.vendors;
+  for (const link of links.values()) {
+    if (link.deal !== deal.id) continue;
+    introductions = [
+      ...introductions.filter((row) => row.vendor_id !== link.vendor),
+      ...link.introductions.map((row) => ({ ...row, chosen: Boolean(link.party) })),
+    ];
+    vendors = vendors.filter((row) => row.party_id !== link.vendor);
+    if (link.party) vendors.push({ ...link.party, introduction_id: link.introductions.at(-1)?.id ?? null });
+  }
+  return introductions === deal.introductions ? deal : { ...deal, introductions, vendors };
+}
 
-  const sourceChangedFor =
-    (deal: ClientDeal): SourceChanged =>
-    (vendor, source, replaces) => {
-      if (!source && !replaces) return;
-      setSourceChanges((changes) => {
-        const next = new Map(changes);
-        if (replaces) next.set(replaces, { deal: deal.id, introduction: null });
-        if (source)
-          next.set(source.id, {
-            deal: deal.id,
-            introduction: {
+function useDealLinks(load: CardSectionProps<ClientDeal[]>["load"]) {
+  const sequence = useRef(0);
+  const current = useRef(new Map<string, Link>());
+  const [links, setLinks] = useState(current.current);
+  const publish = useCallback((next: Map<string, Link>) => {
+    current.current = next;
+    setLinks(next);
+  }, []);
+  const loadDeals = useCallback(
+    async (signal: AbortSignal) => {
+      const started = ++sequence.current;
+      const deals = await load(signal);
+      if (signal.aborted || !current.current.size) return deals;
+      const next = new Map(current.current);
+      for (const [key, link] of next) {
+        // A read started before the write settled cannot confirm what it left.
+        if (link.phase === "saving" || started <= link.acknowledged) continue;
+        const deal = deals.find((row) => row.id === link.deal);
+        if (deal) next.set(key, { ...link, ...readLink(deal, link.vendor), phase: "ready" });
+        else next.delete(key);
+      }
+      publish(next);
+      return deals;
+    },
+    [load, publish],
+  );
+  const [read, retry, refresh] = useRead(loadDeals);
+
+  async function write<T extends Saved>(
+    deal: ClientDeal,
+    vendor: FoundVendor,
+    save: () => Promise<T>,
+    apply: (link: LinkValue, answer: T) => LinkValue,
+  ): Promise<Saved> {
+    const key = linkKey(deal.id, vendor.id);
+    const before = current.current.get(key) ?? {
+      ...readLink(deal, vendor.id),
+      deal: deal.id,
+      vendor: vendor.id,
+      acknowledged: 0,
+      phase: "ready",
+    };
+    if (before.phase !== "ready") return { ok: false, problem: { error: "vendor_save_in_progress" } };
+    publish(new Map(current.current).set(key, { ...before, phase: "saving" }));
+    const answer = await save().catch((): { ok: false; pending: true } => ({ ok: false, pending: true }));
+    publish(
+      new Map(current.current).set(key, {
+        ...before,
+        ...(answer.ok && apply(before, answer)),
+        acknowledged: ++sequence.current,
+        phase: !answer.ok && answer.pending ? "checking" : "ready",
+      }),
+    );
+    refresh();
+    return answer;
+  }
+
+  const deals = read.state === "ready" ? read.value.map((deal) => applyLinks(deal, links)) : [];
+  return { read, deals, retry, refresh, write, links };
+}
+
+function ClientDeals({ subject: client, load, stage, doors = null }: CardSectionProps<ClientDeal[]>) {
+  const { read, deals, retry, refresh, write, links } = useDealLinks(load);
+  const actionsFor = (deal: ClientDeal, doors: VendorDoors): VendorActions => ({
+    phase: (vendor) => links.get(linkKey(deal.id, vendor))?.phase ?? "ready",
+    refresh,
+    setSource: (vendor, by, replaces) =>
+      write(
+        deal,
+        vendor,
+        () => recordSource(doors, deal, client.id, vendor.id, by, replaces),
+        (link, answer) => {
+          if (!answer.ok) return link;
+          const introductions = link.introductions.filter((row) => row.id !== replaces?.id);
+          const source = answer.introduction;
+          if (source)
+            introductions.push({
               id: source.id,
               ...(source.version && { version: source.version }),
               vendor_id: vendor.id,
@@ -241,12 +298,41 @@ function ClientDeals({ subject: client, load, stage, doors = null }: CardSection
               introduced_party_name: source.party === client.id ? client.name : (deal.client_name ?? client.name),
               note: null,
               removable: true,
-              chosen: false,
-            },
-          });
-        return next;
-      });
-    };
+              chosen: Boolean(link.party),
+            });
+          return { ...link, introductions };
+        },
+      ),
+    removeIntroduction: (vendor, intro) =>
+      write(
+        deal,
+        vendor,
+        () => doors.removeIntroduction(intro),
+        (link) => ({ ...link, introductions: link.introductions.filter((row) => row.id !== intro.id) }),
+      ),
+    add: (vendor, role) =>
+      write(
+        deal,
+        vendor,
+        () => doors.add(deal.id, vendor.id, role.role),
+        (link) => ({
+          ...link,
+          party: {
+            party_id: vendor.id,
+            name: vendor.name,
+            introduction_id: link.party?.introduction_id ?? null,
+            roles: [...(link.party?.roles.filter((row) => row.role !== role.role) ?? []), role],
+          },
+        }),
+      ),
+    remove: (vendor) =>
+      write(
+        deal,
+        vendor,
+        () => eachRole(vendor.roles, (role) => doors.remove(deal.id, vendor.id, role.role)),
+        (link) => ({ ...link, party: null }),
+      ),
+  });
   const [opened, setOpened] = useState<string | null>(null);
   const [removed, setRemoved] = useState<Removed[]>([]);
   const openers = useRef(new Map<string, HTMLButtonElement>());
@@ -255,32 +341,26 @@ function ClientDeals({ subject: client, load, stage, doors = null }: CardSection
     if (!doors) return;
     const { deal, vendor } = gone;
     forget(gone);
-    const answer = await eachRole(vendor.roles, (role) => doors.add(deal.id, vendor.id, role)).catch(
-      (): Saved => ({ ok: false }),
-    );
+    const actions = actionsFor(deal, doors);
+    const answer = await eachRole(vendor.roles, (role) => actions.add(vendor, role));
     if (!answer.ok)
       setRemoved((now) => [...now, { ...gone, problem: `${vendor.name} wasn't put back. ${refusal(answer.problem)}` }]);
-    refresh();
   }
   const menuFor = (deal: ClientDeal): VendorMenu | null =>
     doors &&
-    ((vendor, controls) => (
+    ((vendor, close) => (
       <DealVendorMenu
         deal={deal}
-        client={client.id}
         vendor={vendor}
         doors={doors}
-        {...controls}
-        sourceChanged={sourceChangedFor(deal)}
-        reread={refresh}
+        close={close}
+        actions={actionsFor(deal, doors)}
         saved={(removal) => {
           if (removal) setRemoved((now) => [...now, removal]);
-          refresh();
         }}
       />
     ));
   if (read.state === "loading" || (read.state === "ready" && read.value.length === 0)) return null;
-  const deals = read.state === "ready" ? read.value.map((deal) => applySourceChanges(deal, sourceChanges)) : [];
   const openedDeal = deals.find((deal) => deal.id === opened);
   const close = () => {
     setOpened(null);
@@ -317,15 +397,7 @@ function ClientDeals({ subject: client, load, stage, doors = null }: CardSection
               <Undo key={r.vendor.id} removed={r} expire={forget} undo={undo} />
             ))}
           <DealDiagram client={client} deal={deal} menu={menuFor(deal)} />
-          {doors && (
-            <AddVendor
-              client={client}
-              deal={deal}
-              doors={doors}
-              sourceChanged={sourceChangedFor(deal)}
-              saved={refresh}
-            />
-          )}
+          {doors && <AddVendor deal={deal} doors={doors} actions={actionsFor(deal, doors)} />}
         </article>
       ))}
       {openedDeal &&

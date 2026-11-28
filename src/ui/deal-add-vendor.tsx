@@ -1,26 +1,20 @@
 import { useEffect, useRef, useState } from "react";
-import type { ClientDeal, DiagramClient, Role } from "./deal-diagram.tsx";
+import type { ClientDeal, Role } from "./deal-diagram.tsx";
 import {
   type BroughtBy,
   broughtBy,
   type FoundVendor,
-  recordSource,
   refusal,
-  type Saved,
-  type SourceChanged,
   SourceChoices,
-  sourceMismatch,
   sourceOf,
+  type VendorActions,
   type VendorDoors,
 } from "./deal-vendor-menu.tsx";
 
 interface Props {
-  client: DiagramClient;
   deal: ClientDeal;
   doors: VendorDoors;
-  // A save landed, or may have partly landed, so the diagram reads the deal again.
-  saved: () => void;
-  sourceChanged: SourceChanged;
+  actions: VendorActions;
 }
 
 export function AddVendor(props: Props) {
@@ -67,11 +61,9 @@ function useVendorSearch(doors: VendorDoors, query: string, skip: Set<string>) {
 }
 
 function AddVendorForm({
-  client,
   deal,
   doors,
-  saved,
-  sourceChanged,
+  actions,
   close,
   busy,
   setBusy,
@@ -87,11 +79,9 @@ function AddVendorForm({
   const [by, setBy] = useState<BroughtBy | null>(null);
   const [problem, setProblem] = useState("");
   const recorded = sourceOf(deal.introductions.find((i) => i.vendor_id === vendor?.id));
-  const [uncertain, setUncertain] = useState<"source" | "role" | null>(null);
-  const [correctionPending, setCorrectionPending] = useState(false);
+  const phase = vendor ? actions.phase(vendor.id) : "ready";
   const correction = recorded && by && recorded.by !== by;
-  const checkingSource = uncertain === "source" && !correctionPending;
-  const roleLocked = busy || uncertain !== null;
+  const roleLocked = busy || phase !== "ready";
   const search = useRef<HTMLInputElement>(null);
   // A vendor already on this deal, or introduced for it, is changed from its own box.
   const [onDeal] = useState(
@@ -110,45 +100,29 @@ function AddVendorForm({
     return () => controller.abort();
   }, [doors]);
   async function add() {
-    if (busy || !vendor || !role || !by) return;
+    const pickedRole = roles?.find((row) => row.role === role);
+    if (roleLocked || !vendor || !pickedRole || !by) return;
     setBusy(true);
     setProblem("");
-    let source = recorded;
-    if (checkingSource || source?.by !== by) {
-      const replacing = checkingSource ? undefined : (source ?? undefined);
-      const result = await recordSource(doors, deal, client.id, vendor.id, by, replacing);
+    if ((recorded?.by ?? "unrecorded") !== by) {
+      const result = await actions.setSource(vendor, by, recorded ?? undefined);
       if (!result.ok) {
-        setUncertain(result.pending ? "source" : null);
-        setCorrectionPending(Boolean(!checkingSource && correction && result.pending));
         setBusy(false);
-        saved();
-        setProblem(
-          result.pending
-            ? "Couldn’t confirm who was saved. Retry to check the earlier choice."
-            : refusal(result.problem),
-        );
-        return;
-      }
-      source = result.introduction;
-      sourceChanged(vendor, result.introduction, replacing?.id);
-      setCorrectionPending(false);
-      if (source && source.by !== by) {
-        setBusy(false);
-        setUncertain(null);
-        saved();
-        setProblem(sourceMismatch(source.by));
+        setProblem(result.pending ? "Check who was saved before trying again." : refusal(result.problem));
         return;
       }
     }
-    const answer = await doors.add(deal.id, vendor.id, role).catch((): Saved => ({ ok: false, pending: true }));
+    if (deal.vendors.some((row) => row.party_id === vendor.id && row.roles.some((r) => r.role === role))) {
+      setBusy(false);
+      return close();
+    }
+    const answer = await actions.add(vendor, pickedRole);
     setBusy(false);
-    saved();
     if (answer.ok) return close();
-    setUncertain(answer.pending ? "role" : null);
     const message = answer.pending
-      ? "Couldn’t confirm whether the vendor was put on the deal. Retry to check."
+      ? "Check whether the vendor was put on the deal before trying again."
       : refusal(answer.problem);
-    const landed = source ? ` ${vendor.name} is recorded as introduced by ${broughtBy(source.by)}.` : "";
+    const landed = by === "unrecorded" ? "" : ` ${vendor.name} is recorded as introduced by ${broughtBy(by)}.`;
     setProblem(message + landed);
   }
   return (
@@ -204,21 +178,24 @@ function AddVendorForm({
           ))}
         </select>
       </label>
-      <SourceChoices
-        by={by}
-        select={setBy}
-        client={Boolean(deal.client_id)}
-        unrecorded
-        disabled={busy || correctionPending}
-      />
+      <SourceChoices by={by} select={setBy} client={Boolean(deal.client_id)} unrecorded disabled={roleLocked} />
       <span className="deal-vendor-menu-row">
-        <button type="submit" disabled={busy || !vendor || !role || !by}>
-          {checkingSource ? "Retry" : correction ? "Use new choice" : uncertain ? "Retry" : "Add"}
+        <button type="submit" disabled={roleLocked || !vendor || !role || !by}>
+          {correction ? "Use new choice" : "Add"}
         </button>
         <button type="button" disabled={busy} onClick={close}>
           Cancel
         </button>
       </span>
+      {phase === "checking" && (
+        <p role="status">
+          Checking the save…{" "}
+          <button type="button" onClick={actions.refresh}>
+            Check again
+          </button>
+        </p>
+      )}
+      {recorded && <p>Recorded as introduced by {broughtBy(recorded.by)}.</p>}
       {problem && (
         <p className="deal-vendor-menu-problem" role="alert">
           {problem}

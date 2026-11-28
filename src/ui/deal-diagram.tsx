@@ -1,5 +1,5 @@
 import type { KeyboardEvent } from "react";
-import { createContext, type ReactNode, type Ref, useContext, useEffect, useId, useRef, useState } from "react";
+import { createContext, type ReactNode, type Ref, useContext, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import type { RelationshipKey } from "./relationship-shapes.ts";
@@ -95,19 +95,8 @@ export const dated = (verb: string, on: string | null) => on && `${verb} ${DAY.f
 // The opened view: dates under each name, and every introduced vendor laid out.
 const Large = createContext(false);
 // What a vendor box opens when the partner can act on the deal; without it a box is a label.
-export type SourceChoice = Partner | "client";
-export type VendorMenuControls = {
-  close: () => void;
-  confirmSource: (by: SourceChoice) => void;
-  choice: SourceChoice | null;
-};
-export type VendorMenu = (vendor: Vendor, controls: VendorMenuControls) => ReactNode;
-type OpenMenu = { box: string } | { vendor: string; by: SourceChoice } | null;
-const Menu = createContext<{
-  render: VendorMenu | null;
-  selected: OpenMenu;
-  select: (menu: OpenMenu) => void;
-}>({ render: null, selected: null, select: () => {} });
+export type VendorMenu = (vendor: Vendor, close: () => void) => ReactNode;
+const Menu = createContext<VendorMenu | null>(null);
 const roleOf = (vendor: Vendor) => vendor.roles.map((r) => r.label).join(", ") || null;
 
 type Mark = "chosen" | "introduced" | "onDeal";
@@ -200,18 +189,16 @@ function VendorBox({
   still?: boolean;
   referred?: string;
 }) {
-  const { render: menu, selected, select } = useContext(Menu);
-  const id = useId();
-  const choice = selected && "vendor" in selected && selected.vendor === vendor.id ? selected.by : null;
-  const open = !still && (choice !== null || (selected !== null && "box" in selected && selected.box === id));
+  const menu = useContext(Menu);
+  const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
     const outside = ({ target }: PointerEvent) =>
-      (target instanceof Node && wrap.current?.contains(target)) || select(null);
+      (target instanceof Node && wrap.current?.contains(target)) || setOpen(false);
     document.addEventListener("pointerdown", outside);
     return () => document.removeEventListener("pointerdown", outside);
-  }, [open, select]);
+  }, [open]);
   const caption = withRole(
     roleOf(vendor),
     referred ? `Referred ${referred}` : <span className="deal-diagram-word">{WORD[mark]}</span>,
@@ -233,13 +220,13 @@ function VendorBox({
   );
   if (!menu || still) return box();
   const close = () => {
-    select(null);
+    setOpen(false);
     wrap.current?.querySelector<HTMLElement>(".deal-diagram-box")?.focus();
   };
   return (
     <div className="deal-diagram-vendor" ref={wrap}>
-      {box({ open, flip: () => select(open ? null : { box: id }) })}
-      {open && menu(vendor, { close, choice, confirmSource: (by) => select({ vendor: vendor.id, by }) })}
+      {box({ open, flip: () => setOpen(!open) })}
+      {open && menu(vendor, close)}
     </div>
   );
 }
@@ -380,9 +367,8 @@ function Diagram({ client, deal, large }: { client: DiagramClient; deal: ClientD
 }
 
 export function DealDiagram({ menu = null, large = false, ...props }: DiagramProps & { large?: boolean }) {
-  const [selected, select] = useState<OpenMenu>(null);
   return (
-    <Menu.Provider value={{ render: menu, selected, select }}>
+    <Menu.Provider value={menu}>
       <Diagram {...props} large={large} />
     </Menu.Provider>
   );
