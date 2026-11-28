@@ -44,6 +44,7 @@
   transition: background-color var(--duration-hover) var(--ease-out), color var(--duration-hover) var(--ease-out);
 }
 .doc-chat__chat-name { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.doc-chat__time-short { display: none; }
 .doc-chat__chats time { flex: none; color: var(--fg-quiet); font-size: var(--font-size-1); }
 .doc-chat__chat-mark {
   display: grid;
@@ -167,8 +168,8 @@
 .doc-chat__record-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .doc-chat__record-chip .app-shell-icon { flex: none; inline-size: var(--space-4); block-size: var(--space-4); }
 .doc-chat__record-chip:hover { background: var(--surface-3); color: var(--fg); }
-.doc-chat__picker {
-  inline-size: min(480px, calc(100% - 2 * var(--space-4)));
+.has-app-layout dialog.doc-chat__picker {
+  width: min(480px, calc(100% - 2 * var(--space-4)));
   box-sizing: border-box;
   max-block-size: 70dvh;
   padding: var(--space-4);
@@ -272,6 +273,8 @@
 .doc-chat__actions { justify-content: flex-end; }
 /* On a phone the conversation fills the screen and the chats slide in over it from the left. */
 @media (max-width: 760px), (hover: none) and (pointer: coarse) and (max-width: 1023px) {
+  .doc-chat__time-full { display: none; }
+  .doc-chat__time-short { display: inline; }
   .doc-chat-page { grid-template-columns: minmax(0, 1fr); }
   .doc-chat__layout > section, .doc-chat__dock { grid-column: 1; }
   .doc-chat__dock { grid-row: 2; }

@@ -1493,7 +1493,11 @@ test("On a computer the chats list stays open, newest first, with each chat's Ce
   const list = page.getByRole("complementary", { name: "Chats" });
   await expect(list.getByRole("link", { name: /^This morning's question/ })).toBeVisible();
   await expect(page.getByRole("button", { name: "Recent chats", exact: true })).toBeHidden();
-  await expect(list.locator("li")).toHaveText(chats.map(({ chat, shown }) => `${chat.title}${shown}`));
+  await expect(list.locator(".doc-chat__chat-name")).toHaveText(chats.map(({ chat }) => chat.title));
+  await expect(list.locator("time")).toHaveText(
+    chats.map(({ shown }) => shown),
+    { useInnerText: true },
+  );
   await expect(list.getByText("Chats", { exact: true })).toHaveCount(0);
   for (const row of await list.getByRole("link").all()) {
     const box = await row.boundingBox();
@@ -2327,7 +2331,19 @@ test("A phone chat row shows both its latest message time and its attention mark
   };
   const { page, origin } = await docChatFixture(
     t,
-    () => Response.json({ conversations: [chat], next_before: null }),
+    () =>
+      Response.json({
+        conversations: [
+          chat,
+          {
+            id: "00000000-0000-4000-8000-000000000055",
+            title: "An older example",
+            created_at: "2025-12-30T18:00:00Z",
+            state: "waiting_ok",
+          },
+        ],
+        next_before: null,
+      }),
     undefined,
     { hasTouch: true },
   );
@@ -2335,7 +2351,10 @@ test("A phone chat row shows both its latest message time and its attention mark
   await page.goto(`${origin}/doc-chats?mode=live`);
   await page.getByRole("button", { name: "Recent chats" }).tap();
   const row = page.getByRole("link", { name: new RegExp(chat.title.replace("?", "")) });
-  await expect(row.locator("time")).toHaveText("11:05 AM");
+  await expect(row.locator("time")).toHaveText("11:05a", { useInnerText: true });
+  const older = page.getByRole("link", { name: /^An older example/ });
+  await expect(older.locator("time")).toHaveText("12/30/25", { useInnerText: true });
+  await expect(older.getByText("Needs your attention")).toHaveCount(1);
   await expect(row.getByText("Needs your attention")).toHaveCount(1);
   const fit = await row.evaluate((link) => {
     const title = link.firstElementChild?.getBoundingClientRect();
@@ -2395,6 +2414,8 @@ for (const followUp of [false, true]) {
     await picker.click();
     const search = page.getByRole("searchbox", { name: "Find a deal, lead or client" });
     await expect(search).toBeFocused();
+    const bounds = await page.getByRole("dialog").boundingBox();
+    assert.ok(bounds && bounds.width <= (followUp ? 480 : 390), `Record picker is ${bounds?.width}px wide`);
     await search.fill("Example Dental");
     await page.getByRole("button", { name: /Example Dental.*Lead.*Example City/ }).click();
     const chip = page.getByRole("button", { name: "Remove Example Dental" });
@@ -2448,23 +2469,51 @@ test("A match chip shows the city and deal count and opens the exact record", as
   );
 });
 
-test("A chat continues to update its sidebar mark after leaving it", async (t) => {
-  const chat = { ...conversation, last_message_at: created_at, state: "working" };
+test("One sidebar read refreshes working chats from different pages", async (t) => {
+  const first = { ...conversation, state: "working" };
+  const second = {
+    id: "00000000-0000-4000-8000-000000000055",
+    title: "An older working chat",
+    created_at: "2025-12-29T12:00:00Z",
+    state: "working",
+  };
+  const reads: string[] = [];
   const { page, origin } = await docChatFixture(
     t,
-    (request) =>
-      new URL(request.url).pathname === "/api/engine/doc/conversations"
-        ? Response.json({ conversations: [chat], next_before: null })
-        : Response.json({ conversation: { ...chat, state: "waiting_ok" }, turns: [] }),
+    (request) => {
+      const url = new URL(request.url);
+      if (!url.pathname.startsWith("/api/engine/doc/conversations")) return new Response(null, { status: 404 });
+      reads.push(url.pathname + url.search);
+      if (url.pathname !== "/api/engine/doc/conversations") return new Response(null, { status: 404 });
+      if (url.searchParams.has("before")) return Response.json({ conversations: [second], next_before: null });
+      const ids = url.searchParams.get("ids")?.split(",");
+      if (ids) {
+        assert.deepEqual(ids, [first.id, second.id]);
+        return Response.json({
+          conversations: [
+            { ...first, state: "waiting_ok" },
+            { ...second, state: null },
+          ],
+          next_before: null,
+        });
+      }
+      return Response.json({ conversations: [first], next_before: first.id });
+    },
     undefined,
     { viewport: { width: 1440, height: 900 } },
   );
   await pausedClock(page, new Date("2026-11-25T18:00:00Z"));
   await page.goto(`${origin}/doc-chats?mode=live`);
-  const row = page.getByRole("link", { name: /^Which example deals/ });
-  await expect(row.getByText("Doc is working")).toHaveCount(1);
   await expect(page.getByLabel("Question for Doc")).toBeEnabled();
+  await page.getByRole("button", { name: "Older chats" }).click();
+  const list = page.getByRole("complementary", { name: "Chats" });
+  await expect(list.getByText("Doc is working", { exact: true })).toHaveCount(2);
   await page.clock.runFor(30_000);
-  await expect(row.getByText("Needs your attention")).toHaveCount(1);
-  await expect(row.getByText("Doc is working")).toHaveCount(0);
+  await expect(list.getByText("Needs your attention")).toHaveCount(1);
+  await expect(list.getByText("Doc is working", { exact: true })).toHaveCount(0);
+  assert.deepEqual(reads, [
+    "/api/engine/doc/conversations",
+    `/api/engine/doc/conversations?before=${first.id}`,
+    `/api/engine/doc/conversations?ids=${encodeURIComponent([first.id, second.id].join(","))}`,
+  ]);
 });

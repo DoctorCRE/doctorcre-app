@@ -208,6 +208,7 @@ const chatTimes = {
   week: centralFormat({ weekday: "short" }),
   year: centralFormat({ month: "short", day: "numeric" }),
   older: centralFormat({ month: "short", day: "numeric", year: "numeric" }),
+  olderPhone: centralFormat({ month: "numeric", day: "numeric", year: "2-digit" }),
 };
 
 function chatTime(at: string, now: Date) {
@@ -221,7 +222,14 @@ function chatTime(at: string, now: Date) {
         : centralToday(date).slice(0, 4) === centralToday(now).slice(0, 4)
           ? chatTimes.year
           : chatTimes.older;
-  return format.format(date);
+  const full = format.format(date);
+  const short =
+    format === chatTimes.today
+      ? full.replace(/\s*([AP])M$/u, (_, period: string) => period.toLowerCase())
+      : format === chatTimes.older
+        ? chatTimes.olderPhone.format(date)
+        : full;
+  return { full, short };
 }
 
 function Icon({ path }: { path: string }) {
@@ -946,18 +954,24 @@ function DocChat() {
 
   useEffect(() => {
     if (!ready || !otherWorkingChats) return;
+    const ids = otherWorkingChats.split(",");
+    let offset = 0;
     return refreshWhileVisible(
       async (signal) => {
-        const rows = await Promise.all(
-          otherWorkingChats.split(",").map((id) =>
-            docFetch(conversationPath(id), conversationDetail, { signal, boundRead: true })
-              .then(({ conversation }) => [id, conversation] as const)
-              .catch(() => null),
-          ),
-        );
-        if (signal.aborted || retired.current) return;
-        const updates = new Map(rows.filter((row) => row !== null));
-        setRecent((chats) => chats.map((chat) => updates.get(chat.id) ?? chat));
+        const batch = ids.slice(offset, offset + 30);
+        offset = (offset + batch.length) % ids.length;
+        try {
+          const { conversations } = await docFetch(
+            `/conversations?${new URLSearchParams({ ids: batch.join(",") })}`,
+            conversationList,
+            { signal, boundRead: true },
+          );
+          if (signal.aborted || retired.current) return;
+          const updates = new Map(conversations.map((chat) => [chat.id, chat]));
+          setRecent((chats) => chats.map((chat) => updates.get(chat.id) ?? chat));
+        } catch {
+          // The next refresh can update a mark after a read fails.
+        }
       },
       { immediate: false, delay: () => 30_000 },
     );
@@ -1149,6 +1163,7 @@ function DocChat() {
             {recent.map((chat) => {
               const current = chat.id === id && ready && latest;
               const timestamp = chat.last_message_at ?? chat.created_at;
+              const time = chatTime(timestamp, today);
               const mark = current
                 ? waiting
                   ? "working"
@@ -1161,7 +1176,16 @@ function DocChat() {
                 <li key={chat.id}>
                   <a href={chatHref(chat.id)} aria-current={chat.id === id ? "page" : undefined}>
                     <span className="doc-chat__chat-name">{chat.title}</span>
-                    <time dateTime={timestamp}>{chatTime(timestamp, today)}</time>
+                    <time dateTime={timestamp} title={time.full}>
+                      {time.short === time.full ? (
+                        time.full
+                      ) : (
+                        <>
+                          <span className="doc-chat__time-full">{time.full}</span>
+                          <span className="doc-chat__time-short">{time.short}</span>
+                        </>
+                      )}
+                    </time>
                     {mark && (
                       <span className="doc-chat__chat-mark" data-mark={mark}>
                         {mark === "working" && <Icon path={icons.spinner} />}
