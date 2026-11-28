@@ -196,18 +196,20 @@ function readLink(deal: ClientDeal | undefined, vendor: string): LinkValue {
 }
 
 function applyLinks(deal: ClientDeal, links: ReadonlyMap<string, Link>): ClientDeal {
-  let introductions = deal.introductions;
-  let vendors = deal.vendors;
-  for (const link of links.values()) {
-    if (link.deal !== deal.id) continue;
-    introductions = [
-      ...introductions.filter((row) => row.vendor_id !== link.vendor),
-      ...link.introductions.map((row) => ({ ...row, chosen: Boolean(link.party) })),
-    ];
-    vendors = vendors.filter((row) => row.party_id !== link.vendor);
-    if (link.party) vendors.push({ ...link.party, introduction_id: link.introductions.at(-1)?.id ?? null });
+  const tracked = [...links.values()].filter((link) => link.deal === deal.id);
+  if (!tracked.length) return deal;
+  const introductions = new Map(deal.introductions.map((row) => [row.id, row]));
+  const vendors = new Map(deal.vendors.map((row) => [row.party_id, row]));
+  for (const link of tracked) {
+    const ids = new Set(link.introductions.map((row) => row.id));
+    for (const [id, row] of introductions) {
+      if (row.vendor_id === link.vendor && !ids.has(id)) introductions.delete(id);
+    }
+    for (const row of link.introductions) introductions.set(row.id, { ...row, chosen: Boolean(link.party) });
+    if (link.party) vendors.set(link.vendor, { ...link.party, introduction_id: link.introductions.at(-1)?.id ?? null });
+    else vendors.delete(link.vendor);
   }
-  return introductions === deal.introductions ? deal : { ...deal, introductions, vendors };
+  return { ...deal, introductions: [...introductions.values()], vendors: [...vendors.values()] };
 }
 
 function useDealLinks(load: CardSectionProps<ClientDeal[]>["load"]) {
@@ -236,7 +238,7 @@ function useDealLinks(load: CardSectionProps<ClientDeal[]>["load"]) {
     },
     [load, publish],
   );
-  const [read, retry, refresh] = useRead(loadDeals);
+  const [read, reload, refresh] = useRead(loadDeals);
 
   async function write<T extends Saved>(
     deal: ClientDeal,
@@ -268,11 +270,11 @@ function useDealLinks(load: CardSectionProps<ClientDeal[]>["load"]) {
   }
 
   const deals = read.state === "ready" ? read.value.map((deal) => applyLinks(deal, links)) : [];
-  return { read, deals, retry, refresh, write, links };
+  return { read, deals, reload, refresh, write, links };
 }
 
 function ClientDeals({ subject: client, load, stage, doors = null }: CardSectionProps<ClientDeal[]>) {
-  const { read, deals, retry, refresh, write, links } = useDealLinks(load);
+  const { read, deals, reload, refresh, write, links } = useDealLinks(load);
   const actionsFor = (deal: ClientDeal, doors: VendorDoors): VendorActions => ({
     phase: (vendor) => links.get(linkKey(deal.id, vendor))?.phase ?? "ready",
     refresh,
@@ -372,7 +374,7 @@ function ClientDeals({ subject: client, load, stage, doors = null }: CardSection
       {read.state === "failed" && (
         <p className="record-note">
           Couldn't load deals.{" "}
-          <button type="button" className="client-deals-retry" onClick={retry}>
+          <button type="button" className="client-deals-retry" onClick={reload}>
             Try again
           </button>
         </p>
