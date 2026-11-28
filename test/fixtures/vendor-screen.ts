@@ -4,6 +4,7 @@ import type { Page } from "playwright";
 import { chromium } from "../browser-harness.mjs";
 import { ownedServer } from "../fixture-probe.ts";
 import { directoryFixture, PAGE_SIZE, type VendorRoster } from "./vendor-directory.synthetic.mjs";
+import { captureSurface, installSurfaceCapture, type SurfaceElement } from "./vendor-surface.ts";
 
 const origin = "http://fixture.test";
 const listPath = "/api/v1/business/vendors";
@@ -11,7 +12,7 @@ const localParams = new Set(["record", "relationship", "market"]);
 
 type Address = ReturnType<typeof address>;
 type ScreenRead = { navigation: number; query: string; readsList: boolean };
-const pageReads = new WeakMap<Page, { urls: Map<string, Address>; navigation: number; previous?: ScreenRead }>();
+const pageReads = new WeakMap<Page, { urls: Address[]; navigation: number; previous?: ScreenRead }>();
 
 function address(url: URL) {
   return { path: url.pathname, query: [...url.searchParams.entries()].sort() };
@@ -64,20 +65,18 @@ export async function openVendors(
     await page.addInitScript(() =>
       localStorage.setItem("doctorcre.visual-preferences", JSON.stringify({ theme: "light" })),
     );
-  const listReads = new Map<string, Address>();
+  await installSurfaceCapture(page);
+  const listReads: Address[] = [];
   const reads = { urls: listReads, navigation: 0 };
   pageReads.set(page, reads);
   page.on("framenavigated", (frame) => {
     if (frame !== page.mainFrame()) return;
     reads.navigation++;
-    listReads.clear();
+    listReads.length = 0;
   });
   page.on("request", (request) => {
     const url = new URL(request.url());
-    if (url.pathname === listPath) {
-      const target = address(url);
-      listReads.set(JSON.stringify(target), target);
-    }
+    if (url.pathname === listPath) listReads.push(address(url));
   });
   await page.route("**/api/v1/business/**", (route) =>
     route.fulfill({ json: directoryFixture(route.request().url(), { roster }) }),
@@ -136,44 +135,85 @@ function relationshipRank(vendor: Vendor) {
   return vendor.relationship_level === null ? 4 : 3 - vendor.relationship_level;
 }
 
-function tile(label: string, rows: Vendor[], phone: boolean) {
-  const quiet = rows.filter((row) => row.quiet).length;
-  return {
+const element = (role: string, name?: string): SurfaceElement => (name ? { role, name } : { role });
+const hidden = (role: string, name?: string): SurfaceElement => ({ ...element(role, name), hidden: true });
+const text = (value: string): SurfaceElement => ({ text: value });
+const button = (label: string, pressed?: boolean, count = ""): SurfaceElement => ({
+  role: "button",
+  name: count ? `${label} ${count}` : label,
+  text: label,
+  ...(pressed !== undefined && { pressed: String(pressed) }),
+});
+
+function tally(rows: Vendor[]) {
+  return relationships.map(([key, label], rank) => ({
+    key,
     label,
-    count: String(rows.length),
-    quiet: quiet ? `${quiet} quiet` : "",
-    mix: phone
-      ? []
-      : relationships.flatMap(([, word], rank) => {
-          const count = rows.filter((row) => relationshipRank(row) === rank).length;
-          return count ? [`${count} ${word}`] : [];
-        }),
-  };
+    count: rows.filter((row) => relationshipRank(row) === rank).length,
+  }));
 }
 
-function screenRow(
+function tile(label: string, rows: Vendor[], phone: boolean): SurfaceElement[] {
+  const quiet = rows.filter((row) => row.quiet).length;
+  const mix = phone ? [] : tally(rows).filter(({ count }) => count > 0);
+  const footer = quiet ? `${quiet} quiet` : "";
+  const name = `${label}${rows.length}${mix.length ? ` ${mix.map(({ label, count }) => `${count} ${label}`).join(" ")}${footer ? " " : ""}` : ""}${footer}`;
+  return [
+    element("listitem", name),
+    element("link", name),
+    text(label),
+    text(String(rows.length)),
+    ...(!phone ? [element("list")] : []),
+    ...mix.flatMap(({ label, count }) => [
+      { role: "listitem", name: `${count} ${label}`, text: label },
+      text(String(count)),
+    ]),
+    ...(footer ? [text(footer)] : []),
+  ];
+}
+
+function rowSurface(
   row: Vendor,
   { phone, inCategory, cardOpen }: { phone: boolean; inCategory: boolean; cardOpen: boolean },
-) {
+): SurfaceElement[] {
   const rank = relationshipRank(row);
+  const relation = relationships[rank]?.[1] ?? "";
+  const target = row.is_target && rank !== 6 ? "Want to meet" : "";
   const contacted = row.relationship.last_contacted_at;
   const date = contacted
-    ? new Date(contacted).toLocaleDateString("en-US", {
-        dateStyle: "medium",
-        timeZone: "America/Chicago",
-      })
+    ? new Date(contacted).toLocaleDateString("en-US", { dateStyle: "medium", timeZone: "America/Chicago" })
     : "";
-  const days = row.quiet && row.quiet_days !== null ? ` · ${row.quiet_days} days` : "";
-  return {
-    name: row.name,
-    relationship: relationships[rank]?.[1] ?? "",
-    territory: row.territory ?? "",
-    contact: date ? date + days : row.quiet ? "No contact yet" : "",
-    target: row.is_target && rank !== 6 ? "Want to meet" : "",
-    owner: phone ? "" : row.owner_label,
-    category: phone || inCategory || cardOpen ? "" : (row.recorded_category_label ?? ""),
-    location: phone || cardOpen ? "" : `${row.city}, ${row.state}`,
-  };
+  const days = date && row.quiet && row.quiet_days !== null ? `· ${row.quiet_days} days` : "";
+  const lastContact = date ? [date, days].filter(Boolean).join(" ") : row.quiet ? "No contact yet" : "";
+  const location = phone || cardOpen ? "" : `${row.city}, ${row.state}`;
+  const category = phone || cardOpen || inCategory ? "" : row.recorded_category_label;
+  const owner = phone ? "" : row.owner_label;
+  const facts = [
+    ["Relationship", relation],
+    ["Category", category],
+    ["Territory", row.territory],
+    ["Location", location],
+  ];
+  const name =
+    row.name +
+    target +
+    facts.map(([label, value]) => (value ? label + value : "")).join("") +
+    (lastContact ? `Last contacted ${lastContact}` : "") +
+    (owner ? `Owner: ${owner}` : "");
+  return [
+    element("listitem", name),
+    element("link", name),
+    text(row.name),
+    ...(target ? [text(target)] : []),
+    ...facts.flatMap(([, value]) => (value ? [text(value)] : [])),
+    ...(lastContact
+      ? [
+          { ...(row.quiet && { quiet: true as const }), ...(!date ? text(lastContact) : days ? text(days) : {}) },
+          ...(date ? [text(date)] : []),
+        ].filter((part) => Object.keys(part).length)
+      : []),
+    ...(owner ? [text(owner)] : []),
+  ];
 }
 
 function inMarket(row: Vendor, market: string) {
@@ -184,33 +224,38 @@ function inMarket(row: Vendor, market: string) {
 }
 
 function territoryTiles(markets: VendorRoster["markets"], rows: Vendor[], selected: string) {
-  const filter = (id: string, label: string, count: number) => ({
-    label,
-    count: String(count),
-    pressed: id === selected,
-  });
-  return [
-    filter("", "All territories", rows.length),
+  const counts = [
+    { id: "", label: "All territories", count: rows.length },
     ...markets
-      .map(({ id, name }) => filter(id, name, rows.filter((row) => inMarket(row, id)).length))
-      .filter(({ count }) => count !== "0"),
-    filter("elsewhere", "Elsewhere", rows.filter((row) => inMarket(row, "elsewhere")).length),
-    filter("no_territory", "No territory", rows.filter((row) => inMarket(row, "no_territory")).length),
+      .map(({ id, name }) => ({ id, label: name, count: rows.filter((row) => inMarket(row, id)).length }))
+      .filter(({ count }) => count > 0),
+    ...[
+      ["elsewhere", "Elsewhere"],
+      ["no_territory", "No territory"],
+    ].map(([id = "", label = ""]) => ({
+      id,
+      label,
+      count: rows.filter((row) => inMarket(row, id)).length,
+    })),
+  ];
+  return [
+    element("group", "Territories"),
+    ...counts.flatMap(({ id, label, count }) => [
+      { role: "button", name: label + count, pressed: String(id === selected) },
+      text(label),
+      text(String(count)),
+    ]),
   ];
 }
 
-function filterControl(label: string, pressed: boolean, count = "") {
-  return { label, count, pressed };
-}
-
 function tableControls(rows: Vendor[], counted: boolean, relation: string | null, quiet: boolean) {
-  const counts = relationships.flatMap(([key, label], rank) => {
-    const count = rows.filter((row) => relationshipRank(row) === rank).length;
-    return count || key === relation ? [filterControl(label, key === relation, String(count))] : [];
-  });
+  const counts = counted ? tally(rows).filter(({ key, count }) => count > 0 || key === relation) : [];
+  const quietCount = counted ? String(rows.filter((row) => row.quiet).length) : "";
   return [
-    ...(counted ? counts : []),
-    filterControl("Quiet", quiet, counted ? String(rows.filter((row) => row.quiet).length) : ""),
+    element("group", "Show only"),
+    ...counts.flatMap(({ key, label, count }) => [button(label, key === relation, String(count)), text(String(count))]),
+    button("Quiet", quiet, quietCount),
+    ...(quietCount ? [text(quietCount)] : []),
   ];
 }
 
@@ -234,6 +279,7 @@ export function screenFor(
     loading = false,
     fromTile = false,
     meetings = false,
+    live = false,
   }: {
     view?: string;
     layout?: "desktop" | "phone";
@@ -241,6 +287,7 @@ export function screenFor(
     loading?: boolean;
     fromTile?: boolean;
     meetings?: boolean;
+    live?: boolean;
   } = {},
 ) {
   const url = new URL(view, origin);
@@ -291,39 +338,88 @@ export function screenFor(
   const categories = roster.categories.map(
     ({ label, slug }) => [label, owned.filter((row) => row.categories.some((entry) => entry.slug === slug))] as const,
   );
+  const searchbox: SurfaceElement = {
+    role: "searchbox",
+    name: "Search",
+    value: query.get("q") ?? "",
+    placeholder: place ? `Find in ${place}` : "Find a vendor",
+  };
+  const back: SurfaceElement[] = inCategory ? [{ role: "link", name: "Vendors", text: "Vendors" }] : [];
+  const heading = place
+    ? [text(place), ...(!phone ? [text(`· ${status}`)] : [])]
+    : phone || (loading && category)
+      ? []
+      : [text(status)];
+  const activeTerritories = marketsEnabled && !meetings;
+  const slottedSearch = roster.markets.length > 0 && !phone;
+  const filters = showRows
+    ? tableControls(marketRows, inCategory || marketsEnabled, relation, quiet)
+    : [hidden("group", "Show only")];
+  const columns = [
+    button("Name", sort === "name"),
+    button("Relationship", (sort ?? "relationship") === "relationship"),
+    ...(!inCategory && !query.has("record") ? [text("Category")] : []),
+    button("Territory", sort === "territory"),
+    ...(!query.has("record") ? [text("Location")] : []),
+    text("Last contacted"),
+    text("Owner"),
+  ];
+  const headers = !phone ? [element("listitem", columns.map((column) => column.text).join("")), ...columns] : [];
+  const noMatches = "No vendors match these filters";
+  const list = loading
+    ? Array.from({ length: 8 }, () => element("listitem"))
+    : rows.length === 0
+      ? [element("listitem", `${noMatches} Clear filters`), text(noMatches), button("Clear filters")]
+      : [...headers, ...rows.flatMap((row) => rowSurface(row, { phone, inCategory, cardOpen: query.has("record") }))];
+  const categoryTiles = showTiles
+    ? [
+        element("generic"),
+        element("list"),
+        ...tile("All vendors", owned, phone),
+        ...[...categories, ["No category", owned.filter((row) => row.categories.length === 0)] as const]
+          .filter(([, rows]) => rows.length > 0)
+          .flatMap(([label, rows]) => tile(label, rows, phone)),
+      ]
+    : [hidden("generic")];
+
   return {
     address: address(url),
-    heading: phone ? place : place ? `${place} · ${status}` : loading && category ? "" : status,
-    placeholder: meetings ? "" : place ? `Find in ${place}` : "Find a vendor",
-    loading,
-    groups: {
-      territories: marketsEnabled && !meetings,
-      filters: showRows,
-      tiles: showTiles && !meetings,
-      list: !showTiles && !meetings,
-    },
-    filters: showRows ? tableControls(marketRows, inCategory || marketsEnabled, relation, quiet) : [],
-    owners: ["All", "Joe", "Dell"].map((label) => filterControl(label, (owner ?? "all") === label.toLowerCase())),
-    sortControls:
-      !phone && showRows && rows.length > 0
-        ? ["Name", "Relationship", "Territory"].map((label) =>
-            filterControl(label, (sort ?? "relationship") === label.toLowerCase()),
-          )
-        : [],
     requests: showTiles ? [] : listRequests(query, page, marketsEnabled),
-    categoryColumn: !phone && showRows && !inCategory && !query.has("record") && rows.length > 0,
-    territories: marketsEnabled && !meetings ? territoryTiles(roster.markets, placeRows, market) : [],
-    tiles:
-      showTiles && !loading && !meetings
+    elements: [
+      element("group", "Vendors views"),
+      ...back,
+      ...heading,
+      ...(live ? [button("New vendor")] : []),
+      ...(slottedSearch && !meetings ? [searchbox] : []),
+      element("group", "Vendor views"),
+      button("Categories", !meetings),
+      button("People worth meeting", meetings),
+      element("group", "Record scope"),
+      ...["All", "Joe", "Dell"].map((label) => button(label, (owner ?? "all") === label.toLowerCase())),
+      element("main"),
+      ...(!meetings && !slottedSearch ? [searchbox] : []),
+      ...(!meetings && (!activeTerritories || phone) ? [hidden("group")] : []),
+      ...(!meetings && !activeTerritories ? filters : []),
+      hidden("group", "Active filters"),
+      ...(activeTerritories ? territoryTiles(roster.markets, placeRows, market) : [hidden("group", "Territories")]),
+      ...(activeTerritories ? filters : []),
+      hidden("status"),
+      ...(meetings
         ? [
-            tile("All vendors", owned, phone),
-            ...[...categories, ["No category", owned.filter((row) => row.categories.length === 0)] as const]
-              .filter(([, rows]) => rows.length > 0)
-              .map(([label, rows]) => tile(label, rows, phone)),
+            hidden("region", place ? `Vendors / ${place}` : "Vendors"),
+            element("region", "People worth meeting"),
+            { role: "heading", name: "Research", text: "Research" },
+            text("Search people and offices"),
+            { role: "searchbox", name: "Search people and offices", value: "" },
+            { role: "alert", text: "People could not be loaded. Try again." },
+            button("Retry people"),
           ]
-        : [],
-    rows: showRows ? rows.map((row) => screenRow(row, { phone, inCategory, cardOpen: query.has("record") })) : [],
-    empty: showRows && rows.length === 0 ? "No vendors match these filters" : "",
+        : [
+            element("region", place ? `Vendors / ${place}` : "Vendors"),
+            ...categoryTiles,
+            ...(showTiles ? [hidden("generic")] : [element("generic"), element("list"), ...list]),
+          ]),
+    ],
   };
 }
 
@@ -340,80 +436,9 @@ export async function expectVendorScreen(page: Page, expected: ReturnType<typeof
   const wanted = { ...expected, requests: readsList ? expected.requests : [] };
   await expect
     .poll(async () => {
-      const screen = await page.evaluate(() => {
-        function visible(element: Element | null): element is HTMLElement {
-          if (!(element instanceof HTMLElement) || !element.checkVisibility({ visibilityProperty: true })) return false;
-          const { clip, clipPath } = getComputedStyle(element);
-          return clip !== "rect(0px, 0px, 0px, 0px)" && clipPath !== "inset(50%)";
-        }
-        const find = (selector: string, parent: ParentNode = document) =>
-          [...parent.querySelectorAll(selector)].filter(visible);
-        function visibleText(element: HTMLElement, omit?: Element | null): string {
-          return [...element.childNodes]
-            .map((node) =>
-              node.nodeType === Node.TEXT_NODE
-                ? node.textContent
-                : node instanceof Element && node !== omit && visible(node)
-                  ? visibleText(node, omit)
-                  : "",
-            )
-            .join("");
-        }
-        function text(parent: ParentNode, selector: string) {
-          const element = find(selector, parent)[0];
-          return element ? visibleText(element).trim().replace(/\s+/g, " ") : "";
-        }
-        function control(button: HTMLElement) {
-          return {
-            label: visibleText(button, button.querySelector(".tile-n")).trim().replace(/\s+/g, " "),
-            count: text(button, ".tile-n"),
-            pressed: button.getAttribute("aria-pressed") === "true",
-          };
-        }
-        const fact = (row: HTMLElement, label: string) => text(row, `[data-fact="${label}"] .fact-value`);
-        const input = document.querySelector<HTMLInputElement>("#searchInput");
-        return {
-          href: location.href,
-          heading: text(document, "#resultSummary"),
-          placeholder: input && visible(input) ? input.placeholder : "",
-          loading: find(".record-skeleton, #directoryTiles .skeleton-line").length > 0,
-          groups: {
-            territories: visible(document.querySelector("#vendorTerritories")),
-            filters: visible(document.querySelector("#tableFilters")),
-            tiles: visible(document.querySelector("#directoryTiles")),
-            list: visible(document.querySelector("#listRegion")),
-          },
-          filters: find("#tableFilters button").map(control),
-          owners: find("#scopeSwitch button").map(control),
-          sortControls: find(".list-head [data-column-sort]").map(control),
-          categoryColumn: find('.list-head [data-fact="Category"]').length > 0,
-          territories: find("#vendorTerritories button").map((button) => ({
-            label: text(button, "span:first-child"),
-            count: text(button, ".tile-n"),
-            pressed: button.getAttribute("aria-pressed") === "true",
-          })),
-          tiles: find("a.directory-tile").map((tile) => ({
-            label: text(tile, ".tile-name"),
-            count: text(tile, ".tile-count"),
-            quiet: text(tile, ".tile-quiet"),
-            mix: find(".tile-mix li", tile).map((item) => visibleText(item).trim().replace(/\s+/g, " ")),
-          })),
-          rows: find(".record-row").map((row) => ({
-            name: text(row, ".row-name"),
-            relationship: fact(row, "Relationship"),
-            territory: fact(row, "Territory"),
-            contact: text(row, ".contact-note"),
-            target: text(row, ".want-tag"),
-            owner: text(row, ".row-owner"),
-            category: fact(row, "Category"),
-            location: fact(row, "Location"),
-          })),
-          empty: text(document, ".record-empty .empty-title"),
-        };
-      });
-      const { href, ...visible } = screen;
-      const requests = [...reads.urls].sort(([a], [b]) => a.localeCompare(b)).map(([, url]) => url);
-      return { address: address(new URL(href)), ...visible, requests };
+      const { href, elements } = await captureSurface(page);
+      const requests = reads.urls.toSorted((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+      return { address: address(new URL(href)), requests, elements };
     })
     .toEqual(wanted);
   reads.previous = { navigation: reads.navigation, query, readsList };
