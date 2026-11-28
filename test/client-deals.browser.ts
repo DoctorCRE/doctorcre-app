@@ -270,7 +270,11 @@ const catalog = [
 ];
 
 // A made-up engine: the deals read answers what the saves left, deriving Chosen as the engine does.
-function partyEngine(refuse: string | null = null, after = 0, lostResponse: "replacement" | "role" | false = false) {
+function partyEngine(
+  refuse: string | null = null,
+  after = 0,
+  lostResponse: "replacement" | "role" | "undo" | false = false,
+) {
   const list = structuredClone(deals);
   const sent: { path: string; body: Record<string, unknown> }[] = [];
   const chosen = (d: ClientDeal) =>
@@ -295,11 +299,15 @@ function partyEngine(refuse: string | null = null, after = 0, lostResponse: "rep
     if (!path.endsWith("/remove"))
       deal.vendors.push({
         party_id: String(body.party_id),
-        name: catalog.find((v) => v.id === body.party_id)?.name ?? "",
-        roles: role("Lender"),
+        name: catalog.find((v) => v.id === body.party_id)?.name ?? "Example Halloran Title",
+        roles: role(body.role === "title" ? "Title" : "Lender"),
         introduction_id: intro?.id ?? null,
       });
-    if (lostResponse === "role" && body.party_id === "v9") return route.abort();
+    if (
+      (lostResponse === "role" && body.party_id === "v9") ||
+      (lostResponse === "undo" && body.party_id === titleVendor && !path.endsWith("/remove"))
+    )
+      return route.abort();
     return route.fulfill({ json: { deal_id: deal.id, ...body } });
   };
   const receipts = new Map<string, { introduction_id: string }>();
@@ -920,4 +928,53 @@ test("a late Add role response keeps Title locked while the original Lender save
     ["lender"],
   );
   assert.deepEqual(engine.list[0]?.vendors.find((row) => row.party_id === "v9")?.roles, role("Lender"));
+});
+
+test("an unconfirmed Undo without a vendor box can be checked from its notice", async (t) => {
+  const engine = partyEngine(null, 0, "undo");
+  const { page, panel, sent } = await openParties(t, engine);
+  const article = panel.locator(".client-deal", { hasText: "Example first office" });
+  const vendor = article.getByRole("button", { name: /Example Halloran Title/ });
+  await freezeUndoClock(page);
+  await vendor.click();
+  const menu = page.getByRole("dialog", { name: "Example Halloran Title on Example first office" });
+  await menu.getByRole("button", { name: "Remove from this deal" }).click();
+  await menu.getByRole("button", { name: "Remove", exact: true }).click();
+  const notice = article.locator(".client-deal-undo");
+  await notice.getByRole("button", { name: "Undo", exact: true }).click();
+  const check = notice.getByRole("button", { name: "Check again" });
+  await check.waitFor({ timeout: 3000 });
+  assert.equal(await notice.getByRole("button", { name: "Undo", exact: true }).count(), 0);
+  assert.match((await notice.textContent()) ?? "", /Couldn't confirm the save/);
+  await check.click();
+  await vendor.waitFor();
+  await notice.getByText(/put back/).waitFor();
+  assert.equal(await notice.getByRole("button", { name: "Undo", exact: true }).count(), 0);
+  assert.equal(sent.length, 2);
+
+  await vendor.click();
+  await menu.getByRole("button", { name: "Remove from this deal" }).click();
+  await menu.getByRole("button", { name: "Remove", exact: true }).click();
+  await notice.getByRole("button", { name: "Undo", exact: true }).waitFor();
+  assert.equal(await notice.count(), 1);
+});
+
+test("a failed Check again restores the unconfirmed message and offers another check", async (t) => {
+  const { page, deal, shows, sent } = await openParties(t, partyEngine(null, 0, "role"));
+  const form = await addVendor(page, deal, "Not recorded");
+  const submit = form.getByRole("button", { name: "Add", exact: true });
+  await submit.click();
+  const unconfirmed = form.getByText("Couldn't confirm the save", { exact: false });
+  await unconfirmed.waitFor();
+  await page.route("**/api/engine/clients/*/deals", (route) => route.fulfill({ status: 503 }), { times: 1 });
+  const failed = page.waitForResponse((response) => response.url().endsWith("/deals") && response.status() === 503);
+  await form.getByRole("button", { name: "Check again" }).click();
+  await failed;
+  await unconfirmed.waitFor({ timeout: 3000 });
+  assert.equal(await submit.isEnabled(), false);
+  await form.getByRole("button", { name: "Check again" }).click();
+  await shows("Example Harbor Bank", "onDeal");
+  await submit.click();
+  await form.waitFor({ state: "hidden" });
+  assert.equal(sent.filter((row) => row.body.party_id === "v9").length, 1);
 });

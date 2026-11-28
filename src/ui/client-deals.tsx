@@ -16,18 +16,21 @@ import {
   DealDiagram,
   type DiagramClient,
   type Introduction,
+  type Role,
   type VendorMenu,
 } from "./deal-diagram.tsx";
 import {
   DealVendorMenu,
   eachRole,
   type FoundVendor,
+  type LinkPhase,
   type Removal,
   recordSource,
   refusal,
   type Saved,
   type VendorActions,
   type VendorDoors,
+  VendorSaveStatus,
 } from "./deal-vendor-menu.tsx";
 
 type Read<T> = { state: "loading" } | { state: "failed" } | { state: "ready"; value: T };
@@ -158,29 +161,51 @@ function DealTitle({ deal }: { deal: ClientDeal }) {
   );
 }
 
-type Removed = Removal & { problem?: string };
+type Removed = Removal & { problem?: string; unconfirmed?: boolean };
 // Each removal keeps its own Undo window, so a second removal never drops the first's Undo.
 function Undo({
   removed,
+  missing,
+  phase,
+  check,
   expire,
   undo,
 }: {
   removed: Removed;
+  missing: Role[];
+  phase: LinkPhase;
+  check: () => void;
   expire: (r: Removed) => void;
-  undo: (r: Removed) => void;
+  undo: (r: Removed, missing: Role[]) => void;
 }) {
   useEffect(() => {
-    if (removed.problem) return;
+    if (removed.problem || removed.unconfirmed) return;
     // eslint-disable-next-line no-restricted-syntax -- One Undo window per removal, cleared when it ends or unmounts.
     const timer = window.setTimeout(() => expire(removed), UNDO_MS);
     return () => window.clearTimeout(timer);
   }, [removed, expire]);
+  if (phase !== "ready")
+    return (
+      <div className="client-deal-undo">
+        <VendorSaveStatus phase={phase} check={check} />
+      </div>
+    );
+  const name = removed.vendor.name;
+  const message = !missing.length
+    ? `${name} was put back.`
+    : (removed.problem ??
+      (removed.unconfirmed ? `${name} still has roles to put back.` : `Removed ${name} from ${removed.deal.name}.`));
   return (
     <p className="client-deal-undo" role="status">
-      {removed.problem ?? `Removed ${removed.vendor.name} from ${removed.deal.name}.`}{" "}
-      <button type="button" onClick={() => undo(removed)}>
-        Undo
-      </button>
+      {message}
+      {missing.length > 0 && (
+        <>
+          {" "}
+          <button type="button" onClick={() => undo(removed, missing)}>
+            Undo
+          </button>
+        </>
+      )}
     </p>
   );
 }
@@ -246,7 +271,19 @@ function useDealLinks(load: CardSectionProps<ClientDeal[]>["load"]) {
   const loadDeals = useCallback(
     async (signal: AbortSignal) => {
       const started = ++linkSequence;
-      const deals = await load(signal);
+      const deals = await load(signal).catch((error: unknown) => {
+        if (!signal.aborted) {
+          const next = new Map(sessionLinks);
+          let changed = false;
+          for (const [key, link] of next) {
+            if (link.phase !== "checking" || started <= link.acknowledged) continue;
+            next.set(key, { ...link, phase: "unconfirmed" });
+            changed = true;
+          }
+          if (changed) publishLinks(next);
+        }
+        throw error;
+      });
       if (signal.aborted) return deals;
       const next = new Map(sessionLinks);
       let changed = false;
@@ -383,14 +420,18 @@ function ClientDeals({ subject: client, load, stage, doors = null }: CardSection
   const [removed, setRemoved] = useState<Removed[]>([]);
   const openers = useRef(new Map<string, HTMLButtonElement>());
   const forget = useCallback((gone: Removed) => setRemoved((now) => now.filter((r) => r !== gone)), []);
-  async function undo(gone: Removed) {
+  async function undo(gone: Removed, missing: Role[]) {
     if (!doors) return;
     const { deal, vendor } = gone;
     forget(gone);
     const actions = actionsFor(deal, doors);
-    const answer = await eachRole(vendor.roles, (role) => actions.add(vendor, role));
-    if (!answer.ok)
-      setRemoved((now) => [...now, { ...gone, problem: `${vendor.name} wasn't put back. ${refusal(answer.problem)}` }]);
+    const answer = await eachRole(missing, (role) => actions.add(vendor, role));
+    if (!answer.ok) {
+      const notice = answer.pending
+        ? { deal, vendor, unconfirmed: true }
+        : { deal, vendor, problem: `${vendor.name} wasn't put back. ${refusal(answer.problem)}` };
+      setRemoved((now) => [...now, notice]);
+    }
   }
   const menuFor = (deal: ClientDeal): VendorMenu | null =>
     doors &&
@@ -402,7 +443,11 @@ function ClientDeals({ subject: client, load, stage, doors = null }: CardSection
         close={close}
         actions={actionsFor(deal, doors)}
         saved={(removal) => {
-          if (removal) setRemoved((now) => [...now, removal]);
+          if (removal)
+            setRemoved((now) => [
+              ...now.filter((r) => r.deal.id !== removal.deal.id || r.vendor.id !== removal.vendor.id),
+              removal,
+            ]);
         }}
       />
     ));
@@ -439,9 +484,22 @@ function ClientDeals({ subject: client, load, stage, doors = null }: CardSection
           </header>
           {removed
             .filter((r) => r.deal.id === deal.id)
-            .map((r) => (
-              <Undo key={r.vendor.id} removed={r} expire={forget} undo={undo} />
-            ))}
+            .map((r) => {
+              const link = links.get(linkKey(deal.id, r.vendor.id));
+              const current = deal.vendors.find((vendor) => vendor.party_id === r.vendor.id);
+              const missing = r.vendor.roles.filter((role) => !current?.roles.some((row) => row.role === role.role));
+              return (
+                <Undo
+                  key={r.vendor.id}
+                  removed={r}
+                  missing={missing}
+                  phase={link?.phase ?? "ready"}
+                  check={() => check(deal.id, r.vendor.id)}
+                  expire={forget}
+                  undo={undo}
+                />
+              );
+            })}
           <DealDiagram client={client} deal={deal} menu={menuFor(deal)} />
           {doors && <AddVendor deal={deal} doors={doors} actions={actionsFor(deal, doors)} />}
         </article>
