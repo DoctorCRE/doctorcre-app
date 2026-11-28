@@ -7,7 +7,7 @@ import { chromium } from "./browser-harness.mjs";
 
 const shots = "out/test-artifacts/deal-page-fit";
 
-test("a deal page puts the deal in the top bar and five tabs beside its facts", async (t) => {
+test("a deal page puts the deal in the top bar and the full tab row beside its facts", async (t) => {
   const server = await startWorkerFixture({
     assets: await appAssetSnapshot(),
     env: { APP_ENV: "fixture", CARR: { fetch: async () => new Response("synthetic") } },
@@ -35,13 +35,14 @@ test("a deal page puts the deal in the top bar and five tabs beside its facts", 
         await topBar.getByRole("heading", { name: "Demo Surgical Practice", level: 1 }).waitFor();
         assert.equal(await topBar.getByRole("button", { name: "Back to deals" }).isVisible(), true, "Deals leads back");
         assert.equal(await topBar.getByRole("link", { name: "National Accounts" }).isVisible(), false);
-        // The fixture hides the engine-only Client portal tab; a signed-in partner sees all five.
+        // Show the full tab row, including the tabs whose engine data this fixture omits.
         await page.locator('#workspaceTabs [role="tab"]').evaluateAll((tabs) => {
           for (const tab of tabs) tab.removeAttribute("hidden");
         });
         const strip = page.locator("#workspaceTabs");
         assert.deepEqual(await strip.getByRole("tab").allTextContents(), [
           "Overview",
+          "Plan",
           "Activity",
           "Tours",
           "Documents",
