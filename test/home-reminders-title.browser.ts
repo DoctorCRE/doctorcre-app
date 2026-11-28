@@ -273,18 +273,17 @@ test("a click on the right of a Reminders title opens it, and the sticky header 
   const target = region.locator("article.inbox-row").nth(10);
   const headerBox = (await header.boundingBox()) ?? assert.fail("the header is not drawn");
   const targetTop = (await target.boundingBox())?.y ?? assert.fail("the tenth row is not drawn");
-  const column = region.locator("..");
-  await column.evaluate(
+  await region.evaluate(
     (node, delta) => node.scrollTo({ top: node.scrollTop + delta, behavior: "instant" }),
     targetTop - (headerBox.y + headerBox.height) + 20,
   );
   await page.mouse.move(0, 0);
-  const beforeFocus = await column.evaluate((node) => node.scrollTop);
+  const beforeFocus = await region.evaluate((node) => node.scrollTop);
   await target.getByRole("button", { name: "Snooze", exact: true }).evaluate((node) => {
     if (node instanceof HTMLElement) node.focus({ preventScroll: true });
   });
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-  assert.equal(await column.evaluate((node) => node.scrollTop), beforeFocus);
+  assert.equal(await region.evaluate((node) => node.scrollTop), beforeFocus);
   const stuck = (await header.boundingBox()) ?? assert.fail("the header is not drawn");
   const overlay = (await target.locator(".inbox-actions").boundingBox()) ?? assert.fail("actions are not drawn");
   const probe = { x: overlay.x + overlay.width / 2, y: stuck.y + stuck.height - 2 };

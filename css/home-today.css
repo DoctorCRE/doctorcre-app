@@ -61,9 +61,11 @@ details.home-today-row > :not(summary) { margin: 0 0 var(--space-1); padding-inl
 .home-short-fold-line strong { margin-inline-end: auto; font-weight: var(--font-weight-strong); white-space: nowrap; }
 /* A short computer screen folds the attention list and Coming up to one counted line each. */
 @container home (min-width: 936px) { @media (max-height: 720px) {
-  .home-column.home-side { gap: var(--space-3); }
+  .home-column.home-side { gap: var(--space-2); }
   .inbox-shell .home-short-fold-line { display: flex; }
   .home-short-fold:not([data-open]) > :not(.home-short-fold-line) { display: none; }
-  .home-coming-up:has(.home-short-fold:not([data-open])) { scroll-padding-block-start: 0; }
+  /* Give the fold line below the phase counts room when meetings are long. */
+  .home-deals:has(.home-short-fold:not([data-open])) { flex-shrink: 0.1; }
+  .home-coming-up:has(.home-short-fold:not([data-open])) { flex: none; min-block-size: auto; }
   .home-coming-up:has(.home-short-fold:not([data-open])) > header { display: none; }
 } }

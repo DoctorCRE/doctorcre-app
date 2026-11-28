@@ -114,13 +114,18 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
   .has-app-layout main:has(.home-inbox) .inbox-shell { padding-bottom: 0; }
   .home-inbox { display: flex; flex-direction: column; }
   .home-sections { flex: 1 1 0; min-block-size: 0; flex-direction: row; position: relative; }
-  .home-column { display: flex; flex: 1 1 0; flex-direction: column; gap: var(--space-4); min-width: 0; min-block-size: 0; overflow: auto; overscroll-behavior: contain; }
+  .home-column { display: flex; flex: 1 1 0; flex-direction: column; gap: var(--space-4); min-width: 0; min-block-size: 0; }
   .home-column:first-child { flex-grow: 1.15; }
   .home-column.home-side { flex-grow: 0.75; }
   .home-column:empty { display: none; }
-  .home-column > * { flex: none; }
   .home-column:not(.home-side) > :first-child { flex-grow: 1; }
-  .home-column { --home-header-size: calc(var(--touch) + var(--space-3)); scroll-padding-block-start: var(--home-header-size); }
+  .home-slice:has(> header) {
+    --home-header-size: calc(var(--touch) + var(--space-3));
+    min-block-size: calc(2 * var(--home-header-size));
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scroll-padding-block-start: var(--home-header-size);
+  }
   .home-slice > header { position: sticky; top: calc(-1 * var(--space-3)); z-index: 1; min-block-size: var(--home-header-size); margin-top: calc(-1 * var(--space-3)); padding-top: var(--space-3); background: var(--surface-1); }
   .home-slice :is(a, button, summary) { scroll-margin-block: var(--space-2); }
   /* An opened item covers the middle and right columns beside Reminders; it stays in its row for reading order. */

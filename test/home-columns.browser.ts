@@ -583,6 +583,111 @@ const wrappedDeal = deal(1, "Research", {
   },
 });
 
+for (const [width, height] of [
+  [1280, 640],
+  [1440, 900],
+] as const)
+  test(`At ${width}x${height} only overflowing Home tiles scroll and every heading is in view`, async (t) => {
+    const short = height === 640;
+    const dates = Array.from({ length: short ? 4 : 30 }, (_, index) => criticalDate(index + 1, today));
+    const attention = Array.from({ length: short ? 5 : 30 }, (_, index) =>
+      deal(index + 1, "Research", { attention: { reason: "A next step is late." } }),
+    );
+    const page = await openHome(
+      t,
+      width,
+      height,
+      [],
+      dates,
+      {
+        ...dashboard,
+        reminders: group(Array.from({ length: 30 }, (_, index) => card(100 + index, `Sample task ${index + 1}`))),
+        inbox: group(Array.from({ length: 30 }, (_, index) => reply(200 + index, `Sample reply ${index + 1}`))),
+        waiting: group(
+          Array.from({ length: 30 }, (_, index) =>
+            card(300 + index, `Waiting sample ${index + 1}`, {
+              section: "snoozed",
+              disposition: "snoozed",
+              snoozed_until: "2026-12-01T15:00:00Z",
+            }),
+          ),
+        ),
+      },
+      undefined,
+      { deals: attention, meetings: busyMeetings },
+    );
+    await page.getByRole("region", { name: "Leads", exact: true }).waitFor();
+    const tileNames = [
+      "Reminders",
+      "Inbox",
+      "In motion and waiting",
+      "Today's meetings",
+      "Deals",
+      "Coming up",
+      "Leads",
+    ];
+    const layout = () =>
+      page.locator("main").evaluate((main) => {
+        const overflows = (node: Element) => node.scrollHeight > node.clientHeight;
+        const tiles = [...main.querySelectorAll(".home-column > .home-slice")];
+        const overflowing = tiles.filter(overflows);
+        const scrollers = [...main.querySelectorAll("*")].filter(
+          (node) => /^(auto|scroll)$/.test(getComputedStyle(node).overflowY) && overflows(node),
+        );
+        const outside = tiles.filter((tile) => {
+          const heading = tile.querySelector(":scope > header > h2, :scope > .home-door > strong");
+          const label = heading?.getClientRects().length ? heading : tile.querySelector(".home-short-fold-line strong");
+          const box = label?.getBoundingClientRect();
+          const bounds = tile.getBoundingClientRect();
+          return (
+            !box ||
+            box.top < Math.max(0, bounds.top) ||
+            box.bottom > Math.min(innerHeight, bounds.bottom) ||
+            box.left < Math.max(0, bounds.left) ||
+            box.right > Math.min(innerWidth, bounds.right)
+          );
+        });
+        return {
+          tiles: tiles.map((tile) => tile.ariaLabel),
+          outside: outside.map((tile) => tile.ariaLabel),
+          overflowing: overflowing.map((tile) => tile.ariaLabel),
+          extraScrollers: scrollers.filter((node) => !overflowing.includes(node)).map((node) => node.className),
+          missingScrollers: overflowing.filter((node) => !scrollers.includes(node)).map((node) => node.ariaLabel),
+          columnsFit: [...main.querySelectorAll(".home-column")].every((column) => !overflows(column)),
+          pageFits: [document.scrollingElement, document.getElementById("appMainSlot")].every(
+            (node) => node && !overflows(node),
+          ),
+        };
+      });
+    const expected = {
+      tiles: tileNames,
+      outside: [],
+      extraScrollers: [],
+      missingScrollers: [],
+      columnsFit: true,
+      pageFits: true,
+    };
+    if (short) {
+      const { overflowing, ...beforeFolds } = await layout();
+      assert.deepEqual(beforeFolds, expected);
+      assert.deepEqual(
+        overflowing.filter((name) => name !== "Deals"),
+        tileNames.slice(0, 4),
+      );
+      const attentionFold = page.getByRole("button", { name: "5 need attention", exact: true });
+      assert.ok(
+        await attentionFold.evaluate((button) => {
+          const { left, top, width, height } = button.getBoundingClientRect();
+          return button.contains(document.elementFromPoint(left + width / 2, top + height / 2));
+        }),
+        "the Deals fold is visible before scrolling",
+      );
+      await attentionFold.click();
+      await page.getByRole("button", { name: "Coming up 4 dates in the next 14 days", exact: true }).click();
+    }
+    assert.deepEqual(await layout(), { ...expected, overflowing: tileNames.slice(0, -1) });
+  });
+
 test("At 1280x599 an offline notice fits without scrolling Home's main area", async (t) => {
   const page = await openHome(t, 1280, 599);
   await page.context().setOffline(true);
@@ -646,7 +751,7 @@ test("Deals attention keeps its full accessible reason and caps its preview at t
   assert.ok(lines > 1 && lines <= 2.05, "the reason wraps to two lines");
 });
 
-test("At 1280x599 wheel and touch scroll the column", async (t) => {
+test("At 1280x599 wheel and touch scroll only the tile under the pointer", async (t) => {
   const dates = Array.from({ length: 42 }, (_, index) => criticalDate(index + 1, today));
   for (const touch of [false, true]) {
     await t.test(touch ? "touch swipe" : "mouse wheel", async (t) => {
@@ -659,21 +764,12 @@ test("At 1280x599 wheel and touch scroll the column", async (t) => {
       await page.getByRole("button", { name: "1 needs attention" }).click();
       const meetings = page.getByRole("region", { name: "Today's meetings", exact: true });
       const column = page.locator(".home-side");
-      const leads = page.getByRole("region", { name: "Leads", exact: true }).locator("strong");
-      await column.evaluate((region) => {
-        region.scrollTop = 0;
-      });
-      const [list, right, heading] = await Promise.all([
-        meetings.boundingBox(),
-        column.boundingBox(),
-        leads.boundingBox(),
-      ]);
-      assert.ok(
-        list && right && heading && heading.y + heading.height > right.y + right.height,
-        "Leads starts below the column viewport",
-      );
+      const list = (await meetings.boundingBox()) ?? assert.fail("Today's meetings is not drawn");
       const x = Math.round(list.x + list.width / 2);
-      const y = Math.round(right.y + Math.min(list.height, right.height) - 8);
+      const y = Math.round(list.y + list.height - 8);
+      const neighbors = column.locator(":scope > :not(.home-today)");
+      const before = await neighbors.evaluateAll((tiles) => tiles.map((tile) => tile.scrollTop));
+      assert.equal(await meetings.evaluate((tile) => tile.scrollTop), 0);
       if (touch) {
         const input = await page.context().newCDPSession(page);
         await input.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
@@ -684,7 +780,9 @@ test("At 1280x599 wheel and touch scroll the column", async (t) => {
         await page.mouse.move(x, y);
         await page.mouse.wheel(0, 600);
       }
-      await page.waitForFunction(() => (document.querySelector(".home-side")?.scrollTop ?? 0) > 0);
+      await page.waitForFunction(() => (document.querySelector(".home-today")?.scrollTop ?? 0) > 0);
+      assert.deepEqual(await neighbors.evaluateAll((tiles) => tiles.map((tile) => tile.scrollTop)), before);
+      assert.equal(await column.evaluate((node) => node.scrollTop), 0);
       assert.deepEqual(
         await page.evaluate(() => [scrollY, document.querySelector("#appMainSlot")?.scrollTop]),
         [0, 0],
@@ -694,7 +792,7 @@ test("At 1280x599 wheel and touch scroll the column", async (t) => {
   }
 });
 
-test("At 1280x599 every control in the scrolling column stays visible in both Tab directions", async (t) => {
+test("At 1280x599 every control in the right tiles stays visible in both Tab directions", async (t) => {
   const dates = Array.from({ length: 42 }, (_, index) => criticalDate(index + 1, today));
   for (const touch of [false, true]) {
     await t.test(touch ? "touch layout" : "pointer layout", async (t) => {
@@ -708,7 +806,7 @@ test("At 1280x599 every control in the scrolling column stays visible in both Ta
       await page.getByRole("button", { name: "Coming up 42 dates in the next 14 days" }).click();
       await page.getByRole("button", { name: "1 needs attention" }).click();
       const column = page.locator(".home-side");
-      assert.ok(await column.evaluate((region) => region.scrollHeight > region.clientHeight));
+      assert.ok(await column.evaluate((region) => region.scrollHeight <= region.clientHeight));
       const controls = await column.locator("a[href]:visible, button:enabled:visible, summary:visible").all();
       const leads = controls.at(-1) ?? assert.fail("Leads is the last control");
       assert.equal(await leads.getAttribute("href"), "/leads");
