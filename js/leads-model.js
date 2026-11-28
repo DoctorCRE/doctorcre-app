@@ -48,7 +48,7 @@ export function leadName(lead) {
 export function leadTitle(lead) {
   return leadName(lead) ?? `${lead.specialty || lead.vertical || "Practice"} ${lead.plan_type || "startup"}${lead.city ? ` in ${lead.city}` : ""}`;
 }
-export const leadMarket = lead => lead.market?.trim() || [lead.city, lead.state].filter(Boolean).join(", ");
+export const leadMarket = lead => lead.market?.name.trim() || [lead.city, lead.state].filter(Boolean).join(", ");
 export const marketKey = lead => leadMarket(lead) || "Leads without a market";
 export const specialtyKey = lead => lead.specialty?.trim() || lead.vertical?.trim() || "Specialty pending";
 export const leadReachability = lead => lead.reachability === undefined ? "research" : lead.reachability?.classification;

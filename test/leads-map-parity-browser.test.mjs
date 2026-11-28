@@ -62,8 +62,8 @@ test(`shared market location membership is order independent at ${width}px (reve
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width, height: 1000 }, reducedMotion: 'reduce' });
   const board = workspace();
-  board.leads = [lead(1, { market: 'Synthetic shared market' }),
-    lead(2, { market: 'Synthetic shared market', city: null, state: null })];
+  board.leads = [lead(1, { market: { id: 'example-market', name: 'Synthetic shared market' } }),
+    lead(2, { market: { id: 'example-market', name: 'Synthetic shared market' }, city: null, state: null })];
   if (reversed) board.leads.reverse();
   await routeLeads(page, { getBoard: () => board });
   await page.goto('http://localhost/leads');
