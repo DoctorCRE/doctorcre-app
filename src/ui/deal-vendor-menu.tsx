@@ -1,6 +1,14 @@
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { centralToday } from "./central-time.ts";
-import { type ClientDeal, dated, type Role, type Vendor } from "./deal-diagram.tsx";
+import {
+  type ClientDeal,
+  dated,
+  type Introduction,
+  type Role,
+  type SourceChoice,
+  type Vendor,
+  type VendorMenuControls,
+} from "./deal-diagram.tsx";
 
 type SaveFailed = { ok: false; problem?: { error?: string }; done?: number; pending?: boolean };
 export type Saved = { ok: true } | SaveFailed;
@@ -12,8 +20,19 @@ export interface FoundVendor {
 const SOURCES = { dell: "Dell", joe: "Joe", client: "The client", unrecorded: "Not recorded" } as const;
 export type BroughtBy = keyof typeof SOURCES;
 type IntroductionVersion = { id: string; version: string };
-export type RecordedSource = { id: string; version?: string; by: Exclude<BroughtBy, "unrecorded"> };
-type SourceSave = { ok: true; introduction: RecordedSource | null } | SaveFailed;
+type RecordedSource = { id: string; version?: string; by: Exclude<BroughtBy, "unrecorded"> };
+type SourceReceipt = RecordedSource & {
+  on: string;
+  party: string;
+};
+type SourceSave = { ok: true; introduction: SourceReceipt | null } | SaveFailed;
+export type SourceChanged = (vendor: FoundVendor, source: SourceReceipt | null, replaces?: string) => void;
+
+export function sourceOf(introduction: Introduction | null | undefined): RecordedSource | null {
+  if (!introduction || introduction.made_by === "vendor") return null;
+  const by = introduction.made_by === "client" ? "client" : introduction.introduced_by;
+  return by ? { id: introduction.id, by, ...(introduction.version && { version: introduction.version }) } : null;
+}
 
 export interface VendorDoors {
   add(deal: string, party: string, role: string): Promise<Saved>;
@@ -129,35 +148,43 @@ type Step =
   | { at: "role"; roles: Role[] | null; role: string }
   | { at: "confirm" }
   | { at: "remove-introduction"; introduction: IntroductionVersion }
-  | { at: "source"; by: BroughtBy | null; recorded?: RecordedSource };
+  | { at: "source"; by: SourceChoice | null };
 
-interface Props {
+interface Props extends VendorMenuControls {
   deal: ClientDeal;
   client: string;
   vendor: Vendor;
   doors: VendorDoors;
-  close: () => void;
+  sourceChanged: SourceChanged;
   // A save landed; a removal carries what Undo puts back.
   saved: (removal?: Removal) => void;
   // A save failed after some of it may have landed, so the diagram reads the deal again.
   reread: () => void;
 }
 
-export function DealVendorMenu({ deal, client, vendor, doors, close, saved, reread }: Props) {
-  const [step, setStep] = useState<Step>({ at: "menu" });
+export function DealVendorMenu({
+  deal,
+  client,
+  vendor,
+  doors,
+  close,
+  choice,
+  confirmSource,
+  sourceChanged,
+  saved,
+  reread,
+}: Props) {
+  const [localStep, setStep] = useState<Step>({ at: "menu" });
+  const step: Step = choice ? { at: "source", by: choice } : localStep;
+  const recorded = choice ? sourceOf(vendor.introduction) : null;
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState("");
   const panel = useRef<HTMLDivElement>(null);
-  const recoveredSource = useRef(false);
-  const refreshOnDismiss = useEffectEvent(() => {
-    if (recoveredSource.current) reread();
-  });
-  useEffect(() => () => refreshOnDismiss(), []);
   const picking = step.at === "role";
   // Each step, and the roles arriving, hands focus to its first control.
   const focusKey = picking ? `role:${Boolean(step.roles)}` : step.at;
   useEffect(() => {
-    if (focusKey) panel.current?.querySelector<HTMLElement>("select:enabled, button, a")?.focus();
+    if (focusKey) panel.current?.querySelector<HTMLElement>("select:enabled, button:enabled, a")?.focus();
   }, [focusKey]);
   useEffect(() => {
     if (!picking) return;
@@ -182,23 +209,23 @@ export function DealVendorMenu({ deal, client, vendor, doors, close, saved, rere
     close();
     saved(removal);
   }
-  async function setSource(by: BroughtBy, recorded?: RecordedSource) {
+  async function setSource(by: SourceChoice) {
     setBusy(true);
     setProblem("");
-    const result = await recordSource(doors, deal, client, vendor.id, by, recorded);
+    const result = await recordSource(doors, deal, client, vendor.id, by, recorded ?? undefined);
     setBusy(false);
     if (!result.ok) {
       if (!result.pending) reread();
       return setProblem(result.pending ? "Couldn’t confirm the save. Try again." : refusal(result.problem));
     }
-    // Refreshing now would move the vendor to another branch and close the question.
     if (result.introduction && result.introduction.by !== by && panel.current) {
-      recoveredSource.current = true;
-      setStep({ at: "source", by, recorded: result.introduction });
-      return setProblem(sourceMismatch(result.introduction.by));
+      confirmSource(by);
+      sourceChanged(vendor, result.introduction);
+      reread();
+      return;
     }
-    recoveredSource.current = false;
     if (panel.current) close();
+    sourceChanged(vendor, result.introduction, recorded?.id);
     saved();
   }
   const onDeal = vendor.roles.length > 0;
@@ -219,7 +246,7 @@ export function DealVendorMenu({ deal, client, vendor, doors, close, saved, rere
       <p className="deal-vendor-menu-who">
         {vendor.name}
         {role && ` · ${role}`}
-        {!(step.at === "source" && step.recorded) && <span>{introduced(vendor)}</span>}
+        <span>{introduced(vendor)}</span>
         {vendor.introduction?.note && <q>{vendor.introduction.note}</q>}
       </p>
       {step.at === "menu" && (
@@ -305,18 +332,20 @@ export function DealVendorMenu({ deal, client, vendor, doors, close, saved, rere
             event.preventDefault();
             const by = step.by;
             if (busy || !by) return;
-            void setSource(by, step.recorded);
+            void setSource(by);
           }}
         >
           <SourceChoices
             by={step.by}
-            select={(by) => setStep({ ...step, by })}
+            select={(by) => {
+              if (by !== "unrecorded") setStep({ at: "source", by });
+            }}
             client
-            disabled={busy || Boolean(step.recorded)}
+            disabled={busy || Boolean(recorded)}
           />
           <span className="deal-vendor-menu-row">
             <button type="submit" disabled={busy || !step.by}>
-              {step.recorded ? "Use new choice" : "Set"}
+              {recorded ? "Use new choice" : "Set"}
             </button>
             <button type="button" disabled={busy} onClick={close}>
               Cancel
@@ -333,7 +362,13 @@ export function DealVendorMenu({ deal, client, vendor, doors, close, saved, rere
             <button
               type="button"
               disabled={busy}
-              onClick={() => void run(() => doors.removeIntroduction(step.introduction))}
+              onClick={() =>
+                void run(async () => {
+                  const answer = await doors.removeIntroduction(step.introduction);
+                  if (answer.ok) sourceChanged(vendor, null, step.introduction.id);
+                  return answer;
+                })
+              }
             >
               Remove
             </button>
@@ -364,9 +399,9 @@ export function DealVendorMenu({ deal, client, vendor, doors, close, saved, rere
           </span>
         </>
       )}
-      {problem && (
+      {(problem || recorded) && (
         <p className="deal-vendor-menu-problem" role="alert">
-          {problem}
+          {problem || (recorded && sourceMismatch(recorded.by))}
         </p>
       )}
     </div>

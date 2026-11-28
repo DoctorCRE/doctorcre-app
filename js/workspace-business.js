@@ -211,10 +211,10 @@ async function saveIntroduction({ deal, client, vendor, by, on, replaces, guarde
   if (!guarded && replaces) return { ok: false, problem: { error: "introduction_already_recorded" } };
   const result = await session.savePartnerRecord("/api/engine/introductions", key, "introduction_id", args);
   if (!result.ok) return result;
-  const { made_by, introduced_by, introduction_id, version } = result.data;
+  const { made_by, introduced_by, introduction_id, version, introduced_on, introduced_party_id } = result.data;
   const savedBy = made_by === "client" ? "client" : introduced_by;
   if (savedBy !== "client" && savedBy !== "joe" && savedBy !== "dell") return { ok: false, pending: true };
-  return { ok: true, introduction: { id: introduction_id, by: savedBy, version } };
+  return { ok: true, introduction: { id: introduction_id, by: savedBy, version, on: introduced_on, party: introduced_party_id } };
 }
 
 async function readVendorMatches(query, signal) {

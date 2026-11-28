@@ -4,12 +4,13 @@ import {
   type BroughtBy,
   broughtBy,
   type FoundVendor,
-  type RecordedSource,
   recordSource,
   refusal,
   type Saved,
+  type SourceChanged,
   SourceChoices,
   sourceMismatch,
+  sourceOf,
   type VendorDoors,
 } from "./deal-vendor-menu.tsx";
 
@@ -19,6 +20,7 @@ interface Props {
   doors: VendorDoors;
   // A save landed, or may have partly landed, so the diagram reads the deal again.
   saved: () => void;
+  sourceChanged: SourceChanged;
 }
 
 export function AddVendor(props: Props) {
@@ -69,6 +71,7 @@ function AddVendorForm({
   deal,
   doors,
   saved,
+  sourceChanged,
   close,
   busy,
   setBusy,
@@ -83,11 +86,12 @@ function AddVendorForm({
   const [role, setRole] = useState("");
   const [by, setBy] = useState<BroughtBy | null>(null);
   const [problem, setProblem] = useState("");
-  const [recorded, setRecorded] = useState<RecordedSource | null>(null);
-  const [uncertain, setUncertain] = useState(false);
+  const recorded = sourceOf(deal.introductions.find((i) => i.vendor_id === vendor?.id));
+  const [uncertain, setUncertain] = useState<"source" | "role" | null>(null);
   const [correctionPending, setCorrectionPending] = useState(false);
   const correction = recorded && by && recorded.by !== by;
-  const roleLocked = busy || uncertain;
+  const checkingSource = uncertain === "source" && !correctionPending;
+  const roleLocked = busy || uncertain !== null;
   const search = useRef<HTMLInputElement>(null);
   // A vendor already on this deal, or introduced for it, is changed from its own box.
   const [onDeal] = useState(
@@ -110,11 +114,12 @@ function AddVendorForm({
     setBusy(true);
     setProblem("");
     let source = recorded;
-    if (source?.by !== by) {
-      const result = await recordSource(doors, deal, client.id, vendor.id, by, source ?? undefined);
+    if (checkingSource || source?.by !== by) {
+      const replacing = checkingSource ? undefined : (source ?? undefined);
+      const result = await recordSource(doors, deal, client.id, vendor.id, by, replacing);
       if (!result.ok) {
-        setUncertain(Boolean(result.pending));
-        setCorrectionPending(Boolean(correction && result.pending));
+        setUncertain(result.pending ? "source" : null);
+        setCorrectionPending(Boolean(!checkingSource && correction && result.pending));
         setBusy(false);
         saved();
         setProblem(
@@ -125,11 +130,11 @@ function AddVendorForm({
         return;
       }
       source = result.introduction;
-      setRecorded(source);
+      sourceChanged(vendor, result.introduction, replacing?.id);
       setCorrectionPending(false);
       if (source && source.by !== by) {
         setBusy(false);
-        setUncertain(false);
+        setUncertain(null);
         saved();
         setProblem(sourceMismatch(source.by));
         return;
@@ -139,7 +144,7 @@ function AddVendorForm({
     setBusy(false);
     saved();
     if (answer.ok) return close();
-    setUncertain(Boolean(answer.pending));
+    setUncertain(answer.pending ? "role" : null);
     const message = answer.pending
       ? "Couldn’t confirm whether the vendor was put on the deal. Retry to check."
       : refusal(answer.problem);
@@ -208,7 +213,7 @@ function AddVendorForm({
       />
       <span className="deal-vendor-menu-row">
         <button type="submit" disabled={busy || !vendor || !role || !by}>
-          {correction ? "Use new choice" : uncertain ? "Retry" : "Add"}
+          {checkingSource ? "Retry" : correction ? "Use new choice" : uncertain ? "Retry" : "Add"}
         </button>
         <button type="button" disabled={busy} onClick={close}>
           Cancel

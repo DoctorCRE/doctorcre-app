@@ -704,11 +704,22 @@ test("Set records the client on a linked deal and removal leaves the chosen role
   assert.equal(engine.list[2]?.vendors[0]?.roles[0]?.role, "title");
 });
 
-async function recoverSet(t: TestContext) {
+async function recoverSet(t: TestContext, hold = false) {
   const engine = partyEngine(null, 0, "request");
   const { page, panel, sent } = await openParties(t, engine);
   const article = panel.locator(".client-deal", { hasText: "Example first office" });
   const menu = page.getByRole("dialog", { name: "Example Halloran Title on Example first office" });
+  const release = Promise.withResolvers<void>();
+  const reread = Promise.withResolvers<void>();
+  if (hold) {
+    await article.getByRole("button", { name: /Example Halloran Title/ }).waitFor();
+    t.after(() => release.resolve());
+    await page.route("**/api/engine/clients/*/deals", async (route) => {
+      reread.resolve();
+      await release.promise;
+      await route.fallback();
+    });
+  }
   await article.getByRole("button", { name: /Example Halloran Title/ }).click();
   await menu.getByRole("button", { name: "Set", exact: true }).click();
   await menu.getByRole("button", { name: "Joe", exact: true }).click();
@@ -721,7 +732,7 @@ async function recoverSet(t: TestContext) {
   await menu.getByText(/Joe was saved as the source/).waitFor({ timeout: 3000 });
   assert.deepEqual(sent[0], sent[1]);
   assert.equal(engine.list[2]?.introductions[0]?.introduced_by, "joe");
-  return { engine, panel, article, menu, sent };
+  return { engine, panel, article, menu, sent, held: reread.promise, release: release.resolve };
 }
 
 test("Set shows the recovered source and confirms a changed choice before replacing it", async (t) => {
@@ -751,3 +762,24 @@ for (const action of ["outside click", "vendor toggle", "Cancel", "Escape"]) {
     assert.equal(sent.length, 2);
   });
 }
+
+test("reopening recovered Set shows Joe while the deals reread is held", async (t) => {
+  const { panel, article, menu, held, release } = await recoverSet(t, true);
+  await panel.getByRole("heading", { name: "Deals", exact: true }).click();
+  await held;
+  await article.getByRole("button", { name: /Example Halloran Title/ }).click();
+  assert.match((await menu.textContent()) ?? "", /Introduced .* by Joe/);
+  release();
+});
+
+test("a confirmed Set cannot be attempted again while the deals reread is held", async (t) => {
+  const { article, menu, sent, held, release } = await recoverSet(t, true);
+  await menu.getByRole("button", { name: "Use new choice" }).click();
+  await menu.waitFor({ state: "hidden" });
+  await held;
+  await article.getByRole("button", { name: /Example Halloran Title/ }).click();
+  assert.match((await menu.textContent()) ?? "", /Introduced .* by the client/);
+  assert.equal(await menu.getByRole("button", { name: "Set", exact: true }).count(), 0);
+  assert.equal(sent.length, 3);
+  release();
+});
