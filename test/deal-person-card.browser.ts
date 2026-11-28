@@ -15,7 +15,13 @@ test("a person under People with no relationship links opens their card", async 
   const network = relationshipNetworkFixture(new Date().toISOString());
   const [template] = network.nodes;
   if (!template) throw Error("the fixture has no nodes");
-  network.nodes.push({ ...template, id: contactId, record_id: contactId.slice(6), name: "Dr. Example", kind: "contact" });
+  network.nodes.push({
+    ...template,
+    id: contactId,
+    record_id: contactId.slice(6),
+    name: "Dr. Example",
+    kind: "contact",
+  });
   assert.equal(
     network.edges.some((edge) => [edge.from, edge.to, edge.via].includes(contactId)),
     false,
@@ -28,10 +34,17 @@ test("a person under People with no relationship links opens their card", async 
   );
   await page.route("**/mcp", (route) =>
     route.fulfill({
-      json: { jsonrpc: "2.0", id: route.request().postDataJSON().id, result: { content: [{ type: "text", text: "{}" }] } },
+      json: {
+        jsonrpc: "2.0",
+        id: route.request().postDataJSON().id,
+        result: { content: [{ type: "text", text: "{}" }] },
+      },
     }),
   );
   await page.goto(`${server.url}/relationships?mode=live&node=${encodeURIComponent(contactId)}`);
   await page.getByRole("heading", { name: "Dr. Example" }).waitFor();
-  assert.match(page.url(), /node=party%3A00000000-0000-4000-8000-00000000b004|node=party:00000000-0000-4000-8000-00000000b004/);
+  assert.match(
+    page.url(),
+    /node=party%3A00000000-0000-4000-8000-00000000b004|node=party:00000000-0000-4000-8000-00000000b004/,
+  );
 });
