@@ -415,7 +415,7 @@ body[data-directory="clients"] #applyFilters { display: none; }
 }
 body[data-directory="vendors"] .row-updated { display: none; }
 body:not([data-directory="vendors"]) #directoryViews { display: none; }
-body[data-directory-view="meetings"] :is(.search-dock, #chipBar, .business-body, .vendor-territories, .vendor-territories + .table-filters, .app-layout-tabs .field-search),
+body[data-directory-view="meetings"] :is(.search-dock, #chipBar, .business-body, .app-layout-tabs .field-search),
 body:not([data-directory-view="meetings"]) .vendor-meetings-host { display: none; }
 /* The phone's one tab row has no room for the count beside the vendor views and owner chips. */
 @media (max-width: 760px), (hover: none) and (pointer: coarse) and (max-width: 1023px) {

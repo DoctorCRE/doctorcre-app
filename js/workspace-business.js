@@ -98,6 +98,7 @@ phoneWidth.addEventListener("change", event => {
 const directoryViews = [...document.querySelectorAll("[data-directory-view]")];
 function showDirectoryView(name) {
   document.body.dataset.directoryView = name;
+  if (name === "meetings") renderVendorTerritories();
   for (const button of directoryViews) button.setAttribute("aria-pressed", String(button.dataset.directoryView === name));
 }
 
@@ -634,7 +635,7 @@ const MARKET_ORDER = [
 ];
 
 function showsVendorTerritories(query) {
-  return query.dataset === "vendors" && Boolean(query.category || query.no_category || query.all)
+  return query.dataset === "vendors" && query.scope === "team" && Boolean(query.category || query.no_category || query.all)
     && document.documentElement.hasAttribute("data-vendor-territory-tiles");
 }
 
@@ -647,7 +648,7 @@ function inVendorMarket(row, market) {
 
 function renderVendorTerritories() {
   const { query } = view;
-  const enabled = !view.signedOut && showsVendorTerritories(query);
+  const enabled = !view.signedOut && document.body.dataset.directoryView !== "meetings" && showsVendorTerritories(query);
   const summary = enabled ? directoryTileCounts() : null;
   const counts = query.category ? summary?.categories.find(({ slug }) => slug === query.category)
     : query.no_category ? summary?.no_category : summary?.all;

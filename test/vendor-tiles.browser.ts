@@ -356,6 +356,9 @@ test("territory tiles combine with search and clear in place", async (t) => {
   await group.getByRole("button", { name: "All territories 31" }).waitFor();
   await group.getByRole("button", { name: "Mobile 1" }).click();
   assert.match((await page.locator(".record-row").textContent()) ?? "", /Demo Partner 02/);
+  await page.getByRole("button", { name: "People worth meeting" }).click();
+  assert.equal(await group.isVisible(), false);
+  assert.equal(await page.locator(".app-layout-main").evaluate((main) => getComputedStyle(main).overflowY), "auto");
 });
 
 for (const [width, height, touch] of [
