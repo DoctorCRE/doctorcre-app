@@ -1101,9 +1101,10 @@ async function chooseRelationship(choice) {
 }
 
 async function loadRole(id) {
-  if (!partyEditor || view.dataset !== "vendors") return;
+  if (!partyEditor || view.dataset !== "vendors" || view.record.status !== "ready") return;
+  const sequence = view.record.sequence;
   const value = await partyEditor.vendorRole();
-  if (view.recordId !== id) return;
+  if (view.recordId !== id || !acceptsResponse(view.record.sequence, sequence)) return;
   view.role = { id, value };
   renderRecordPanel();
 }
@@ -1160,7 +1161,9 @@ function renderRecordPanel() {
   const firm = vendor && payload.record.party_kind === "person" ? payload.record.people?.find((person) => person.company)?.company.name : null;
   paintPanelHead(`${firm ? `<span>${escapeHtml(withoutRecordCodes(firm))}</span>` : ""}${category?.resolved ? `<span>${escapeHtml(category.text)}</span>` : ""}${owner.known ? `<span class="row-fact"><span class="fact-label">Owner</span><span class="fact-value">${escapeHtml(owner.text)}</span></span>` : ""}`, recordActionsHtml(), relationship ? relationshipControlHtml(relationship) : "");
   if (action >= 0) focusWithoutScrolling(actions()[action]);
-  if (relationshipFocused) focusWithoutScrolling(dom.panelRelationship.querySelector(".rel-button"));
+  if (relationshipFocused) {
+    focusWithoutScrolling(dom.panelRelationship.querySelector(".rel-button:not([disabled])") ?? dom.panelRelationship);
+  }
   if (dom.panelTitle) dom.panelTitle.textContent = dom.panelTitle.title = vendor ? withoutRecordCodes(payload.record.name) : payload.record.name;
   if (relationship) dom.panelTitle.insertAdjacentHTML("afterbegin", relationshipShape(relationship.key));
   if (relationship && dom.panelTitle) dom.panelTitle.dataset.relationship = relationship.key;
@@ -1384,6 +1387,7 @@ function settleList({ status, payload = null, code = null }, sequence) {
 async function loadRecord(id, { focusOnOpen = false } = {}) {
   if (view.signedOut || view.recordId !== id) return;
   const sequence = ++view.record.sequence;
+  view.role = { id: null, value: null };
   selectDocRecord(view.dataset, id);
   const docTicket = pageDocContext?.begin('businessRecord', [{ dataset:view.dataset, id }]);
   view.record.id = id;

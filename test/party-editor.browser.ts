@@ -880,23 +880,45 @@ test("The relationship button on a vendor card changes the level, parks with a r
     disposition_reason: null,
     is_target: false,
   });
-  const { page, sent } = await setup(t, `/vendors?all=true&record=${vendor}`, fake.answer, {
-    record: () => ({
-      relationship_level: fake.state.profile.relationship_level,
-      recorded_disposition: fake.state.profile.disposition ?? "active",
-      is_target: fake.state.profile.is_target,
-    }),
-  });
+  const roleReread = Promise.withResolvers<void>();
+  t.after(() => roleReread.resolve());
+  const { page, sent } = await setup(
+    t,
+    `/vendors?all=true&record=${vendor}`,
+    async (call) => {
+      if (
+        call.method === "GET" &&
+        call.path === `/api/engine/parties/${vendor}` &&
+        fake.state.profile.relationship_level === 2
+      )
+        await roleReread.promise;
+      return fake.answer(call);
+    },
+    {
+      record: () => ({
+        relationship_level: fake.state.profile.relationship_level,
+        recorded_disposition: fake.state.profile.disposition ?? "active",
+        is_target: fake.state.profile.is_target,
+      }),
+    },
+  );
   const panel = page.locator("#recordPanel");
-  const button = panel.locator(".rel-button:not([disabled])");
+  const button = panel.locator(".rel-button");
   const saves = () => posts(sent).map((call) => [call.path, withoutKey(call.body ?? {})]);
 
   await button.filter({ hasText: "Building" }).click();
   await panel.getByRole("button", { name: "Established", exact: true }).click();
-  await button.filter({ hasText: "Established" }).waitFor();
+  const established = button.filter({ hasText: "Established" });
+  await established.waitFor();
+  assert.equal(await established.isEnabled(), false, "the control waits for the refreshed role");
+  assert.ok(await panel.locator("#recordRelationship").evaluate((control) => control === document.activeElement));
+  roleReread.resolve();
+  await page.waitForFunction(() =>
+    document.activeElement?.matches('.rel-button:not([disabled])[data-relationship="established"]'),
+  );
   assert.deepEqual(saves(), [[`/api/engine/vendors/${vendor}`, { relationship_level: { from: 1, to: 2 } }]]);
 
-  await button.filter({ hasText: "Established" }).click();
+  await established.click();
   await panel.getByRole("button", { name: "Park…" }).click();
   const why = panel.getByLabel("Why park Demo Partner 01?");
   await why.fill("  Slow to reply  ");
