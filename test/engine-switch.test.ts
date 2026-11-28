@@ -3028,8 +3028,6 @@ test("Party saves and their read reach the engine only with Clients and Vendors 
     ["POST", "/api/engine/vendors"],
     ["POST", `/api/engine/vendors/${id}`],
     ["POST", "/api/engine/party-links"],
-    ["POST", "/api/engine/introductions"],
-    ["POST", `/api/engine/introductions/${id}`],
     ["GET", "/api/engine/parties/search?query=Avery"],
   ];
   for (const [method, path] of doors) {
@@ -3044,6 +3042,31 @@ test("Party saves and their read reach the engine only with Clients and Vendors 
     assert.deepEqual(off.engine, []);
     const on = fixture(new Map([["clients-vendors-from-engine", "on"]]));
     assert.equal((await worker.fetch(request(), on.env)).status, 200, `${method} ${path}`);
+    assert.equal(on.engine[0]?.url, origin + path);
+  }
+});
+
+test("An introduction saves only with Clients and Vendors, Deals and Deal saves on the engine", async () => {
+  const id = "00000000-0000-4000-8000-000000000001";
+  const clientsVendors = ["clients-vendors-from-engine", "on"] as const;
+  const dealsRead = ["deals-from-engine", "on"] as const;
+  const dealSaves = ["deals-saves-from-engine", "on"] as const;
+  for (const path of ["/api/engine/introductions", `/api/engine/introductions/${id}`]) {
+    const request = () =>
+      new Request(origin + path, { method: "POST", headers: { cookie: "session=synthetic", origin }, body: "{}" });
+    for (const routing of [
+      [],
+      [clientsVendors],
+      [clientsVendors, dealsRead],
+      [clientsVendors, dealSaves],
+      [dealsRead, dealSaves],
+    ]) {
+      const off = fixture(new Map(routing));
+      assert.equal((await worker.fetch(request(), off.env)).status, 404, `${path} with ${routing.map(([k]) => k)}`);
+      assert.deepEqual(off.engine, []);
+    }
+    const on = fixture(new Map([clientsVendors, dealsRead, dealSaves]));
+    assert.equal((await worker.fetch(request(), on.env)).status, 200, path);
     assert.equal(on.engine[0]?.url, origin + path);
   }
 });
