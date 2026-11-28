@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { type ReactNode, useState, useSyncExternalStore } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import {
@@ -50,9 +50,63 @@ export function signingCaption(plan: Plan | null | undefined, today: string) {
 const signingName = (recorded: boolean) => (recorded ? "Lease signed" : "Lease signing");
 const stepMap = (steps: SourceStep[]) => new Map(steps.map((step) => [`step:${step.id}`, step]));
 
+const phonePlan = () => matchMedia("(width < 600px)");
+function subscribePhonePlan(change: () => void) {
+  const media = phonePlan();
+  media.addEventListener("change", change);
+  return () => media.removeEventListener("change", change);
+}
+
+function PlanDateList({
+  groups,
+  today,
+  opened,
+  open,
+  detail,
+}: {
+  groups: TimelineGroup[];
+  today: string;
+  opened: string | undefined;
+  open: (id: string) => void;
+  detail: ReactNode;
+}) {
+  const items = groups.flatMap((group) =>
+    group.rows.map((row) => ({
+      row,
+      start: "start" in row ? row.start : null,
+      day: rowDay(row),
+    })),
+  );
+  items.sort((a, b) => (a.day ?? a.start ?? "9999").localeCompare(b.day ?? b.start ?? "9999"));
+  if (!items.length) return <p role="status">No matching items</p>;
+  return (
+    <ul className="deal-plan-items" aria-label="Plan items">
+      {items.map(({ row, start, day }) => (
+        <li key={row.id} className="deal-plan-item">
+          <button type="button" aria-expanded={opened === row.id} onClick={() => open(row.id)}>
+            {row.name}
+          </button>
+          <div className="deal-plan-item-meta">
+            <span>
+              {PHASES[row.phase]}
+              {row.kind === "step" && ` · ${row.owner}`}
+            </span>
+            <span>
+              {start && start !== day && `From ${dayText(start, today)} · `}
+              {row.when ?? (start ? "No end date recorded" : "No date recorded")}
+            </span>
+          </div>
+          {opened === row.id && detail}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function PlanScreen(props: Inputs) {
   const { today, viewer } = props;
   const board = props.mode === "board";
+  const phone = useSyncExternalStore(subscribePhonePlan, () => phonePlan().matches) && !board;
   const [owner, setOwner] = useState("");
   const [filter, setFilter] = useState("");
   const [view, setView] = useState<View | null>(null);
@@ -245,6 +299,23 @@ function PlanScreen(props: Inputs) {
   const selectedDay = selected ? rowDay(selected) : null;
   const selectedDate = selected?.kind === "todo" ? selected.when : selectedDay && dayText(selectedDay, today);
   const foldKey = props.mode === "plan" ? `deal-${props.deal}` : "deals";
+  const detail = selected && (
+    <section className="deal-plan-details" aria-label={selected.name}>
+      <button type="button" className="btn btn-quiet" aria-label="Close item" onClick={() => setOpened(undefined)}>
+        ×
+      </button>
+      <h3>{selected.name}</h3>
+      <p>{selected.kind === "step" ? selected.owner : PHASES[selected.phase]}</p>
+      {selectedDate && <p>{selectedDate}</p>}
+    </section>
+  );
+  if (phone)
+    return (
+      <div className="deal-plan-mobile">
+        {controls}
+        <PlanDateList groups={groups} today={today} opened={opened} open={setOpened} detail={detail} />
+      </div>
+    );
   return (
     <div className="deal-plan" data-board={board || undefined}>
       <aside className="deal-plan-list">
@@ -322,16 +393,7 @@ function PlanScreen(props: Inputs) {
           <span>Expected</span>
         </footer>
       </div>
-      {selected && (
-        <section className="deal-plan-details" aria-label={selected.name}>
-          <button type="button" className="btn btn-quiet" aria-label="Close item" onClick={() => setOpened(undefined)}>
-            ×
-          </button>
-          <h3>{selected.name}</h3>
-          <p>{selected.kind === "step" ? selected.owner : PHASES[selected.phase]}</p>
-          {selectedDate && <p>{selectedDate}</p>}
-        </section>
-      )}
+      {detail}
     </div>
   );
 }

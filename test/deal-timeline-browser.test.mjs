@@ -197,24 +197,15 @@ async function showPlan(page) {
  return page.getByRole('tabpanel',{name:'Plan'});
 }
 
-for(const [width,height,touch] of [[1280,640,false],[1440,900,false],[390,844,true]]) {
+for(const [width,height] of [[1280,640],[1440,900]]) {
  test(`Plan keeps the chart on screen at ${width} × ${height}`,async t=>{
-  const {page,errors}=await open(t,{width,height,touch});
+  const {page,errors}=await open(t,{width,height});
   const tab=await showPlan(page);
   await tab.getByRole('button',{name:'Sign the lease',exact:true}).first().waitFor();
-  if(touch) {
-   await tab.getByRole('button',{name:'Sign the lease',exact:true}).first().tap();
-   const detail=tab.getByRole('region',{name:'Sign the lease'});
-   await detail.waitFor();
-   assert.match(await detail.innerText(),/exp\. Oct 17/);
-   assert.equal(await tab.getByRole('button',{name:/Change date for/}).count(),0);
-   assert.equal(await tab.locator('.timeline-scroll').evaluate(node=>node.scrollWidth>node.clientWidth),true);
-  } else {
-   await tab.getByRole('button',{name:'Recorded only'}).click();
-   assert.equal(await tab.getByRole('button',{name:/Sign the lease/}).count(),0);
-   assert.equal(await tab.getByRole('button',{name:/Review the lease/}).count()>0,true);
-   await tab.getByRole('button',{name:'Recorded only'}).click();
-  }
+  await tab.getByRole('button',{name:'Recorded only'}).click();
+  assert.equal(await tab.getByRole('button',{name:/Sign the lease/}).count(),0);
+  assert.equal(await tab.getByRole('button',{name:/Review the lease/}).count()>0,true);
+  await tab.getByRole('button',{name:'Recorded only'}).click();
   await mkdir(new URL('out/test-artifacts/',root),{recursive:true});
   await page.screenshot({path:new URL(`out/test-artifacts/deal-plan-${width}.png`,root).pathname});
   assert.equal(await tab.evaluate(node=>{
@@ -226,6 +217,26 @@ for(const [width,height,touch] of [[1280,640,false],[1440,900,false],[390,844,tr
   assert.deepEqual(errors,[]);
  });
 }
+
+test('Phone Plan lists items in date order and opens them inline',async t=>{
+ const {page,errors}=await open(t,{width:390,height:844,touch:true});
+ const tab=await showPlan(page);
+ const list=tab.getByRole('list',{name:'Plan items'});
+ await list.getByRole('button',{name:'Sign the lease',exact:true}).waitFor();
+ assert.deepEqual(await list.getByRole('button').allTextContents(),['Call about the lease','Review the lease','Sign the lease']);
+ const step=list.getByRole('listitem').first();
+ assert.match(await step.innerText(),/Legal · Dell/);
+ assert.match(await step.innerText(),/From Oct 4 · Oct 7/);
+ await list.getByRole('button',{name:'Sign the lease',exact:true}).tap();
+ const detail=list.getByRole('region',{name:'Sign the lease'});
+ await detail.waitFor();
+ assert.match(await detail.innerText(),/exp\. Oct 17/);
+ assert.equal(await tab.locator('.timeline').count(),0);
+ assert.deepEqual(errors,[]);
+ await page.setViewportSize({width:600,height:844});
+ await tab.getByRole('group',{name:'Zoom'}).waitFor();
+ assert.equal(await tab.getByRole('list',{name:'Plan items'}).count(),0);
+});
 
 test('Overview names the signing date as recorded after the signing to-do is finished', async t=>{
  const {page}=await open(t,{width:1440,height:900});
@@ -279,13 +290,28 @@ for(const [width,height,touch] of [[1280,640,false],[1440,900,false],[390,844,tr
    assert.ok(!layout.clipped && layout.top<=layout.labelTop && layout.labelBottom<=layout.phaseTop && layout.phaseBottom<=layout.bottom,JSON.stringify(layout));
   }
  } else {
-  const bounds=await groups.evaluateAll(rows=>{
-   const scroll=rows[0].closest('.timeline-scroll').getBoundingClientRect();
-   return {first:Math.round(rows[0].getBoundingClientRect().top),fullyVisible:rows.filter(row=>row.getBoundingClientRect().bottom<=scroll.bottom).length,chartBottom:scroll.bottom};
+  await page.locator('#boardTimelineTools').getByRole('button',{name:'Today',exact:true}).waitFor();
+  // Reserve the space that a non-overlay scrollbar uses inside the chart box.
+  await page.addStyleTag({content:"#boardTimeline .timeline-scroll { border-block-end: 12px solid transparent; }"});
+  const bounds=await groups.evaluateAll(async rows=>{
+   await document.fonts.ready;
+   await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+   const scroller=rows[0].closest('.timeline-scroll');
+   const scroll=scroller.getBoundingClientRect();
+   const visibleTop=scroller.querySelector('.timeline-head').getBoundingClientRect().bottom;
+   const visibleBottom=scroll.top+scroller.clientTop+scroller.clientHeight;
+   const boxes=rows.map(row=>row.getBoundingClientRect());
+   return {
+    first:Math.round(boxes[0].top),
+    fullyVisible:boxes.filter(row=>row.top>=visibleTop-0.5 && row.bottom<=visibleBottom+0.5).length,
+    borderBottom:scroll.bottom, visibleTop, visibleBottom, scrollTop:scroller.scrollTop,
+    lastExpectedBottom:boxes[innerWidth===1280?13:21].bottom,
+   };
   });
+  assert.ok(bounds.borderBottom-bounds.visibleBottom>=12,JSON.stringify(bounds));
   assert.equal(bounds.first,100,JSON.stringify(bounds));
-  assert.equal(bounds.fullyVisible,width===1280?14:22);
-  assert.ok(bounds.chartBottom<=height);
+  assert.equal(bounds.fullyVisible,width===1280?14:22,JSON.stringify(bounds));
+  assert.ok(bounds.borderBottom<=height,JSON.stringify(bounds));
  }
  assert.equal(await chart.locator('.timeline-scroll').evaluate(node=>node.scrollWidth>node.clientWidth),true);
  assert.equal(await chart.getByRole('button',{name:'Sign the lease',exact:true}).count(),0);
