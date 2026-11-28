@@ -1,5 +1,7 @@
 type Category = { slug: string; label: string };
 
+type Market = { id: string; name: string };
+
 type Vendor = {
   id: string;
   name: string;
@@ -10,7 +12,8 @@ type Vendor = {
   recorded_disposition: "active" | "parked" | "avoid";
   relationship_level: number | null;
   relationship: { last_contacted_at: string | null };
-  territory: string;
+  territory: string | null;
+  markets: Market[];
   city: string;
   state: string;
   is_target: boolean;
@@ -18,11 +21,12 @@ type Vendor = {
   quiet_days: number | null;
 };
 
-export type VendorRoster = { rows: Vendor[]; categories: Category[] };
+export type VendorRoster = { rows: Vendor[]; categories: Category[]; markets: Market[] };
 
 export function vendorRoster(options?: {
   uncategorized?: boolean;
   banking?: string;
+  markets?: boolean;
   noQuietContact?: boolean;
 }): VendorRoster;
 

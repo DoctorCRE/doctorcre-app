@@ -44,23 +44,29 @@ export async function holdVendorList(page: Page, query: string) {
 export async function openVendors(
   t: TestContext,
   roster: VendorRoster,
-  { width = 1440, height = 900, view = "/vendors", live = false, light = false, holdQuery = "" } = {},
+  { width = 1440, height = 900, view = "/vendors", live = false, light = false, touch = false, holdQuery = "" } = {},
 ) {
   const server = await ownedServer();
   t.after(() => server.stop());
   const browser = await chromium.launch();
   t.after(() => browser.close());
-  const page = await browser.newPage({ viewport: { width, height }, colorScheme: light ? "light" : "dark" });
+  const page = await browser.newPage({
+    viewport: { width, height },
+    colorScheme: light ? "light" : "dark",
+    isMobile: touch,
+  });
   if (light)
     await page.addInitScript(() =>
       localStorage.setItem("doctorcre.visual-preferences", JSON.stringify({ theme: "light" })),
     );
   const asked: URL[] = [];
-  await page.route("**/api/v1/business/**", (route) => {
-    const url = route.request().url();
-    asked.push(new URL(url));
-    return route.fulfill({ json: directoryFixture(url, { roster }) });
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname.startsWith("/api/v1/business/")) asked.push(url);
   });
+  await page.route("**/api/v1/business/**", (route) =>
+    route.fulfill({ json: directoryFixture(route.request().url(), { roster }) }),
+  );
   await page.route("**/mcp", (route) =>
     route.fulfill({
       json: {
@@ -74,13 +80,18 @@ export async function openVendors(
     await page.route("**/auth/session", (route) =>
       route.fulfill({ json: { actor: { slug: "joe" }, csrf_token: "synthetic" } }),
     );
+  }
+  if (live || roster.markets.length) {
+    const flags = [live && "data-clients-vendors-from-engine", roster.markets.length && "data-vendor-territory-tiles"]
+      .filter(Boolean)
+      .join(" ");
     await page.route(
       (url) => url.pathname === "/vendors",
       async (route) => {
         const response = await route.fetch();
         return route.fulfill({
           response,
-          body: (await response.text()).replace("<html ", "<html data-clients-vendors-from-engine "),
+          body: (await response.text()).replace("<html ", `<html ${flags} `),
         });
       },
     );
@@ -141,13 +152,36 @@ function screenRow(
   return {
     name: row.name,
     relationship: relationships[rank]?.[1] ?? "",
-    territory: row.territory,
+    territory: row.territory ?? "",
     contact: date ? date + days : row.quiet ? "No contact yet" : "",
     target: row.is_target && rank !== 6 ? "Want to meet" : "",
     owner: phone ? "" : row.owner_label,
     category: phone || inCategory || cardOpen ? "" : (row.recorded_category_label ?? ""),
     location: phone || cardOpen ? "" : `${row.city}, ${row.state}`,
   };
+}
+
+function inMarket(row: Vendor, market: string) {
+  if (!market) return true;
+  if (market === "elsewhere") return row.territory !== null && row.markets.length === 0;
+  if (market === "no_territory") return row.territory === null;
+  return row.markets.some(({ id }) => id === market);
+}
+
+function territoryTiles(markets: VendorRoster["markets"], rows: Vendor[], selected: string) {
+  const filter = (id: string, label: string, count: number) => ({
+    label,
+    count: String(count),
+    pressed: id === selected,
+  });
+  return [
+    filter("", "All territories", rows.length),
+    ...markets
+      .map(({ id, name }) => filter(id, name, rows.filter((row) => inMarket(row, id)).length))
+      .filter(({ count }) => count !== "0"),
+    filter("elsewhere", "Elsewhere", rows.filter((row) => inMarket(row, "elsewhere")).length),
+    filter("no_territory", "No territory", rows.filter((row) => inMarket(row, "no_territory")).length),
+  ];
 }
 
 export function screenFor(
@@ -158,7 +192,15 @@ export function screenFor(
     page = 1,
     loading = false,
     fromTile = false,
-  }: { view?: string; layout?: "desktop" | "phone"; page?: number; loading?: boolean; fromTile?: boolean } = {},
+    meetings = false,
+  }: {
+    view?: string;
+    layout?: "desktop" | "phone";
+    page?: number;
+    loading?: boolean;
+    fromTile?: boolean;
+    meetings?: boolean;
+  } = {},
 ) {
   const url = new URL(view, origin);
   const query = url.searchParams;
@@ -171,39 +213,44 @@ export function screenFor(
   const owner = query.get("owner");
   const showTiles = !inCategory && !search && !quiet && !query.has("all") && !query.has("scope");
   const phone = layout === "phone";
+  const marketsEnabled = roster.markets.length > 0 && !query.has("scope") && (inCategory || query.has("all"));
+  const market = query.get("market") ?? "";
   const place = noCategory
     ? "No category"
     : loading && !fromTile
       ? ""
       : (roster.categories.find((entry) => entry.slug === category)?.label ?? "");
   const owned = roster.rows.filter((row) => !owner || row.owner_label.toLowerCase() === owner);
-  const matching = owned.filter(
+  const placeRows = owned.filter(
     (row) =>
       (!query.has("scope") || row.owned_by_viewer) &&
       (!category || row.categories.some((entry) => entry.slug === category)) &&
-      (!noCategory || row.categories.length === 0) &&
-      (!quiet || row.quiet) &&
-      row.name.toLowerCase().includes(search),
+      (!noCategory || row.categories.length === 0),
   );
+  const matching = placeRows.filter((row) => (!quiet || row.quiet) && row.name.toLowerCase().includes(search));
   const count = `${matching.length} ${matching.length === 1 ? "vendor" : "vendors"}`;
   const status = loading ? "Checking…" : count;
   const ranked = matching.toSorted(
     (a, b) => (sort === "name" ? 0 : relationshipRank(a) - relationshipRank(b)) || a.name.localeCompare(b.name),
   );
-  const window = inCategory ? ranked : ranked.slice(0, page * PAGE_SIZE);
+  const window = inCategory || marketsEnabled ? ranked : ranked.slice(0, page * PAGE_SIZE);
   const relation = query.get("relationship");
-  const rows = window.filter((row) => !relation || relationships[relationshipRank(row)]?.[0] === relation);
+  const rows = window.filter(
+    (row) => inMarket(row, market) && (!relation || relationships[relationshipRank(row)]?.[0] === relation),
+  );
+  const showRows = !showTiles && !loading && !meetings;
   const categories = roster.categories.map(
     ({ label, slug }) => [label, owned.filter((row) => row.categories.some((entry) => entry.slug === slug))] as const,
   );
   return {
     address: address(url),
     heading: phone ? place : place ? `${place} · ${status}` : loading && category ? "" : status,
-    placeholder: place ? `Find in ${place}` : "Find a vendor",
+    placeholder: meetings ? "" : place ? `Find in ${place}` : "Find a vendor",
     loading,
-    categoryColumn: !phone && !loading && !showTiles && !inCategory && !query.has("record") && rows.length > 0,
+    categoryColumn: !phone && showRows && !inCategory && !query.has("record") && rows.length > 0,
+    territories: marketsEnabled && !meetings ? territoryTiles(roster.markets, placeRows, market) : [],
     tiles:
-      showTiles && !loading
+      showTiles && !loading && !meetings
         ? [
             tile("All vendors", owned, phone),
             ...[...categories, ["No category", owned.filter((row) => row.categories.length === 0)] as const]
@@ -211,11 +258,8 @@ export function screenFor(
               .map(([label, rows]) => tile(label, rows, phone)),
           ]
         : [],
-    rows:
-      showTiles || loading
-        ? []
-        : rows.map((row) => screenRow(row, { phone, inCategory, cardOpen: query.has("record") })),
-    empty: !loading && !showTiles && rows.length === 0 ? "No vendors match these filters" : "",
+    rows: showRows ? rows.map((row) => screenRow(row, { phone, inCategory, cardOpen: query.has("record") })) : [],
+    empty: showRows && rows.length === 0 ? "No vendors match these filters" : "",
   };
 }
 
@@ -253,6 +297,11 @@ export async function expectVendorScreen(page: Page, expected: ReturnType<typeof
           placeholder: input && visible(input) ? input.placeholder : "",
           loading: find(".record-skeleton, #directoryTiles .skeleton-line").length > 0,
           categoryColumn: find('.list-head [data-fact="Category"]').length > 0,
+          territories: find("#vendorTerritories button").map((button) => ({
+            label: text(button, "span:first-child"),
+            count: text(button, ".tile-n"),
+            pressed: button.getAttribute("aria-pressed") === "true",
+          })),
           tiles: find("a.directory-tile").map((tile) => ({
             label: text(tile, ".tile-name"),
             count: text(tile, ".tile-count"),

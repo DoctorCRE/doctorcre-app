@@ -24,8 +24,8 @@ import { fetchRead, mountAutoRefresh, updatedLabel } from "./auto-refresh.mjs";
 // generations (see expireSession). Ordinary trouble — unreachable, offline, a
 // refused filter — deliberately does none of that.
 //
-// NOTHING HERE COUNTS OR FILTERS. The total, the page window and the matching
-// set are the server's answers; this file renders them or says why it cannot.
+// The server supplies the matching set. The whole vendor table also applies
+// its relationship and market filters locally.
 
 import {
   DATASET_LABEL, DATASET_ROUTE, DATASET_SINGULAR, MAX_QUERY_LENGTH,
@@ -57,6 +57,7 @@ const dom = {
   scopeNote: document.querySelector("#scopeNote"),
   reset: document.querySelector("#resetFilters"),
   tableFilters: document.querySelector("#tableFilters"),
+  territories: document.querySelector("#vendorTerritories"),
   chips: document.querySelector("#chipBar"),
   notices: document.querySelector("#noticeRegion"),
   summary: document.querySelector("#resultSummary"),
@@ -97,6 +98,7 @@ phoneWidth.addEventListener("change", event => {
 const directoryViews = [...document.querySelectorAll("[data-directory-view]")];
 function showDirectoryView(name) {
   document.body.dataset.directoryView = name;
+  if (name === "meetings") renderVendorTerritories();
   for (const button of directoryViews) button.setAttribute("aria-pressed", String(button.dataset.directoryView === name));
 }
 
@@ -171,7 +173,8 @@ async function readCardSection(kind, id, signal) {
 const vendorDoors = {
   add: (deal, party, role) => saveDealParty(deal, "", party, role),
   remove: (deal, party, role) => saveDealParty(deal, "/remove", party, role),
-  introduce: saveIntroduction,
+  recordSource: saveIntroduction,
+  removeIntroduction,
   findVendors: readVendorMatches,
   roles: readVendorRoles,
   vendorHref: id => viewHref(defaultQuery("vendors"), id),
@@ -181,13 +184,37 @@ const vendorDoors = {
 async function saveDealParty(deal, suffix, party_id, role) {
   const client = await dealroomClient();
   const path = `/api/engine/deals/${encodeURIComponent(deal)}/parties${suffix}`;
-  return client.savePartnerRecord(path, `client-deal${suffix}:${deal}:${party_id}:${role}`, "party_id", { party_id, role });
+  return client.savePartnerRecordOnce(path, "party_id", { party_id, role });
 }
 
-async function saveIntroduction(introduction) {
+async function removeIntroduction({ id, version }) {
   const client = await dealroomClient();
-  const key = `client-deal-introduction:${introduction.deal_id}:${introduction.vendor_id}`;
-  return client.savePartnerRecord("/api/engine/introductions", key, "introduction_id", { made_by: "team", ...introduction });
+  return client.savePartnerRecordOnce(`/api/engine/introductions/${encodeURIComponent(id)}/remove`, "introduction_id", { version });
+}
+
+async function saveIntroduction({ deal, client, vendor, by, on, replaces, guarded }) {
+  const session = await dealroomClient();
+  if (by === "unrecorded") {
+    const outcome = replaces ? await removeIntroduction(replaces) : { ok: true };
+    return outcome.ok ? { ok: true, introduction: null } : outcome;
+  }
+  const args = {
+    made_by: by === "client" ? "client" : "team",
+    ...(by === "client" ? {} : { introduced_by: by }),
+    introduced_party_id: client,
+    vendor_id: vendor,
+    deal_id: deal,
+    introduced_on: on,
+    ...(guarded && { unrecorded_only: true }),
+    ...(replaces && { replaces: replaces.id, replace_version: replaces.version }),
+  };
+  if (!guarded && replaces) return { ok: false, problem: { error: "introduction_already_recorded" } };
+  const result = await session.savePartnerRecordOnce("/api/engine/introductions", "introduction_id", args);
+  if (!result.ok) return result;
+  const { made_by, introduced_by, introduction_id, version, introduced_on, introduced_party_id } = result.data;
+  const savedBy = made_by === "client" ? "client" : introduced_by;
+  if (savedBy !== "client" && savedBy !== "joe" && savedBy !== "dell") return { ok: false, pending: true };
+  return { ok: true, introduction: { id: introduction_id, by: savedBy, version, on: introduced_on, party: introduced_party_id } };
 }
 
 async function readVendorMatches(query, signal) {
@@ -238,7 +265,6 @@ async function syncVendorMeetings() {
   const host = document.createElement('div');
   vendorMeetingsHost = host;
   host.className = 'vendor-meetings-host';
-  host.setAttribute('data-panel-background', '');
   dom.listRegion.closest(".business-body").after(host);
   try {
     const { mountVendorMeetings } = await import('./ui-vendor-meetings.generated.js');
@@ -625,12 +651,64 @@ function headHtml(dataset) {
   return `<li class="list-head"><span class="row-head">${columnHeading(dataset, "Name")}</span><span class="row-facts">${facts}</span>${dataset === "vendors" ? '<span class="contact-note">Last contacted</span>' : ""}<span class="row-foot"><span class="row-owner">${columnHeading(dataset, "Owner")}</span><span class="row-updated">${columnHeading(dataset, "Updated")}</span></span></li>`;
 }
 
+// The approved order of the partners' markets, from west to east.
+const MARKET_ORDER = [
+  "Mobile", "Eastern Shore", "Orange Beach / Gulf Shores", "Dothan", "Pensacola", "Pace", "Milton",
+  "Gulf Breeze", "Navarre", "Crestview", "Niceville", "Fort Walton Beach", "Destin", "Miramar Beach",
+  "30A / Santa Rosa Beach", "Freeport", "Panama City Beach", "Panama City", "Tallahassee",
+];
+
+function showsVendorTerritories(query) {
+  return query.dataset === "vendors" && query.scope === "team" && Boolean(query.category || query.no_category || query.all)
+    && document.documentElement.hasAttribute("data-vendor-territory-tiles");
+}
+
+function inVendorMarket(row, market) {
+  if (!market) return true;
+  if (market === "no_territory") return !row.territory;
+  if (market === "elsewhere") return Boolean(row.territory) && row.markets?.length === 0;
+  return row.markets?.some(({ id }) => id === market);
+}
+
+function renderVendorTerritories() {
+  const { query } = view;
+  const enabled = !view.signedOut && document.body.dataset.directoryView !== "meetings" && showsVendorTerritories(query);
+  const summary = enabled ? directoryTileCounts() : null;
+  const counts = query.category ? summary?.categories.find(({ slug }) => slug === query.category)
+    : query.no_category ? summary?.no_category : summary?.all;
+  if (!dom.territories) return;
+  dom.territories.hidden = !counts?.markets;
+  if (counts?.markets && dom.territories.nextElementSibling !== dom.tableFilters) {
+    dom.territories.after(dom.tableFilters);
+  } else if (!counts?.markets && dom.territories.nextElementSibling === dom.tableFilters) {
+    document.querySelector(".search-dock .hero-meta").before(dom.tableFilters);
+  }
+  if (!counts?.markets) return;
+  const markets = new Map(counts.markets.map((market) => [market.name, market]));
+  const ordered = MARKET_ORDER.flatMap((name) => markets.has(name) ? [markets.get(name)] : []);
+  const tiles = [
+    { id: "", name: "All territories", count: counts.count },
+    ...ordered,
+    { id: "elsewhere", name: "Elsewhere", count: counts.elsewhere },
+    { id: "no_territory", name: "No territory", count: counts.no_territory },
+  ];
+  const focus = document.activeElement?.dataset.marketFilter;
+  const html = tiles.map(({ id, name, count }) =>
+    `<button type="button" data-market-filter="${escapeHtml(id)}" aria-pressed="${(query.market ?? "") === id}"><span>${escapeHtml(name)}</span><span class="tile-n">${count}</span></button>`).join("");
+  if (dom.territories.innerHTML === html) return;
+  const scroll = dom.territories.scrollLeft;
+  dom.territories.innerHTML = html;
+  dom.territories.scrollLeft = scroll;
+  if (focus !== undefined) focusWithoutScrolling(dom.territories.querySelector(`[data-market-filter="${CSS.escape(focus)}"]`));
+}
+
 // Inside one category the counts are the colors' key and a filter; Quiet asks the engine for quiet vendors only.
 function vendorFiltersHtml(payload) {
   const { relationship, quiet, category, no_category: noCategory } = view.query;
-  const inCategory = Boolean(category || noCategory) && holdsWholeList(payload);
-  const counts = inCategory ? relationshipCounts(payload.rows) : null;
-  const quietCount = counts ? ` <span class="tile-n">${payload.rows.filter((row) => row.quiet).length}</span>` : "";
+  const inCategory = Boolean(category || noCategory || showsVendorTerritories(view.query)) && holdsWholeList(payload);
+  const rows = payload.rows.filter((row) => inVendorMarket(row, view.query.market));
+  const counts = inCategory ? relationshipCounts(rows) : null;
+  const quietCount = counts ? ` <span class="tile-n">${rows.filter((row) => row.quiet).length}</span>` : "";
   const words = counts ? Object.entries(RELATIONSHIP_WORDS).filter(([key]) => counts[key] > 0 || key === relationship).map(([key, word]) =>
     `<button type="button" class="filter-count" data-relationship="${key}" data-relationship-filter="${key}" aria-pressed="${key === relationship}">${relationshipShape(key)}${word} <span class="tile-n">${counts[key]}</span></button>`).join("") : "";
   return `${words}<button type="button" class="filter-count quiet-filter" data-quiet-filter aria-pressed="${quiet === "true"}">Quiet${quietCount}</button>`;
@@ -646,14 +724,14 @@ function clientFiltersHtml(counts) {
 function renderTableFilters(payload) {
   const clients = view.dataset === "clients";
   dom.list.toggleAttribute("data-in-category", clients ? Boolean(view.query.practice_type || view.query.not_set) : Boolean(view.query.category || view.query.no_category));
-  const counts = clients && payload && view.place ? placeCounts(clientTileCounts(), view.query, view.accounts.list) : null;
+  const counts = clients && payload && view.place ? placeCounts(directoryTileCounts(), view.query, view.accounts.list) : null;
   dom.tableFilters.hidden = !payload || (clients && !counts);
   if (!dom.tableFilters.hidden) dom.tableFilters.innerHTML = clients ? clientFiltersHtml(counts) : vendorFiltersHtml(payload);
 }
 
 /** The opening tiles' counts for this owner, read once when a tile's list was opened from a link. */
-function clientTileCounts() {
-  const key = `clients:${view.query.owner}`;
+function directoryTileCounts() {
+  const key = `${view.dataset}:${view.query.owner}`;
   if (view.tiles.key === key && view.tiles.payload) return view.tiles.payload;
   if (view.tiles.key !== key || view.tiles.status === "idle") void loadPlaceCounts(key);
   return null;
@@ -661,17 +739,21 @@ function clientTileCounts() {
 
 async function loadPlaceCounts(key) {
   const sequence = ++view.tiles.sequence;
-  Object.assign(view.tiles, { key, status: "loading", payload: null });
+  const { dataset, query } = view;
+  const previous = view.tiles.key === key ? view.tiles.payload : null;
+  Object.assign(view.tiles, { key, status: "loading", payload: previous });
   let payload = null;
   try {
-    const response = await fetchRead(tilesRequestUrl({ ...defaultQuery("clients"), owner: view.query.owner }), { headers: { accept: "application/json" }, cache: "no-store" });
-    if (response.ok) payload = tilesFrom("clients", await response.json());
+    const response = await fetchRead(tilesRequestUrl({ ...defaultQuery(dataset), owner: query.owner }), { headers: { accept: "application/json" }, cache: "no-store" });
+    if (response.status === 401) return expireNow();
+    if (response.ok) payload = tilesFrom(dataset, await response.json());
   } catch {
     payload = null;
   }
   if (sequence !== view.tiles.sequence) return;
-  Object.assign(view.tiles, { status: payload ? "ready" : "error", payload });
-  if (payload && view.list.payload && !showsTiles(view.query)) renderTableFilters(view.list.payload);
+  Object.assign(view.tiles, { status: payload ? "ready" : "error", payload: payload ?? previous });
+  if (dataset === "vendors") renderVendorTerritories();
+  else if (payload && view.list.payload && !showsTiles(view.query)) renderTableFilters(view.list.payload);
 }
 
 function paintList(html, { busy = false } = {}) {
@@ -733,6 +815,7 @@ function renderList() {
   document.body.toggleAttribute("data-tiles", tiles);
   dom.tiles.hidden = !tiles;
   dom.listRegion.hidden = tiles;
+  renderVendorTerritories();
   if (tiles) { renderTableFilters(null); return renderTiles(); }
   const phase = listPhase({ status: list.status, payload: list.payload, query, dataset, signedOut: view.signedOut });
   view.freshnessKey = list.payload ? freshnessSignature(list.payload, dataset) : null;
@@ -778,7 +861,7 @@ function renderList() {
 
   renderTableFilters(payload);
   const rows = (view.loadedRows || payload.rows).filter((row) =>
-    !query.relationship || !holdsWholeList(payload) || vendorRelationship(row).key === query.relationship);
+    inVendorMarket(row, query.market) && (!query.relationship || !holdsWholeList(payload) || vendorRelationship(row).key === query.relationship));
   if (rows.length === 0) {
     renderEmpty(payload.out_of_range ? "out-of-range" : hasActiveFilters(query) ? "empty-no-matches" : "empty-no-records");
   } else {
@@ -949,24 +1032,48 @@ const FOCUSABLE = 'summary, a[href], button:not([disabled]), input:not([disabled
 
 function panelIsModal() { return Boolean(view.recordId) && phoneWidth.matches; }
 
-function backgroundRegions() { return [...document.querySelectorAll("[data-panel-background], #appShell")]; }
+const panelBackground = new Map();
+
+function updatePanelBackground(modal, backdrop) {
+  const covered = new Set();
+  if (modal) {
+    // eslint-disable-next-line no-restricted-syntax -- Stop at the document body after visiting the card’s ancestor chain.
+    for (let node = dom.panel; node !== document.body; node = node.parentElement) {
+      for (const sibling of node.parentElement.children) {
+        // The backdrop dismisses the record. Native dialogs manage their own modality.
+        if (sibling !== node && sibling !== backdrop && sibling instanceof HTMLElement && !(sibling instanceof HTMLDialogElement)) {
+          covered.add(sibling);
+        }
+      }
+    }
+  }
+  for (const [region, previous] of panelBackground) {
+    if (covered.has(region)) continue;
+    region.inert = previous.inert;
+    if (previous.ariaHidden === null) region.removeAttribute("aria-hidden");
+    else region.setAttribute("aria-hidden", previous.ariaHidden);
+    panelBackground.delete(region);
+  }
+  for (const region of covered) {
+    if (!panelBackground.has(region)) {
+      panelBackground.set(region, { inert: region.inert, ariaHidden: region.getAttribute("aria-hidden") });
+    }
+    region.inert = true;
+    region.setAttribute("aria-hidden", "true");
+  }
+}
 
 function applyPanelModality() {
   if (!dom.panel) return;
   const modal = panelIsModal();
   document.body.toggleAttribute("data-card-open", Boolean(view.recordId) && !modal);
-  document.querySelector('#recordBackdrop').hidden = !modal;
+  const backdrop = document.querySelector('#recordBackdrop');
+  backdrop.hidden = !modal;
   document.body.classList.toggle('record-open', modal);
   dom.panel.setAttribute("role", modal ? "dialog" : "complementary");
   if (modal) dom.panel.setAttribute("aria-modal", "true");
   else dom.panel.removeAttribute("aria-modal");
-  for (const region of backgroundRegions()) {
-    // `inert` is the real containment; aria-hidden keeps assistive technology
-    // out of the covered content where inert is not supported yet.
-    region.inert = modal;
-    if (modal) region.setAttribute("aria-hidden", "true");
-    else region.removeAttribute("aria-hidden");
-  }
+  updatePanelBackground(modal, backdrop);
 }
 
 /**
@@ -1062,7 +1169,12 @@ function relationshipControlHtml(relationship) {
   const shown = `${relationshipShape(relationship.key)}${relationship.word}`;
   const read = view.role.id === view.recordId;
   const role = read ? view.role.value : null;
-  if (!partyEditor || (read && !role)) return `<span class="rel-word" data-relationship="${relationship.key}">${shown}</span>${wantToMeetHtml(relationship)}`;
+  if (!partyEditor || (read && !role)) {
+    const label = `<span class="rel-word" data-relationship="${relationship.key}">${shown}</span>${wantToMeetHtml(relationship)}`;
+    return partyEditor
+      ? `${label}<span role="alert">Could not load the relationship.</span><button type="button" class="action secondary-action" data-retry="relationship">Try again</button>`
+      : label;
+  }
   const item = (attrs, label, current = false) => `<button type="button" class="rel-choice" ${attrs}${current ? ' aria-current="true"' : ""}>${label}</button>`;
   const choices = [
     ...LEVEL_CHOICES.map(([key, level]) => item(`data-rel-level="${level}" data-relationship="${key}"`, `${relationshipShape(key)}${RELATIONSHIP_WORDS[key]}`, key === relationship.key)),
@@ -1101,9 +1213,14 @@ async function chooseRelationship(choice) {
 }
 
 async function loadRole(id) {
-  if (!partyEditor || view.dataset !== "vendors") return;
+  if (!partyEditor || view.dataset !== "vendors" || view.record.status !== "ready") return;
+  const sequence = view.record.sequence;
+  if (view.role.id === id && !view.role.value) {
+    view.role = { id: null, value: null };
+    renderRecordPanel();
+  }
   const value = await partyEditor.vendorRole();
-  if (view.recordId !== id) return;
+  if (view.recordId !== id || !acceptsResponse(view.record.sequence, sequence)) return;
   view.role = { id, value };
   renderRecordPanel();
 }
@@ -1160,7 +1277,9 @@ function renderRecordPanel() {
   const firm = vendor && payload.record.party_kind === "person" ? payload.record.people?.find((person) => person.company)?.company.name : null;
   paintPanelHead(`${firm ? `<span>${escapeHtml(withoutRecordCodes(firm))}</span>` : ""}${category?.resolved ? `<span>${escapeHtml(category.text)}</span>` : ""}${owner.known ? `<span class="row-fact"><span class="fact-label">Owner</span><span class="fact-value">${escapeHtml(owner.text)}</span></span>` : ""}`, recordActionsHtml(), relationship ? relationshipControlHtml(relationship) : "");
   if (action >= 0) focusWithoutScrolling(actions()[action]);
-  if (relationshipFocused) focusWithoutScrolling(dom.panelRelationship.querySelector(".rel-button"));
+  if (relationshipFocused) {
+    focusWithoutScrolling(dom.panelRelationship.querySelector(".rel-button:not([disabled]), [data-retry='relationship']") ?? dom.panelRelationship);
+  }
   if (dom.panelTitle) dom.panelTitle.textContent = dom.panelTitle.title = vendor ? withoutRecordCodes(payload.record.name) : payload.record.name;
   if (relationship) dom.panelTitle.insertAdjacentHTML("afterbegin", relationshipShape(relationship.key));
   if (relationship && dom.panelTitle) dom.panelTitle.dataset.relationship = relationship.key;
@@ -1293,7 +1412,10 @@ async function loadList(reason = "initial") {
   const { accounts, national_account: account } = view.query;
   if (accounts || (account && account !== "any")) void loadAccounts();
   if (showsTiles(view.query)) return loadTiles();
-  const query = { ...view.query, page: 1 };
+  const query = { ...view.query, page: 1, ...(showsVendorTerritories(view.query) && { markets: true }) };
+  if (query.markets && reason === "background" && view.tiles.status !== "loading") {
+    void loadPlaceCounts(`vendors:${query.owner}`);
+  }
   const targetPages = reason === 'background' ? Math.max(1, view.loadedPageCount || 1, view.failedPage || 1) : 1;
   view.loadingMore = null;
   if (reason !== 'background') view.failedPage = null;
@@ -1384,6 +1506,7 @@ function settleList({ status, payload = null, code = null }, sequence) {
 async function loadRecord(id, { focusOnOpen = false } = {}) {
   if (view.signedOut || view.recordId !== id) return;
   const sequence = ++view.record.sequence;
+  view.role = { id: null, value: null };
   selectDocRecord(view.dataset, id);
   const docTicket = pageDocContext?.begin('businessRecord', [{ dataset:view.dataset, id }]);
   view.record.id = id;
@@ -1429,8 +1552,9 @@ async function loadRecord(id, { focusOnOpen = false } = {}) {
 function applyLocation({ reason = "initial", restoreScroll = null } = {}) {
   if (view.signedOut) return;
   const parsed = parseViewState(window.location.pathname, window.location.search);
-  if (parsed) parsed.query.page = 1;
   if (!parsed) return;
+  parsed.query.page = 1;
+  if (!showsVendorTerritories(parsed.query)) delete parsed.query.market;
   // THE ADDRESS AND THE VIEW SAY THE SAME THING. Anything unrecognised was
   // already dropped by the parser; rewriting the current entry to the canonical
   // form is what stops a bookmarked `?scope=everyone&owner=dell&page=0` from
@@ -1507,8 +1631,8 @@ function updateQuery(changes, { replace = false } = {}) {
 
 // Clearing filters keeps the place: All, a Clients tile, or a vendor category or No category.
 function clearedQuery() {
-  const { all, category, no_category, practice_type, not_set, national_account } = view.query;
-  const place = view.dataset === "vendors" ? { category, no_category } : { practice_type, not_set, national_account };
+  const { all, category, no_category, owner, practice_type, not_set, national_account } = view.query;
+  const place = view.dataset === "vendors" ? { category, no_category, ...(showsVendorTerritories(view.query) && { owner }) } : { practice_type, not_set, national_account };
   return { ...defaultQuery(view.dataset), all, ...place };
 }
 
@@ -1525,6 +1649,12 @@ function closeRecord() {
 
 function wireControls() {
   document.querySelector('#refreshList').addEventListener('click', () => loadList('background'));
+  dom.territories?.addEventListener("click", (event) => {
+    const market = event.target.closest("[data-market-filter]")?.dataset.marketFilter;
+    if (market === undefined) return;
+    dom.listRegion.scrollTop = 0;
+    updateQuery({ market: view.query.market === market ? "" : market });
+  });
   dom.tableFilters.addEventListener("click", (event) => {
     const status = event.target.closest("[data-status-filter]")?.dataset.statusFilter;
     if (status) return updateQuery({ status: view.query.status === status ? "" : status });
@@ -1622,6 +1752,7 @@ function wireControls() {
   dom.panelBack.addEventListener("click", (event) => { event.preventDefault(); closeRecord(); });
   dom.panelRelationship.addEventListener("beforetoggle", (event) => { if (event.newState === "open") showRulingQuestion(null); }, true);
   dom.panelRelationship.addEventListener("click", (event) => {
+    if (event.target.closest("[data-retry='relationship']")) return void loadRole(view.recordId);
     const level = event.target.closest("[data-rel-level]")?.dataset.relLevel;
     if (level !== undefined) return void chooseRelationship({ level: level === "null" ? null : Number(level) });
     const ruling = event.target.closest("[data-rel-ruling]")?.dataset.relRuling;
@@ -1656,6 +1787,7 @@ function wireControls() {
   });
 
   document.addEventListener("keydown", (event) => {
+    if (event.target.closest?.("dialog:modal")) return;
     // Tab stays inside the record dialog.
     containPanelFocus(event);
     if (event.key !== "Escape" || !view.recordId) return;
@@ -1717,6 +1849,17 @@ function start() {
   });
   wireControls();
   const searchDock = document.querySelector('.search-dock');
+  if (document.documentElement.hasAttribute("data-vendor-territory-tiles")) {
+    const wide = matchMedia("(min-width: 1024px) and (pointer: fine)");
+    const field = dom.search.closest(".field-search");
+    const placeSearch = () => {
+      const tabs = document.querySelector(".app-layout-tabs");
+      if (wide.matches && tabs) tabs.querySelector(".result-heading")?.after(field);
+      else searchDock.prepend(field);
+    };
+    wide.addEventListener("change", placeSearch);
+    placeSearch();
+  }
   const searchDockObserver = new ResizeObserver(() => {
     document.documentElement.style.setProperty('--search-dock-height', `${searchDock.getBoundingClientRect().height}px`);
   });
