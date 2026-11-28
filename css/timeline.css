@@ -138,10 +138,12 @@
 @media (prefers-reduced-motion: reduce) { .timeline * { transition: none; } }
 
 #boardTimeline:not([hidden]) { height: max(380px, calc(100dvh - 112px)); min-width: 0; }
-.app-layout-main:has(#workspace-plan:not([hidden])) { overflow: hidden; }
-#recordPanel:has(#workspace-plan:not([hidden])) { display: flex; flex-direction: column; height: 100%; }
-#recordPanel:has(#workspace-plan:not([hidden])) > #panelBody { display: flex; flex-direction: column; flex: 1; min-height: 0; padding-block: 8px 0; }
-#workspace-plan:not([hidden]) { min-height: 0; min-width: 0; flex: 1; }
+@media (width >= 600px) {
+  .app-layout-main:has(#workspace-plan:not([hidden])) { overflow: hidden; }
+  #recordPanel:has(#workspace-plan:not([hidden])) { display: flex; flex-direction: column; height: 100%; }
+  #recordPanel:has(#workspace-plan:not([hidden])) > #panelBody { display: flex; flex-direction: column; flex: 1; min-height: 0; padding-block: 8px 0; }
+  #workspace-plan:not([hidden]) { min-height: 0; min-width: 0; flex: 1; }
+}
 .deal-plan { display: grid; grid-template-columns: 228px minmax(0, 1fr); gap: 12px; height: 100%; min-height: 0; position: relative; min-width: 0; }
 .deal-plan-chart { min-height: 0; min-width: 0; display: flex; flex-direction: column; position: relative; overflow: hidden; border-radius: var(--radius-3); background: var(--surface-1); }
 .deal-plan-chart .timeline { flex: 1 1 0; --head: 44px; }
@@ -167,8 +169,18 @@
 .app-layout-main .deal-plan-footer { display: flex; align-items: center; gap: 12px; min-height: 30px; padding: 0 12px; }
 .deal-plan-footer span::before { display: inline-block; content: ""; margin-right: 5px; width: 20px; height: 8px; border-radius: 2px; background: var(--fg-quiet); }
 .deal-plan-footer span + span::before { border: 1px dashed var(--fg-quiet); background: transparent; }
-.deal-plan-details { position: absolute; z-index: 8; top: 48px; right: 0; width: min(310px, 100%); padding: 12px; background: var(--surface-2); border-radius: var(--radius-3); box-shadow: var(--shadow-overlay); }
+.deal-plan-details { min-width: 0; padding: var(--space-3); background: var(--surface-2); border-radius: var(--radius-3); }
 .deal-plan-details button:first-child { float: right; }
+#workspace-plan .deal-plan:has(> .deal-plan-details) { grid-template-columns: minmax(0, 1fr) min(32%, 310px); grid-template-rows: minmax(0, 1fr); }
+#workspace-plan .deal-plan:has(> .deal-plan-details) > .deal-plan-list { display: none; }
+#workspace-plan .deal-plan:has(> .deal-plan-details) > .deal-plan-chart { grid-area: 1 / 1; }
+#workspace-plan .deal-plan > .deal-plan-details { grid-area: 1 / 2; min-height: 0; overflow: auto; }
+.deal-plan[data-board] > .deal-plan-details { position: absolute; z-index: 8; top: 48px; right: 0; width: min(310px, 100%); }
+.deal-plan-mobile .timeline-filters { margin-block-end: var(--space-2); }
+.deal-plan-items { padding: 0; list-style: none; }
+.deal-plan-item { border-block-end: var(--hairline-width) solid var(--hairline); }
+.deal-plan-item > button { width: 100%; padding-inline: var(--space-2); text-align: start; font: inherit; font-weight: var(--font-weight-strong); color: var(--fg); background: transparent; border: 0; }
+.deal-plan-item-meta { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2); padding: 0 var(--space-2) var(--space-2); color: var(--fg-muted); font-size: var(--font-size-1); }
 .timeline-label a { color: inherit; text-decoration: none; }
 .timeline-label a:hover { text-decoration: underline; }
 .timeline-attention { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--status-warn-ink); }
@@ -180,8 +192,6 @@
   .deal-plan { grid-template-columns: minmax(0, 1fr); }
   .deal-plan-list, .timeline-search { display: none; }
   .deal-plan-chart .timeline { --list: 164px; }
-  #workspace-plan .timeline-tools { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
-  #workspace-plan .timeline-filters { grid-column: 1 / -1; }
   .timeline-filters button, .timeline-tools button { padding-inline: 7px; }
 }
 .timeline-grip { position: absolute; z-index: 4; top: 5px; width: 20px; height: 24px; border-radius: var(--radius-2); cursor: ew-resize; touch-action: none; opacity: 0; }
@@ -192,6 +202,7 @@
 @media (max-width: 760px), (pointer: coarse) { .timeline-grip { display: none; } }
 .timeline-drag-original { position: absolute; z-index: 3; pointer-events: none; height: 22px; border: 1px dashed var(--fg-muted); border-radius: var(--radius-2); }
 .deal-plan-typical { order: 1; margin-top: auto; }
+.deal-plan-mobile .deal-plan-details > :is(h3, p) { margin-block: var(--space-1); }
 .deal-plan-details form { display: flex; flex-wrap: wrap; gap: 8px; margin-block: 8px; }
 .deal-plan-details label { display: flex; gap: 6px; align-items: center; justify-content: space-between; flex: 1 1 auto; }
 .deal-plan-details input { color: var(--fg); background: var(--surface-1); border: 1px solid var(--hairline); border-radius: var(--radius-2); padding: 4px; }
@@ -213,7 +224,7 @@
 @media (max-width: 760px) {
   #boardTimeline:not([hidden]) { height: max(380px, calc(100dvh - 214px)); }
 }
-@media (max-width: 760px), (hover: none) and (pointer: coarse) and (max-width: 1023px) {
+@media (600px <= width <= 760px), (hover: none) and (pointer: coarse) and (600px <= width <= 1023px) {
   .app-layout-center:has(#workspace-plan:not([hidden])) { display: flex; flex-direction: column; height: calc(100dvh - var(--layout-bottom)); }
   .app-layout-main:has(#workspace-plan:not([hidden])) { flex: 1; min-height: 0; padding-block-end: var(--space-3); }
   #recordPanel:has(#workspace-plan:not([hidden])) > .workspace-header { position: static; }
@@ -231,7 +242,7 @@
   #appTopbar .board-toolbar:has(#boardTimelineTools:not([hidden])) .chip-bar { flex-wrap: nowrap; gap: 2px; }
   #appTopbar .board-toolbar:has(#boardTimelineTools:not([hidden])) .chip { padding-inline: 6px; }
   #appTopbar #boardTimelineTools select { width: 116px; }
-  body:not(.workspace-open) .app-layout-main:has(#boardTimeline:not([hidden])) { padding-block: 8px var(--space-3); }
+  body:not(.workspace-open) .app-layout-main:has(#boardTimeline:not([hidden])) { padding-block: 8px var(--space-1); }
   body:not(.workspace-open) :is(#appMainSlot, #main, .pipeline-layout):has(#boardTimeline:not([hidden])) {
     display: flex; flex: 1; flex-direction: column; align-items: stretch; min-height: 0;
   }

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { type ReactNode, useRef, useState, useSyncExternalStore } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { savePlanChange, TypicalLengths } from "./deal-plan-lengths.tsx";
@@ -64,9 +64,63 @@ export function signingCaption(plan: Plan | null | undefined, today: string) {
 const signingName = (recorded: boolean) => (recorded ? "Lease signed" : "Lease signing");
 const stepMap = (steps: SourceStep[]) => new Map(steps.map((step) => [`step:${step.id}`, step]));
 
+const phonePlan = () => matchMedia("(width < 600px)");
+function subscribePhonePlan(change: () => void) {
+  const media = phonePlan();
+  media.addEventListener("change", change);
+  return () => media.removeEventListener("change", change);
+}
+
+function PlanDateList({
+  groups,
+  today,
+  opened,
+  open,
+  detail,
+}: {
+  groups: TimelineGroup[];
+  today: string;
+  opened: string | undefined;
+  open: (id: string) => void;
+  detail: ReactNode;
+}) {
+  const items = groups.flatMap((group) =>
+    group.rows.map((row) => ({
+      row,
+      start: "start" in row ? row.start : null,
+      day: rowDay(row),
+    })),
+  );
+  items.sort((a, b) => (a.day ?? a.start ?? "9999").localeCompare(b.day ?? b.start ?? "9999"));
+  if (!items.length) return <p role="status">No matching items</p>;
+  return (
+    <ul className="deal-plan-items" aria-label="Plan items">
+      {items.map(({ row, start, day }) => (
+        <li key={row.id} className="deal-plan-item">
+          <button type="button" aria-expanded={opened === row.id} onClick={() => open(row.id)}>
+            {row.name}
+          </button>
+          <div className="deal-plan-item-meta">
+            <span>
+              {PHASES[row.phase]}
+              {row.kind === "step" && ` · ${row.owner}`}
+            </span>
+            <span>
+              {start && start !== day && `From ${dayText(start, today)} · `}
+              {row.when ?? (start ? "No end date recorded" : "No date recorded")}
+            </span>
+          </div>
+          {opened === row.id && detail}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function PlanScreen(props: Inputs) {
   const { today, viewer } = props;
   const board = props.mode === "board";
+  const phone = useSyncExternalStore(subscribePhonePlan, () => phonePlan().matches) && !board;
   const [owner, setOwner] = useState("");
   const [filter, setFilter] = useState("");
   const [view, setView] = useState<View | null>(null);
@@ -450,6 +504,215 @@ function PlanScreen(props: Inputs) {
       version != null &&
       Boolean(selectedFacts?.kind === "todo" && selectedFacts.state === "expected" && selectedFacts.expected_from_on));
   const foldKey = props.mode === "plan" ? `deal-${props.deal}` : "deals";
+  function openItem(id: string) {
+    setOpened(id);
+    setEdit(undefined);
+    setLengths(false);
+    setReset(false);
+  }
+  const canReset = planPath && props.canSave && version != null && Object.keys(own).length > 0;
+  const footer = (!phone || status || undo || canReset) && (
+    <footer className="deal-plan-footer">
+      {status ? (
+        <small role="status">{status}</small>
+      ) : (
+        !phone && (
+          <>
+            <span>Recorded</span>
+            <span>Expected</span>
+          </>
+        )
+      )}
+      {undo && (
+        <button
+          type="button"
+          className="btn btn-quiet"
+          disabled={busy}
+          onClick={() => void update(undo.path, undo.args, undo.label)}
+        >
+          Undo
+        </button>
+      )}
+      {canReset && (
+        <button
+          type="button"
+          className="btn btn-quiet"
+          onClick={() => {
+            setOpened(undefined);
+            setReset(true);
+          }}
+        >
+          Reset to typical
+        </button>
+      )}
+    </footer>
+  );
+  const detail = selected && (
+    <section className="deal-plan-details" aria-label={selected.name}>
+      <button type="button" className="btn btn-quiet" aria-label="Close item" onClick={() => setOpened(undefined)}>
+        ×
+      </button>
+      <h3>{selected.name}</h3>
+      <p>{selected.kind === "step" ? selected.owner : PHASES[selected.phase]}</p>
+      {selectedDate && <p>{selectedDate}</p>}
+      {selected.kind === "todo" && selectedFacts?.kind === "todo" && selectedFacts.typical_days != null && (
+        <p>Typical length {selectedFacts.typical_days} days</p>
+      )}
+      {props.canSave && canSetDate && (
+        <button
+          className="btn"
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            openedDate.current = (day) => void changeDate(selected.id, day);
+            setEdit("date");
+          }}
+        >
+          {selected.kind === "todo" ? "Set your own date" : "Change date"}
+        </button>
+      )}
+      {props.canSave && selectedFacts?.kind === "step" && selectedFacts.state !== "done" && stepVersion != null && (
+        <button
+          className="btn"
+          type="button"
+          disabled={busy}
+          onClick={() =>
+            void update(
+              `next-steps/${selectedFacts.id.slice(5)}/end`,
+              { resolution: "done", base_version: stepVersion },
+              "Step marked done.",
+            )
+          }
+        >
+          Mark done
+        </button>
+      )}
+      {props.canSave && selectedFacts?.kind === "critical_date" && selectedFacts.status !== "cleared" && (
+        <>
+          {selectedFacts.status === "proposed" ? (
+            <button
+              className="btn"
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                void update(`critical-dates/${selectedFacts.id.slice(14)}/confirm`, {}, "Critical date confirmed.")
+              }
+            >
+              Confirm
+            </button>
+          ) : (
+            <button className="btn" type="button" onClick={() => setEdit("done")}>
+              Mark done
+            </button>
+          )}
+          <button className="btn" type="button" onClick={() => setEdit("drop")}>
+            Drop
+          </button>
+        </>
+      )}
+      {edit === "date" && (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            openedDate.current?.(String(new FormData(event.currentTarget).get("day")));
+          }}
+        >
+          <label>
+            New date
+            <input
+              required
+              type="date"
+              name="day"
+              min={"start" in selected && selected.start > today ? selected.start : today}
+              defaultValue={rowDay(selected) ?? undefined}
+            />
+          </label>
+          <button className="btn" type="submit" disabled={busy}>
+            Save date
+          </button>
+        </form>
+      )}
+      {(edit === "drop" || edit === "done") && selectedFacts?.kind === "critical_date" && (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            const reason = String(new FormData(event.currentTarget).get("reason")).trim();
+            if (reason)
+              void update(
+                `critical-dates/${selectedFacts.id.slice(14)}/resolve`,
+                { resolution: edit === "drop" ? "dropped" : "done", reason },
+                edit === "drop" ? "Critical date dropped." : "Critical date marked done.",
+              );
+          }}
+        >
+          <label>
+            Reason
+            <input name="reason" required maxLength={500} />
+          </label>
+          <button className="btn" type="submit" disabled={busy}>
+            {edit === "drop" ? "Drop date" : "Mark date done"}
+          </button>
+        </form>
+      )}
+      {phone && footer}
+    </section>
+  );
+  const auxiliary = (
+    <>
+      {reset && planPath && (
+        <section className="deal-plan-details" aria-label="Reset to typical">
+          <p>Clear all dates you set for this deal?</p>
+          <button className="btn" type="button" onClick={() => setReset(false)}>
+            Cancel
+          </button>
+          <button
+            className="btn"
+            type="button"
+            onClick={() => {
+              setReset(false);
+              void update(planPath, { base_version: version }, "Typical lengths restored.");
+            }}
+          >
+            Reset to typical
+          </button>
+        </section>
+      )}
+      {lengths && props.mode === "plan" && (
+        <TypicalLengths
+          kind={props.kind ?? "lease"}
+          request={props.request}
+          reload={props.reload}
+          canSave={props.canSave}
+          close={() => setLengths(false)}
+        />
+      )}
+    </>
+  );
+  const typical = (
+    <button
+      className="deal-plan-typical"
+      type="button"
+      onClick={() => {
+        setLengths(true);
+        setOpened(undefined);
+        setReset(false);
+      }}
+    >
+      Typical lengths
+    </button>
+  );
+  if (phone)
+    return (
+      <div className="deal-plan-mobile">
+        <div className="chip-bar">
+          {controls}
+          {typical}
+        </div>
+        {!selected && footer}
+        {auxiliary}
+        <PlanDateList groups={groups} today={today} opened={opened} open={openItem} detail={detail} />
+      </div>
+    );
   return (
     <div className="deal-plan" data-board={board || undefined}>
       <aside className="deal-plan-list">
@@ -496,18 +759,7 @@ function PlanScreen(props: Inputs) {
             <small>{total}</small>
           </button>
         ))}
-        {!board && (
-          <button
-            className="deal-plan-typical"
-            type="button"
-            onClick={() => {
-              setLengths(true);
-              setOpened(undefined);
-            }}
-          >
-            Typical lengths
-          </button>
-        )}
+        {!board && typical}
         <button
           type="button"
           aria-pressed={recorded}
@@ -530,11 +782,7 @@ function PlanScreen(props: Inputs) {
           board={board}
           toolsHost={props.mode === "board" ? props.toolsHost : undefined}
           reveal={reveal}
-          onOpen={(id) => {
-            setOpened(id);
-            setEdit(undefined);
-            setLengths(false);
-          }}
+          onOpen={openItem}
           controls={controls}
           cornerLabel={groups.length ? count : "No matching items"}
           changeDate={
@@ -563,168 +811,10 @@ function PlanScreen(props: Inputs) {
               : undefined
           }
         />
-        <footer className="deal-plan-footer">
-          {status ? (
-            <small role="status">{status}</small>
-          ) : (
-            <>
-              <span>Recorded</span>
-              <span>Expected</span>
-            </>
-          )}
-          {undo && (
-            <button
-              type="button"
-              className="btn btn-quiet"
-              disabled={busy}
-              onClick={() => void update(undo.path, undo.args, undo.label)}
-            >
-              Undo
-            </button>
-          )}
-          {planPath && props.canSave && version != null && Object.keys(own).length > 0 && (
-            <button type="button" className="btn btn-quiet" onClick={() => setReset(true)}>
-              Reset to typical
-            </button>
-          )}
-        </footer>
+        {footer}
       </div>
-      {selected && (
-        <section className="deal-plan-details" aria-label={selected.name}>
-          <button type="button" className="btn btn-quiet" aria-label="Close item" onClick={() => setOpened(undefined)}>
-            ×
-          </button>
-          <h3>{selected.name}</h3>
-          <p>{selected.kind === "step" ? selected.owner : PHASES[selected.phase]}</p>
-          {selectedDate && <p>{selectedDate}</p>}
-          {selected.kind === "todo" && selectedFacts?.kind === "todo" && selectedFacts.typical_days != null && (
-            <p>Typical length {selectedFacts.typical_days} days</p>
-          )}
-          {props.canSave && canSetDate && (
-            <button
-              className="btn"
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                openedDate.current = (day) => void changeDate(selected.id, day);
-                setEdit("date");
-              }}
-            >
-              {selected.kind === "todo" ? "Set your own date" : "Change date"}
-            </button>
-          )}
-          {props.canSave && selectedFacts?.kind === "step" && selectedFacts.state !== "done" && stepVersion != null && (
-            <button
-              className="btn"
-              type="button"
-              disabled={busy}
-              onClick={() =>
-                void update(
-                  `next-steps/${selectedFacts.id.slice(5)}/end`,
-                  { resolution: "done", base_version: stepVersion },
-                  "Step marked done.",
-                )
-              }
-            >
-              Mark done
-            </button>
-          )}
-          {props.canSave && selectedFacts?.kind === "critical_date" && selectedFacts.status !== "cleared" && (
-            <>
-              {selectedFacts.status === "proposed" ? (
-                <button
-                  className="btn"
-                  type="button"
-                  disabled={busy}
-                  onClick={() =>
-                    void update(`critical-dates/${selectedFacts.id.slice(14)}/confirm`, {}, "Critical date confirmed.")
-                  }
-                >
-                  Confirm
-                </button>
-              ) : (
-                <button className="btn" type="button" onClick={() => setEdit("done")}>
-                  Mark done
-                </button>
-              )}
-              <button className="btn" type="button" onClick={() => setEdit("drop")}>
-                Drop
-              </button>
-            </>
-          )}
-          {edit === "date" && (
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                openedDate.current?.(String(new FormData(event.currentTarget).get("day")));
-              }}
-            >
-              <label>
-                New date
-                <input
-                  required
-                  type="date"
-                  name="day"
-                  min={"start" in selected && selected.start > today ? selected.start : today}
-                  defaultValue={rowDay(selected) ?? undefined}
-                />
-              </label>
-              <button className="btn" type="submit" disabled={busy}>
-                Save date
-              </button>
-            </form>
-          )}
-          {(edit === "drop" || edit === "done") && selectedFacts?.kind === "critical_date" && (
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                const reason = String(new FormData(event.currentTarget).get("reason")).trim();
-                if (reason)
-                  void update(
-                    `critical-dates/${selectedFacts.id.slice(14)}/resolve`,
-                    { resolution: edit === "drop" ? "dropped" : "done", reason },
-                    edit === "drop" ? "Critical date dropped." : "Critical date marked done.",
-                  );
-              }}
-            >
-              <label>
-                Reason
-                <input name="reason" required maxLength={500} />
-              </label>
-              <button className="btn" type="submit" disabled={busy}>
-                {edit === "drop" ? "Drop date" : "Mark date done"}
-              </button>
-            </form>
-          )}
-        </section>
-      )}
-      {reset && planPath && (
-        <section className="deal-plan-details" aria-label="Reset to typical">
-          <p>Clear all dates you set for this deal?</p>
-          <button className="btn" type="button" onClick={() => setReset(false)}>
-            Cancel
-          </button>
-          <button
-            className="btn"
-            type="button"
-            onClick={() => {
-              setReset(false);
-              void update(planPath, { base_version: version }, "Typical lengths restored.");
-            }}
-          >
-            Reset to typical
-          </button>
-        </section>
-      )}
-      {lengths && props.mode === "plan" && (
-        <TypicalLengths
-          kind={props.kind ?? "lease"}
-          request={props.request}
-          reload={props.reload}
-          canSave={props.canSave}
-          close={() => setLengths(false)}
-        />
-      )}
+      {detail}
+      {auxiliary}
     </div>
   );
 }

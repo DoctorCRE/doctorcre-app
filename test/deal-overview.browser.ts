@@ -564,15 +564,18 @@ test("at 320x568 the move receipt, Undo and forecast each have their own tap tar
   assert.equal(await page.getByRole("tabpanel", { name: "Plan" }).isVisible(), true);
 });
 
-test("at 320x568 the Plan owner, zoom and Today controls each have their own tap target", async (t) => {
+test("at 320x568 the Plan list keeps the owner controls in reach", async (t) => {
   const { page } = await openDeal(t, 320, 568, [], [], { plan: signingPlan });
   await page.getByRole("tab", { name: "Plan" }).tap();
   const plan = page.getByRole("tabpanel", { name: "Plan" });
-  const month = plan.getByRole("button", { name: "Month", exact: true });
-  await month.tap({ timeout: 3000 });
-  assert.equal(await month.getAttribute("aria-pressed"), "true");
-  for (const name of ["Both", "Dell", "Joe", "Day", "Week", "Today"])
-    await plan.getByRole("button", { name, exact: true }).tap({ trial: true, timeout: 3000 });
+  await plan.getByRole("list", { name: "Plan items" }).waitFor();
+  for (const name of ["Both", "Dell", "Joe"]) {
+    const owner = plan.getByRole("button", { name, exact: true });
+    await owner.tap();
+    assert.equal(await owner.getAttribute("aria-pressed"), "true");
+  }
+  assert.equal(await plan.getByRole("group", { name: "Zoom" }).count(), 0);
+  assert.equal(await plan.getByRole("button", { name: "Today", exact: true }).count(), 0);
 });
 
 for (const [width, height] of [
@@ -590,39 +593,77 @@ for (const [width, height] of [
       phase_change: automaticMove,
     });
     await page.getByRole("tab", { name: "Plan" }).click();
-    await page.locator(".deal-plan-count").waitFor();
+    const item = page
+      .locator("#workspace-plan :is(.timeline-name, .deal-plan-item > button)")
+      .filter({ hasText: "Example date 0" });
+    await item.waitFor();
     const geometryProblems = () =>
       page.evaluate(() => {
-        const regions = ":is(#appTopbar, .workspace-header, #workspace-plan .timeline-tools)";
-        const controls = `${regions} :is(button, a[href], summary, input, select, [role="button"])`;
-        const statuses = "#panelTitle, .workspace-facts dd:not(:has(a)), .deal-plan-count";
+        const regions =
+          ":is(#appTopbar, .workspace-header, #workspace-plan .timeline-tools, .deal-plan-mobile, .deal-plan-footer, .deal-plan-details)";
+        const buttons = "button, a[href], summary, input, select, [role=button]";
+        const controls = `${regions} :is(${buttons}):not(.deal-plan-item > button)`;
+        const statuses = `${regions} [role=status]:not(:empty), #panelTitle, .workspace-facts dd:not(:has(a)), .deal-plan-count`;
+        const scrollers = [
+          ...document.querySelectorAll("#workspace-plan :is(.timeline-scroll, .deal-plan-list, .deal-plan-details)"),
+        ].filter((node) => node.checkVisibility() && ["auto", "scroll"].includes(getComputedStyle(node).overflowY));
+        const clientBounds = (node: Element) => {
+          const { left, top } = node.getBoundingClientRect();
+          return new DOMRect(left + node.clientLeft, top + node.clientTop, node.clientWidth, node.clientHeight);
+        };
+        const inside = (rect: DOMRect, outer: DOMRect) =>
+          rect.left >= outer.left - 0.5 &&
+          rect.top >= outer.top - 0.5 &&
+          rect.right <= outer.right + 0.5 &&
+          rect.bottom <= outer.bottom + 0.5;
+        const viewport = new DOMRect(0, 0, innerWidth, innerHeight);
         const boxes = [...document.querySelectorAll(`${controls}, ${statuses}`)]
           .filter((node) => node.checkVisibility({ visibilityProperty: true }))
           .map((node) => ({
+            node,
             name: node.getAttribute("aria-label") ?? node.textContent?.trim() ?? node.tagName,
             rect: node.getBoundingClientRect(),
           }))
           .filter(({ rect }) => rect.height > 0 && rect.width > 0);
-        return boxes.flatMap(({ name, rect }, i) => {
-          const outside =
-            rect.left < -0.5 || rect.top < -0.5 || rect.right > innerWidth + 0.5 || rect.bottom > innerHeight + 0.5;
-          const overlaps = boxes
-            .slice(i + 1)
-            .filter(
-              ({ rect: other }) =>
-                Math.min(rect.right, other.right) - Math.max(rect.left, other.left) > 0.5 &&
-                Math.min(rect.bottom, other.bottom) - Math.max(rect.top, other.top) > 0.5,
-            );
-          return [
-            ...(outside ? [`${name} is outside the viewport`] : []),
-            ...overlaps.map((other) => `${name} overlaps ${other.name}`),
-          ];
-        });
+        return [
+          ...scrollers
+            .filter((node) => node.clientHeight < 160)
+            .map((node) => `${node.className} scroller is ${node.clientHeight}px tall`),
+          ...boxes.flatMap(({ node, name, rect }, i) => {
+            const issues = [];
+            if (!inside(rect, viewport)) issues.push(`${name} is outside the viewport`);
+            for (let parent = node.parentElement; parent; parent = parent.parentElement) {
+              const { overflowX, overflowY } = getComputedStyle(parent);
+              if ((overflowX !== "visible" || overflowY !== "visible") && !inside(rect, clientBounds(parent))) {
+                issues.push(`${name} is clipped by ${parent.id || parent.className}`);
+                break;
+              }
+            }
+            if (node.matches(buttons)) {
+              const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+              if (hit?.closest(".deal-plan-details, [popover]:popover-open") && !node.contains(hit))
+                issues.push(`${name} is covered by the opened item`);
+            }
+            for (const other of boxes.slice(i + 1)) {
+              if (
+                !node.contains(other.node) &&
+                Math.min(rect.right, other.rect.right) - Math.max(rect.left, other.rect.left) > 0.5 &&
+                Math.min(rect.bottom, other.rect.bottom) - Math.max(rect.top, other.rect.top) > 0.5
+              )
+                issues.push(`${name} overlaps ${other.name}`);
+            }
+            return issues;
+          }),
+        ];
       });
+    const receipt = page.locator("#workspacePhaseMove summary");
     const closed = await geometryProblems();
-    await page.locator("#workspacePhaseMove summary").click();
+    await receipt.click();
     const open = await geometryProblems();
-    assert.deepEqual({ closed, open }, { closed: [], open: [] });
+    await receipt.click();
+    await item.click();
+    const itemOpen = await geometryProblems();
+    assert.deepEqual({ closed, open, itemOpen }, { closed: [], open: [], itemOpen: [] });
   });
 
 for (const width of [900, 1280])

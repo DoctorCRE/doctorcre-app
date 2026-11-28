@@ -237,7 +237,7 @@ test("a deal's Activity is one filtered history, and an empty one says nothing i
       await page.getByRole("tab", { name: "Activity" }).click();
       const panel = page.getByRole("tabpanel", { name: "Activity" });
       const activity = panel.locator(".deal-activity");
-      await activity.getByRole("heading", { name: "Activity", exact: true }).waitFor();
+      await panel.getByRole("heading", { name: "Activity", exact: true }).waitFor();
       assert.equal(await page.locator("html").getAttribute("data-theme"), theme);
       assert.deepEqual(await page.getByRole("tab").allTextContents(), [
         "Overview",
