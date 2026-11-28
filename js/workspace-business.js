@@ -1012,6 +1012,7 @@ const panelBackground = new Map();
 function updatePanelBackground(modal, backdrop) {
   const covered = new Set();
   if (modal) {
+    // eslint-disable-next-line no-restricted-syntax -- Stop at the document body after visiting the card’s ancestor chain.
     for (let node = dom.panel; node !== document.body; node = node.parentElement) {
       for (const sibling of node.parentElement.children) {
         // The backdrop dismisses the record. Native dialogs manage their own modality.
