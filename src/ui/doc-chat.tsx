@@ -85,6 +85,7 @@ const chatTurn = z
     answer: answer.nullable(),
     answered_by: z.string().nullable().optional(),
     confirmation: confirmation.nullable(),
+    failure_reason: z.string().nullish(),
     waiting_reason: z.string().nullable(),
     waiting_reason_code: z.string().nullish(),
     backend: z.unknown().optional(),
@@ -462,7 +463,7 @@ function TurnStatus({
   if (turn.state === "failed")
     return (
       <p className="doc-chat__status" data-tone="failed">
-        Doc couldn’t answer.
+        {turn.failure_reason?.trim() || "Doc couldn’t answer."}
         {onResend && (
           <button className="btn" type="button" disabled={busy} onClick={onResend}>
             Retry
