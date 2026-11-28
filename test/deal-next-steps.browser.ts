@@ -12,6 +12,13 @@ const dealId = "00000000-0000-4000-8000-00000000d160";
 const stepId = "00000000-0000-4000-8000-00000000a101";
 const suggestionId = "00000000-0000-4000-8000-00000000b101";
 const filingId = "00000000-0000-4000-8000-00000000b102";
+const workflow = {
+  proposal_id: "00000000-0000-4000-8000-00000000b103",
+  what: "Live terms comparison and counters",
+  evidence: "From the checklist · Live terms comparison and counters is next in Negotiating",
+  due_on: "2026-12-03",
+};
+const secondSuggestionId = "00000000-0000-4000-8000-00000000b104";
 const emailId = "00000000-0000-4000-8000-00000000e101";
 const session = { actor: { slug: "joe" }, csrf_token: "synthetic-csrf" };
 const body = [
@@ -26,7 +33,11 @@ async function openDeal(
   t: TestContext,
   viewport: { width: number; height: number },
   theme: "light" | "dark",
-  { holdEmail = false } = {},
+  {
+    holdEmail = false,
+    workflowWith,
+    secondEmail = false,
+  }: { holdEmail?: boolean; workflowWith?: "filing" | "email" | "open"; secondEmail?: boolean } = {},
 ) {
   const server = await startWorkerFixture({
     assets: await appAssetSnapshot(),
@@ -52,19 +63,47 @@ async function openDeal(
     happened_at: "2026-11-24T15:12:00Z",
     summary: "The client asks whether rent can start in March.",
   };
+  const overlappingEmail = workflowWith === "email" || workflowWith === "open";
   let suggestions = [
     {
       proposal_id: suggestionId,
       kind: "next_step",
-      title: "Ask the landlord whether rent can start in March",
-      what: "Ask the landlord whether rent can start in March",
+      title: overlappingEmail ? "Review Morgan's request" : "Ask the landlord whether rent can start in March",
+      what: overlappingEmail
+        ? " Live terms comparison   and counters "
+        : "Ask the landlord whether rent can start in March",
       owner: "dell",
       due_on: "2026-11-27",
       email,
     },
     { proposal_id: filingId, kind: "file_to_deal", title: "File Morgan's email", email },
   ];
-  let steps = [
+  const otherEmail = {
+    activity_id: "00000000-0000-4000-8000-00000000e102",
+    sender_name: "Taylor Example",
+    subject: "Revised offer",
+    happened_at: "2026-11-25T15:12:00Z",
+    summary: "The broker sent a revised offer.",
+  };
+  if (secondEmail)
+    suggestions.push({
+      proposal_id: secondSuggestionId,
+      kind: "next_step",
+      title: "Review Taylor's request",
+      what: "LIVE  TERMS COMPARISON AND COUNTERS",
+      owner: "joe",
+      due_on: "2026-12-04",
+      email: otherEmail,
+    });
+  let steps: {
+    id: string;
+    owner: string;
+    description: string;
+    due_on: string | null;
+    status: string;
+    change_id: number;
+    set_on: string;
+  }[] = [
     {
       id: stepId,
       owner: "dell",
@@ -75,6 +114,10 @@ async function openDeal(
       set_on: "2026-11-18",
     },
   ];
+  let workflowSuggestions = workflowWith ? [workflow] : [];
+  if (workflowWith === "open") steps = steps.map((step) => ({ ...step, description: workflow.what }));
+  else if (workflowWith) steps = [];
+  if (workflowWith === "filing") suggestions = suggestions.filter(({ kind }) => kind === "file_to_deal");
   const deal = () => ({
     id: dealId,
     deal_id: dealId,
@@ -89,6 +132,7 @@ async function openDeal(
     critical_dates: [],
     vendors: [],
     email_follow_ups: suggestions,
+    ...(workflowWith ? { workflow_suggestions: workflowSuggestions } : {}),
     correspondence: [],
     documents: [],
   });
@@ -105,6 +149,20 @@ async function openDeal(
           const { idempotency_key: _key, ...decision } = await request.json();
           writes.push([path, decision]);
           suggestions = suggestions.filter((row) => row.proposal_id !== decided[1]);
+          workflowSuggestions = workflowSuggestions.filter((row) => row.proposal_id !== decided[1]);
+          if (decided[1] === workflow.proposal_id && decision.decision === "accept") {
+            steps = [
+              {
+                id: workflow.proposal_id,
+                owner: "joe",
+                description: decision.edits.what,
+                due_on: decision.edits.due_on,
+                status: "open",
+                change_id: 5,
+                set_on: "2026-11-25",
+              },
+            ];
+          }
           return Response.json({
             proposal_id: decided[1],
             status: decision.decision === "accept" ? "accepted" : "dismissed",
@@ -116,7 +174,18 @@ async function openDeal(
           steps = [];
           return Response.json({ next_step_id: stepId, status: "done", change_id: 4 });
         }
-        if (path === `/api/engine/proposals/${suggestionId}` || path === `/api/engine/proposals/${filingId}`) {
+        if (path === `/api/engine/proposals/${secondSuggestionId}`) {
+          emailReads.push(path);
+          return Response.json({
+            thread: [{ ...otherEmail, body: "I attached the revised offer for your review." }],
+            source_activity: { subject: otherEmail.subject },
+          });
+        }
+        if (
+          path === `/api/engine/proposals/${suggestionId}` ||
+          path === `/api/engine/proposals/${filingId}` ||
+          path === `/api/engine/proposals/${workflow.proposal_id}`
+        ) {
           emailReads.push(path);
           await emailHeld;
           return Response.json({
@@ -285,4 +354,109 @@ test("A suggestion's email is read once while the deal reads again", async (t) =
   releaseEmail();
   await tile.getByText("Our lender cannot fund until late February", { exact: false }).waitFor();
   assert.deepEqual(emailReads, [`/api/engine/proposals/${suggestionId}`]);
+});
+
+for (const [action, width] of [
+  ["accept", 1440],
+  ["edit and accept", 390],
+  ["dismiss", 1280],
+] as const) {
+  test(`a checklist suggestion shares the Suggested list and can be ${action === "dismiss" ? "dismissed" : "accepted"} (${action})`, async (t) => {
+    const { page, tile, writes, emailReads } = await openDeal(
+      t,
+      { width, height: width === 1280 ? 640 : 900 },
+      "light",
+      {
+        workflowWith: "filing",
+      },
+    );
+    const list = tile.getByRole("list", { name: "Suggested steps" });
+    const suggestion = list.getByRole("listitem", { name: workflow.what });
+    const filing = list.getByRole("listitem", { name: "File Morgan's email" });
+    assert.equal(await suggestion.count(), 1, "one checklist suggestion beside the email follow-up");
+    assert.equal(await filing.count(), 1);
+    assert.equal(await tile.getByRole("list", { name: "Open steps" }).getByText(workflow.what).count(), 0);
+    await suggestion.getByText(workflow.evidence, { exact: false }).waitFor();
+    await suggestion.getByText("Due Thu, Dec 3, 2026", { exact: false }).waitFor();
+    assert.deepEqual(await suggestion.getByRole("button").allTextContents(), ["Accept", "Edit", "Dismiss"]);
+
+    if (action === "edit and accept") {
+      await suggestion.getByRole("button", { name: "Edit" }).click();
+      assert.equal(await suggestion.getByLabel("Next step").inputValue(), workflow.what);
+      assert.equal(await suggestion.getByLabel("Due date").inputValue(), "2026-12-03");
+      await suggestion.getByLabel("Next step").fill("Compare the two sample offers");
+      await suggestion.getByLabel("Due date").fill("");
+      await suggestion.screenshot({ path: `${shots}/checklist-suggestion-edit-390.png` });
+      assert.deepEqual(writes, [], "editing alone does not save");
+    }
+
+    await suggestion.getByRole("button", { name: action === "dismiss" ? "Dismiss" : "Accept" }).click();
+    await suggestion.waitFor({ state: "detached" });
+    assert.equal(await filing.count(), 1, "the email suggestion remains");
+    if (action === "dismiss") {
+      await tile.getByText("No next step set.", { exact: true }).waitFor();
+    } else {
+      const title = action === "accept" ? workflow.what : "Compare the two sample offers";
+      await tile.getByRole("list", { name: "Open steps" }).getByText(title, { exact: true }).waitFor();
+    }
+    assert.deepEqual(writes, [
+      [
+        `/api/engine/proposals/${workflow.proposal_id}/decision`,
+        action === "dismiss"
+          ? { decision: "dismiss" }
+          : {
+              decision: "accept",
+              edits:
+                action === "accept"
+                  ? { what: workflow.what, due_on: "2026-12-03" }
+                  : { what: "Compare the two sample offers", due_on: null },
+            },
+      ],
+    ]);
+    assert.deepEqual(emailReads, [`/api/engine/proposals/${filingId}`]);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), 0);
+  });
+}
+
+test("one Suggested row keeps the email when it proposes the same step as the checklist", async (t) => {
+  const { tile } = await openDeal(t, { width: 1280, height: 640 }, "light", { workflowWith: "email" });
+  const suggested = tile.getByRole("list", { name: "Suggested steps" });
+  const email = suggested.getByRole("listitem", { name: "Review Morgan's request" });
+  assert.equal(await email.count(), 1);
+  assert.equal(await suggested.getByRole("listitem", { name: workflow.what }).count(), 0);
+  assert.equal(await email.getByText("Our lender cannot fund until late February", { exact: false }).count(), 1);
+  assert.equal(await suggested.getByRole("listitem", { name: "File Morgan's email" }).count(), 1);
+});
+
+test("an open step replaces matching suggestions and leaves the email's other action", async (t) => {
+  const { tile } = await openDeal(t, { width: 1280, height: 640 }, "light", { workflowWith: "open" });
+  const open = tile.getByRole("list", { name: "Open steps" });
+  const suggested = tile.getByRole("list", { name: "Suggested steps" });
+  assert.equal(await open.getByText(workflow.what, { exact: true }).count(), 1);
+  assert.equal(await suggested.getByRole("listitem", { name: workflow.what }).count(), 0);
+  assert.equal(await suggested.getByRole("listitem", { name: "Review Morgan's request" }).count(), 0);
+  const filing = suggested.getByRole("listitem", { name: "File Morgan's email" });
+  assert.equal(await filing.count(), 1);
+  assert.equal(await filing.getByText("Our lender cannot fund until late February", { exact: false }).count(), 1);
+});
+
+test("separate email decisions with matching step wording keep their sources and dates", async (t) => {
+  const { tile, writes } = await openDeal(t, { width: 1280, height: 640 }, "light", {
+    workflowWith: "email",
+    secondEmail: true,
+  });
+  const suggested = tile.getByRole("list", { name: "Suggested steps" });
+  const morgan = suggested.getByRole("listitem", { name: "Review Morgan's request" });
+  const taylor = suggested.getByRole("listitem", { name: "Review Taylor's request" });
+  assert.equal(await morgan.count(), 1);
+  assert.equal(await taylor.count(), 1);
+  assert.match((await morgan.textContent()) ?? "", /From Morgan's email, Tue, Nov 24.*Due Fri, Nov 27, 2026/);
+  assert.match((await taylor.textContent()) ?? "", /From Taylor's email, Wed, Nov 25.*Due Fri, Dec 4, 2026/);
+  await taylor.getByText("I attached the revised offer for your review.", { exact: true }).waitFor();
+  assert.deepEqual(await taylor.getByRole("button").allTextContents(), ["Accept", "Edit", "Dismiss"]);
+  await taylor.getByRole("button", { name: "Dismiss" }).click();
+  await taylor.waitFor({ state: "detached" });
+  assert.equal(await morgan.count(), 1);
+  assert.equal(await suggested.getByRole("listitem", { name: workflow.what }).count(), 0);
+  assert.deepEqual(writes, [[`/api/engine/proposals/${secondSuggestionId}/decision`, { decision: "dismiss" }]]);
 });
