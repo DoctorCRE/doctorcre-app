@@ -75,13 +75,7 @@ const chatTurn = z.object({
   answered_by: z.string().nullable().optional(),
   confirmation: confirmation.nullable(),
   waiting_reason: z
-    .enum([
-      docLinkMessages.not_set_up,
-      docLinkMessages.mac_off,
-      "Sign in to Claude Code on your Mac.",
-      "Doc is paused until your Claude plan resets.",
-      "Doc is waiting for a free slot on your Mac.",
-    ])
+    .string()
     .transform((reason) => {
       if (reason === "Sign in to Claude Code on your Mac.") return docLinkMessages.signed_out;
       if (reason === "Doc is paused until your Claude plan resets.") return docLinkMessages.plan_limited;
