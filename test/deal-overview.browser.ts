@@ -704,11 +704,22 @@ for (const [width, height] of [
       assert.ok(box.bottom <= height && box.height >= 180);
     const names = path.locator(".deal-path-name");
     assert.equal(
-      await names.evaluateAll((all) =>
-        all.every((n) => n.scrollWidth <= n.clientWidth && n.scrollHeight <= n.clientHeight),
-      ),
+      await names.evaluateAll((all) => all.every((n) => n.getAttribute("title") === n.textContent)),
       true,
-      "phase names remain readable",
+      "the full phase name remains available",
+    );
+    assert.equal(
+      await path
+        .locator("button.deal-path-name")
+        .evaluateAll((all) =>
+          all.every(
+            (n) =>
+              Math.round(n.getBoundingClientRect().height) ===
+              Number.parseFloat(getComputedStyle(n).getPropertyValue("--touch")),
+          ),
+        ),
+      true,
+      "phase buttons stay at the control height",
     );
     const current = path.locator('[data-place="current"]');
     const label = current.locator(":scope > ul [data-todo]").first().locator("summary");
