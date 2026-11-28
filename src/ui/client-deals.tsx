@@ -1,4 +1,13 @@
-import { type ReactNode, type Ref, useCallback, useEffect, useRef, useState } from "react";
+import {
+  type ReactNode,
+  type Ref,
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { createPortal, flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { AddVendor } from "./deal-add-vendor.tsx";
@@ -212,33 +221,64 @@ function applyLinks(deal: ClientDeal, links: ReadonlyMap<string, Link>): ClientD
   return { ...deal, introductions: [...introductions.values()], vendors: [...vendors.values()] };
 }
 
+// The Clients island is loaded once per page. Closing a card only removes its subscriber.
+let linkSequence = 0;
+let sessionLinks = new Map<string, Link>();
+const linkListeners = new Set<() => void>();
+const settledListeners = new Set<() => void>();
+const subscribeLinks = (listener: () => void) => {
+  linkListeners.add(listener);
+  return () => {
+    linkListeners.delete(listener);
+  };
+};
+const getLinks = () => sessionLinks;
+function publishLinks(next: Map<string, Link>) {
+  sessionLinks = next;
+  for (const listener of linkListeners) listener();
+}
+function updateLink(key: string, link: Link) {
+  publishLinks(new Map(sessionLinks).set(key, link));
+}
+
 function useDealLinks(load: CardSectionProps<ClientDeal[]>["load"]) {
-  const sequence = useRef(0);
-  const current = useRef(new Map<string, Link>());
-  const [links, setLinks] = useState(current.current);
-  const publish = useCallback((next: Map<string, Link>) => {
-    current.current = next;
-    setLinks(next);
-  }, []);
+  const links = useSyncExternalStore(subscribeLinks, getLinks);
   const loadDeals = useCallback(
     async (signal: AbortSignal) => {
-      const started = ++sequence.current;
+      const started = ++linkSequence;
       const deals = await load(signal);
-      if (signal.aborted || !current.current.size) return deals;
-      const next = new Map(current.current);
+      if (signal.aborted) return deals;
+      const next = new Map(sessionLinks);
+      let changed = false;
       for (const [key, link] of next) {
-        // A read started before the write settled cannot confirm what it left.
-        if (link.phase === "saving" || started <= link.acknowledged) continue;
+        if ((link.phase !== "ready" && link.phase !== "checking") || started <= link.acknowledged) continue;
         const deal = deals.find((row) => row.id === link.deal);
-        if (deal) next.set(key, { ...link, ...readLink(deal, link.vendor), phase: "ready" });
-        else next.delete(key);
+        if (!deal) continue;
+        next.set(key, { ...link, ...readLink(deal, link.vendor), acknowledged: started, phase: "ready" });
+        changed = true;
       }
-      publish(next);
+      if (changed) publishLinks(next);
       return deals;
     },
-    [load, publish],
+    [load],
   );
   const [read, reload, refresh] = useRead(loadDeals);
+  const refreshAfterSave = useEffectEvent(() => refresh());
+  useEffect(() => {
+    const settled = () => refreshAfterSave();
+    settledListeners.add(settled);
+    return () => {
+      settledListeners.delete(settled);
+    };
+  }, []);
+
+  function check(deal: string, vendor: string) {
+    const key = linkKey(deal, vendor);
+    const link = sessionLinks.get(key);
+    if (!link || (link.phase !== "unconfirmed" && link.phase !== "checking")) return;
+    updateLink(key, { ...link, acknowledged: ++linkSequence, phase: "checking" });
+    refresh();
+  }
 
   async function write<T extends Saved>(
     deal: ClientDeal,
@@ -247,7 +287,7 @@ function useDealLinks(load: CardSectionProps<ClientDeal[]>["load"]) {
     apply: (link: LinkValue, answer: T) => LinkValue,
   ): Promise<Saved> {
     const key = linkKey(deal.id, vendor.id);
-    const before = current.current.get(key) ?? {
+    const before = sessionLinks.get(key) ?? {
       ...readLink(deal, vendor.id),
       deal: deal.id,
       vendor: vendor.id,
@@ -255,29 +295,33 @@ function useDealLinks(load: CardSectionProps<ClientDeal[]>["load"]) {
       phase: "ready",
     };
     if (before.phase !== "ready") return { ok: false, problem: { error: "vendor_save_in_progress" } };
-    publish(new Map(current.current).set(key, { ...before, phase: "saving" }));
-    const answer = await save().catch((): { ok: false; pending: true } => ({ ok: false, pending: true }));
-    publish(
-      new Map(current.current).set(key, {
-        ...before,
-        ...(answer.ok && apply(before, answer)),
-        acknowledged: ++sequence.current,
-        phase: !answer.ok && answer.pending ? "checking" : "ready",
-      }),
-    );
-    refresh();
+    const saving: Link = { ...before, phase: "saving" };
+    updateLink(key, saving);
+    // eslint-disable-next-line no-restricted-syntax -- One 10-second display deadline per write; the POST keeps running.
+    const deadline = window.setTimeout(() => updateLink(key, { ...saving, phase: "slow" }), 10_000);
+    const answer = await save()
+      .catch((): { ok: false; pending: true } => ({ ok: false, pending: true }))
+      .finally(() => window.clearTimeout(deadline));
+    const unconfirmed = !answer.ok && answer.pending;
+    updateLink(key, {
+      ...before,
+      ...(answer.ok && apply(before, answer)),
+      acknowledged: ++linkSequence,
+      phase: unconfirmed ? "unconfirmed" : "ready",
+    });
+    if (!unconfirmed) for (const listener of settledListeners) listener();
     return answer;
   }
 
   const deals = read.state === "ready" ? read.value.map((deal) => applyLinks(deal, links)) : [];
-  return { read, deals, reload, refresh, write, links };
+  return { read, deals, reload, check, write, links };
 }
 
 function ClientDeals({ subject: client, load, stage, doors = null }: CardSectionProps<ClientDeal[]>) {
-  const { read, deals, reload, refresh, write, links } = useDealLinks(load);
+  const { read, deals, reload, check, write, links } = useDealLinks(load);
   const actionsFor = (deal: ClientDeal, doors: VendorDoors): VendorActions => ({
     phase: (vendor) => links.get(linkKey(deal.id, vendor))?.phase ?? "ready",
-    refresh,
+    check: (vendor) => check(deal.id, vendor),
     setSource: (vendor, by, replaces) =>
       write(
         deal,

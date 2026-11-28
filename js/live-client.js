@@ -71,8 +71,8 @@ export function createLiveClient(opts = {}) {
     if (selfActor && selfActor !== session.actor.slug) throw Object.assign(new Error('Session changed. Reopen the record before writing.'), { code: 'session_changed' });
     return `${session.actor.slug}:${session.csrf_token}`;
   };
-  const postPartnerRecord = async (path, receipt, body, binding) => {
-    const response = await fetchReadImpl(path, { method: 'POST',
+  const postPartnerRecord = async (path, receipt, body, binding, send = fetchReadImpl) => {
+    const response = await send(path, { method: 'POST',
       headers: { 'content-type': 'application/json', 'x-carr-csrf': binding.slice(binding.indexOf(':') + 1) },
       body: JSON.stringify(body) });
     const data = await response.json();
@@ -311,7 +311,7 @@ export function createLiveClient(opts = {}) {
         return { ok: false, problem: error.payload ?? { error: error.code } };
       }
       try {
-        return await postPartnerRecord(path, receipt, { ...args, idempotency_key: uuidv4() }, binding);
+        return await postPartnerRecord(path, receipt, { ...args, idempotency_key: uuidv4() }, binding, fetchImpl);
       } catch (error) {
         return { ok: false, problem: error.payload ?? { error: error.code },
           pending: classifyCommandOutcome({ error }).status === 'unknown' };

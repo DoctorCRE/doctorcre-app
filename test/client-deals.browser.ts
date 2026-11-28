@@ -748,8 +748,10 @@ test("a lost replacement waits for a fresh read before retrying the role", async
   const { page, form, submit, shows, sent } = await addWithKnownSource(t);
   const held = await holdDealReads(t, page);
   await submit.click();
+  await form.getByText("Couldn't confirm the save", { exact: false }).waitFor();
+  await form.getByRole("button", { name: "Check again" }).click();
   await held.started;
-  await form.getByRole("alert").getByText(/check/i).waitFor();
+  await form.getByText("Checking the save…", { exact: false }).waitFor();
   assert.equal(await submit.isEnabled(), false);
   held.release();
   await form.getByText(/Recorded as introduced by The client/).waitFor();
@@ -761,7 +763,9 @@ test("a lost replacement waits for a fresh read before retrying the role", async
 test("removing a checked replacement lets Set record Dell as a new source", async (t) => {
   const { engine, page, deal, form, submit, shows } = await addWithKnownSource(t);
   await submit.click();
-  await form.getByRole("alert").getByText(/check/i).waitFor();
+  await form.getByText("Couldn't confirm the save", { exact: false }).waitFor();
+  await form.getByRole("button", { name: "Check again" }).click();
+  await form.getByText(/Recorded as introduced by The client/).waitFor();
   await deal.locator(".deal-diagram > ul > li > .deal-diagram-vendor", { hasText: "Example Harbor Bank" }).waitFor();
   await submit.click();
   await shows("Example Harbor Bank", "chosen");
@@ -777,6 +781,7 @@ test("removing a checked replacement lets Set record Dell as a new source", asyn
   const request = page.waitForRequest((request) => request.url().endsWith("/api/engine/introductions"));
   await menu.getByRole("button", { name: "Set", exact: true }).click();
   assert.equal((await request).postDataJSON().introduced_by, "dell");
+  await shows("Example Harbor Bank", "chosen");
   await vendor.click();
   await menu.getByText(/Introduced .* by Dell/).waitFor({ timeout: 3000 });
   assert.equal(engine.list[0]?.introductions.find((row) => row.vendor_id === "v9")?.introduced_by, "dell");
@@ -831,19 +836,81 @@ test("an earlier reread cannot hide a role after the Add vendor save lands", asy
   await shows("Example Harbor Bank", "chosen");
 });
 
-test("a lost Add role response checks the deal before allowing another save", async (t) => {
+test("a transport failure checks the saved role only after the partner asks", async (t) => {
   const engine = partyEngine(null, 0, "role");
   const { page, deal, sent, shows } = await openParties(t, engine);
   const form = await addVendor(page, deal, "Not recorded");
   const held = await holdDealReads(t, page);
   const submit = form.getByRole("button", { name: "Add", exact: true });
   await submit.click();
+  await form.getByText("Couldn't confirm the save", { exact: false }).waitFor();
+  assert.equal(await submit.isEnabled(), false);
+  await form.getByRole("button", { name: "Check again" }).click();
   await held.started;
-  await form.getByRole("status").getByText("Checking the save…").waitFor();
+  await form.getByText("Checking the save…", { exact: false }).waitFor();
   assert.equal(await submit.isEnabled(), false);
   held.release();
   await shows("Example Harbor Bank", "onDeal");
   await submit.click();
   await form.waitFor({ state: "hidden" });
   assert.equal(sent.filter((row) => row.body.party_id === "v9").length, 1);
+});
+
+test("a vendor link stays locked when its client card remounts during Set", async (t) => {
+  const engine = partyEngine();
+  const { page, panel, article, vendor, menu } = await openSource(t, engine);
+  const started = Promise.withResolvers<void>();
+  const commit = Promise.withResolvers<void>();
+  t.after(() => commit.resolve());
+  await page.route("**/api/engine/introductions", async (route) => {
+    started.resolve();
+    await commit.promise;
+    await route.fallback();
+  });
+  await menu.getByRole("button", { name: "Joe" }).click();
+  await menu.getByRole("button", { name: "Set", exact: true }).click();
+  await started.promise;
+  await page.locator("#recordClose").click();
+  await panel.getByRole("heading", { name: "Deals", exact: true }).waitFor({ state: "hidden" });
+  await page.locator(`a[data-record-id="${recordId}"]`).click();
+  await vendor.click();
+  assert.equal(await menu.getByRole("button", { name: "Set", exact: true }).count(), 0);
+  commit.resolve();
+  await article.locator('[data-tone="chosen"]', { hasText: "Example Halloran Title" }).waitFor();
+  await vendor.click();
+  await menu.getByText(/Introduced .* by Joe/).waitFor();
+  assert.equal(engine.sent.length, 1);
+});
+
+test("a late Add role response keeps Title locked while the original Lender save lands", async (t) => {
+  const engine = partyEngine();
+  const { page, deal, shows } = await openParties(t, engine);
+  const form = await addVendor(page, deal, "Not recorded");
+  const submit = form.getByRole("button", { name: "Add", exact: true });
+  const started = Promise.withResolvers<void>();
+  const commit = Promise.withResolvers<void>();
+  t.after(() => commit.resolve());
+  await page.route("**/api/engine/deals/d1/parties", async (route) => {
+    const { role } = route.request().postDataJSON();
+    if (role === "lender") {
+      started.resolve();
+      await commit.promise;
+    }
+    await route.fallback();
+  });
+  await page.clock.install();
+  await submit.click();
+  await started.promise;
+  await page.clock.fastForward(10_001);
+  await form.getByText("Still saving…", { exact: true }).waitFor({ timeout: 3000 });
+  assert.equal(await form.getByLabel("Role").isEnabled(), false);
+  assert.equal(await submit.isEnabled(), false);
+  commit.resolve();
+  await form.waitFor({ state: "hidden" });
+  await shows("Example Harbor Bank", "onDeal");
+  assert.deepEqual(
+    engine.sent.filter((row) => row.body.party_id === "v9").map((row) => row.body.role),
+    ["lender"],
+  );
+  assert.deepEqual(engine.list[0]?.vendors.find((row) => row.party_id === "v9")?.roles, role("Lender"));
 });

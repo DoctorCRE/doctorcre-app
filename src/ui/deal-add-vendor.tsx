@@ -9,6 +9,7 @@ import {
   sourceOf,
   type VendorActions,
   type VendorDoors,
+  VendorSaveStatus,
 } from "./deal-vendor-menu.tsx";
 
 interface Props {
@@ -108,7 +109,7 @@ function AddVendorForm({
       const result = await actions.setSource(vendor, by, recorded ?? undefined);
       if (!result.ok) {
         setBusy(false);
-        setProblem(result.pending ? "Check who was saved before trying again." : refusal(result.problem));
+        if (!result.pending) setProblem(refusal(result.problem));
         return;
       }
     }
@@ -119,11 +120,9 @@ function AddVendorForm({
     const answer = await actions.add(vendor, pickedRole);
     setBusy(false);
     if (answer.ok) return close();
-    const message = answer.pending
-      ? "Check whether the vendor was put on the deal before trying again."
-      : refusal(answer.problem);
+    if (answer.pending) return;
     const landed = by === "unrecorded" ? "" : ` ${vendor.name} is recorded as introduced by ${broughtBy(by)}.`;
-    setProblem(message + landed);
+    setProblem(refusal(answer.problem) + landed);
   }
   return (
     <form
@@ -187,14 +186,7 @@ function AddVendorForm({
           Cancel
         </button>
       </span>
-      {phase === "checking" && (
-        <p role="status">
-          Checking the save…{" "}
-          <button type="button" onClick={actions.refresh}>
-            Check again
-          </button>
-        </p>
-      )}
+      {vendor && <VendorSaveStatus phase={phase} check={() => actions.check(vendor.id)} />}
       {recorded && <p>Recorded as introduced by {broughtBy(recorded.by)}.</p>}
       {problem && (
         <p className="deal-vendor-menu-problem" role="alert">

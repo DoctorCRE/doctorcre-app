@@ -18,13 +18,36 @@ type SavedSource = RecordedSource & {
   party: string;
 };
 type SourceSave = { ok: true; introduction: SavedSource | null } | SaveFailed;
+const SAVE_STATUS = {
+  ready: "",
+  saving: "Saving…",
+  slow: "Still saving…",
+  unconfirmed: "Couldn't confirm the save",
+  checking: "Checking the save…",
+};
+export type LinkPhase = keyof typeof SAVE_STATUS;
+
+export function VendorSaveStatus({ phase, check }: { phase: LinkPhase; check: () => void }) {
+  if (phase === "ready") return null;
+  return (
+    <p className="deal-vendor-menu-problem" role="status">
+      {SAVE_STATUS[phase]}{" "}
+      {(phase === "unconfirmed" || phase === "checking") && (
+        <button type="button" onClick={check}>
+          Check again
+        </button>
+      )}
+    </p>
+  );
+}
+
 export interface VendorActions {
-  phase(vendor: string): "saving" | "checking" | "ready";
+  phase(vendor: string): LinkPhase;
+  check(vendor: string): void;
   setSource(vendor: FoundVendor, by: BroughtBy, replaces?: RecordedSource): Promise<Saved>;
   removeIntroduction(vendor: FoundVendor, introduction: IntroductionVersion): Promise<Saved>;
   add(vendor: FoundVendor, role: Role): Promise<Saved>;
   remove(vendor: Vendor): Promise<Saved>;
-  refresh(): void;
 }
 
 export function sourceOf(introduction: Introduction | null | undefined): RecordedSource | null {
@@ -181,10 +204,7 @@ export function DealVendorMenu({ deal, vendor, doors, actions, close, saved }: P
     setProblem("");
     const answer = await save();
     if (!answer.ok) {
-      if (answer.pending) {
-        setStep({ at: "menu" });
-        return setProblem("Check the introduction and roles before trying again.");
-      }
+      if (answer.pending) return setStep({ at: "menu" });
       return setProblem(
         `${refusal(answer.problem)}${answer.done ? ` ${answer.done} of ${vendor.roles.length} roles were removed.` : ""}`,
       );
@@ -210,14 +230,10 @@ export function DealVendorMenu({ deal, vendor, doors, actions, close, saved }: P
       <p className="deal-vendor-menu-who">
         {vendor.name}
         {role && ` · ${role}`}
-        <span>{phase === "checking" ? "Checking the save…" : introduced(vendor)}</span>
+        <span>{introduced(vendor)}</span>
         {vendor.introduction?.note && <q>{vendor.introduction.note}</q>}
       </p>
-      {phase === "checking" && (
-        <button type="button" onClick={actions.refresh}>
-          Check again
-        </button>
-      )}
+      <VendorSaveStatus phase={phase} check={() => actions.check(vendor.id)} />
       {step.at === "menu" && phase === "ready" && (
         <>
           {!vendor.chosen && (
