@@ -315,8 +315,8 @@ function PlanScreen(props: Inputs) {
           reveal={reveal}
           onOpen={setOpened}
           controls={controls}
+          cornerLabel={groups.length ? count : "No matching items"}
         />
-        <div className="deal-plan-count">{groups.length ? count : "No matching items"}</div>
         <footer className="deal-plan-footer">
           <span>Recorded</span>
           <span>Expected</span>

@@ -319,18 +319,18 @@ button.client-portal-link:disabled { cursor: wait; }
 .workspace-facts a { color: inherit; text-decoration: none; }
 .workspace-facts a:hover { color: var(--fg); text-decoration: underline; }
 #workspaceTabs { display: flex; flex-wrap: wrap; gap: var(--space-1); }
-#workspaceStatus { position: relative; flex-basis: 100%; min-width: 0; display: flex; align-items: center; gap: var(--space-2); color: var(--fg-muted); font-size: var(--font-size-1); }
+#workspaceStatus { flex-basis: 100%; min-width: 0; display: flex; align-items: flex-start; gap: var(--space-2); color: var(--fg-muted); font-size: var(--font-size-1); }
 #workspaceStatus:not(:has(button, summary)), #workspaceStatus > :empty { display: none; }
 #workspacePhaseMove { flex: 1; min-width: 0; }
 #workspaceSigning { min-width: 0; }
 #workspacePhaseMove:not(:empty) + #workspaceSigning { max-width: 50%; }
-#workspacePhaseMove .auto-move { display: flex; gap: var(--space-1); }
+#workspacePhaseMove .auto-move { display: flex; align-items: flex-start; gap: var(--space-1); }
 #workspacePhaseMove details { flex: 1; min-width: var(--touch); min-height: var(--touch); }
 #workspacePhaseMove button { flex: none; }
 #workspacePhaseMove summary, .deal-plan-signing-link { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #workspacePhaseMove summary { line-height: var(--touch); }
 #workspacePhaseMove summary span { display: inline; }
-#workspacePhaseMove details[open] summary { position: absolute; z-index: 1; inset: 100% 0 auto; padding: var(--space-2); line-height: var(--line-height-body); white-space: normal; border-radius: var(--radius-2); background: var(--surface-2); box-shadow: var(--shadow-overlay); }
+#workspacePhaseMove details[open] summary { padding-block: var(--space-1); line-height: var(--line-height-body); white-space: normal; }
 .deal-plan-signing-link { display: block; max-width: 100%; padding-block: 0; }
 
 .workspace-tab { flex: none; min-height: var(--touch); min-width: var(--touch); padding: 0 var(--space-3); color: var(--fg-muted); background: transparent; border: 0; border-radius: var(--radius-2); font: inherit; white-space: nowrap; cursor: pointer; }
@@ -342,9 +342,10 @@ button.client-portal-link:disabled { cursor: wait; }
 .deal-workspace [role="tabpanel"] :is(h2, h3) { font-size: var(--font-size-2); }
 .deal-workspace [role="tabpanel"] > h2:first-child,
 .deal-workspace [role="tabpanel"] > :first-child > h2:first-child { display: flex; align-items: center; min-block-size: var(--touch); margin-block-start: 0; }
-/* The updated time and Refresh share the open tab's first row, beside its heading. */
-.deal-workspace .deal-freshness { inline-size: fit-content; margin-inline-start: auto; margin-block-end: calc(-1 * var(--touch)); position: relative; }
-.deal-workspace .deal-freshness:has(+ #detailReadStatus:not(:empty)) { margin-block-end: 0; }
+.workspace-tab-heading { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.workspace-tab-heading > h2 { margin: 0; }
+#workspace-activity > .workspace-tab-heading { margin-block-end: 0; }
+.deal-workspace .deal-freshness { inline-size: fit-content; margin-inline-start: auto; }
 #timelineType { margin-inline-start: var(--space-2); }
 .deal-workspace .correspondence-evidence { margin-block-start: 0; }
 .deal-workspace .evidence-item:not(:has(details)) { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: var(--space-1); padding-block: var(--space-2); }
@@ -362,7 +363,8 @@ button.client-portal-link:disabled { cursor: wait; }
   .deal-crumb h1::before { content: none; }
   #workspaceFacts { order: -1; flex-basis: 100%; padding-block: var(--space-1); }
   .workspace-facts { justify-content: flex-start; }
-  #workspaceTabs { flex-wrap: nowrap; gap: 0; margin-inline: calc(-1 * var(--space-3)); padding-inline: var(--space-1); overflow-x: auto; scrollbar-width: none; }
+  #workspaceTabs { gap: 0; }
+  .workspace-tab { padding-inline: var(--space-2); }
 }
 
 /* On a phone the page scrolls, so the top bar (back and deal name) and the tab row both stay pinned. */

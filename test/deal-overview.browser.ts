@@ -575,6 +575,56 @@ test("at 320x568 the Plan owner, zoom and Today controls each have their own tap
     await plan.getByRole("button", { name, exact: true }).tap({ trial: true, timeout: 3000 });
 });
 
+for (const [width, height] of [
+  [320, 568],
+  [390, 844],
+  [900, 599],
+  [1280, 599],
+  [1280, 640],
+  [1440, 900],
+] as const)
+  test(`at ${width}x${height} deal header and Plan toolbar items fit without overlap`, async (t) => {
+    const { page } = await openDeal(t, width, height, [], fourDates(), {
+      ...sideFacts,
+      plan: signingPlan,
+      phase_change: automaticMove,
+    });
+    await page.getByRole("tab", { name: "Plan" }).click();
+    await page.locator(".deal-plan-count").waitFor();
+    const geometryProblems = () =>
+      page.evaluate(() => {
+        const regions = ":is(#appTopbar, .workspace-header, #workspace-plan .timeline-tools)";
+        const controls = `${regions} :is(button, a[href], summary, input, select, [role="button"])`;
+        const statuses = "#panelTitle, .workspace-facts dd:not(:has(a)), .deal-plan-count";
+        const boxes = [...document.querySelectorAll(`${controls}, ${statuses}`)]
+          .filter((node) => node.checkVisibility({ visibilityProperty: true }))
+          .map((node) => ({
+            name: node.getAttribute("aria-label") ?? node.textContent?.trim() ?? node.tagName,
+            rect: node.getBoundingClientRect(),
+          }))
+          .filter(({ rect }) => rect.height > 0 && rect.width > 0);
+        return boxes.flatMap(({ name, rect }, i) => {
+          const outside =
+            rect.left < -0.5 || rect.top < -0.5 || rect.right > innerWidth + 0.5 || rect.bottom > innerHeight + 0.5;
+          const overlaps = boxes
+            .slice(i + 1)
+            .filter(
+              ({ rect: other }) =>
+                Math.min(rect.right, other.right) - Math.max(rect.left, other.left) > 0.5 &&
+                Math.min(rect.bottom, other.bottom) - Math.max(rect.top, other.top) > 0.5,
+            );
+          return [
+            ...(outside ? [`${name} is outside the viewport`] : []),
+            ...overlaps.map((other) => `${name} overlaps ${other.name}`),
+          ];
+        });
+      });
+    const closed = await geometryProblems();
+    await page.locator("#workspacePhaseMove summary").click();
+    const open = await geometryProblems();
+    assert.deepEqual({ closed, open }, { closed: [], open: [] });
+  });
+
 for (const width of [900, 1280])
   test(`at ${width}x599 the deal status stays clear of the path and Plan fits`, async (t) => {
     const { page } = await openDeal(t, width, 599, [], fourDates(), {

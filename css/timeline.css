@@ -27,7 +27,7 @@
 .timeline-canvas { position: relative; width: max-content; min-width: 100%; min-height: 100%; display: flex; flex-direction: column; }
 
 .timeline-head { position: sticky; top: 0; z-index: 5; height: var(--head); flex: none; display: flex; background: var(--surface-1); }
-.timeline-corner { position: sticky; left: 0; z-index: 1; width: var(--list); flex: none; background: var(--surface-1); }
+.timeline-corner { position: sticky; left: 0; z-index: 1; width: var(--list); flex: none; display: flex; align-items: center; background: var(--surface-1); }
 .timeline-dates { position: relative; flex: none; }
 /* A month's name stays at the left of the dates for as long as the month is in view. */
 .timeline-month { position: absolute; top: 4px; height: 18px; }
@@ -145,11 +145,13 @@
 .deal-plan { display: grid; grid-template-columns: 228px minmax(0, 1fr); gap: 12px; height: 100%; min-height: 0; position: relative; min-width: 0; }
 .deal-plan-chart { min-height: 0; min-width: 0; display: flex; flex-direction: column; position: relative; overflow: hidden; border-radius: var(--radius-3); background: var(--surface-1); }
 .deal-plan-chart .timeline { flex: 1 1 0; --head: 44px; }
-.deal-plan-count { position: absolute; top: 62px; left: 10px; z-index: 6; color: var(--fg-quiet); font-size: var(--font-size-1); pointer-events: none; }
+.deal-plan-count { padding-inline: var(--space-2); color: var(--fg-quiet); font-size: var(--font-size-1); }
 .timeline-filters { margin-right: auto; display: flex; align-items: center; min-width: 0; gap: 4px; }
 .timeline-filters fieldset { display: flex; border: 0; margin: 0; padding: 0; min-width: 0; }
 .timeline-filters input, .timeline-filters select { background: var(--surface-2); color: var(--fg); border: 0; border-radius: var(--radius-2); min-width: 0; min-height: var(--touch); padding: 0 8px; font: inherit; font-size: var(--font-size-1); }
 .timeline-search { width: 182px; }
+#workspace-plan .timeline-tools { height: auto; min-height: 44px; flex-wrap: wrap; }
+#workspace-plan :is(.timeline-filters, .timeline-zoom) { flex: none; }
 .timeline-filters [aria-pressed="true"], .deal-plan-list [aria-pressed="true"] { background: var(--surface-3); color: var(--fg); }
 .deal-plan-list { min-width: 0; display: flex; flex-direction: column; align-items: stretch; overflow: auto; }
 .deal-plan-list h3 { margin: 8px 0; color: var(--fg-quiet); font-size: var(--font-size-1); }
@@ -178,7 +180,7 @@
   .deal-plan { grid-template-columns: minmax(0, 1fr); }
   .deal-plan-list, .timeline-search { display: none; }
   .deal-plan-chart .timeline { --list: 164px; }
-  #workspace-plan .timeline-tools { display: grid; grid-template-columns: 1fr auto; height: auto; }
+  #workspace-plan .timeline-tools { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
   #workspace-plan .timeline-filters { grid-column: 1 / -1; }
   .timeline-filters button, .timeline-tools button { padding-inline: 7px; }
 }
@@ -193,7 +195,6 @@
 #boardTimelineTools .timeline-tools { height: auto; gap: 3px; padding-inline: 0; }
 #boardTimelineTools .timeline-tools svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; }
 #boardTimelineTools :is(.timeline-tools button, select) { padding-inline: 6px; }
-.deal-plan[data-board] .deal-plan-count { top: 14px; }
 @media (max-width: 760px) {
   #boardTimeline:not([hidden]) { height: max(380px, calc(100dvh - 214px)); }
 }

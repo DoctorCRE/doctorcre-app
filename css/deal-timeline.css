@@ -3,7 +3,6 @@
  * pattern; nothing pulses. The accent stays chrome (focus only). */
 .deal-freshness { display:flex; justify-content:flex-end; align-items:center; gap:var(--space-1); color:var(--fg-muted); font-size:var(--font-size-1); }
 .deal-freshness button { border:0; background:transparent; }
-/* Under the dates row the freshness line takes its own line instead of overlapping a heading. */
 .deal-workspace #workspace-overview > .deal-freshness { margin-block-end:0; }
 .deal-detail #detailReadStatus:empty { display:none; }
 
