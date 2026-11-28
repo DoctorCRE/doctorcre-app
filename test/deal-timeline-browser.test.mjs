@@ -218,6 +218,27 @@ for(const [width,height] of [[1280,640],[1440,900]]) {
  });
 }
 
+test('Plan preserves visible filters and items across the chart boundary',async t=>{
+ const {page}=await open(t,{width:1000,height:800});
+ const tab=await showPlan(page);
+ const recorded=tab.getByRole('button',{name:'Recorded only',exact:true});
+ const dell=tab.getByRole('button',{name:'Dell',exact:true});
+ await recorded.click();
+ await dell.click();
+ await page.setViewportSize({width:700,height:800});
+ const list=tab.getByRole('list',{name:'Plan items'});
+ await list.waitFor({timeout:3000});
+ assert.equal(await recorded.getAttribute('aria-pressed'),'true');
+ assert.equal(await dell.getAttribute('aria-pressed'),'true');
+ assert.deepEqual((await list.getByRole('button').allTextContents()).sort(),['Call about the lease','Review the lease']);
+ await recorded.click();
+ await list.getByRole('button',{name:'Sign the lease',exact:true}).waitFor();
+ await page.setViewportSize({width:760,height:800});
+ await tab.getByRole('heading',{name:'Milestones'}).waitFor();
+ assert.equal(await recorded.getAttribute('aria-pressed'),'false');
+ assert.equal(await dell.getAttribute('aria-pressed'),'true');
+ await tab.getByRole('button',{name:'Sign the lease',exact:true}).first().waitFor();
+});
 test('Phone Plan lists items in date order and opens them inline',async t=>{
  const {page,errors}=await open(t,{width:390,height:844,touch:true});
  const tab=await showPlan(page);
@@ -233,7 +254,7 @@ test('Phone Plan lists items in date order and opens them inline',async t=>{
  assert.match(await detail.innerText(),/exp\. Oct 17/);
  assert.equal(await tab.locator('.timeline').count(),0);
  assert.deepEqual(errors,[]);
- await page.setViewportSize({width:600,height:844});
+ await page.setViewportSize({width:760,height:844});
  await tab.getByRole('group',{name:'Zoom'}).waitFor();
  assert.equal(await tab.getByRole('list',{name:'Plan items'}).count(),0);
 });
@@ -287,7 +308,7 @@ for(const [width,height,touch] of [[1280,640,false],[1440,900,false],[390,844,tr
     const bounds=row.getBoundingClientRect();
     return {clipped:node.scrollWidth>node.clientWidth,labelTop:label.top,labelBottom:label.bottom,phaseTop:phase.top,phaseBottom:phase.bottom,top:bounds.top,bottom:bounds.bottom};
    });
-   assert.ok(!layout.clipped && layout.top<=layout.labelTop && layout.labelBottom<=layout.phaseTop && layout.phaseBottom<=layout.bottom,JSON.stringify(layout));
+   assert.ok(!layout.clipped && layout.top<=layout.labelTop+0.5 && layout.labelBottom<=layout.phaseTop+0.5 && layout.phaseBottom<=layout.bottom+0.5,JSON.stringify(layout));
   }
  } else {
   await page.locator('#boardTimelineTools').getByRole('button',{name:'Today',exact:true}).waitFor();

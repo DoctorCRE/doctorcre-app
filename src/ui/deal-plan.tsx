@@ -50,7 +50,7 @@ export function signingCaption(plan: Plan | null | undefined, today: string) {
 const signingName = (recorded: boolean) => (recorded ? "Lease signed" : "Lease signing");
 const stepMap = (steps: SourceStep[]) => new Map(steps.map((step) => [`step:${step.id}`, step]));
 
-const phonePlan = () => matchMedia("(width < 600px)");
+const phonePlan = () => matchMedia("(width < 760px)");
 function subscribePhonePlan(change: () => void) {
   const media = phonePlan();
   media.addEventListener("change", change);
@@ -267,6 +267,40 @@ function PlanScreen(props: Inputs) {
     }
   }
 
+  const savedViews = (
+    <>
+      {(
+        [
+          ["mine", board ? "My deals" : "My steps", myCount],
+          ["risk", "At risk", riskCount],
+          ["soon", "Next two weeks", soonCount],
+        ] satisfies [View, string, number][]
+      ).map(([key, label, total]) => (
+        <button
+          type="button"
+          key={key}
+          aria-pressed={view === key}
+          onClick={() => {
+            setView(view === key ? null : key);
+            setReveal(undefined);
+          }}
+        >
+          {label}
+          <small>{total}</small>
+        </button>
+      ))}
+      <button
+        type="button"
+        aria-pressed={recorded}
+        onClick={() => {
+          setRecorded(!recorded);
+          setReveal(undefined);
+        }}
+      >
+        Recorded only
+      </button>
+    </>
+  );
   const controls = (
     <div className="timeline-filters">
       {board ? (
@@ -290,6 +324,9 @@ function PlanScreen(props: Inputs) {
                 {partner(slug) ?? "Both"}
               </button>
             ))}
+          </fieldset>
+          <fieldset className="chip-bar" aria-label="Saved views">
+            {savedViews}
           </fieldset>
         </>
       )}
@@ -341,37 +378,8 @@ function PlanScreen(props: Inputs) {
             ))}
         </ul>
         {!milestones.length && <p>No upcoming milestones</p>}
-        <h3>Saved views</h3>
-        {(
-          [
-            ["mine", board ? "My deals" : "My steps", myCount],
-            ["risk", "At risk", riskCount],
-            ["soon", "Next two weeks", soonCount],
-          ] satisfies [View, string, number][]
-        ).map(([key, label, total]) => (
-          <button
-            type="button"
-            key={key}
-            aria-pressed={view === key}
-            onClick={() => {
-              setView(view === key ? null : key);
-              setReveal(undefined);
-            }}
-          >
-            {label}
-            <small>{total}</small>
-          </button>
-        ))}
-        <button
-          type="button"
-          aria-pressed={recorded}
-          onClick={() => {
-            setRecorded(!recorded);
-            setReveal(undefined);
-          }}
-        >
-          Recorded only
-        </button>
+        {board && <h3>Saved views</h3>}
+        {board && savedViews}
       </aside>
       <div className="deal-plan-chart">
         <Timeline

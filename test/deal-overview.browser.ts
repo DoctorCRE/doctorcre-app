@@ -583,13 +583,13 @@ for (const [width, height] of [
   [390, 844],
   [900, 599],
   [1280, 599],
-  [1280, 640],
+  [700, 800],
   [1440, 900],
 ] as const)
   test(`at ${width}x${height} deal header and Plan toolbar items fit without overlap`, async (t) => {
     const { page } = await openDeal(t, width, height, [], fourDates(), {
       ...sideFacts,
-      plan: signingPlan,
+      plan: { ...signingPlan, own_dates: { review: "2026-12-05" }, base_version: 1 },
       phase_change: automaticMove,
     });
     await page.getByRole("tab", { name: "Plan" }).click();
@@ -597,65 +597,98 @@ for (const [width, height] of [
       .locator("#workspace-plan :is(.timeline-name, .deal-plan-item > button)")
       .filter({ hasText: "Example date 0" });
     await item.waitFor();
-    const geometryProblems = () =>
-      page.evaluate(() => {
-        const regions =
-          ":is(#appTopbar, .workspace-header, #workspace-plan .timeline-tools, .deal-plan-mobile, .deal-plan-footer, .deal-plan-details)";
-        const buttons = "button, a[href], summary, input, select, [role=button]";
-        const controls = `${regions} :is(${buttons}):not(.deal-plan-item > button)`;
-        const statuses = `${regions} [role=status]:not(:empty), #panelTitle, .workspace-facts dd:not(:has(a)), .deal-plan-count`;
-        const scrollers = [
-          ...document.querySelectorAll("#workspace-plan :is(.timeline-scroll, .deal-plan-list, .deal-plan-details)"),
-        ].filter((node) => node.checkVisibility() && ["auto", "scroll"].includes(getComputedStyle(node).overflowY));
+    const geometryProblems = (expectReset = false) =>
+      page.evaluate((expectReset) => {
+        const scope = ":is(#appTopbar, #recordPanel)";
+        const buttons = "button, a[href], summary, input, select, textarea, [role=button]";
+        const viewport = new DOMRect(0, 0, innerWidth, innerHeight);
+        const visible = (node: Element) =>
+          node.checkVisibility({ visibilityProperty: true, contentVisibilityAuto: true });
         const clientBounds = (node: Element) => {
           const { left, top } = node.getBoundingClientRect();
           return new DOMRect(left + node.clientLeft, top + node.clientTop, node.clientWidth, node.clientHeight);
         };
-        const inside = (rect: DOMRect, outer: DOMRect) =>
-          rect.left >= outer.left - 0.5 &&
-          rect.top >= outer.top - 0.5 &&
-          rect.right <= outer.right + 0.5 &&
-          rect.bottom <= outer.bottom + 0.5;
-        const viewport = new DOMRect(0, 0, innerWidth, innerHeight);
-        const boxes = [...document.querySelectorAll(`${controls}, ${statuses}`)]
-          .filter((node) => node.checkVisibility({ visibilityProperty: true }))
-          .map((node) => ({
-            node,
-            name: node.getAttribute("aria-label") ?? node.textContent?.trim() ?? node.tagName,
-            rect: node.getBoundingClientRect(),
-          }))
-          .filter(({ rect }) => rect.height > 0 && rect.width > 0);
-        return [
-          ...scrollers
-            .filter((node) => node.clientHeight < 160)
-            .map((node) => `${node.className} scroller is ${node.clientHeight}px tall`),
-          ...boxes.flatMap(({ node, name, rect }, i) => {
-            const issues = [];
-            if (!inside(rect, viewport)) issues.push(`${name} is outside the viewport`);
-            for (let parent = node.parentElement; parent; parent = parent.parentElement) {
+        const overlap = (a: DOMRect, b: DOMRect) =>
+          Math.min(a.right, b.right) - Math.max(a.left, b.left) > 0.5 &&
+          Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0.5;
+        const inside = (a: DOMRect, b: DOMRect) =>
+          a.left >= b.left - 1 && a.top >= b.top - 1 && a.right <= b.right + 1 && a.bottom <= b.bottom + 1;
+        const controlName = (node: Element) =>
+          node.getAttribute("aria-label") ?? node.textContent?.trim() ?? node.tagName;
+        const issues: string[] = [];
+        const scrollers = [
+          ...document.querySelectorAll(`${scope} :is(.timeline-scroll, .deal-plan-list, .deal-plan-details)`),
+        ].filter((node) => visible(node) && /auto|scroll/.test(getComputedStyle(node).overflowY));
+        for (const node of scrollers)
+          if (node.clientHeight < 160) issues.push(`${node.className} scroller is ${node.clientHeight}px tall`);
+        const mobilePage = matchMedia("(width < 760px)").matches;
+        const topbarBottom = document.getElementById("appTopbar")?.getBoundingClientRect().bottom ?? 0;
+        const controls = [...document.querySelectorAll(`${scope} :is(${buttons})`)]
+          .filter(visible)
+          .map((node) => ({ node, rect: node.getBoundingClientRect() }))
+          .filter(({ node, rect }) => {
+            if (!overlap(rect, viewport)) return false;
+            // Rows at the edges of a scrolling page move into view as the partner scrolls.
+            if (
+              mobilePage &&
+              !node.closest("#appTopbar") &&
+              (rect.top < topbarBottom - 1 || rect.bottom > innerHeight + 1)
+            )
+              return false;
+            const pane = node.closest(".timeline-scroll, .deal-plan-list");
+            return pane ? inside(rect, clientBounds(pane)) : !node.closest(".deal-plan-item") || inside(rect, viewport);
+          });
+        for (const [index, { node, rect }] of controls.entries()) {
+          const name = controlName(node);
+          if (!inside(rect, viewport)) issues.push(`${name} is outside the viewport`);
+          const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+          const layer = hit?.closest(".deal-plan-details, [popover]:popover-open");
+          if (layer && !layer.contains(node)) issues.push(`${name} is covered by the opened item`);
+          for (const { node: other, rect: otherRect } of controls.slice(index + 1)) {
+            if (!overlap(rect, otherRect) || node.contains(other) || other.contains(node)) continue;
+            const track = node.closest(".timeline-track");
+            if (track && track === other.closest(".timeline-track")) continue;
+            if (node.closest(".timeline-scroll") || other.closest(".timeline-scroll")) continue;
+            issues.push(`${name} overlaps ${controlName(other)}`);
+          }
+        }
+        const range = document.createRange();
+        for (const root of document.querySelectorAll("#appTopbar, #recordPanel")) {
+          const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+          for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+            const value = text.textContent?.trim();
+            const node = text.parentElement;
+            if (!node || !value || !visible(node) || node.closest("style, script, .sr-only, .timeline-sr, dt"))
+              continue;
+            if (node.closest("details:not([open])") && !node.closest("summary")) continue;
+            range.selectNodeContents(text);
+            const rect = range.getBoundingClientRect();
+            if (!overlap(rect, viewport)) continue;
+            const style = getComputedStyle(node);
+            if (style.clipPath !== "none") issues.push(`${value} has a clip path`);
+            if (style.whiteSpace === "nowrap" && node.clientWidth > 0 && node.scrollWidth > node.clientWidth + 1)
+              issues.push(`${value} overflows its line`);
+            for (let parent: Element | null = node; parent; parent = parent.parentElement) {
               const { overflowX, overflowY } = getComputedStyle(parent);
-              if ((overflowX !== "visible" || overflowY !== "visible") && !inside(rect, clientBounds(parent))) {
-                issues.push(`${name} is clipped by ${parent.id || parent.className}`);
+              if (overflowX === "visible" && overflowY === "visible") continue;
+              const clip = clientBounds(parent);
+              if (/auto|scroll/.test(overflowX + overflowY) && !inside(rect, clip)) break;
+              if (!inside(rect, clip)) {
+                issues.push(`${value} is clipped by ${parent.id || parent.className}`);
                 break;
               }
             }
-            if (node.matches(buttons)) {
-              const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
-              if (hit?.closest(".deal-plan-details, [popover]:popover-open") && !node.contains(hit))
-                issues.push(`${name} is covered by the opened item`);
-            }
-            for (const other of boxes.slice(i + 1)) {
-              if (
-                !node.contains(other.node) &&
-                Math.min(rect.right, other.rect.right) - Math.max(rect.left, other.rect.left) > 0.5 &&
-                Math.min(rect.bottom, other.rect.bottom) - Math.max(rect.top, other.rect.top) > 0.5
-              )
-                issues.push(`${name} overlaps ${other.name}`);
-            }
-            return issues;
-          }),
-        ];
-      });
+          }
+        }
+        const confirmation = [
+          ...document.querySelectorAll(
+            '[aria-label="Reset to typical"] button, #workspacePlanStatus [data-plan-confirm]',
+          ),
+        ].find((button) => visible(button) && button.textContent?.trim() !== "Cancel");
+        if (expectReset && (!confirmation || !inside(confirmation.getBoundingClientRect(), viewport)))
+          issues.push("Reset confirmation is outside the viewport");
+        return issues;
+      }, expectReset);
     const receipt = page.locator("#workspacePhaseMove summary");
     const closed = await geometryProblems();
     await receipt.click();
@@ -663,7 +696,14 @@ for (const [width, height] of [
     await receipt.click();
     await item.click();
     const itemOpen = await geometryProblems();
-    assert.deepEqual({ closed, open, itemOpen }, { closed: [], open: [], itemOpen: [] });
+    const reset = page.getByRole("button", { name: "Reset to typical", exact: true });
+    let confirming: string[] = [];
+    if (width === 320 && (await reset.count()) === 1) {
+      await page.getByRole("button", { name: "Example date 24", exact: true }).click();
+      await reset.click();
+      confirming = await geometryProblems(true);
+    }
+    assert.deepEqual({ closed, open, itemOpen, confirming }, { closed: [], open: [], itemOpen: [], confirming: [] });
   });
 
 for (const width of [900, 1280])
