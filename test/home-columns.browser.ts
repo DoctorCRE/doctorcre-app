@@ -713,6 +713,12 @@ test("At 1280x599 Deals refits wrapped counts after a late font load", async (t)
   page.on("pageerror", (error) => {
     if (error.message.includes("ResizeObserver loop")) loops.push(error.message);
   });
+  const fold = tile.getByRole("button", { name: "2 need attention" });
+  await fold.waitFor();
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
   const before = (await counts.boundingBox()) ?? assert.fail("Deal counts are drawn");
   await page.addStyleTag({
     content: `
@@ -725,13 +731,83 @@ test("At 1280x599 Deals refits wrapped counts after a late font load", async (t)
     await document.fonts.ready;
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   });
-  const [after, fold] = await Promise.all([
+  const [after, button, bounds, minimum] = await Promise.all([
     counts.boundingBox(),
-    tile.getByRole("button", { name: "2 need attention" }).boundingBox(),
+    fold.boundingBox(),
+    tile.boundingBox(),
+    tile.evaluate((region) => Number.parseFloat(getComputedStyle(region).minBlockSize)),
   ]);
-  assert.ok(after && fold && after.height > before.height, "the loaded font wraps the counts");
-  assert.ok(after.y + after.height <= fold.y, "the fold stays below the wrapped counts");
+  assert.ok(after && button && bounds && after.height > before.height, "the loaded font wraps the counts");
+  assert.ok(
+    minimum >= after.y + after.height - bounds.y + button.height,
+    "the tile reserves space for the wrapped counts and fold",
+  );
+  assert.ok(after.y + after.height <= button.y, "the fold stays below the wrapped counts");
   assert.deepEqual(loops, [], "refitting the column does not cause a resize loop");
+});
+
+test("At 1280x599 wheel and touch carry from a finished tile to Leads", async (t) => {
+  const dates = Array.from({ length: 42 }, (_, index) => criticalDate(index + 1, today));
+  for (const touch of [false, true]) {
+    await t.test(touch ? "touch swipe" : "mouse wheel", async (t) => {
+      const page = await openHome(t, 1280, 599, [], dates, dashboard, undefined, {
+        touch,
+        deals: [wrappedDeal],
+        meetings: busyMeetings,
+      });
+      await page.getByRole("button", { name: "Coming up 42 dates in the next 14 days" }).click();
+      await page.getByRole("button", { name: "1 needs attention" }).click();
+      const meetings = page.getByRole("region", { name: "Today's meetings", exact: true });
+      const column = page.locator(".home-side");
+      const leads = page.getByRole("region", { name: "Leads", exact: true }).locator("strong");
+      await column.evaluate((region) => {
+        region.scrollTop = 0;
+      });
+      await meetings.evaluate((tile) => {
+        tile.scrollTop = tile.scrollHeight;
+      });
+      const [list, right, heading] = await Promise.all([
+        meetings.boundingBox(),
+        column.boundingBox(),
+        leads.boundingBox(),
+      ]);
+      assert.ok(
+        list && right && heading && heading.y + heading.height > right.y + right.height,
+        "Leads starts below the column viewport",
+      );
+      assert.ok(
+        await meetings.evaluate(
+          (tile) => tile.scrollTop > 0 && Math.abs(tile.scrollHeight - tile.clientHeight - tile.scrollTop) <= 1,
+        ),
+        "the input starts at the tile's lower limit",
+      );
+      const x = Math.round(list.x + list.width / 2);
+      const y = Math.round(list.y + list.height - 8);
+      if (touch) {
+        const input = await page.context().newCDPSession(page);
+        await input.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+        for (const offset of [30, 75, 125])
+          await input.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x, y: y - offset }] });
+        await input.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      } else {
+        await page.mouse.move(x, y);
+        await page.mouse.wheel(0, 600);
+      }
+      await page.waitForFunction(() => {
+        const column = document.querySelector(".home-side");
+        const heading = column?.querySelector('[aria-label="Leads"] strong');
+        if (!column?.scrollTop || !heading) return false;
+        const visible = column.getBoundingClientRect();
+        const label = heading.getBoundingClientRect();
+        return label.top >= visible.top && label.bottom <= visible.bottom;
+      });
+      assert.deepEqual(
+        await page.evaluate(() => [scrollY, document.querySelector("#appMainSlot")?.scrollTop]),
+        [0, 0],
+        "the page stays put",
+      );
+    });
+  }
 });
 
 test("Crowded touch columns keep every tile heading reachable at 599, 640 and 900", async (t) => {

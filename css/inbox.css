@@ -105,7 +105,7 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
   .home-column:empty { display: none; }
   .has-app-layout main:has(.home-inbox) .inbox-shell { padding-bottom: 0; }
   /* Expanded dates reach their measured minimum first. Other lists yield in proportion to their size. */
-  .home-column > * { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  .home-column > * { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
   .home-column > .home-slice {
     /* When the minimums do not fit, the column scrolls rather than squeezing the tiles. */
     min-block-size: var(--home-preview-size, 0px);
