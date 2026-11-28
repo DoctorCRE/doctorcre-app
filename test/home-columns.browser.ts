@@ -583,11 +583,12 @@ const wrappedDeal = deal(1, "Research", {
   },
 });
 
-for (const [width, height] of [
-  [1280, 640],
-  [1440, 900],
+for (const [width, height, touch] of [
+  [1280, 640, false],
+  [1280, 640, true],
+  [1440, 900, false],
 ] as const)
-  test(`At ${width}x${height} only overflowing Home tiles scroll and every heading is in view`, async (t) => {
+  test(`At ${width}x${height} only overflowing Home tiles scroll and every heading is in view${touch ? " with touch" : ""}`, async (t) => {
     const short = height === 640;
     const dates = Array.from({ length: short ? 4 : 30 }, (_, index) => criticalDate(index + 1, today));
     const attention = Array.from({ length: short ? 5 : 30 }, (_, index) =>
@@ -614,7 +615,7 @@ for (const [width, height] of [
         ),
       },
       undefined,
-      { deals: attention, meetings: busyMeetings },
+      { deals: attention, meetings: busyMeetings, touch },
     );
     await page.getByRole("region", { name: "Leads", exact: true }).waitFor();
     const tileNames = [
@@ -682,8 +683,43 @@ for (const [width, height] of [
         }),
         "the Deals fold is visible before scrolling",
       );
-      await attentionFold.click();
-      await page.getByRole("button", { name: "Coming up 4 dates in the next 14 days", exact: true }).click();
+      const comingUpFold = page.getByRole("button", { name: "Coming up 4 dates in the next 14 days", exact: true });
+      const dealsRow = page.getByRole("region", { name: "Needs attention", exact: true }).getByRole("link").first();
+      const comingUpRow = page.getByRole("region", { name: "Coming up dates", exact: true }).getByRole("link").first();
+      for (const { fold, row } of [
+        { fold: attentionFold, row: dealsRow },
+        { fold: comingUpFold, row: comingUpRow },
+      ]) {
+        await t.test(`Opening ${await fold.textContent()} shows the button and first row`, async () => {
+          if (touch) await fold.tap();
+          else await fold.click();
+          assert.ok(await fold.evaluate((button) => button === document.activeElement), "the disclosure keeps focus");
+          const clipped = await Promise.all(
+            [fold, row].map((control) =>
+              control.evaluate((node) => {
+                const { top, bottom, left, right, width } = node.getBoundingClientRect();
+                const tile = node.closest(".home-slice")?.getBoundingClientRect();
+                const x = left + width / 2;
+                const fullyVisible =
+                  tile &&
+                  top >= Math.max(0, tile.top) &&
+                  bottom <= Math.min(innerHeight, tile.bottom) &&
+                  left >= Math.max(0, tile.left) &&
+                  right <= Math.min(innerWidth, tile.right) &&
+                  [top + 1, bottom - 1].every((y) => node.contains(document.elementFromPoint(x, y)));
+                return fullyVisible ? null : { label: node.textContent?.trim(), top, bottom, tileBottom: tile?.bottom };
+              }),
+            ),
+          );
+          assert.deepEqual(clipped.filter(Boolean), []);
+          const { overflowing, ...afterFold } = await layout();
+          assert.deepEqual(afterFold, expected);
+          assert.deepEqual(
+            overflowing.filter((name) => name !== "Coming up"),
+            tileNames.slice(0, 5),
+          );
+        });
+      }
     }
     assert.deepEqual(await layout(), { ...expected, overflowing: tileNames.slice(0, -1) });
   });
