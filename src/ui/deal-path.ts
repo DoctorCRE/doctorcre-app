@@ -66,6 +66,19 @@ function todoHtml(todo: Todo, today: string, focused: boolean) {
   return `<li data-todo="${esc(todo.id)}" data-state="${finished ? "done" : todo.status === "overdue" ? "late" : "open"}"><details${focused ? " open data-focused" : ""}><summary><span>${esc(todo.label)}</span>${line ? `<small>${esc(line)}</small>` : ""}</summary><p>${esc(detail)}</p></details></li>`;
 }
 
+// A tile shows its first unfinished to-dos; the rest fold under a count so the path stays one short row.
+const SHOWN = 2;
+
+function todoListHtml(todos: Todo[], view: PathView) {
+  const items = (list: Todo[]) =>
+    `<ul>${list.map((todo) => todoHtml(todo, view.today, todo.id === view.focusedItem)).join("")}</ul>`;
+  const ordered = [...todos].sort((a, b) => Number(FINISHED.has(a.status)) - Number(FINISHED.has(b.status)));
+  const rest = ordered.slice(SHOWN);
+  if (!rest.length) return items(ordered);
+  const open = rest.some((todo) => todo.id === view.focusedItem) ? " open" : "";
+  return `${items(ordered.slice(0, SHOWN))}<details class="deal-path-more"${open}><summary>${rest.length} more</summary>${items(rest)}</details>`;
+}
+
 function tileHtml(phase: Phase, place: Place, todos: Todo[] | undefined, view: PathView) {
   const name =
     view.canMove && place !== "current"
@@ -74,11 +87,7 @@ function tileHtml(phase: Phase, place: Place, todos: Todo[] | undefined, view: P
   const done = todos?.filter((todo) => FINISHED.has(todo.status)).length ?? 0;
   const count = place === "current" && todos?.length ? `<small>${done} of ${todos.length}</small>` : "";
   const check = place === "done" ? '<span class="deal-path-check" aria-label="Finished">✓</span>' : "";
-  const list = todos?.length
-    ? `<ul>${todos.map((todo) => todoHtml(todo, view.today, todo.id === view.focusedItem)).join("")}</ul>`
-    : todos
-      ? '<p class="deal-path-empty">Nothing listed</p>'
-      : "";
+  const list = todos?.length ? todoListHtml(todos, view) : todos ? '<p class="deal-path-empty">Nothing listed</p>' : "";
   const receipt = place === "current" ? `<div data-phase-move aria-live="polite">${view.receiptHtml}</div>` : "";
   return `<li class="deal-path-tile" data-phase="${esc(phase.slug)}" data-place="${place}"${place === "current" ? ' aria-current="step"' : ""}><div class="deal-path-head">${name}${check}${count}</div>${receipt}${list}</li>`;
 }

@@ -2980,6 +2980,7 @@ function wire() {
     if (event.target.open && state.panelDetail) void refreshEvidence(state.panelDetail, state.panelDeal, panelReadSequence);
   }, true);
   showScrollThumbs($('panelBody'), '.activity-list, .activity-pane, .deal-overview-grid > *');
+  showScrollThumbs(document.body, '#appMainSlot:has(#workspace-overview:not([hidden]) > .deal-overview-grid)');
   $('panelBody').addEventListener('click', async e => {
     const chip = e.target.closest('[data-activity-filter]');
     if (chip && $('workspace-activity')?.contains(chip)) {

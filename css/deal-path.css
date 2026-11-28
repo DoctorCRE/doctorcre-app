@@ -20,6 +20,10 @@ button.deal-path-name:hover, button.deal-path-name[aria-expanded="true"] { color
 .deal-path-tile [data-phase-move] .auto-move { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--space-1); color: var(--fg-quiet); }
 .deal-path-tile [data-phase-move] .btn { min-height: 0; padding: 0 var(--space-1); color: var(--fg-muted); text-decoration: underline; text-underline-offset: 2px; }
 .deal-path-tile ul { list-style: none; margin: 0; padding: 0 6px 8px; }
+.deal-path-tile ul:has(+ .deal-path-more) { padding-bottom: 0; }
+.deal-path-tile .deal-path-more > summary { display: block; margin: 0 6px 4px; padding: 0 4px; line-height: 20px; color: var(--fg-quiet); }
+.deal-path-tile .deal-path-more > summary::before { content: none; }
+.deal-path-tile .deal-path-more[open] > summary { margin-bottom: 0; }
 .deal-path-tile summary { display: grid; grid-template-columns: 14px minmax(0, 1fr); column-gap: 6px; padding: 4px; border-radius: var(--radius-2); font-size: var(--font-size-1); color: var(--fg-muted); cursor: pointer; list-style: none; }
 .deal-path-tile summary::-webkit-details-marker { display: none; }
 .deal-path-tile summary:hover { background: var(--surface-3); color: var(--fg); }

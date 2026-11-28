@@ -487,22 +487,66 @@ for (const [width, height] of laptops)
     assert.equal(await activity.isVisible(), true, "All activity opens Activity");
   });
 
+// Eight to-dos in the current phase, as on a real deal well into site selection.
+const longChecklist = {
+  schema_version: "deal-checklist.v1",
+  template_state: "current",
+  due_items: [],
+  phases: [
+    {
+      id: "site_selection",
+      label: "Site selection",
+      items: Array.from({ length: 8 }, (_, n) => ({
+        id: `site_todo_${n}`,
+        label: `Example site to-do ${n + 1}`,
+        status: n < 2 ? "complete" : n === 2 ? "overdue" : "not_recorded",
+        due_on: n === 2 ? "2026-11-24" : null,
+      })),
+    },
+  ],
+};
+
 for (const [width, height] of [
+  [1280, 599],
   [1280, 640],
   [1440, 900],
 ] as const)
-  test(`Overview is one screen at ${width}x${height}; long columns scroll inside themselves`, async (t) => {
+  test(`Overview is one screen at ${width}x${height}: dates on top, a short path, columns scroll inside`, async (t) => {
     const thread = Array.from({ length: 10 }, (_, n) => noteAt(n));
-    const { page } = await openDeal(t, width, height, [], fourDates(), { ...sideFacts, thread });
+    const { page } = await openDeal(t, width, height, [], fourDates(), {
+      ...sideFacts,
+      thread,
+      checklist: longChecklist,
+    });
     await page.screenshot({ path: `${shots}/overview-fit-${width}x${height}.png` });
+    const dates = page.locator(".critical-dates");
+    assert.ok(
+      await dates.evaluate((node) => node.clientHeight >= 44 && node.clientHeight >= node.scrollHeight),
+      "the dates row shows whole",
+    );
     const scroller = page.locator("#appMainSlot");
     assert.ok(
       await scroller.evaluate((node) => node.scrollHeight <= node.clientHeight),
       "the page itself does not scroll",
     );
+    assert.equal(
+      await scroller.evaluate((node) => getComputedStyle(node).scrollbarWidth),
+      "none",
+      "the page shows no bar",
+    );
+    const path = page.locator(".deal-path-section");
+    assert.ok((await path.evaluate((node) => node.getBoundingClientRect().height)) <= 200, "the path stays short");
+    const current = page.locator('.deal-path-tile[data-place="current"]');
+    assert.equal(await current.locator("[data-todo]:visible").count(), 2);
+    await current.getByText("6 more").click();
+    assert.equal(await current.locator("[data-todo]:visible").count(), 8, "6 more opens the rest");
+    await current.getByText("6 more").click();
     const columns = page.locator(".deal-overview-grid > *");
-    for (const bottom of await columns.evaluateAll((all) => all.map((node) => node.getBoundingClientRect().bottom)))
-      assert.ok(bottom <= height, `a column ends on screen, not at ${bottom}`);
+    for (const box of await columns.evaluateAll((all) => all.map((node) => node.getBoundingClientRect())))
+      assert.ok(
+        box.bottom <= height && box.height >= 180,
+        `a column is on screen and usable, not ${box.top}-${box.bottom}`,
+      );
     const steps = columns.first();
     assert.ok(await steps.evaluate((node) => node.scrollHeight > node.clientHeight), "the long Next steps scroll");
     assert.equal(await steps.evaluate((node) => getComputedStyle(node).scrollbarWidth), "none", "no bar at rest");
