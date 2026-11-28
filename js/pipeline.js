@@ -1801,15 +1801,28 @@ function suggestionHtml(row, today, canDecide, showEmail) {
     </div>${emailBody}</li>`;
 }
 
-function dealSuggestionsHtml({ correspondence, email_follow_ups, workflow_suggestions = [], next_deal_saves }, today) {
+const stepWording = text => typeof text === 'string' ? text.trim().replace(/\s+/g, ' ').toLowerCase() : '';
+
+function dealSuggestionsHtml({ correspondence, email_follow_ups, workflow_suggestions = [], next_deal_saves }, openSteps, today) {
   const filed = new Set(correspondence?.filter(entry => entry.kind === 'email' && entry.activity_id).map(entry => entry.activity_id));
-  const rows = email_follow_ups.filter(row => row.kind !== 'file_to_deal' || !filed.has(row.email?.activity_id));
-  const emailOf = row => row.email?.activity_id ?? row.proposal_id;
-  const firstForEmail = new Set(rows.map(row => rows.find(other => emailOf(other) === emailOf(row))));
-  const suggestions = [
-    ...rows.map(row => suggestionHtml(row, today, next_deal_saves, firstForEmail.has(row))),
-    ...workflow_suggestions.map(row => suggestionHtml({ ...row, kind: 'workflow_step' }, today, next_deal_saves, false)),
-  ];
+  const seenSteps = new Set(openSteps.map(step => stepWording(step.description)));
+  const seenEmails = new Set();
+  // Open steps win, then email suggestions keep their source message when the checklist proposes the same wording.
+  const rows = [...email_follow_ups, ...workflow_suggestions.map(row => ({ ...row, kind: 'workflow_step' }))];
+  const suggestions = rows.filter(row => {
+    if (row.kind === 'file_to_deal' && filed.has(row.email?.activity_id)) return false;
+    if (row.kind !== 'next_step' && row.kind !== 'workflow_step') return true;
+    const wording = stepWording(row.what);
+    if (!wording) return true;
+    if (seenSteps.has(wording)) return false;
+    seenSteps.add(wording);
+    return true;
+  }).map(row => {
+    const email = row.email?.activity_id ?? row.proposal_id;
+    const showEmail = row.kind !== 'workflow_step' && !seenEmails.has(email);
+    if (showEmail) seenEmails.add(email);
+    return suggestionHtml(row, today, next_deal_saves, showEmail);
+  });
   return suggestions.length ? `<h3 class="deal-steps-group">Suggested</h3>
     <ul class="deal-suggestions" aria-label="Suggested steps" role="list">${suggestions.join('')}</ul>` : '';
 }
@@ -1876,10 +1889,11 @@ function openDealStepsHtml(detail, steps, today) {
 }
 
 function dealNextStepsHtml(detail, today, { addStep, callReview }) {
+  const openSteps = dealOwnerFirstSteps(detail.deal, detail.next_actions);
   return `<section class="deal-next-steps" aria-labelledby="deal-next-steps-heading">
     <h2 id="deal-next-steps-heading">Next steps</h2>${attentionLineHtml(detail.deal)}${addStep}
-    <div class="deal-open-steps" data-detail-read="open-steps">${openDealStepsHtml(detail, dealOwnerFirstSteps(detail.deal, detail.next_actions), today)}</div>
-    <div data-detail-read="suggested">${dealSuggestionsHtml(detail, today)}</div>
+    <div class="deal-open-steps" data-detail-read="open-steps">${openDealStepsHtml(detail, openSteps, today)}</div>
+    <div data-detail-read="suggested">${dealSuggestionsHtml(detail, openSteps, today)}</div>
     ${callReview}
   </section>`;
 }

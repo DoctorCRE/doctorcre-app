@@ -32,7 +32,7 @@ async function openDeal(
   t: TestContext,
   viewport: { width: number; height: number },
   theme: "light" | "dark",
-  { holdEmail = false, withWorkflow = false } = {},
+  { holdEmail = false, workflowWith }: { holdEmail?: boolean; workflowWith?: "filing" | "email" | "open" } = {},
 ) {
   const server = await startWorkerFixture({
     assets: await appAssetSnapshot(),
@@ -58,12 +58,15 @@ async function openDeal(
     happened_at: "2026-11-24T15:12:00Z",
     summary: "The client asks whether rent can start in March.",
   };
+  const overlappingEmail = workflowWith === "email" || workflowWith === "open";
   let suggestions = [
     {
       proposal_id: suggestionId,
       kind: "next_step",
-      title: "Ask the landlord whether rent can start in March",
-      what: "Ask the landlord whether rent can start in March",
+      title: overlappingEmail ? "Review Morgan's request" : "Ask the landlord whether rent can start in March",
+      what: overlappingEmail
+        ? " Live terms comparison   and counters "
+        : "Ask the landlord whether rent can start in March",
       owner: "dell",
       due_on: "2026-11-27",
       email,
@@ -89,11 +92,10 @@ async function openDeal(
       set_on: "2026-11-18",
     },
   ];
-  let workflowSuggestions = withWorkflow ? [workflow] : [];
-  if (withWorkflow) {
-    suggestions = suggestions.filter(({ kind }) => kind === "file_to_deal");
-    steps = [];
-  }
+  let workflowSuggestions = workflowWith ? [workflow] : [];
+  if (workflowWith === "open") steps = steps.map((step) => ({ ...step, description: workflow.what }));
+  else if (workflowWith) steps = [];
+  if (workflowWith === "filing") suggestions = suggestions.filter(({ kind }) => kind === "file_to_deal");
   const deal = () => ({
     id: dealId,
     deal_id: dealId,
@@ -108,7 +110,7 @@ async function openDeal(
     critical_dates: [],
     vendors: [],
     email_follow_ups: suggestions,
-    ...(withWorkflow ? { workflow_suggestions: workflowSuggestions } : {}),
+    ...(workflowWith ? { workflow_suggestions: workflowSuggestions } : {}),
     correspondence: [],
     documents: [],
   });
@@ -336,7 +338,7 @@ for (const [action, width] of [
       { width, height: width === 1280 ? 640 : 900 },
       "light",
       {
-        withWorkflow: true,
+        workflowWith: "filing",
       },
     );
     const list = tile.getByRole("list", { name: "Suggested steps" });
@@ -386,3 +388,25 @@ for (const [action, width] of [
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), 0);
   });
 }
+
+test("one Suggested row keeps the email when it proposes the same step as the checklist", async (t) => {
+  const { tile } = await openDeal(t, { width: 1280, height: 640 }, "light", { workflowWith: "email" });
+  const suggested = tile.getByRole("list", { name: "Suggested steps" });
+  const email = suggested.getByRole("listitem", { name: "Review Morgan's request" });
+  assert.equal(await email.count(), 1);
+  assert.equal(await suggested.getByRole("listitem", { name: workflow.what }).count(), 0);
+  assert.equal(await email.getByText("Our lender cannot fund until late February", { exact: false }).count(), 1);
+  assert.equal(await suggested.getByRole("listitem", { name: "File Morgan's email" }).count(), 1);
+});
+
+test("an open step replaces matching suggestions and leaves the email's other action", async (t) => {
+  const { tile } = await openDeal(t, { width: 1280, height: 640 }, "light", { workflowWith: "open" });
+  const open = tile.getByRole("list", { name: "Open steps" });
+  const suggested = tile.getByRole("list", { name: "Suggested steps" });
+  assert.equal(await open.getByText(workflow.what, { exact: true }).count(), 1);
+  assert.equal(await suggested.getByRole("listitem", { name: workflow.what }).count(), 0);
+  assert.equal(await suggested.getByRole("listitem", { name: "Review Morgan's request" }).count(), 0);
+  const filing = suggested.getByRole("listitem", { name: "File Morgan's email" });
+  assert.equal(await filing.count(), 1);
+  assert.equal(await filing.getByText("Our lender cannot fund until late February", { exact: false }).count(), 1);
+});
