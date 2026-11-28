@@ -4,9 +4,10 @@ import {readFile,mkdir} from 'node:fs/promises';
 import { componentDocument, chromium, waitForAsync } from './browser-harness.mjs';
 import {dealHref} from '../js/home-dashboard-model.js';
 const root=new URL('../',import.meta.url);
+const longDealName='Example active deal with a longer heading and the full additional name';
 // A touch tablet: the iPad Mini portrait profile.
 const ipad={viewport:{width:768,height:1024},deviceScaleFactor:2,isMobile:true,hasTouch:true};
-async function open(t,{width=1440,height=960,touch,device,link=false,reducedMotion='no-preference',fixtureDelayMs=0,noteOrder=false}={}) {
+async function open(t,{width=1440,height=960,touch,device,link=false,longName=false,reducedMotion='no-preference',fixtureDelayMs=0,noteOrder=false}={}) {
  const browser=await chromium.launch();t.after(()=>browser.close());
  const page=await browser.newPage({...(device?ipad:{viewport:{width,height},...(touch === undefined ? {} : {hasTouch:touch,isMobile:touch})}),reducedMotion});
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
@@ -16,6 +17,11 @@ async function open(t,{width=1440,height=960,touch,device,link=false,reducedMoti
   if(['/api/system-work/session','/auth/session'].includes(url.pathname))return route.fulfill({contentType:'application/json',body:JSON.stringify({actor:{slug:'joe'},csrf_token:'synthetic-only'})});
   if(url.pathname.startsWith('/api/')||url.pathname==='/app-release')return route.fulfill({contentType:'application/json',body:'{}'});
   if(url.pathname==='/data/board-seed.json' && fixtureDelayMs)await new Promise(resolve=>setTimeout(resolve,fixtureDelayMs));
+  if(url.pathname==='/data/board-seed.json' && longName) {
+   const seed=JSON.parse(await readFile(new URL('data/board-seed.json',root),'utf8'));
+   seed.deals.find(deal=>deal.id==='d14').name=longDealName;
+   return route.fulfill({json:seed});
+  }
   const file=url.pathname==='/deals'?'pipeline.html':url.pathname.slice(1);
   try {return route.fulfill({body:await readFile(new URL(file,root)),contentType:/\.m?js$/.test(file)?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.json')?'application/json':'text/html'});}catch{return route.fulfill({status:404,body:''});}
  });
@@ -217,6 +223,10 @@ for(const [width,height,touch] of [[1280,640,false],[1440,900,false],[390,844,tr
   }
   await mkdir(new URL('out/test-artifacts/',root),{recursive:true});
   await page.screenshot({path:new URL(`out/test-artifacts/deal-plan-${width}.png`,root).pathname});
+  assert.equal(await tab.evaluate(node=>{
+    const outer=node.closest('#appMainSlot');
+    return outer.scrollHeight<=outer.clientHeight && document.documentElement.scrollHeight<=innerHeight;
+  }),true,'Plan fits without an outer scroll region');
   const box=await tab.locator('.timeline').boundingBox();
   assert.ok(box.y+box.height <= height);
   assert.deepEqual(errors,[]);
@@ -379,26 +389,34 @@ test('Overview names the signing date as recorded after the signing to-do is fin
 });
 
 for(const [width,height,touch] of [[1280,640,false],[1440,900,false],[390,844,true]]) test(`Deals Timeline expands one row per open deal at ${width} × ${height}`,async t=>{
- const {page}=await open(t,{width,height,touch});
- await page.evaluate(async ({planPhase,planRows})=>{
+ const {page}=await open(t,{width,height,touch,longName:touch});
+ await page.evaluate(async ({planPhase,planRows,longDealName})=>{
   const {state}=await import('/js/pipeline.js');
   const get=state.client.getBoard.bind(state.client);
   const timeline={phase_spans:[planPhase],rows:planRows,arrows:[],dates:[],at_risk_count:0,expected_signing_on:'2026-10-17',stale:null};
   state.client.getBoard=async (...args)=>{
     const board=await get(...args);
-    const rows=board.deals.filter(row=>row.id==='d14').map(row=>({...row,name:'Example active deal',short_name:'Example active deal',owner:'dell',timeline}));
+    const rows=board.deals.filter(row=>row.id==='d14').map(row=>({...row,name:longDealName,short_name:null,owner:'dell',timeline}));
     const more=Array.from({length:23},(_,index)=>({...rows[0],id:`sample-${index}`,name:`Example deal ${index+1}`,short_name:null,owner:index%2?'joe':'dell'}));
     return {...board,board_from_engine:true,deals:[...rows,...more]};
   };
- },{planPhase,planRows});
+ },{planPhase,planRows,longDealName});
  await page.getByRole('button',{name:'Back to deals',exact:true}).click();
  await page.getByRole('button',{name:'Refresh',exact:true}).click();
  await page.getByRole('button',{name:'Timeline',exact:true}).click();
+ const picker=page.getByRole('combobox',{name:'Deal view'});
+ for(const name of ['Closed deals','Lost deals']) {
+  if(width===1280) assert.equal(await picker.getByRole('option',{name,exact:true}).count(),1);
+  else assert.ok(await page.getByRole('button',{name,exact:true}).isVisible());
+ }
  const chart=page.locator('#boardTimeline');
- assert.equal(await chart.getByRole('link',{name:'Example active deal',exact:true}).count(),1);
+ assert.equal(await chart.getByRole('link',{name:longDealName,exact:true}).count(),1);
  const groups=chart.locator('[data-group]');
  assert.equal(await groups.count(),24);
  if(touch) {
+  const primary=chart.getByRole('link',{name:longDealName,exact:true});
+  assert.equal(await primary.evaluate(node=>getComputedStyle(node).webkitLineClamp),'2');
+  assert.ok(await primary.evaluate(node=>node.clientHeight>parseFloat(getComputedStyle(node).lineHeight)));
   for(const name of ['Example deal 1','Example deal 10']) {
    const link=chart.getByRole('link',{name,exact:true});
     const layout=await link.evaluate(node=>{
@@ -421,12 +439,22 @@ for(const [width,height,touch] of [[1280,640,false],[1440,900,false],[390,844,tr
  }
  assert.equal(await chart.locator('.timeline-scroll').evaluate(node=>node.scrollWidth>node.clientWidth),true);
  assert.equal(await chart.getByRole('button',{name:'Sign the lease',exact:true}).count(),0);
- await chart.getByRole('button',{name:'Show rows for Example active deal'}).click();
+ await chart.getByRole('button',{name:/Show rows for Example active deal/}).click();
  await chart.getByRole('button',{name:'Sign the lease',exact:true}).first().waitFor();
  await page.getByRole('button',{name:'Month',exact:true}).click();
  assert.equal(await chart.locator('.timeline').getAttribute('data-day-width'),'4');
  await mkdir(new URL('out/test-artifacts/',root),{recursive:true});
  await page.screenshot({path:new URL(`out/test-artifacts/deals-timeline-${width}.png`,root).pathname});
+ if(touch) {
+  await chart.getByRole('link',{name:/Example active deal with a longer heading/}).click();
+  const title=page.getByRole('heading',{name:longDealName});
+  await title.waitFor();
+  assert.ok(await title.evaluate(node=>node.scrollHeight===node.clientHeight && node.scrollWidth===node.clientWidth));
+ }
+ if(width===1280) {
+  await picker.selectOption('closed');
+  assert.equal(await page.getByRole('button',{name:'Closed deals',exact:true}).getAttribute('aria-pressed'),'true');
+ }
 });
 
 test('a pointer drag previews and saves an expected to-do date, and Typical lengths uses the measured days',async t=>{

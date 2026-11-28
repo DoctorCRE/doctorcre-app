@@ -523,6 +523,8 @@ for (const [actor, readsOn, savesOn] of [['joe', false, false], ['joe', true, tr
       assert.doesNotMatch(await planCard.innerText(), /\(no subject\)/);
       assert.doesNotMatch(await followups.innerText(), /2026-11-01T|file_to_deal/);
       const path = page.getByRole('region', { name: 'Deal path' });
+      const later = path.getByText('5 later phases', { exact: true });
+      if (await later.isVisible()) await later.click();
       const lease = path.locator('[data-todo="executed_lease"]');
       assert.equal(await lease.getAttribute('data-state'), 'done');
       await lease.getByText('Executed lease', { exact: true }).click();
@@ -1067,6 +1069,9 @@ for (const width of [1440, 390]) {
 
     await page.goto(`${origin}/deals?deal=${deal.id}&mode=live`);
     const path = page.getByRole('region', { name: 'Deal path' });
+    await path.waitFor();
+    const later = path.getByText('5 later phases', { exact: true });
+    if (await later.isVisible()) await later.click();
     await path.getByRole('button', { name: 'Legal', exact: true }).click({ timeout: 10000 });
     await path.getByRole('button', { name: 'Move to Legal' }).click();
     await page.waitForFunction(() => !document.querySelector('.deal-path-ask'));
@@ -2168,6 +2173,9 @@ for (const width of [1440, 390]) test(`Add deal and Won or Lost save through the
       await page.getByRole('tab', { name: 'Overview' }).click();
     }
     const path = page.getByRole('region', { name: 'Deal path' });
+    await path.waitFor();
+    const later = path.getByText(/later phases$/);
+    if (await later.isVisible()) await later.click();
     await path.getByRole('button', { name: 'Closed', exact: true }).click();
     const closeAsk = path.getByRole('form', { name: 'Close this deal' });
     assert.equal(await closeAsk.getByLabel('Paused', { exact: true }).count(), 0);

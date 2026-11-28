@@ -262,6 +262,7 @@ test('W4 drag and keyboard phase writes, manual phase, park, revive and undo rec
   await page.locator('#completionConfirm').click();
   await waitForAsync(page, async () => (await import('/js/pipeline.js')).state.deals.get('d14').phase === 'Legal');
   await page.locator('.kanban-column [data-id="d14"] .card-open').click(); await page.waitForSelector('.deal-path');
+  await page.getByText('3 earlier phases',{exact:true}).click();
   await page.locator('.deal-path button[data-path-phase="site_selection"]').click();
   await page.locator('.deal-path-ask').waitFor();
   assert.equal(await page.locator('.deal-path [aria-current="step"]').getAttribute('data-phase'), 'legal');
@@ -711,6 +712,7 @@ for (const savesOn of [false,true]) test(`a column add button opens Add deal in 
 test('closing a deal from its details removes the card and retains its close date in history', async t=>{
  const {page,errors}=await open(t);
  await page.locator('.kanban-column [data-id="d14"] .card-open').click();await page.waitForSelector('.deal-path');
+ await page.getByText('3 later phases',{exact:true}).click();
  await page.locator('.deal-path button[data-path-phase="closed"]').click();
  const closeAsk = page.locator('.deal-path-ask');
  await closeAsk.getByText('Won',{exact:true}).click();

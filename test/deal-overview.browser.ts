@@ -523,6 +523,48 @@ const longChecklist = {
   ],
 };
 
+test("at 1280x599 the six-tab deal keeps its forecast and Plan inside the viewport", async (t) => {
+  const plan = {
+    phases: [{ phase: "site_selection", from_on: "2026-11-23", expected_to_on: "2026-12-05" }],
+    rows: Array.from({ length: 25 }, (_, i) => ({
+      id: `date-${i}`,
+      kind: "critical_date",
+      phase: "site_selection",
+      label: `Example date ${i}`,
+      status: "open",
+      on: "2026-12-05",
+    })),
+    arrows: [],
+    expected_signing_on: "2026-12-05",
+    stale: null,
+  };
+  const { page } = await openDeal(t, 1280, 599, [], fourDates(), { ...sideFacts, checklist: longChecklist, plan });
+  const tabs = page.getByRole("tablist");
+  assert.deepEqual(await tabs.getByRole("tab").allTextContents(), [
+    "Overview",
+    "Plan",
+    "Activity",
+    "Tours",
+    "Documents",
+    "Client portal",
+  ]);
+  const outer = page.locator("#appMainSlot");
+  const fits = () => outer.evaluate((node) => node.scrollHeight <= node.clientHeight && node.scrollTop === 0);
+  const signing = page.getByRole("button", { name: "Lease signing expected Dec 5" });
+  await signing.waitFor();
+  assert.equal(await fits(), true, "the forecast and all six tabs fit with Overview");
+  await signing.click();
+  await page.getByRole("button", { name: "Example date 0", exact: true }).first().waitFor();
+  assert.equal(await fits(), true, "the outer page does not scroll on Plan");
+  for (const selector of [".timeline-scroll", ".deal-plan-list"]) {
+    const column = page.locator(`#workspace-plan ${selector}`);
+    assert.ok(
+      await column.evaluate((node) => node.scrollHeight > node.clientHeight),
+      `${selector} scrolls inside Plan`,
+    );
+  }
+});
+
 for (const [width, height] of [
   [1280, 599],
   [1280, 640],
@@ -604,7 +646,11 @@ for (const [width, height] of [
         await panel.getByRole("button", { name: "Show less" }).evaluate((n) => n === document.activeElement),
         true,
       );
-      await page.waitForFunction(() => !!document.querySelector<HTMLElement>(".deal-path-list-panel")?.style.top);
+      await page.waitForFunction(
+        () =>
+          !!document.querySelector<HTMLElement>('.deal-path-tile[data-place="current"] .deal-path-list-panel')?.style
+            .top,
+      );
       const box = await panel.boundingBox();
       const tile = await current.boundingBox();
       assert.ok(box && tile && box.y >= tile.y + tile.height && box.y + box.height <= height);
@@ -648,7 +694,7 @@ for (const [width, height] of [
       assert.equal(await panel.isVisible(), false);
       assert.equal(await note.evaluate((n) => n === document.activeElement), true);
       await more.click();
-      await page.locator(".deal-path-tile").first().getByText("Nothing listed").click();
+      await page.locator(".deal-path > .deal-path-tile").first().getByText("Nothing listed").click();
       assert.equal(await more.evaluate((n) => n === document.activeElement), true);
       assert.deepEqual(await columns.boundingBox(), before, "closing preserves columns");
       await more.click();
