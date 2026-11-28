@@ -1555,20 +1555,18 @@ function renderWorkspaceFacts(detail) {
   const signing = signingCaption(detail.plan, businessDay());
   if ($('workspaceSigning').textContent !== signing) $('workspaceSigning').innerHTML = signing ? `<button class="btn btn-quiet deal-plan-signing-link" type="button" data-open-deal-plan title="${esc(signing)}">${esc(signing)}</button>` : '';
 }
-// Scrolls only the strip sideways; scrollIntoView would also move a phone page whose header scrolled away.
-function revealTab(tab) {
-  const strip = tab.parentElement.getBoundingClientRect();
-  const { left, right } = tab.getBoundingClientRect();
-  tab.parentElement.scrollLeft += Math.min(0, left - strip.left) + Math.max(0, right - strip.right);
-}
 // The updated time follows the dates on Overview and heads every other tab.
 function placeFreshness(id) {
   const line = $('panelBody').querySelector('.deal-freshness');
   if (!line) return;
-  if (id === 'plan') line.hidden = true;
-  else line.hidden = false;
-  if (id === 'overview') $('workspace-overview').querySelector('[data-detail-read="add-critical-date"]').after(line, $('detailReadStatus'));
-  else $('panelBody').prepend(line, $('detailReadStatus'));
+  const status = $('detailReadStatus');
+  const heading = $(`workspace-${id}`).querySelector(':scope > .workspace-tab-heading');
+  line.hidden = id === 'plan';
+  if (id === 'overview') $('workspace-overview').querySelector('[data-detail-read="add-critical-date"]').after(line, status);
+  else if (heading) {
+    heading.append(line);
+    heading.after(status);
+  } else $('panelBody').prepend(line, status);
 }
 function selectWorkspaceTab(id) {
   workspaceTab = id;
@@ -1580,7 +1578,6 @@ function selectWorkspaceTab(id) {
     if ($(`workspace-${tab.id}`)) $(`workspace-${tab.id}`).hidden = !selected;
   }
   placeFreshness(id);
-  revealTab($(`tab-${id}`));
   if (id === 'plan') renderPlan(state.panelDetail);
   if (id === 'documents') void dealDocumentsPanel?.load();
   if (id === 'tours') void dealToursPanel?.load();
@@ -2055,11 +2052,11 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
     <div data-detail-read="vendors">${renderDealVendors(d.vendors)}</div>${ownerHtml}${prospectHtml}
     <div data-detail-read="client-portal">${websiteSetup}</div>
     <div data-detail-read="updates">${renderDealUpdates(detail, Date.now(), { engineSignIn: engineMode, noteHtml: text => linkRecordNames(text, detail.record_links) })}</div>`}</section>
-    <section id="workspace-documents" role="tabpanel" aria-labelledby="tab-documents" hidden>${fromEngine ? `<h2>Documents</h2>${detail.next_deal_saves ? '<div id="deal-document-upload"></div>' : ''}<div data-detail-read="filed-documents">${filedDocumentsHtml(detail.documents)}</div>` : ''}</section>
+    <section id="workspace-documents" role="tabpanel" aria-labelledby="tab-documents" hidden>${fromEngine ? `<div class="workspace-tab-heading"><h2>Documents</h2></div>${detail.next_deal_saves ? '<div id="deal-document-upload"></div>' : ''}<div data-detail-read="filed-documents">${filedDocumentsHtml(detail.documents)}</div>` : ''}</section>
     <section id="workspace-client-portal" role="tabpanel" aria-labelledby="tab-client-portal" hidden>${fromEngine ? `<div data-detail-read="client-website">${clientPortalHtml({ deal: d.id, url: d.client_portal_url, clientName: d.client_name })}</div>` : ''}</section>
     <section id="workspace-tours" role="tabpanel" aria-labelledby="tab-tours" hidden>${engineMode ? '<p>Not available yet</p>' : ''}</section>
     <section id="workspace-plan" role="tabpanel" aria-labelledby="tab-plan" hidden></section>
-    <section id="workspace-activity" role="tabpanel" aria-labelledby="tab-activity" hidden>${fromEngine ? activityPanel(detail, planTours) : `<div data-detail-read="events">${workspaceEventsHtml(detail, nextItem)}</div>${renderDealTimeline(detail)}
+    <section id="workspace-activity" role="tabpanel" aria-labelledby="tab-activity" hidden>${fromEngine ? `<div class="workspace-tab-heading"><h2>Activity</h2></div>${activityPanel(detail, planTours)}` : `<div data-detail-read="events">${workspaceEventsHtml(detail, nextItem)}</div>${renderDealTimeline(detail)}
       <h2>Correspondence &amp; notes</h2>
       <details id="panelEvidenceSection"><summary>Threads &amp; meetings</summary><div id="panelEvidence"></div></details>
       <div data-detail-read="notes">${workspaceNotesHtml(detail)}</div>`}</section>`;

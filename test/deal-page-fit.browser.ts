@@ -58,17 +58,14 @@ test("a deal page puts the deal in the top bar and the full tab row beside its f
             .evaluateAll((tabs) =>
               tabs.map((tab) => tab.getBoundingClientRect()).map(({ top, height }) => [Math.round(top), height]),
             );
-          assert.equal(new Set(boxes.map(([top]) => top)).size, 1, "the tabs are one row");
+          assert.equal(new Set(boxes.map(([top]) => top)).size, 2, "the tabs wrap onto a second row");
           assert.equal(new Set(boxes.map(([, height]) => height)).size, 1, "every tab name reads on one line");
-          assert.equal(await strip.evaluate((strip) => strip.scrollWidth > strip.clientWidth), true, "the row scrolls");
-          await strip.evaluate((strip) => strip.scrollTo({ left: 0 }));
-          await page.getByRole("tab", { name: "Documents" }).dispatchEvent("click");
-        } else
-          assert.equal(
-            await strip.evaluate((strip) => strip.scrollWidth <= strip.clientWidth),
-            true,
-            "the tab row has no scroll bar",
-          );
+        }
+        assert.equal(
+          await strip.evaluate((strip) => strip.scrollWidth <= strip.clientWidth),
+          true,
+          "the tab strip needs no horizontal scroll",
+        );
         const outside = await strip.evaluate((strip) => {
           const bounds = strip.getBoundingClientRect();
           return [...strip.querySelectorAll('[role="tab"]')]
@@ -78,8 +75,7 @@ test("a deal page puts the deal in the top bar and the full tab row beside its f
             })
             .map((tab) => tab.textContent);
         });
-        if (phone) assert.equal(outside.includes("Documents"), false, "the chosen tab scrolls whole into view");
-        else assert.deepEqual(outside, [], "every tab shows whole");
+        assert.deepEqual(outside, [], "every tab shows whole");
         if (phone) return;
 
         const [tabs, facts] = await Promise.all([

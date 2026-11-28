@@ -127,6 +127,7 @@ export interface TimelineProps {
 
 type TimelineViewProps = TimelineProps & {
   controls?: ReactNode;
+  cornerLabel?: string;
   toolsHost?: HTMLElement | undefined;
   board?: boolean;
   reveal?:
@@ -923,6 +924,7 @@ export function Timeline({
   groups,
   links = [],
   controls,
+  cornerLabel,
   board,
   reveal,
   onOpen,
@@ -1091,7 +1093,9 @@ export function Timeline({
       <section className="timeline-scroll" ref={scroller} aria-label="Timeline" tabIndex={-1}>
         <div className="timeline-canvas">
           <div className="timeline-head">
-            <div className="timeline-corner" ref={corner} />
+            <div className="timeline-corner" ref={corner}>
+              {cornerLabel && <span className="deal-plan-count">{cornerLabel}</span>}
+            </div>
             <div className="timeline-dates" style={{ width }} aria-hidden="true">
               {months.map((m, i) => (
                 <div

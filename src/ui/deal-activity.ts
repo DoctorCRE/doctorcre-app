@@ -428,7 +428,7 @@ export function renderDealActivity(
       ? `<p class="activity-empty"${anyVisible ? " hidden" : ""}${waitingLine ? ' data-waiting="true"' : ""}>${esc(waitingLine || EMPTY_LINE.get(selected) || "")}</p>`
       : "";
   const pane = opened ? openItemHtml(opened, { esc, link, emailHtml: options.emailHtml ?? (() => "") }) : "";
-  const html = `<div class="deal-activity" data-detail-read="activity"${opened ? " data-open" : ""}><div class="activity-side"><h2>Activity</h2>
+  const html = `<div class="deal-activity" data-detail-read="activity"${opened ? " data-open" : ""}><div class="activity-side">
     <form id="activityNoteForm" class="activity-note"><label class="sr-only" for="activityNote">Note</label><textarea id="activityNote" name="text" rows="1" maxlength="10000" placeholder="Add a note"${canNote ? "" : " disabled"}>${esc(note)}</textarea><button class="btn" type="submit"${canNote ? "" : " disabled"}>Add note</button><p id="activityNoteStatus" role="status"></p></form>
     <div class="chip-bar" role="group" aria-label="Activity filter">${FILTERS.map(
       ([id, label]) =>

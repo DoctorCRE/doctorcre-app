@@ -1,5 +1,4 @@
 .deal-activity { display: grid; gap: var(--space-2); min-width: 0; }
-.activity-side > h2 { display: flex; align-items: center; min-block-size: var(--touch); margin: 0; }
 .deal-activity .chip-bar { gap: var(--space-1); margin: 0; }
 .deal-activity .chip {
   border: 0;

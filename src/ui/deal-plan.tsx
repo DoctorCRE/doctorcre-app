@@ -536,6 +536,7 @@ function PlanScreen(props: Inputs) {
             setLengths(false);
           }}
           controls={controls}
+          cornerLabel={groups.length ? count : "No matching items"}
           changeDate={
             props.canSave
               ? {
@@ -562,7 +563,6 @@ function PlanScreen(props: Inputs) {
               : undefined
           }
         />
-        <div className="deal-plan-count">{groups.length ? count : "No matching items"}</div>
         <footer className="deal-plan-footer">
           {status ? (
             <small role="status">{status}</small>
