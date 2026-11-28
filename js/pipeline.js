@@ -463,6 +463,7 @@ function renderBoard() {
   if (!board) return;
   const timeline = state.view === 'timeline';
   $('timelineView').hidden = !state.boardFromEngine;
+  $('compactDealView').value = state.view;
   $('timelineView').setAttribute('aria-pressed', String(timeline));
   $('boardTimeline').hidden = !timeline;
   $('boardTimelineTools').hidden = !timeline;
@@ -1631,7 +1632,7 @@ function revealCurrentPhase() {
 }
 function closePathQuestion({ focus = true } = {}) {
   const ask = $('panelBody').querySelector('.deal-path-ask');
-  const phase = ask?.closest('.deal-path-tile')?.querySelector('[data-path-phase]');
+  const phase = ask?.closest('.deal-path-section')?.querySelector(`[data-path-phase="${CSS.escape(ask.dataset.pathMove)}"]`);
   ask?.remove();
   phase?.setAttribute('aria-expanded', 'false');
   if (focus) phase?.focus();
@@ -1643,8 +1644,9 @@ function askPathMove(button) {
   const phase = columnBySlug(button.dataset.pathPhase);
   if (!phase) return;
   button.setAttribute('aria-expanded', 'true');
-  button.closest('.deal-path-tile').insertAdjacentHTML('beforeend', pathQuestionHtml(phase, businessDay()));
-  button.closest('.deal-path-tile').querySelector('.deal-path-ask input')?.focus();
+  const path = button.closest('.deal-path-section');
+  path.insertAdjacentHTML('beforeend', pathQuestionHtml(phase, businessDay()));
+  path.querySelector('.deal-path-ask input')?.focus();
 }
 async function movePathPhase(ask) {
   const detail = state.panelDetail;
@@ -3063,6 +3065,11 @@ function wire() {
   $('boardView').addEventListener('click', () => changeView('board'));
   $('listView').addEventListener('click', () => changeView('list'));
   $('timelineView').addEventListener('click', () => changeView('timeline'));
+  $('compactDealView').addEventListener('change', event => {
+    const view = event.currentTarget.value;
+    changeView(view);
+    $(`${view}View`)?.focus();
+  });
   $('parkedToggle').addEventListener('click', () => { state.parkedOpen = !state.parkedOpen; $('parkedToggle').setAttribute('aria-pressed',String(state.parkedOpen)); renderBoard(); });
   $('kanban').addEventListener('toggle', e => { if(e.target.classList.contains('parked-lane')) { state.parkedOpen=e.target.open; $('parkedToggle').setAttribute('aria-pressed',String(state.parkedOpen)); } },true);
   $('panelBody').addEventListener('toggle', event => {

@@ -166,7 +166,7 @@ async function openDeal(
   return { page, writes, path: page.getByRole("region", { name: "Deal path" }), releaseMove: () => releaseMove?.() };
 }
 
-test("the path shows every phase with its to-dos and no phase dropdown", async (t) => {
+test("the desktop path keeps the three nearby phases visible and opens the others by count", async (t) => {
   const { page, path } = await openDeal(t, { width: 1440, height: 772 });
   assert.equal(await page.locator("#detailPhase").count(), 0, "the phase dropdown is gone");
   const tiles = path.locator(".deal-path-tile");
@@ -180,6 +180,20 @@ test("the path shows every phase with its to-dos and no phase dropdown", async (
     "Closing",
     "Closed",
   ]);
+  assert.deepEqual(await tiles.locator(".deal-path-name:visible").allTextContents(), [
+    "Site Selection",
+    "Negotiating",
+    "Legal",
+  ]);
+  const pathRow = path.locator(".deal-path");
+  const height = (await pathRow.boundingBox())?.height;
+  await path.getByText("2 earlier phases").click();
+  assert.equal(await path.getByText("Prospective Client", { exact: true }).isVisible(), true);
+  assert.equal((await pathRow.boundingBox())?.height, height);
+  await path.getByText("2 earlier phases").click();
+  await path.getByText("3 later phases").click();
+  assert.equal(await path.getByText("Closed", { exact: true }).isVisible(), true);
+  await path.getByText("3 later phases").click();
   const current = path.locator('[aria-current="step"]');
   assert.equal(await current.locator(".deal-path-head").textContent(), "Negotiating1 of 3");
   assert.equal(
@@ -221,6 +235,7 @@ test("a phase click asks first and moves with only an optional note", async (t) 
 
 test("Closed asks Won or Lost with compact chips and hides Closed value until Won is picked", async (t) => {
   const { writes, path } = await openDeal(t, { width: 1440, height: 772 });
+  await path.getByText("3 later phases").click();
   await path.getByRole("button", { name: "Closed", exact: true }).click();
   const ask = path.getByRole("form", { name: "Close this deal" });
   assert.equal(await ask.getByLabel("Closed on").inputValue(), "2026-11-25");
@@ -303,6 +318,7 @@ test("phase popover closes on second click, outside click and Escape, and ignore
   const slow = await openDeal(t, { width: 1440, height: 772 }, { delayMove: true });
   await slow.path.getByRole("button", { name: "Legal", exact: true }).click();
   await slow.path.getByRole("button", { name: "Move to Legal" }).click();
+  await slow.path.getByText("3 later phases").click();
   await slow.path.getByRole("button", { name: "Closing", exact: true }).click();
   const closingAsk = slow.path.getByRole("form", { name: "Move this deal to Closing?" });
   await closingAsk.waitFor();

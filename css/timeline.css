@@ -137,11 +137,11 @@
 }
 @media (prefers-reduced-motion: reduce) { .timeline * { transition: none; } }
 
-#workspace-plan:not([hidden]), #boardTimeline:not([hidden]) {
-  height: max(380px, calc(100dvh - 112px));
-  min-width: 0;
-}
-#boardTimeline:not([hidden]) { height: max(380px, calc(100dvh - 150px)); }
+#boardTimeline:not([hidden]) { height: max(380px, calc(100dvh - 112px)); min-width: 0; }
+.app-layout-main:has(#workspace-plan:not([hidden])) { overflow: hidden; }
+#recordPanel:has(#workspace-plan:not([hidden])) { display: flex; flex-direction: column; height: 100%; }
+#recordPanel:has(#workspace-plan:not([hidden])) > #panelBody { display: flex; flex-direction: column; flex: 1; min-height: 0; padding-block: 8px 0; }
+#workspace-plan:not([hidden]) { min-height: 0; min-width: 0; flex: 1; }
 .deal-plan { display: grid; grid-template-columns: 228px minmax(0, 1fr); gap: 12px; height: 100%; min-height: 0; position: relative; min-width: 0; }
 .deal-plan-chart { min-height: 0; min-width: 0; display: flex; flex-direction: column; position: relative; overflow: hidden; border-radius: var(--radius-3); background: var(--surface-1); }
 .deal-plan-chart .timeline { flex: 1 1 0; --head: 44px; }
@@ -180,26 +180,27 @@
   .deal-plan-list, .timeline-search { display: none; }
   .deal-plan-chart .timeline { --list: 164px; }
   .timeline-filters button, .timeline-tools button { padding-inline: 7px; }
-  #workspace-plan:not([hidden]), #boardTimeline:not([hidden]) { height: max(380px, calc(100dvh - 168px)); }
 }
-.app-layout-main .deal-plan-footer { display: flex; }
 .deal-plan-footer > button { flex: none; }
 #workspace-plan > .deal-plan { margin-block-end: 0; }
 .board-toolbar:has(#boardTimelineTools:not([hidden])) { gap: 4px; }
+#compactDealView { display: none; }
+@media (761px <= width <= 1360px) {
+  .board-toolbar:has(#boardTimelineTools:not([hidden])) [aria-label="Deal view"].chip-bar { display: none; }
+  .board-toolbar:has(#boardTimelineTools:not([hidden])) #compactDealView { display: block; background: var(--surface-2); color: var(--fg); border: 0; border-radius: var(--radius-2); min-height: var(--touch); padding-inline: 6px; font: inherit; }
+}
 #boardTimelineTools .timeline-tools { height: auto; gap: 3px; padding-inline: 0; }
 #boardTimelineTools .timeline-tools svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; }
 #boardTimelineTools :is(.timeline-tools button, select) { padding-inline: 6px; }
 .deal-plan[data-board] .deal-plan-count { top: 14px; }
-#boardTimeline:not([hidden]) { height: max(380px, calc(100dvh - 112px)); }
-body:has(#workspace-plan:not([hidden])) #panelBody { padding-block: 8px 0; }
 @media (max-width: 760px) {
-  body:has(#workspace-plan:not([hidden])) #workspaceFacts { display: none; }
-  #workspace-plan:not([hidden]) { height: max(380px, calc(100dvh - 168px)); }
   #boardTimeline:not([hidden]) { height: max(380px, calc(100dvh - 214px)); }
+}
+@media (max-width: 760px), (hover: none) and (pointer: coarse) and (max-width: 1023px) {
+  .workspace-open .app-layout-main:has(#workspace-plan:not([hidden])) { overflow: hidden; padding-block-end: var(--space-3); }
 }
 #workspace-plan .timeline :is(.timeline-name, .timeline-label, .timeline-bar, .timeline-date-mark) { min-height: 0; min-width: 0; }
 
-.board-toolbar:has(#boardTimelineTools:not([hidden])) :is(#closedView, #lostView) { display: none; }
 #appTopbar > .dealroom-heading { flex: none; gap: 4px; margin: 0; }
 #appTopbar > .dealroom-heading .hero-meta { flex: none; gap: 4px; }
 #appTopbar > .dealroom-heading :is(#deploymentBadge, #receiptsOpen, .deal-heading-actions:not(:has(a:not([hidden])))) { display: none; }
@@ -222,16 +223,16 @@ body:has(#workspace-plan:not([hidden])) #panelBody { padding-block: 8px 0; }
 @media (max-width: 760px) {
   #appTopbar > .dealroom-heading .hero-meta { margin: 0; }
   #appTopbar > .dealroom-heading #syncStatus { display: none; }
-  .deal-plan[data-board] .timeline { --list: 184px; }
+  .deal-plan[data-board] .timeline { --list: 184px; --row: 56px; }
   .deal-plan[data-board] .timeline-group .timeline-label {
     display: grid; grid-template-columns: 40px minmax(0, 1fr) 18px;
-    grid-template-rows: repeat(2, minmax(0, 1fr)); column-gap: 4px; row-gap: 0; padding-inline: 6px;
+    grid-template-rows: minmax(0, 1fr) 18px; column-gap: 4px; row-gap: 0; padding-inline: 6px;
   }
   .deal-plan[data-board] .timeline-group .timeline-label > :first-child {
     grid-row: 1 / -1; grid-column: 1; min-width: 0; min-height: 0; place-self: stretch; display: grid; place-items: center;
   }
   .deal-plan[data-board] .timeline-group-title { grid-column: 2 / -1; grid-row: 1; align-self: end; }
-  .deal-plan[data-board] .timeline-group-title .timeline-name { min-height: 0; line-height: 1.2; }
+  .deal-plan[data-board] .timeline-group-title .timeline-name { min-height: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; overflow-wrap: anywhere; line-height: 1.2; }
   .deal-plan[data-board] .timeline-group .timeline-when {
     grid-column: 2; grid-row: 2; align-self: start; overflow: hidden; text-overflow: ellipsis;
   }
