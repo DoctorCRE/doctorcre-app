@@ -1472,13 +1472,15 @@ for (const { touch, fits } of [
 }
 
 test("On a computer the chats list stays open, newest first, with each chat's Central time, day or date", async (t) => {
-  const chats = [
-    ["This morning's question", "2026-11-25T15:12:00Z", "9:12 AM"],
-    ["Late last night's question", "2026-11-25T05:30:00Z", "Tue"],
-    ["Six days ago", "2026-11-19T18:00:00Z", "Thu"],
-    ["A week ago", "2026-11-18T18:00:00Z", "Nov 18"],
-    ["Last year", "2025-12-30T18:00:00Z", "Dec 30, 2025"],
-  ].map(([title, at, shown], index) => ({
+  const chats = (
+    [
+      ["This morning's question", "2026-11-25T15:12:00Z", "9:12 AM"],
+      ["Late last night's question", "2026-11-25T05:30:00Z", "Tue"],
+      ["Six days ago", "2026-11-19T18:00:00Z", "Thu"],
+      ["A week ago", "2026-11-18T18:00:00Z", "Nov 18"],
+      ["Last year", "2025-12-30T18:00:00Z", "Dec 30, 2025"],
+    ] as const
+  ).map(([title, at, shown], index) => ({
     chat: { id: `00000000-0000-4000-8000-${String(400 + index).padStart(12, "0")}`, title, created_at: at },
     shown,
   }));
