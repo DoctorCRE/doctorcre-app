@@ -166,12 +166,12 @@ test("loading Clients shows row-height placeholders that fill the list", async (
 
 test("a column name sorts the list and a second click returns to name order", async (t) => {
   const { page } = await openClients(t, 1280, 800);
-  for (const [label, sort] of [
-    ["Status", "status"],
-    ["Practice type", "vertical"],
-    ["Territory", "territory"],
-    ["Owner", "owner"],
-    ["Updated", "recent"],
+  for (const [label, sort, firstName] of [
+    ["Status", "status", "Demo Practice 01"],
+    ["Practice type", "vertical", "Demo Practice 02"],
+    ["Territory", "territory", "Demo Practice 02"],
+    ["Owner", "owner", "Demo Practice 02"],
+    ["Updated", "recent", "Demo Practice 01"],
   ] as const) {
     const heading = page.locator(".list-head").getByRole("button", { name: label, exact: true });
     const [response] = await Promise.all([
@@ -183,10 +183,20 @@ test("a column name sorts the list and a second click returns to name order", as
     ]);
     assert.equal(response.ok(), true, `${label} asks the engine for its order`);
     await page.waitForURL(new RegExp(`sort=${sort}`));
+    await page.locator(".record-row").first().getByText(firstName, { exact: true }).waitFor();
     assert.equal(await heading.getAttribute("aria-pressed"), "true");
   }
-  await page.locator(".list-head").getByRole("button", { name: "Updated", exact: true }).click();
+  const [response] = await Promise.all([
+    page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return url.pathname === "/api/v1/business/clients" && !url.searchParams.has("sort");
+    }),
+    page.locator(".list-head").getByRole("button", { name: "Updated", exact: true }).click(),
+  ]);
+  assert.equal(response.ok(), true);
   await page.waitForURL((url) => !url.searchParams.has("sort"));
+  await page.locator(".record-row").nth(0).getByText("Demo Practice 01", { exact: true }).waitFor();
+  await page.locator(".record-row").nth(1).getByText("Demo Practice 02", { exact: true }).waitFor();
   for (const label of ["Open deal", "Client type"])
     assert.equal(
       await page.locator(".list-head").getByRole("button", { name: label }).count(),
