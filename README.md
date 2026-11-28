@@ -157,8 +157,8 @@ the session read, and legacy Home's calendar read and dismissal. New Ask Doc
 turns use PartnerApp with engine sign-in.
 
 In engine sign-in mode, PartnerApp serves the Deals board, deal detail, deal
-saves, board polling, client and vendor context, the national capture queue, and
-call recorder context regardless of the legacy routing switches. The app blocks
+saves, board polling, the national capture queue, and call recorder context
+regardless of the legacy routing switches. The app blocks
 the CARR forwarder in engine mode. PartnerApp receives only the engine session
 cookie, with the engine's short-lived OAuth state cookie allowed on the Google
 callback. The board stops polling after its first engine-backed load. Updates

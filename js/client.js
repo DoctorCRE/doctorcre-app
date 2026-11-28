@@ -134,7 +134,6 @@
  * @property {(args:{candidate_id:string, base_version:number}) => Promise<Object>} [undoCallChange] revert one automatically applied change
  * @property {(args:{session_id:string,expected_source_version:string}) => Promise<Object>} [reviewCallOutcome] take one call's outcome off Home
  * @property {() => Promise<void>} [simulatePartnerCall] fixture-only demo of presence + distill
- * @property {(args:{dataset:'clients'|'vendors', id:string}) => Promise<{record:Object}>} [getPartyRecord] the pinned `/api/v1/business/{dataset}/<id>` single-record read (V5-UX-B04); `id` is that record's own uuid, never a participant's party_id
  * @property {(args:{query?:string, limit?:number, include_closed?:boolean}) => Promise<SessionIdentityResponse>} sessionIdentity
  * @property {(args:{session_id:string, cursor?:string, limit?:number}) => Promise<DispatchHistoryResponse>} dispatchHistory
  * @property {() => Promise<{ok:boolean, pending_rule_approvals:Object[], pending_guidance_import_batches:Object[], pending_retrieval_proposals:Object[], counts:Object}>} governanceQueue every pending governance decision (V5-UX-C14's approvals card); read-only, grants no authority
