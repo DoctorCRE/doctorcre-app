@@ -18,6 +18,12 @@ details.home-today-row > :not(summary) { margin: 0 0 var(--space-1); padding-inl
 .home-today-row > a { display: inline-flex; align-items: center; min-height: var(--touch); }
 .home-now { height: 1px; margin: var(--space-1) var(--space-2); border: 0; background: var(--accent); }
 
+@container home (min-width: 936px) {
+  /* Keep a full row below the sticky heading and the now line. */
+  .home-today:has(.home-today-row) { min-block-size: calc(2 * var(--touch) + 2 * var(--space-3) + 2 * var(--space-1) + 1px); }
+  .home-side > .home-door-tile { flex-shrink: 0; }
+}
+
 .home-door-tile { padding: 0; }
 .home-door { display: flex; align-items: center; gap: var(--space-2); min-height: calc(var(--touch) + var(--space-2)); padding-inline: var(--space-4); border-radius: var(--panel-radius); color: var(--fg); font-size: var(--font-size-2); text-decoration: none; }
 .home-door:hover { background: var(--surface-2); }
@@ -55,6 +61,10 @@ details.home-today-row > :not(summary) { margin: 0 0 var(--space-1); padding-inl
   .inbox-shell .home-short-fold-line { display: flex; }
   .home-short-fold:not([data-open]) > :not(.home-short-fold-line) { display: none; }
   .home-coming-up:has(.home-short-fold:not([data-open])) > header { display: none; }
+  .home-coming-up:has(.home-short-fold[data-open]) {
+    flex: 1 1 0;
+    min-block-size: calc(var(--touch) + 2 * var(--space-3) + 2 * max(34px, var(--touch)));
+  }
   .home-deals .home-phases a { min-height: 30px; }
 } }
 @media (pointer: coarse) {

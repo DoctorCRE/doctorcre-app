@@ -512,6 +512,38 @@ test("At 1280x640 every right-column tile shows whole, and each Leads count keep
   }
 });
 
+test("At 1280x599 an expanded Coming up list scrolls without covering today's meeting", async (t) => {
+  const dates = Array.from({ length: 42 }, (_, index) => criticalDate(index + 1, today));
+  const page = await openHome(t, 1280, 599, [], dates);
+  const comingUp = page.getByRole("region", { name: "Coming up", exact: true });
+  await comingUp.getByRole("button", { name: "Coming up 42 dates in the next 14 days" }).click();
+
+  const meetings = page.getByRole("region", { name: "Today's meetings", exact: true });
+  const meeting = meetings.locator("details").filter({ hasText: "Sample site visit" });
+  const summary = meeting.locator("summary");
+  const [tile, heading, row] = await Promise.all([
+    meetings.boundingBox(),
+    meetings.locator("header").boundingBox(),
+    summary.boundingBox(),
+  ]);
+  assert.ok(tile && heading && row, "the meetings tile, heading and row are drawn");
+  assert.ok(row.y >= heading.y + heading.height, "the full meeting row starts below the heading");
+  assert.ok(row.y + row.height <= tile.y + tile.height, "the full meeting row fits inside its tile");
+  await summary.getByText("Sample site visit", { exact: true }).click();
+  assert.equal(await meeting.getAttribute("open"), "");
+
+  const lastDate = comingUp.getByRole("link", { name: /Due diligence ends/ }).last();
+  await lastDate.scrollIntoViewIfNeeded();
+  assert.ok(await comingUp.evaluate((tile) => tile.scrollTop > 0), "the dates scroll inside Coming up");
+  const leads = page.getByRole("region", { name: "Leads", exact: true });
+  assert.ok(await leads.evaluate((tile) => tile.scrollHeight <= tile.clientHeight), "the Leads line stays readable");
+  assert.equal(
+    await page.locator("#appMainSlot").evaluate((main) => main.scrollHeight <= main.clientHeight),
+    true,
+    "the main area does not scroll",
+  );
+});
+
 test("Coming up is not drawn when no open deal has a date in the next 14 days", async (t) => {
   const page = await openHome(
     t,
