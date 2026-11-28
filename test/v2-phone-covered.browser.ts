@@ -26,34 +26,45 @@ test("Home audit rejects a new unreachable target at 390px", async (t) => {
   await page.locator(".inbox-row").first().waitFor();
   const observe = () => inspectPhoneAccessibility(page);
   assert.deepEqual((await observe()).covered, []);
-  await page.evaluate(() => {
+  await page.locator(".home-inbox").evaluate((home) => {
+    const fixture = document.createElement("div");
+    fixture.id = "review-obstruction-fixture";
+    fixture.style.cssText = "position:relative;width:60px;height:60px";
     const target = document.createElement("button");
     target.id = "review-blocked";
     target.textContent = "Review blocked";
-    target.style.cssText = "position:fixed;left:20px;top:200px;width:60px;height:60px;z-index:2147483646";
+    target.style.cssText = "position:absolute;inset:0";
     target.onclick = () => Reflect.set(window, "reviewTapped", 1);
-    document.body.append(target);
     const cover = document.createElement("div");
     cover.id = "review-cover";
-    cover.style.cssText =
-      "position:fixed;left:20px;top:200px;width:60px;height:60px;background:white;z-index:2147483647";
-    document.body.append(cover);
+    cover.style.cssText = "position:absolute;inset:0;background:white";
+    fixture.append(target, cover);
+    home.append(fixture);
   });
-  await page.touchscreen.tap(50, 230);
-  const actual = await page.evaluate(() => ({
-    tapped: Reflect.get(window, "reviewTapped") || 0,
-    hit: document.elementFromPoint(50, 230)?.id,
-    visible: document.getElementById("review-blocked")?.checkVisibility(),
-    box: document.getElementById("review-blocked")?.getBoundingClientRect().toJSON(),
-  }));
+  const target = page.locator("#review-blocked");
+  await target.scrollIntoViewIfNeeded();
+  const box = await target.boundingBox();
+  assert.ok(box);
+  const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  await page.touchscreen.tap(center.x, center.y);
+  const actual = await page.evaluate(
+    ({ x, y }) => ({
+      tapped: Reflect.get(window, "reviewTapped") || 0,
+      hit: document.elementFromPoint(x, y)?.id,
+    }),
+    center,
+  );
   const failures = await observe();
   assert.equal(actual.tapped, 0);
   assert.equal(actual.hit, "review-cover");
-  assert.ok(failures.covered.some((target) => target.id === "review-blocked"));
+  assert.deepEqual(
+    failures.covered.map(({ id }) => id),
+    ["review-blocked"],
+  );
   await page.locator("#review-cover").evaluate((node) => node.remove());
-  await page.touchscreen.tap(50, 230);
+  await page.touchscreen.tap(center.x, center.y);
   assert.equal(await page.evaluate(() => Reflect.get(window, "reviewTapped")), 1);
-  await page.locator("#review-blocked").evaluate((node) => node.remove());
+  await page.locator("#review-obstruction-fixture").evaluate((node) => node.remove());
   assert.deepEqual((await observe()).covered, []);
 });
 

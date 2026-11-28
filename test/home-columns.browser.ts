@@ -371,7 +371,7 @@ for (const [width, height] of [
   [1440, 900],
   [390, 844],
 ] as const)
-  test(`At ${width} a tour row in Today's meetings shows Tour at the row start and its whole title`, async (t) => {
+  test(`At ${width} a tour row in Today's meetings shows Tour at the row start with its title and stop count`, async (t) => {
     const page = await openHome(t, width, height, [
       {
         id: "tour-1",
@@ -396,7 +396,8 @@ for (const [width, height] of [
     };
     assert.ok(drawn.markOffset < 16, `Tour sits at the row start, not ${drawn.markOffset}px in`);
     assert.equal(drawn.titlePadding, "0px");
-    assert.equal(drawn.titleText, "Example Dental · 3 stops");
+    assert.equal(drawn.titleText, "Example Dental");
+    assert.ok(await row.getByText("· 3 stops", { exact: true }).isVisible());
     assert.equal(drawn.titleCut, false, "the title is not cut off");
   });
 
@@ -497,6 +498,45 @@ for (const width of [1440, 500] as const)
     const own = first.reasonTop - first.bottom;
     const next = second.top - first.reasonBottom;
     assert.ok(own < next, `a reason sits ${own}px under its deal and ${next}px above the next deal`);
+  });
+
+for (const [width, height] of [
+  [1280, 599],
+  [390, 844],
+] as const)
+  test(`At ${width}x${height} long Calendar previews keep their context visible`, async (t) => {
+    const title = "Confirm revised sample plans before the next site visit. ".repeat(20).trim();
+    const label = "Sample Cedar Suite";
+    const meetingFixture = { ...sampleMeeting, title, context_label: label };
+    const page = await openHome(
+      t,
+      width,
+      height,
+      [],
+      [{ ...criticalDate(1, today), kind: title, deal_name: label }],
+      dashboard,
+      undefined,
+      { meetings: [meetingFixture] },
+    );
+    const meeting = page.getByRole("region", { name: "Today's meetings" }).locator("summary");
+    const comingUp = page.getByRole("region", { name: "Coming up", exact: true });
+    const dates = comingUp.getByRole("link", { name: new RegExp(label) });
+    if (width === 1280) await comingUp.getByRole("button", { name: /Coming up 1 date/ }).click();
+    for (const row of [meeting, dates]) {
+      await row.scrollIntoViewIfNeeded();
+      const context = row.getByText(label, { exact: false });
+      assert.ok(
+        await context.evaluate((node) => {
+          const { x, y, width, height } = node.getBoundingClientRect();
+          return node.contains(document.elementFromPoint(x + width / 2, y + height / 2));
+        }),
+        "the context takes a visible line of its own",
+      );
+    }
+    const closed = (await meeting.boundingBox())?.height;
+    await meeting.press("Enter");
+    assert.equal((await meeting.boundingBox())?.height, closed, "opening leaves the disclosure control short");
+    await meeting.locator("..").locator("p").filter({ hasText: title }).waitFor();
   });
 
 test("At 1280x640 the attention list and Coming up fold to one line each that opens in place", async (t) => {

@@ -43,12 +43,14 @@ function MeetingLine({ row: { meeting }, now }: { row: MeetingRow; now: number }
         <time className="home-today-time" dateTime={meeting.start}>
           {meeting.all_day === true ? "All day" : clock.format(new Date(meeting.start))}
         </time>
-        <span className="home-today-title">
-          {meeting.title}
-          {text(meeting.context_label) && <span> · {meeting.context_label}</span>}
-        </span>
+        <span className="home-today-title">{meeting.title}</span>
+        {text(meeting.context_label) && <span className="home-today-context"> · {meeting.context_label}</span>}
         {past && <span className="home-today-mark">Ended</span>}
       </summary>
+      <p>
+        {meeting.title}
+        {text(meeting.context_label) && <> · {meeting.context_label}</>}
+      </p>
       {names.length > 0 && <p>{names.join(", ")}</p>}
       {text(meeting.location) && <p>{meeting.location}</p>}
       {deal ? (
@@ -121,8 +123,9 @@ export function TodayMeetings({ data, today }: { data: MeetingRead; today: strin
           const body = (
             <>
               <span className="home-today-time">Tour</span>
-              <span className="home-today-title">
-                {tour.records[0]?.name} <span>· {tour.label}</span>
+              <span className="home-tour-copy">
+                <span className="home-today-title">{tour.records[0]?.name}</span>{" "}
+                <span className="home-today-context">· {tour.label}</span>
               </span>
             </>
           );
