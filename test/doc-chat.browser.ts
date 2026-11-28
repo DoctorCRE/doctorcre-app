@@ -2327,3 +2327,154 @@ for (const [position, conflict, current, message] of [
     await expect(composer).toHaveValue("One more thing to ask");
   });
 }
+
+test("A phone chat row shows both its latest message time and its attention mark", async (t) => {
+  const chat = {
+    ...conversation,
+    title: "Which example deals are waiting on the new lease draft?",
+    last_message_at: "2026-11-25T17:05:00Z",
+    state: "waiting_ok",
+  };
+  const { page, origin } = await docChatFixture(
+    t,
+    () => Response.json({ conversations: [chat], next_before: null }),
+    undefined,
+    { hasTouch: true },
+  );
+  await pausedClock(page, new Date("2026-11-25T18:00:00Z"));
+  await page.goto(`${origin}/doc-chats?mode=live`);
+  await page.getByRole("button", { name: "Recent chats" }).tap();
+  const row = page.getByRole("link", { name: new RegExp(chat.title.replace("?", "")) });
+  await expect(row.locator("time")).toHaveText("11:05 AM");
+  await expect(row.getByText("Needs your attention")).toHaveCount(1);
+  const fit = await row.evaluate((link) => {
+    const title = link.firstElementChild?.getBoundingClientRect();
+    const time = link.querySelector("time")?.getBoundingClientRect();
+    const row = link.getBoundingClientRect();
+    return title && time && row.height === 44 && title.right <= time.left && time.right <= row.right;
+  });
+  assert.equal(fit, true, "the title, time and mark fit on a single 44px row");
+});
+
+for (const followUp of [false, true]) {
+  test(`The record picker sends the selected lead with a ${followUp ? "follow-up" : "new"} question`, async (t) => {
+    const lead = { kind: "lead", id: "00000000-0000-4000-8000-000000000044" };
+    const asks: unknown[] = [];
+    const nextAt = "2026-01-02T00:00:00Z";
+    const nextId = "00000000-0000-4000-8000-000000000055";
+    const newer = { id: nextId, title: "Newer chat", created_at: nextAt };
+    const { page, origin } = await docChatFixture(
+      t,
+      async (request) => {
+        const url = new URL(request.url);
+        switch (url.pathname) {
+          case "/api/engine/doc/conversations":
+            return Response.json({ conversations: followUp ? [newer, conversation] : [], next_before: null });
+          case `/api/engine/doc/conversations/${id}`:
+            return Response.json({ conversation, turns: [{ ...answeredTurn, idempotency_key: id }] });
+          case "/api/engine/doc/records":
+            assert.equal(url.searchParams.get("query"), "Example Dental");
+            return Response.json({ records: [{ ref: lead, label: "Example Dental", city: "Example City" }] });
+          case "/api/engine/doc/turns": {
+            const ask = await request.json();
+            asks.push(ask);
+            return Response.json({
+              conversation_id: id,
+              turn: {
+                ...answeredTurn,
+                id: nextId,
+                position: followUp ? 2 : 1,
+                created_at: nextAt,
+                state: "queued",
+                answer: null,
+                idempotency_key: ask.idempotency_key,
+                question: ask.question,
+                context: ask.context,
+              },
+            });
+          }
+          default:
+            return new Response(null, { status: 404 });
+        }
+      },
+      undefined,
+      { hasTouch: !followUp, ...(followUp && { viewport: { width: 1280, height: 640 } }) },
+    );
+    await page.goto(`${origin}/doc-chats?mode=live${followUp ? `&chat=${id}` : ""}`);
+    const picker = page.getByRole("button", { name: "Point Doc at a record" });
+    await picker.click();
+    const search = page.getByRole("searchbox", { name: "Find a deal, lead or client" });
+    await expect(search).toBeFocused();
+    await search.fill("Example Dental");
+    await page.getByRole("button", { name: /Example Dental.*Lead.*Example City/ }).click();
+    const chip = page.getByRole("button", { name: "Remove Example Dental" });
+    await expect(chip).toBeVisible();
+    await chip.click();
+    await expect(chip).toHaveCount(0);
+    await picker.click();
+    await search.fill("Example Dental");
+    await page.getByRole("button", { name: /Example Dental.*Lead.*Example City/ }).click();
+    await page.getByLabel("Question for Doc").fill("What is next?");
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(chip).toHaveCount(0);
+    expect(asks).toEqual([
+      {
+        question: "What is next?",
+        idempotency_key: expect.any(String),
+        ...(followUp && { conversation_id: id }),
+        context: lead,
+      },
+    ]);
+    if (followUp) {
+      const row = page.getByRole("complementary", { name: "Chats" }).locator("li").first();
+      await expect(row.getByRole("link", { name: /^Which example deals/ })).toBeVisible();
+      await expect(row.locator("time")).toHaveAttribute("datetime", nextAt);
+      await expect(row.getByText("Doc is working")).toHaveCount(1);
+    }
+  });
+}
+
+test("A match chip shows the city and deal count and opens the exact record", async (t) => {
+  const href = `/clients?record=${id}`;
+  const turn = {
+    ...answeredTurn,
+    idempotency_key: id,
+    answer: {
+      kind: "clarification",
+      text: "Which example client did you mean?",
+      sources: [{ ref: { kind: "client", id }, label: "Example Client", href, city: "Example City", deal_count: 2 }],
+      proposal: null,
+    },
+  };
+  const { page, origin } = await docChatFixture(t, (request) =>
+    new URL(request.url).pathname === "/api/engine/doc/conversations"
+      ? Response.json({ conversations: [conversation], next_before: null })
+      : Response.json({ conversation, turns: [turn] }),
+  );
+  await page.goto(`${origin}/doc-chats?mode=live&chat=${id}`);
+  await expect(page.getByRole("link", { name: "Example Client · Example City · 2 deals" })).toHaveAttribute(
+    "href",
+    href,
+  );
+});
+
+test("A chat continues to update its sidebar mark after leaving it", async (t) => {
+  const chat = { ...conversation, last_message_at: created_at, state: "working" };
+  const { page, origin } = await docChatFixture(
+    t,
+    (request) =>
+      new URL(request.url).pathname === "/api/engine/doc/conversations"
+        ? Response.json({ conversations: [chat], next_before: null })
+        : Response.json({ conversation: { ...chat, state: "waiting_ok" }, turns: [] }),
+    undefined,
+    { viewport: { width: 1440, height: 900 } },
+  );
+  await pausedClock(page, new Date("2026-11-25T18:00:00Z"));
+  await page.goto(`${origin}/doc-chats?mode=live`);
+  const row = page.getByRole("link", { name: /^Which example deals/ });
+  await expect(row.getByText("Doc is working")).toHaveCount(1);
+  await expect(page.getByLabel("Question for Doc")).toBeEnabled();
+  await page.clock.runFor(30_000);
+  await expect(row.getByText("Needs your attention")).toHaveCount(1);
+  await expect(row.getByText("Doc is working")).toHaveCount(0);
+});
