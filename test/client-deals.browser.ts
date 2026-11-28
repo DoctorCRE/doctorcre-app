@@ -713,7 +713,8 @@ test("an introduction removed before the reread no longer shows a source", async
   await menu.getByRole("button", { name: "Set", exact: true }).click();
   await held.started;
   const deal = engine.list[2];
-  assert.ok(deal?.introductions.some((row) => row.introduced_by === "joe"));
+  assert.ok(deal);
+  assert.ok(deal.introductions.some((row) => row.introduced_by === "joe"));
   deal.introductions = [];
   deal.vendors = deal.vendors.map((row) => ({ ...row, introduction_id: null }));
   deal.closed_on = "2024-04-17";
