@@ -167,7 +167,13 @@ async function openHome(
   dates = comingUpDates,
   home: typeof dashboard = dashboard,
   leadCounts: unknown = { schema_version: "lead-counts.v1", new_from_email: 2, follow_ups_late: 1 },
-  right: { deals?: typeof deals; meetings?: (typeof sampleMeeting)[]; touch?: boolean; theme?: "light" } = {},
+  right: {
+    deals?: typeof deals;
+    meetings?: (typeof sampleMeeting)[];
+    touch?: boolean;
+    theme?: "light";
+    failedRead?: "weekly review" | "critical dates";
+  } = {},
 ) {
   const browser = await chromium.launch();
   t.after(() => browser.close());
@@ -221,10 +227,14 @@ async function openHome(
       }),
     );
   await page.route("**/api/engine/weekly-reviews?week_of=2026-11-23", (route) =>
-    route.fulfill({ json: { items: reviewItems } }),
+    route.fulfill(right.failedRead === "weekly review" ? { status: 503 } : { json: { items: reviewItems } }),
   );
   await page.route("**/api/engine/calendar/critical-dates", (route) =>
-    route.fulfill({ json: { schema_version: "calendar-critical-dates.v1", critical_dates: dates } }),
+    route.fulfill(
+      right.failedRead === "critical dates"
+        ? { status: 503 }
+        : { json: { schema_version: "calendar-critical-dates.v1", critical_dates: dates } },
+    ),
   );
   await page.route("**/api/engine/leads/counts", (route) => route.fulfill({ json: leadCounts }));
   await page.route("**/mcp", async (route) => {
@@ -971,6 +981,41 @@ test("At 1280x599 every control in the scrolling column stays visible in both Ta
         [0, 0],
         "the page and main area stay put",
       );
+    });
+  }
+});
+
+test("At 1280x599 failed-read notices are readable beside expanded lists", async (t) => {
+  const dates = Array.from({ length: 42 }, (_, index) => criticalDate(index + 1, today));
+  const attentionDeals = Array.from({ length: 42 }, (_, index) =>
+    deal(index + 1, "Research", { attention: { reason: "A next step is late." } }),
+  );
+  for (const [failedRead, notice, fold] of [
+    ["weekly review", "Deals unavailable.", "Coming up 42 dates in the next 14 days"],
+    ["critical dates", "Coming up unavailable.", "42 need attention"],
+  ] as const) {
+    await t.test(notice, async (t) => {
+      const page = await openHome(t, 1280, 599, [], dates, dashboard, undefined, {
+        failedRead,
+        meetings: busyMeetings,
+        deals: attentionDeals,
+      });
+      await page.getByRole("button", { name: fold, exact: true }).click();
+      const status = page.getByText(notice, { exact: true });
+      await status.evaluate((node) => node.scrollIntoView({ block: "center", behavior: "instant" }));
+      const { height, contentHeight, clippedByColumn } = await status.evaluate((node) => {
+        const column = node.closest(".home-column");
+        if (!column) throw Error("Missing Home column");
+        const { top, bottom } = node.getBoundingClientRect();
+        const columnTop = column.getBoundingClientRect().top + column.clientTop;
+        return {
+          height: node.clientHeight,
+          contentHeight: node.scrollHeight,
+          clippedByColumn: Math.max(columnTop - top, bottom - (columnTop + column.clientHeight)),
+        };
+      });
+      assert.ok(height >= contentHeight, `${notice} shows only ${height}px of ${contentHeight}px`);
+      assert.ok(clippedByColumn <= 0.5, `${notice} fits inside the column`);
     });
   }
 });
