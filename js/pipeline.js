@@ -1,4 +1,4 @@
-import { mountDealPlan, signingRecorded } from './ui-deal-plan.generated.js';
+import { mountDealPlan, signingCaption } from './ui-deal-plan.generated.js';
 import { hasTourDrafts, legacyTourDraftScope, TOUR_DRAFT_KEYS } from './offline-tour-session.js';
 import { createDayStore } from '../tours/day-store.js';
 import { emailConversation, redactEmailAddresses, suggestionEmail } from './ui-deal-suggestion-email.generated.js';
@@ -133,23 +133,23 @@ const automaticPhase = prepareAutomaticPhaseUndo({
   refreshedMessage: 'The deal page was refreshed.',
 });
 
-function detailPhaseMoveHtml(detail) {
+function renderPhaseUndo(detail = state.panelDetail) {
+  const host = $('workspacePhaseMove');
+  if (!host || !detail || !isEngineDealDetail(detail)) return;
   const deal = detail.deal;
-  if (!isEngineDealDetail(detail)) return isClosedDeal(deal) ? '' : autoHtml(deal);
   const receipt = automaticPhaseReceipt(deal, automaticPhase.detailFeedback(deal.id), {
     showEngineMoves: isPhaseMoveReceipt(deal.phase_change), canUndo: detail.next_deal_saves === true,
   });
-  return renderPhaseReceipt(deal, receipt, '');
-}
-
-function renderPhaseUndo() {
-  const host = $('panelBody')?.querySelector('[data-phase-move]');
-  if (!host || !state.panelDetail) return;
-  const html = detailPhaseMoveHtml(state.panelDetail);
-  if (host.innerHTML === html) return;
+  const html = renderPhaseReceipt(deal, receipt, '', true);
+  const previous = host.querySelector('details');
   const focused = host.contains(document.activeElement);
+  const toggle = focused && document.activeElement.matches('summary');
+  if (host.dataset.receipt === html) return;
+  host.dataset.receipt = html;
   host.innerHTML = html;
-  if (focused) (host.querySelector('button') || $('panelBody').querySelector('[data-refresh-detail]'))?.focus({ preventScroll: true });
+  const next = host.querySelector('details');
+  if (next && previous?.open) next.open = true;
+  if (focused) (toggle ? next?.querySelector('summary') : host.querySelector('button') || $('panelBody').querySelector('[data-refresh-detail]'))?.focus({ preventScroll: true });
 }
 
 const dealTitle = (deal) => dealName(deal.name);
@@ -1547,6 +1547,9 @@ function renderWorkspaceFacts(detail) {
     const text = note ? `${value} · ${note}` : value;
     return `<div><dt>${esc(label)}</dt><dd title="${esc(text)}">${href ? `<a href="${esc(href)}">${esc(text)}</a>` : esc(text)}</dd></div>`;
   }).join('')}</dl>`;
+  renderPhaseUndo(detail);
+  const signing = signingCaption(detail.plan, businessDay());
+  if ($('workspaceSigning').textContent !== signing) $('workspaceSigning').innerHTML = signing ? `<button class="btn btn-quiet deal-plan-signing-link" type="button" data-open-deal-plan title="${esc(signing)}">${esc(signing)}</button>` : '';
 }
 // Scrolls only the strip sideways; scrollIntoView would also move a phone page whose header scrolled away.
 function revealTab(tab) {
@@ -2005,7 +2008,7 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
     : parkingNote ? `<p>${esc(parkingNote)}</p>${parker}` : parker || '<p>Parked</p>';
   const controlsAvailable = (state.deals.has(d.id) || (state.nextDealSaves && Number.isSafeInteger(d.seen))) && !ended;
   const canAddCriticalDate = detail.next_deal_saves === true && Number.isSafeInteger(d.seen);
-  const phaseMove = detailPhaseMoveHtml(detail);
+  const phaseMove = !fromEngine && !ended ? autoHtml(d) : '';
   const websiteSetup = !d.client_portal_url && (fromEngine ? detail.next_deal_saves && d.client_id : controlsAvailable)
     ? clientPortalSetupHtml() : '';
   const stepsHtml = (tail = '') => `<section class="deal-opening-snapshot" aria-label="Deal snapshot">
@@ -2033,7 +2036,7 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
     <div data-detail-read="add-critical-date" data-available="${canAddCriticalDate}">${canAddCriticalDate ? criticalDateFormHtml() : ''}</div>
     <div class="deal-freshness"><time id="detailUpdated" title="Last updated"></time><button class="btn icon-btn" type="button" data-refresh-detail aria-label="Refresh deal" title="Refresh">↻</button></div><p id="detailReadStatus" role="status"></p>
     ${fromEngine ? `<p id="detailStepStatus" role="status"></p><div class="deal-parked-line" data-detail-read="parked">${parked ? `${parkingSummary}${controlsAvailable ? `<button type="button" class="btn" data-revive="${esc(d.id)}">Revive</button>` : ''}` : ''}</div>` : ''}
-    <div data-detail-read="path">${dealPathHtml({ phases: COLUMNS, current: columnByValue(d.phase)?.slug ?? null, checklist: detail.checklist, showTodos: fromEngine, today, canMove: controlsAvailable && !parked, receiptHtml: fromEngine ? phaseMove : '', focusedItem: focusedChecklistItem(d.id), signingOn: detail.plan?.expected_signing_on, signingRecorded: signingRecorded(detail.plan) })}</div>${fromEngine ? `<div class="deal-overview-grid">${stepsHtml(`${snapshotHtml}${ownStep ? '' : dealUpdateFormHtml(false, today)}`)}
+    <div data-detail-read="path">${dealPathHtml({ phases: COLUMNS, current: columnByValue(d.phase)?.slug ?? null, checklist: detail.checklist, showTodos: fromEngine, today, canMove: controlsAvailable && !parked, focusedItem: focusedChecklistItem(d.id) })}</div>${fromEngine ? `<div class="deal-overview-grid">${stepsHtml(`${snapshotHtml}${ownStep ? '' : dealUpdateFormHtml(false, today)}`)}
       <div data-detail-read="latest">${renderLatestActivity(detail, { planTours, note: activityNoteDraft, canNote: Boolean(state.selfActor), ports: activityPorts })}</div>
       <div class="deal-overview-side">
         <div data-detail-read="invoice">${dealInvoiceHtml(detail.invoice, dateCaption)}</div>
@@ -2555,6 +2558,9 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   $('panelTitle').textContent = state.deals.get(dealId)?.name || 'Deal';
   $('panelBody').innerHTML = dealPlaceholderHtml;
   $('workspaceFacts').replaceChildren();
+  $('workspacePhaseMove').replaceChildren();
+  delete $('workspacePhaseMove').dataset.receipt;
+  $('workspaceSigning').replaceChildren();
   $('workspaceTabs').innerHTML = workspaceTabs.map(tab => `<button class="workspace-tab" type="button" role="tab" id="tab-${tab.id}" aria-controls="workspace-${tab.id}" aria-selected="${tab.id === workspaceTab}" tabindex="${tab.id === workspaceTab ? 0 : -1}" data-workspace-tab="${tab.id}">${tab.label}</button>`).join('');
   $('tab-client-portal').hidden = true;
   $('tab-plan').hidden = true;
@@ -2921,7 +2927,7 @@ function wire() {
     if (retry) { retryFieldWrite(retry.dataset.retryWrite); return; }
     const phaseUndo = event.target.closest('button[data-undo-phase], #closedDealsView button[data-undo-invoice]');
     if (phaseUndo) {
-      await automaticPhase.undo(phaseUndo, $('panelBody').contains(phaseUndo));
+      await automaticPhase.undo(phaseUndo, $('recordPanel').contains(phaseUndo));
       return;
     }
     const undo = event.target.closest('button[data-undo]');
@@ -2988,7 +2994,7 @@ function wire() {
     else closeWorkspace({fromHistory:true});
   });
   $('panelClose')?.addEventListener('click', () => closeWorkspace());
-  $('panelBody').addEventListener('click', event => {
+  $('workspaceSigning').addEventListener('click', event => {
     if (event.target.closest('[data-open-deal-plan]')) { selectWorkspaceTab('plan'); $('tab-plan').focus(); }
   });
   $('workspaceTabs').addEventListener('click', event => {

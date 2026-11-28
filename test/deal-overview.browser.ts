@@ -523,47 +523,83 @@ const longChecklist = {
   ],
 };
 
-test("at 1280x599 the six-tab deal keeps its forecast and Plan inside the viewport", async (t) => {
-  const plan = {
-    phases: [{ phase: "site_selection", from_on: "2026-11-23", expected_to_on: "2026-12-05" }],
-    rows: Array.from({ length: 25 }, (_, i) => ({
-      id: `date-${i}`,
-      kind: "critical_date",
-      phase: "site_selection",
-      label: `Example date ${i}`,
-      status: "open",
-      on: "2026-12-05",
-    })),
-    arrows: [],
-    expected_signing_on: "2026-12-05",
-    stale: null,
-  };
-  const { page } = await openDeal(t, 1280, 599, [], fourDates(), { ...sideFacts, checklist: longChecklist, plan });
-  const tabs = page.getByRole("tablist");
-  assert.deepEqual(await tabs.getByRole("tab").allTextContents(), [
-    "Overview",
-    "Plan",
-    "Activity",
-    "Tours",
-    "Documents",
-    "Client portal",
-  ]);
-  const outer = page.locator("#appMainSlot");
-  const fits = () => outer.evaluate((node) => node.scrollHeight <= node.clientHeight && node.scrollTop === 0);
-  const signing = page.getByRole("button", { name: "Lease signing expected Dec 5" });
-  await signing.waitFor();
-  assert.equal(await fits(), true, "the forecast and all six tabs fit with Overview");
-  await signing.click();
-  await page.getByRole("button", { name: "Example date 0", exact: true }).first().waitFor();
-  assert.equal(await fits(), true, "the outer page does not scroll on Plan");
-  for (const selector of [".timeline-scroll", ".deal-plan-list"]) {
-    const column = page.locator(`#workspace-plan ${selector}`);
-    assert.ok(
-      await column.evaluate((node) => node.scrollHeight > node.clientHeight),
-      `${selector} scrolls inside Plan`,
+for (const width of [900, 1280])
+  test(`at ${width}x599 the deal status stays clear of the path and Plan fits`, async (t) => {
+    const plan = {
+      phases: [{ phase: "site_selection", from_on: "2026-11-23", expected_to_on: "2026-12-05" }],
+      rows: Array.from({ length: 25 }, (_, i) => ({
+        id: `date-${i}`,
+        kind: "critical_date",
+        phase: "site_selection",
+        label: `Example date ${i}`,
+        status: "open",
+        on: "2026-12-05",
+      })),
+      arrows: [],
+      expected_signing_on: "2026-12-05",
+      stale: null,
+    };
+    const { page } = await openDeal(t, width, 599, [], fourDates(), {
+      ...sideFacts,
+      checklist: longChecklist,
+      plan,
+      phase_change: {
+        source: "call_capture",
+        automatic: true,
+        event_id: "00000000-0000-4000-8000-00000000e160",
+        evidence_date: "2026-11-23",
+        undoable: true,
+        prior_phase: "research",
+        phase: "site_selection",
+        call: { happened_at: "2026-11-23T18:00:00Z" },
+      },
+    });
+    const tabs = page.getByRole("tablist");
+    assert.deepEqual(await tabs.getByRole("tab").allTextContents(), [
+      "Overview",
+      "Plan",
+      "Activity",
+      "Tours",
+      "Documents",
+      "Client portal",
+    ]);
+    const outer = page.locator("#appMainSlot");
+    const fits = () => outer.evaluate((node) => node.scrollHeight <= node.clientHeight && node.scrollTop === 0);
+    const signing = page.getByRole("button", { name: "Lease signing expected Dec 5" });
+    await signing.waitFor();
+    if (width === 1280) assert.equal(await fits(), true, "the forecast and all six tabs fit with Overview");
+    const status = page.locator("#workspaceStatus");
+    const receipt = status.locator("summary");
+    await receipt.getByText("Moved automatically", { exact: true }).waitFor();
+    const statusHeight = await status.evaluate((node) => node.clientHeight);
+    await receipt.click();
+    assert.equal(
+      await status.evaluate((node) => node.clientHeight),
+      statusHeight,
+      "reading the receipt keeps the status height",
     );
-  }
-});
+    await receipt.click();
+    const tile = page.locator('.deal-path-tile[data-place="current"]');
+    const more = tile.getByText("6 more", { exact: true });
+    assert.ok(
+      await more.evaluate(
+        (node) =>
+          node.getBoundingClientRect().bottom <= node.closest(".deal-path-tile")!.getBoundingClientRect().bottom,
+      ),
+    );
+    await more.click();
+    await tile.getByRole("button", { name: "Show less" }).click();
+    await signing.click();
+    await page.getByRole("button", { name: "Example date 0", exact: true }).first().waitFor();
+    assert.equal(await fits(), true, "the outer page does not scroll on Plan");
+    for (const selector of [".timeline-scroll", ".deal-plan-list"]) {
+      const column = page.locator(`#workspace-plan ${selector}`);
+      assert.ok(
+        await column.evaluate((node) => node.scrollHeight > node.clientHeight),
+        `${selector} scrolls inside Plan`,
+      );
+    }
+  });
 
 for (const [width, height] of [
   [1280, 599],

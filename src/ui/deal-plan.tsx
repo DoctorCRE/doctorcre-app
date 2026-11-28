@@ -18,6 +18,7 @@ import {
   type SourceStep,
 } from "./deal-plan-model.ts";
 import { Timeline, type TimelineGroup, type TimelineLink, type TimelineRow } from "./timeline.tsx";
+import { dayOf, shortDate, yearOf } from "./timeline-scale.ts";
 
 type Change = { id: string; day: string };
 type Undo = { path: string; args: object; label: string };
@@ -50,10 +51,15 @@ type Inputs = { today: string; viewer: string; request: typeof fetch; reload: ()
     }
   | { mode: "board"; deals: DealTimeline[]; canSave: boolean; toolsHost: HTMLElement }
 );
-export function signingRecorded(plan: Plan | null | undefined) {
+function signingRecorded(plan: Plan | null | undefined) {
   return (
     plan?.rows.some((row) => row.kind === "todo" && row.id === "executed_lease" && row.state === "finished") ?? false
   );
+}
+export function signingCaption(plan: Plan | null | undefined, today: string) {
+  if (!plan?.expected_signing_on) return "";
+  const label = signingRecorded(plan) ? "Lease signed" : "Lease signing expected";
+  return `${label} ${shortDate(dayOf(plan.expected_signing_on), yearOf(dayOf(today)))}`;
 }
 const signingName = (recorded: boolean) => (recorded ? "Lease signed" : "Lease signing");
 const stepMap = (steps: SourceStep[]) => new Map(steps.map((step) => [`step:${step.id}`, step]));

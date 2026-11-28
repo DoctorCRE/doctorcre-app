@@ -211,7 +211,8 @@ test("the desktop path keeps the three nearby phases visible and opens the other
     "a critical date shows only in its own row",
   );
   assert.equal(await path.locator('[data-phase="closed"] [data-todo="invoice_recorded"]').count(), 1);
-  assert.match((await current.locator("[data-phase-move]").textContent()) ?? "", /Moved automatically.*Nov 23.*Undo/);
+  assert.match((await page.locator("#workspacePhaseMove").textContent()) ?? "", /Moved automatically.*Nov 23.*Undo/);
+  assert.equal(await current.getByText(/Moved automatically/).count(), 0);
   await path.getByText("Market survey", { exact: true }).click();
   assert.equal(await path.getByText("Market survey filed").isVisible(), true, "a to-do opens to what is filed");
 });

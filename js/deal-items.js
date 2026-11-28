@@ -232,9 +232,14 @@ export function automaticPhaseReceipt(deal, entry, { showEngineMoves = false, ca
   return { move, message };
 }
 
-export function renderPhaseReceipt(deal, { move, message }, legacy) {
+export function renderPhaseReceipt(deal, { move, message }, legacy, compact = false) {
   const undo = move?.action;
   const button = undo ? `<button class="btn btn-quiet" type="button" data-undo-phase="${esc(deal.id)}" data-event-id="${esc(undo.eventId)}" data-base-version="${undo.version}" data-detail-focus="phase-undo"${undo.busy ? ' aria-disabled="true"' : ''}>Undo</button>` : '';
+  const text = move ? `<span>${move.label}</span> <time datetime="${move.day}">${esc(move.date)}</time>${move.callTime ? ` · <span>Call on ${esc(move.callTime)}</span>` : ''}` : '';
+  if (compact) {
+    const caption = [text, message && `<span>${esc(message)}</span>`].filter(Boolean).join(' · ');
+    return caption ? `<div class="auto-move"><details><summary>${caption}</summary></details>${button}</div>` : '';
+  }
   const mark = move ? `<div class="auto-move"><span>${move.label}</span> <time datetime="${move.day}">${esc(move.date)}</time>${move.callTime ? `<div>Call on ${esc(move.callTime)}</div>` : ''}${button}</div>` : legacy;
   return mark + (message ? `<p class="auto-move">${esc(message)}</p>` : '');
 }

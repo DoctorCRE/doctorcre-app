@@ -482,6 +482,7 @@ for(const [width,height,touch] of [[1280,640,false],[1440,900,false],[390,844,tr
   const title=page.getByRole('heading',{name:longDealName});
   await title.waitFor();
   assert.ok(await title.evaluate(node=>node.scrollHeight===node.clientHeight && node.scrollWidth===node.clientWidth));
+
  }
  if(width===1280) {
   await picker.selectOption('closed');

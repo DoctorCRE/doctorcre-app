@@ -319,6 +319,17 @@ button.client-portal-link:disabled { cursor: wait; }
 .workspace-facts a { color: inherit; text-decoration: none; }
 .workspace-facts a:hover { color: var(--fg); text-decoration: underline; }
 #workspaceTabs { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+#workspaceStatus { position: relative; flex-basis: 100%; min-width: 0; display: flex; align-items: center; gap: var(--space-2); color: var(--fg-muted); font-size: var(--font-size-1); }
+#workspaceStatus:not(:has(button, summary)), #workspaceStatus > :empty { display: none; }
+#workspaceStatus > div { min-width: 0; }
+#workspacePhaseMove { flex: 1; }
+#workspacePhaseMove .auto-move { display: flex; gap: var(--space-1); }
+#workspacePhaseMove details { flex: 1; min-width: 0; min-height: var(--touch); }
+#workspacePhaseMove summary, .deal-plan-signing-link { line-height: var(--touch); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#workspacePhaseMove summary span { display: inline; }
+#workspacePhaseMove details[open] summary { position: absolute; z-index: 1; inset: 100% 0 auto; padding: var(--space-2); line-height: var(--line-height-body); white-space: normal; border-radius: var(--radius-2); background: var(--surface-2); box-shadow: var(--shadow-overlay); }
+.deal-plan-signing-link { display: block; max-width: 100%; padding-block: 0; }
+
 .workspace-tab { flex: none; min-height: var(--touch); min-width: var(--touch); padding: 0 var(--space-3); color: var(--fg-muted); background: transparent; border: 0; border-radius: var(--radius-2); font: inherit; white-space: nowrap; cursor: pointer; }
 .workspace-tab:hover { color: var(--fg); }
 .workspace-tab[aria-selected="true"] { color: var(--fg); background: var(--surface-2); }
@@ -353,10 +364,9 @@ button.client-portal-link:disabled { cursor: wait; }
 
 /* On a phone the page scrolls, so the top bar (back and deal name) and the tab row both stay pinned. */
 @media (max-width: 760px), (hover: none) and (pointer: coarse) and (max-width: 1023px) {
-  .workspace-open .app-layout-center { display: flex; flex-direction: column; height: calc(100dvh - var(--layout-bottom)); }
-  .workspace-open .app-layout-topbar { height: auto; min-height: 52px; flex: none; }
-  .workspace-open .app-layout-topbar .deal-crumb h1 { white-space: normal; overflow: visible; }
-  .workspace-open .app-layout-main { --scroll-edge: calc(-1 * var(--space-3)); flex: 1; min-height: 0; overflow: auto; }
+  .workspace-open .app-layout-topbar { position: sticky; top: 0; z-index: 71; }
+  .workspace-open .app-layout-topbar .deal-crumb h1 { white-space: normal; max-block-size: 48px; overflow: auto; scrollbar-width: none; }
+  .deal-detail > .workspace-header { top: 52px; }
 }
 
 @media (min-width: 651px) {
