@@ -234,11 +234,26 @@ export function CardTile({
 
 type Anchor = { node: Element; top: number };
 
+function revealColumnFocus(column: HTMLElement, control: HTMLElement) {
+  if (column.scrollHeight <= column.clientHeight || !control.matches(":focus-visible")) return;
+
+  const { top, bottom } = control.getBoundingClientRect();
+  const edge = column.getBoundingClientRect().top + column.clientTop;
+  const style = getComputedStyle(control);
+  const ring =
+    style.outlineStyle === "none" ? 0 : Math.max(0, parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset));
+  const above = top - ring - edge;
+  const below = bottom + ring - (edge + column.clientHeight);
+  if (above < 0) column.scrollTop += Math.floor(above);
+  else if (below > 0) column.scrollTop += Math.ceil(below);
+}
+
 function fitHomeTiles(grid: HTMLDivElement) {
   const watched = new Set<Element>([grid]);
   const openFolds = new WeakSet<HTMLElement>();
   const fonts = grid.ownerDocument.fonts;
   let frame = 0;
+  let focusFrame = 0;
   let active = true;
   const resize = new ResizeObserver(schedule);
   const mutations = new MutationObserver(() => {
@@ -334,8 +349,21 @@ function fitHomeTiles(grid: HTMLDivElement) {
     if (active && !frame) frame = requestAnimationFrame(fit);
   }
 
+  function onFocus(event: FocusEvent) {
+    const control = event.target;
+    if (!(control instanceof HTMLElement) || control.closest(".home-inline-review")) return;
+    const column = control.closest<HTMLElement>(".home-column");
+    if (column?.parentElement !== grid) return;
+    cancelAnimationFrame(focusFrame);
+    // eslint-disable-next-line no-restricted-syntax -- One frame after native focus scrolling, canceled on unmount.
+    focusFrame = requestAnimationFrame(() => {
+      if (grid.ownerDocument.activeElement === control) revealColumnFocus(column, control);
+    });
+  }
+
   resize.observe(grid);
   mutations.observe(grid, { childList: true, subtree: true, characterData: true, attributeFilter: ["data-open"] });
+  grid.addEventListener("focusin", onFocus);
   fonts.addEventListener("loadingdone", schedule);
   void fonts.ready.then(schedule);
   fit();
@@ -343,8 +371,10 @@ function fitHomeTiles(grid: HTMLDivElement) {
     active = false;
     resize.disconnect();
     mutations.disconnect();
+    grid.removeEventListener("focusin", onFocus);
     fonts.removeEventListener("loadingdone", schedule);
     cancelAnimationFrame(frame);
+    cancelAnimationFrame(focusFrame);
   };
 }
 

@@ -917,6 +917,64 @@ test("Crowded touch columns keep every tile heading reachable at 599, 640 and 90
   }
 });
 
+test("At 1280x599 every control in the scrolling column stays visible in both Tab directions", async (t) => {
+  const dates = Array.from({ length: 42 }, (_, index) => criticalDate(index + 1, today));
+  for (const touch of [false, true]) {
+    await t.test(touch ? "touch layout" : "pointer layout", async (t) => {
+      const page = await openHome(t, 1280, 599, [], dates, dashboard, undefined, {
+        touch,
+        deals: [wrappedDeal],
+        meetings: busyMeetings,
+      });
+      await page.context().setOffline(true);
+      await page.getByText("Offline. Showing the last available update.", { exact: true }).waitFor();
+      await page.getByRole("button", { name: "Coming up 42 dates in the next 14 days" }).click();
+      await page.getByRole("button", { name: "1 needs attention" }).click();
+      const column = page.locator(".home-side");
+      assert.ok(await column.evaluate((region) => region.scrollHeight > region.clientHeight));
+      const controls = await column.locator("a[href]:visible, button:enabled:visible, summary:visible").all();
+      const leads = controls.at(-1) ?? assert.fail("Leads is the last control");
+      assert.equal(await leads.getAttribute("href"), "/leads");
+      await leads.focus();
+
+      for (const [key, targets] of [
+        ["Shift+Tab", controls.slice(0, -1).reverse()],
+        ["Tab", controls.slice(1)],
+      ] as const) {
+        for (const target of targets) {
+          await page.keyboard.press(key);
+          const result = await target.evaluate(async (control) => {
+            await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            const region = control.closest(".home-column");
+            if (!region) throw Error("Missing Home column");
+            const visible = region.getBoundingClientRect();
+            const { top, bottom, left, right } = control.getBoundingClientRect();
+            const edgeTop = visible.top + region.clientTop;
+            const edgeLeft = visible.left + region.clientLeft;
+            return {
+              label: control.textContent?.trim(),
+              focused: document.activeElement === control,
+              clipped: Math.max(
+                edgeTop - top,
+                bottom - (edgeTop + region.clientHeight),
+                edgeLeft - left,
+                right - (edgeLeft + region.clientWidth),
+              ),
+            };
+          });
+          assert.ok(result.focused, `${key} focuses ${result.label}`);
+          assert.ok(result.clipped <= 0.5, `${key} clips ${result.label} by ${result.clipped}px`);
+        }
+      }
+      assert.deepEqual(
+        await page.evaluate(() => [scrollY, document.querySelector("#appMainSlot")?.scrollTop]),
+        [0, 0],
+        "the page and main area stay put",
+      );
+    });
+  }
+});
+
 test("Coming up is not drawn when no open deal has a date in the next 14 days", async (t) => {
   const page = await openHome(
     t,
