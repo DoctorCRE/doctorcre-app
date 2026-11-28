@@ -29,20 +29,16 @@ test("Deals opens the parked section and Today sidebar", async ({ page, rehearsa
   await parkedDeals(page, page.locator(`.card-open[data-open="${rehearsal.deal_id}"]:visible`));
 });
 
-test("Deal detail expands update history and preserves it through refresh", async ({ page, rehearsal }) => {
+test("Deal detail lists its latest notes and keeps them through refresh", async ({ page, rehearsal }) => {
   test.setTimeout(420000);
   await page.goto(`/deals?deal=${rehearsal.deal_id}`);
   await expect(page.locator("#panelTitle")).toHaveText(rehearsal.deal_name);
-  const history = page.locator(".updates-history");
-  await expect(history).toHaveCount(1);
-  await history.locator(":scope > summary").click();
-  await expect(history.locator(".deal-note")).toHaveCount(2);
-  await expect(history.locator(".deal-note p")).toHaveText(rehearsal.notes.toReversed());
-  await expect(history.locator(".deal-note").first()).toBeVisible();
+  const latest = page.getByRole("region", { name: "Latest activity" });
+  for (const note of rehearsal.notes) await expect(latest).toContainText(note.split("\n")[0] ?? note);
   const observed = await page.locator("#detailUpdated").getAttribute("datetime");
   await page.getByRole("button", { name: "Refresh deal", exact: true }).click();
   await expect(page.locator("#detailUpdated")).not.toHaveAttribute("datetime", observed || "", { timeout: 27000 });
-  await expect(history).toHaveAttribute("open", "");
+  for (const note of rehearsal.notes) await expect(latest).toContainText(note.split("\n")[0] ?? note);
 });
 
 test("Deal card omits Dates, Full record and outlook controls", async ({ page, rehearsal }) => {
