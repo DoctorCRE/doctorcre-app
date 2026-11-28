@@ -9,6 +9,7 @@ import {
   refusal,
   type Saved,
   SourceChoices,
+  sourceMismatch,
   type VendorDoors,
 } from "./deal-vendor-menu.tsx";
 
@@ -86,7 +87,7 @@ function AddVendorForm({
   const [uncertain, setUncertain] = useState(false);
   const [correctionPending, setCorrectionPending] = useState(false);
   const correction = recorded && by && recorded.by !== by;
-  const locked = busy || uncertain || Boolean(recorded);
+  const roleLocked = busy || uncertain;
   const search = useRef<HTMLInputElement>(null);
   // A vendor already on this deal, or introduced for it, is changed from its own box.
   const [onDeal] = useState(
@@ -110,7 +111,7 @@ function AddVendorForm({
     setProblem("");
     let source = recorded;
     if (source?.by !== by) {
-      const result = await recordSource(doors, deal, client.id, vendor.id, by, source?.id);
+      const result = await recordSource(doors, deal, client.id, vendor.id, by, source ?? undefined);
       if (!result.ok) {
         setUncertain(Boolean(result.pending));
         setCorrectionPending(Boolean(correction && result.pending));
@@ -130,7 +131,7 @@ function AddVendorForm({
         setBusy(false);
         setUncertain(false);
         saved();
-        setProblem(`${broughtBy(source.by)} was saved as the source. Use the new choice to change it.`);
+        setProblem(sourceMismatch(source.by));
         return;
       }
     }
@@ -162,7 +163,7 @@ function AddVendorForm({
       {vendor ? (
         <p className="deal-add-vendor-picked">
           <b>{vendor.name}</b>
-          <button type="button" disabled={locked} onClick={() => setVendor(null)}>
+          <button type="button" disabled={roleLocked || Boolean(recorded)} onClick={() => setVendor(null)}>
             Change
           </button>
         </p>
@@ -187,7 +188,7 @@ function AddVendorForm({
       )}
       <label>
         Role
-        <select value={role} disabled={!roles || locked} onChange={(event) => setRole(event.target.value)}>
+        <select value={role} disabled={!roles || roleLocked} onChange={(event) => setRole(event.target.value)}>
           <option value="" disabled>
             {roles ? "Pick a role" : "Loading roles…"}
           </option>

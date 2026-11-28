@@ -185,9 +185,9 @@ async function saveDealParty(deal, suffix, party_id, role) {
   return client.savePartnerRecord(path, `client-deal${suffix}:${deal}:${party_id}:${role}`, "party_id", { party_id, role });
 }
 
-async function removeIntroduction(id) {
+async function removeIntroduction({ id, version }) {
   const client = await dealroomClient();
-  return client.savePartnerRecord(`/api/engine/introductions/${encodeURIComponent(id)}/remove`, `remove-introduction:${id}`, "introduction_id", {});
+  return client.savePartnerRecord(`/api/engine/introductions/${encodeURIComponent(id)}/remove`, `remove-introduction:${id}`, "introduction_id", { version });
 }
 
 async function saveIntroduction({ deal, client, vendor, by, on, replaces, guarded }) {
@@ -206,15 +206,15 @@ async function saveIntroduction({ deal, client, vendor, by, on, replaces, guarde
     deal_id: deal,
     introduced_on: on,
     ...(guarded && { unrecorded_only: true }),
-    ...(replaces && { replaces }),
+    ...(replaces && { replaces: replaces.id, replace_version: replaces.version }),
   };
   if (!guarded && replaces) return { ok: false, problem: { error: "introduction_already_recorded" } };
   const result = await session.savePartnerRecord("/api/engine/introductions", key, "introduction_id", args);
   if (!result.ok) return result;
-  const { made_by, introduced_by, introduction_id } = result.data;
+  const { made_by, introduced_by, introduction_id, version } = result.data;
   const savedBy = made_by === "client" ? "client" : introduced_by;
   if (savedBy !== "client" && savedBy !== "joe" && savedBy !== "dell") return { ok: false, pending: true };
-  return { ok: true, introduction: { id: introduction_id, by: savedBy } };
+  return { ok: true, introduction: { id: introduction_id, by: savedBy, version } };
 }
 
 async function readVendorMatches(query, signal) {

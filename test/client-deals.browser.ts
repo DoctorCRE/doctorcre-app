@@ -29,6 +29,7 @@ const deal = (id: string, name: string, parts: Partial<ClientDeal>): ClientDeal 
 });
 const introduction = (vendor_id: string, vendor_name: string, chosen: boolean) => ({
   id: `i-${vendor_id}`,
+  version: "113",
   vendor_id,
   vendor_name,
   made_by: "team" as const,
@@ -269,7 +270,7 @@ const catalog = [
 ];
 
 // A made-up engine: the deals read answers what the saves left, deriving Chosen as the engine does.
-function partyEngine(refuse: string | null = null, after = 0, loseIntroductionReceipt = false) {
+function partyEngine(refuse: string | null = null, after = 0, loseIntroductionReceipt: boolean | "request" = false) {
   const list = structuredClone(deals);
   const sent: { path: string; body: Record<string, unknown> }[] = [];
   const chosen = (d: ClientDeal) =>
@@ -306,12 +307,14 @@ function partyEngine(refuse: string | null = null, after = 0, loseIntroductionRe
     assert.match(String(idempotency_key), /^[0-9a-f-]{36}$/);
     const path = new URL(route.request().url()).pathname;
     sent.push({ path, body });
+    if (loseIntroductionReceipt === "request" && sent.length === 1) return route.abort();
     const prior = receipts.get(idempotency_key);
     if (prior) return route.fulfill({ status: 201, json: { ...prior, replayed: true } });
     if (path.endsWith("/remove")) {
       const id = path.split("/").at(-2);
       const deal = list.find((d) => d.introductions.some((i) => i.id === id && i.removable));
       assert.ok(deal);
+      assert.equal(body.version, deal.introductions.find((i) => i.id === id)?.version);
       deal.introductions = deal.introductions.filter((i) => i.id !== id);
       deal.vendors = deal.vendors.map((v) => (v.introduction_id === id ? { ...v, introduction_id: null } : v));
       return route.fulfill({ json: { introduction_id: id } });
@@ -319,14 +322,16 @@ function partyEngine(refuse: string | null = null, after = 0, loseIntroductionRe
     const deal = list.find((d) => d.id === body.deal_id);
     assert.ok(deal, `a known deal: ${body.deal_id}`);
     const id = `i-${body.vendor_id}-${receipts.size}`;
+    const version = String(200 + receipts.size);
     if (body.replaces) {
-      assert.ok(deal.introductions.some((i) => i.id === body.replaces));
+      assert.ok(deal.introductions.some((i) => i.id === body.replaces && i.version === body.replace_version));
       deal.introductions = deal.introductions.filter((i) => i.id !== body.replaces);
     } else {
       assert.ok(!deal.introductions.some((i) => i.vendor_id === body.vendor_id));
     }
     deal.introductions.push({
       id,
+      version,
       vendor_id: body.vendor_id,
       vendor_name:
         deal.vendors.find((v) => v.party_id === body.vendor_id)?.name ??
@@ -342,9 +347,9 @@ function partyEngine(refuse: string | null = null, after = 0, loseIntroductionRe
       chosen: false,
     });
     deal.vendors = deal.vendors.map((v) => (v.party_id === body.vendor_id ? { ...v, introduction_id: id } : v));
-    const receipt = { introduction_id: id, ...body };
+    const receipt = { introduction_id: id, version, ...body };
     receipts.set(idempotency_key, receipt);
-    if (loseIntroductionReceipt && receipts.size === 1) return route.abort();
+    if (loseIntroductionReceipt === true && receipts.size === 1) return route.abort();
     return route.fulfill({ status: 201, json: receipt });
   };
   return { read, save, introduce, sent, list };
@@ -509,8 +514,12 @@ test("an Add vendor that is refused after the introduction landed says so, and t
     await form.getByRole("alert").textContent(),
     "The database turned this down. They may already be on the deal in that role. Example Harbor Bank is recorded as introduced by Dell.",
   );
+  assert.equal(await form.getByRole("button", { name: "Change" }).isEnabled(), false);
+  assert.equal(await form.getByLabel("Role").isEnabled(), true);
+  await form.getByLabel("Role").selectOption({ label: "Title" });
   await form.getByRole("button", { name: "Add", exact: true }).click();
   await form.getByRole("alert").waitFor();
+  assert.equal(sent.at(-1)?.body.role, "title");
   assert.deepEqual(
     sent.map((s) => s.path),
     ["/api/engine/introductions", "/api/engine/deals/d1/parties", "/api/engine/deals/d1/parties"],
@@ -682,9 +691,42 @@ test("Set records the client on a linked deal and removal leaves the chosen role
   await direct.getByRole("button", { name: /Title · Chosen/ }).click();
   assert.equal(sent[0]?.body.introduced_party_id, "linked-client");
   menu = page.getByRole("dialog", { name: "Example Halloran Title on Example first office" });
+  const { introduced_on } = sent[0]?.body ?? {};
+  assert.equal(typeof introduced_on, "string");
+  const date = new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeZone: "UTC" }).format(
+    new Date(String(introduced_on)),
+  );
+  assert.match((await menu.textContent()) ?? "", new RegExp(`Introduced ${date}`));
   await menu.getByRole("button", { name: "Remove introduction" }).click();
   await menu.getByText("Remove the introduction for Example Halloran Title on Example first office?").waitFor();
   await menu.getByRole("button", { name: "Remove", exact: true }).click();
   await article.locator('.deal-diagram-junction [data-tone="onDeal"]', { hasText: "Example Halloran Title" }).waitFor();
   assert.equal(engine.list[2]?.vendors[0]?.roles[0]?.role, "title");
+});
+
+test("Set shows the recovered source and confirms a changed choice before replacing it", async (t) => {
+  const engine = partyEngine(null, 0, "request");
+  const { page, panel, sent } = await openParties(t, engine);
+  const article = panel.locator(".client-deal", { hasText: "Example first office" });
+  const menu = page.getByRole("dialog", { name: "Example Halloran Title on Example first office" });
+  await article.getByRole("button", { name: /Example Halloran Title/ }).click();
+  await menu.getByRole("button", { name: "Set", exact: true }).click();
+  await menu.getByRole("button", { name: "Joe", exact: true }).click();
+  const lose = page.waitForEvent("requestfailed", (request) => request.url().endsWith("/api/engine/introductions"));
+  await menu.getByRole("button", { name: "Set", exact: true }).click();
+  await lose;
+  assert.match((await menu.getByRole("alert").textContent({ timeout: 3000 })) ?? "", /Couldn’t confirm/);
+  await menu.getByRole("button", { name: "The client" }).click();
+  await menu.getByRole("button", { name: "Set", exact: true }).click();
+  await menu.getByText(/Joe was saved as the source/).waitFor({ timeout: 3000 });
+  assert.deepEqual(sent[0], sent[1]);
+  assert.equal(engine.list[2]?.introductions[0]?.introduced_by, "joe");
+  await menu.getByRole("button", { name: "Use new choice" }).click();
+  await article
+    .locator(".deal-diagram > ul > li > .deal-diagram-vendor", { hasText: "Example Halloran Title" })
+    .waitFor();
+  assert.deepEqual(
+    engine.list[2]?.introductions.map((entry) => entry.made_by),
+    ["client"],
+  );
 });

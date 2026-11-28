@@ -23,6 +23,7 @@ export interface ClientDeal {
   vendors: { party_id: string; name: string; roles: Role[]; introduction_id: string | null }[];
   introductions: {
     id: string;
+    version?: string;
     vendor_id: string;
     vendor_name: string;
     made_by: "vendor" | "team" | "client";

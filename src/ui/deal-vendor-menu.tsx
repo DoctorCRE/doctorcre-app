@@ -11,7 +11,8 @@ export interface FoundVendor {
 
 const SOURCES = { dell: "Dell", joe: "Joe", client: "The client", unrecorded: "Not recorded" } as const;
 export type BroughtBy = keyof typeof SOURCES;
-export type RecordedSource = { id: string; by: Exclude<BroughtBy, "unrecorded"> };
+type IntroductionVersion = { id: string; version: string };
+export type RecordedSource = { id: string; version?: string; by: Exclude<BroughtBy, "unrecorded"> };
 type SourceSave = { ok: true; introduction: RecordedSource | null } | SaveFailed;
 
 export interface VendorDoors {
@@ -22,10 +23,10 @@ export interface VendorDoors {
     vendor: string;
     by: BroughtBy;
     on: string;
-    replaces?: string;
+    replaces?: IntroductionVersion;
     guarded: boolean;
   }): Promise<SourceSave>;
-  removeIntroduction(id: string): Promise<Saved>;
+  removeIntroduction(introduction: IntroductionVersion): Promise<Saved>;
   findVendors(query: string, signal: AbortSignal): Promise<FoundVendor[]>;
   remove(deal: string, party: string, role: string): Promise<Saved>;
   roles(signal: AbortSignal): Promise<Role[]>;
@@ -33,6 +34,8 @@ export interface VendorDoors {
   openVendor(party: string): void;
 }
 export const broughtBy = (by: BroughtBy) => SOURCES[by];
+export const sourceMismatch = (by: RecordedSource["by"]) =>
+  `${broughtBy(by)} was saved as the source. Use the new choice to change it.`;
 
 export function SourceChoices({
   by,
@@ -68,8 +71,10 @@ export function recordSource(
   client: string,
   vendor: string,
   by: BroughtBy,
-  replaces?: string,
+  replaces?: RecordedSource,
 ) {
+  if (replaces && !replaces.version)
+    return Promise.resolve<SaveFailed>({ ok: false, problem: { error: "version_conflict" } });
   return doors
     .recordSource({
       deal: deal.id,
@@ -77,7 +82,7 @@ export function recordSource(
       vendor,
       by,
       on: centralToday(new Date()),
-      ...(replaces && { replaces }),
+      ...(replaces?.version && { replaces: { id: replaces.id, version: replaces.version } }),
       guarded: Boolean(deal.client_id),
     })
     .catch((): SaveFailed => ({ ok: false, pending: true }));
@@ -90,6 +95,7 @@ export interface Removal {
 const PARTNER = { joe: "Joe", dell: "Dell" } as const;
 const REFUSALS: Record<string, string> = {
   introduction_already_recorded: "A source is already recorded. Open the vendor box to see it.",
+  version_conflict: "The introduction changed. Open the vendor box to review it.",
   not_found: "That vendor isn't on this deal anymore.",
   database_refused_the_statement: "The database turned this down. They may already be on the deal in that role.",
 };
@@ -110,7 +116,8 @@ export async function eachRole(roles: Role[], save: (role: string) => Promise<Sa
 
 function introduced({ introduction }: Vendor) {
   if (!introduction) return "Brought in by: not recorded";
-  if (introduction.made_by === "client") return "The client brought them in.";
+  if (introduction.made_by === "client")
+    return `${dated("Introduced", introduction.introduced_on) || "Introduced"} by the client.`;
   if (introduction.made_by === "vendor")
     return `${dated("Referred", introduction.introduced_on) || "Referred"} ${introduction.introduced_party_name}.`;
   const who = introduction.introduced_by ? PARTNER[introduction.introduced_by] : "the team";
@@ -120,8 +127,9 @@ function introduced({ introduction }: Vendor) {
 type Step =
   | { at: "menu" }
   | { at: "role"; roles: Role[] | null; role: string }
-  | { at: "confirm" | "remove-introduction" }
-  | { at: "source"; by: BroughtBy | null };
+  | { at: "confirm" }
+  | { at: "remove-introduction"; introduction: IntroductionVersion }
+  | { at: "source"; by: BroughtBy | null; recorded?: RecordedSource };
 
 interface Props {
   deal: ClientDeal;
@@ -169,6 +177,26 @@ export function DealVendorMenu({ deal, client, vendor, doors, close, saved, rere
     close();
     saved(removal);
   }
+  async function setSource(by: BroughtBy, recorded?: RecordedSource) {
+    setBusy(true);
+    setProblem("");
+    const result = await recordSource(doors, deal, client, vendor.id, by, recorded);
+    setBusy(false);
+    if (!result.ok) {
+      if (!result.pending) reread();
+      return setProblem(result.pending ? "Couldn’t confirm the save. Try again." : refusal(result.problem));
+    }
+    if (result.introduction && result.introduction.by !== by) {
+      setStep({ at: "source", by, recorded: result.introduction });
+      return setProblem(sourceMismatch(result.introduction.by));
+    }
+    close();
+    saved();
+  }
+  function dismiss() {
+    close();
+    if (step.at === "source" && step.recorded) reread();
+  }
   const onDeal = vendor.roles.length > 0;
   const introduction = vendor.introduction;
   const role = vendor.roles.map((r) => r.label).join(", ");
@@ -181,13 +209,13 @@ export function DealVendorMenu({ deal, client, vendor, doors, close, saved, rere
       onKeyDown={(event) => {
         if (event.key !== "Escape" || busy) return;
         event.stopPropagation();
-        close();
+        dismiss();
       }}
     >
       <p className="deal-vendor-menu-who">
         {vendor.name}
         {role && ` · ${role}`}
-        <span>{introduced(vendor)}</span>
+        {!(step.at === "source" && step.recorded) && <span>{introduced(vendor)}</span>}
         {vendor.introduction?.note && <q>{vendor.introduction.note}</q>}
       </p>
       {step.at === "menu" && (
@@ -202,8 +230,17 @@ export function DealVendorMenu({ deal, client, vendor, doors, close, saved, rere
               Set
             </button>
           )}
-          {introduction?.removable && (
-            <button type="button" onClick={() => setStep({ at: "remove-introduction" })}>
+          {introduction?.removable && introduction.version && (
+            <button
+              type="button"
+              onClick={() => {
+                if (introduction.version)
+                  setStep({
+                    at: "remove-introduction",
+                    introduction: { id: introduction.id, version: introduction.version },
+                  });
+              }}
+            >
               Remove introduction
             </button>
           )}
@@ -264,21 +301,26 @@ export function DealVendorMenu({ deal, client, vendor, doors, close, saved, rere
             event.preventDefault();
             const by = step.by;
             if (busy || !by) return;
-            void run(() => recordSource(doors, deal, client, vendor.id, by));
+            void setSource(by, step.recorded);
           }}
         >
-          <SourceChoices by={step.by} select={(by) => setStep({ at: "source", by })} client disabled={busy} />
+          <SourceChoices
+            by={step.by}
+            select={(by) => setStep({ ...step, by })}
+            client
+            disabled={busy || Boolean(step.recorded)}
+          />
           <span className="deal-vendor-menu-row">
             <button type="submit" disabled={busy || !step.by}>
-              Set
+              {step.recorded ? "Use new choice" : "Set"}
             </button>
-            <button type="button" disabled={busy} onClick={close}>
+            <button type="button" disabled={busy} onClick={dismiss}>
               Cancel
             </button>
           </span>
         </form>
       )}
-      {step.at === "remove-introduction" && introduction && (
+      {step.at === "remove-introduction" && (
         <>
           <p>
             Remove the introduction for {vendor.name} on {deal.name}?
@@ -287,7 +329,7 @@ export function DealVendorMenu({ deal, client, vendor, doors, close, saved, rere
             <button
               type="button"
               disabled={busy}
-              onClick={() => void run(() => doors.removeIntroduction(introduction.id))}
+              onClick={() => void run(() => doors.removeIntroduction(step.introduction))}
             >
               Remove
             </button>
