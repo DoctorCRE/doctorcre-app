@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import test, { type TestContext } from "node:test";
-import type { Locator, Route } from "playwright";
+import type { Locator, Page, Route } from "playwright";
 import type { ClientDeal } from "../src/ui/deal-diagram.tsx";
 import { chromium } from "./browser-harness.mjs";
 import { ownedServer as startFixtureServer } from "./fixture-probe.ts";
@@ -68,8 +68,16 @@ async function openCard(
     height = 900,
     scheme = "dark",
     saves,
+    introductions,
     dealSaves = true,
-  }: { width?: number; height?: number; scheme?: string; saves?: Answer; dealSaves?: boolean } = {},
+  }: {
+    width?: number;
+    height?: number;
+    scheme?: string;
+    saves?: Answer;
+    introductions?: Answer;
+    dealSaves?: boolean;
+  } = {},
 ) {
   const server = await startFixtureServer();
   t.after(() => server.stop());
@@ -88,6 +96,14 @@ async function openCard(
   await page.route("**/api/engine/clients/*/deals", (route) => deals(route));
   if (saves) {
     await page.route("**/api/engine/deals/*/parties**", (route) => saves(route));
+    if (introductions) await page.route("**/api/engine/introductions", (route) => introductions(route));
+    await page.route(
+      (url) => url.pathname === "/api/engine/vendors",
+      (route) => {
+        const query = (new URL(route.request().url()).searchParams.get("q") ?? "").toLowerCase();
+        return route.fulfill({ json: { rows: catalog.filter((v) => v.name.toLowerCase().includes(query)) } });
+      },
+    );
     await page.route("**/api/engine/vendors/summary", (route) =>
       route.fulfill({
         json: {
@@ -242,7 +258,14 @@ for (const [width, height, scheme] of [
     }
   });
 
-// A made-up engine: the deals read answers what the party saves left, deriving Chosen as the engine does.
+// The vendors the made-up engine finds by name.
+const catalog = [
+  { id: "v1", name: "Example Pelican Bank" },
+  { id: "v2", name: "Example Salt Lending" },
+  { id: "v9", name: "Example Harbor Bank" },
+];
+
+// A made-up engine: the deals read answers what the saves left, deriving Chosen as the engine does.
 function partyEngine(refuse: string | null = null, after = 0) {
   const list = structuredClone(deals);
   const sent: { path: string; body: Record<string, unknown> }[] = [];
@@ -265,20 +288,45 @@ function partyEngine(refuse: string | null = null, after = 0) {
       return path.endsWith("/remove") && left.length ? [{ ...v, roles: left }] : [];
     });
     const intro = deal.introductions.find((i) => i.vendor_id === body.party_id);
-    if (!path.endsWith("/remove") && intro)
+    if (!path.endsWith("/remove"))
       deal.vendors.push({
-        party_id: intro.vendor_id,
-        name: intro.vendor_name,
+        party_id: String(body.party_id),
+        name: catalog.find((v) => v.id === body.party_id)?.name ?? "",
         roles: role("Lender"),
-        introduction_id: intro.id,
+        introduction_id: intro?.id ?? null,
       });
     return route.fulfill({ json: { deal_id: deal.id, ...body } });
   };
-  return { read, save, sent, list };
+  const introduce: Answer = (route) => {
+    const { idempotency_key, ...body } = route.request().postDataJSON();
+    assert.match(String(idempotency_key), /^[0-9a-f-]{36}$/);
+    sent.push({ path: new URL(route.request().url()).pathname, body });
+    const deal = list.find((d) => d.id === body.deal_id);
+    assert.ok(deal, `a known deal: ${body.deal_id}`);
+    const id = `i-${body.vendor_id}`;
+    deal.introductions.push({
+      id,
+      vendor_id: body.vendor_id,
+      vendor_name: catalog.find((v) => v.id === body.vendor_id)?.name ?? "",
+      made_by: "team",
+      introduced_by: body.introduced_by,
+      introduced_party_id: body.introduced_party_id,
+      introduced_party_name: "Example client",
+      introduced_on: body.introduced_on,
+      note: null,
+      chosen: false,
+    });
+    return route.fulfill({ status: 201, json: { introduction_id: id, ...body } });
+  };
+  return { read, save, introduce, sent, list };
 }
 
 async function openParties(t: TestContext, engine = partyEngine(), size = {}) {
-  const { page, panel } = await openCard(t, engine.read, { ...size, saves: engine.save });
+  const { page, panel } = await openCard(t, engine.read, {
+    ...size,
+    saves: engine.save,
+    introductions: engine.introduce,
+  });
   const deal = panel.locator(".client-deal").first();
   const box = (name: string) => deal.getByRole("button", { name: new RegExp(`^${name}`) });
   const shows = (name: string, tone: string) => deal.locator(`[data-tone="${tone}"]`, { hasText: name }).waitFor();
@@ -375,9 +423,74 @@ test("a removal that stops partway re-reads the diagram and says how far it got"
   assert.equal(await deal.locator(".client-deal-undo").count(), 0);
 });
 
+async function addVendor(page: Page, deal: Locator, brought: string) {
+  await deal.getByRole("button", { name: "+ Add vendor" }).click();
+  const form = page.getByRole("form", { name: "Add a vendor to Example second office" });
+  await form.getByLabel("Find a vendor").fill("example");
+  const found = form.locator(".deal-add-vendor-found button");
+  await found.first().waitFor();
+  assert.deepEqual(await found.allTextContents(), ["Example Harbor Bank"], "vendors already on the deal are left out");
+  await found.first().click();
+  await form.getByLabel("Role").selectOption({ label: "Lender" });
+  await form.getByRole("button", { name: brought }).click();
+  return form;
+}
+
+test("Add vendor records which partner brought them in, puts them on the deal, and the box is chosen under that partner", async (t) => {
+  const { page, deal, sent } = await openParties(t);
+  const form = await addVendor(page, deal, "Joe");
+  assert.equal(await form.getByRole("button", { name: "Joe" }).getAttribute("aria-pressed"), "true");
+  await page.screenshot({ path: `${shots}/add-vendor-1440-dark.png` });
+  await form.getByRole("button", { name: "Add", exact: true }).click();
+  const joe = deal.locator("li", { has: page.locator(".deal-diagram-box", { hasText: /^JJoe/ }) });
+  await joe.locator('[data-tone="chosen"]', { hasText: "Example Harbor Bank" }).waitFor();
+  assert.equal(await form.count(), 0, "the form closes once saved");
+  const [introduction] = sent;
+  assert.match(String(introduction?.body.introduced_on), /^\d{4}-\d{2}-\d{2}$/);
+  assert.deepEqual(sent, [
+    {
+      path: "/api/engine/introductions",
+      body: {
+        made_by: "team",
+        vendor_id: "v9",
+        introduced_by: "joe",
+        introduced_party_id: recordId,
+        introduced_on: introduction?.body.introduced_on,
+        deal_id: "d1",
+      },
+    },
+    { path: "/api/engine/deals/d1/parties", body: { party_id: "v9", role: "lender" } },
+  ]);
+});
+
+test("Add vendor with Not recorded puts them on the deal under the dashed line, recording no introduction", async (t) => {
+  const { page, deal, sent } = await openParties(t);
+  const form = await addVendor(page, deal, "Not recorded");
+  await form.getByRole("button", { name: "Add", exact: true }).click();
+  await deal.locator('.deal-diagram-junction [data-tone="onDeal"]', { hasText: "Example Harbor Bank" }).waitFor();
+  assert.deepEqual(sent, [{ path: "/api/engine/deals/d1/parties", body: { party_id: "v9", role: "lender" } }]);
+});
+
+test("an Add vendor that is refused after the introduction landed says so, and trying again records it once", async (t) => {
+  const { page, deal, sent } = await openParties(t, partyEngine("database_refused_the_statement", 1));
+  const form = await addVendor(page, deal, "Dell");
+  await form.getByRole("button", { name: "Add", exact: true }).click();
+  assert.equal(
+    await form.getByRole("alert").textContent(),
+    "The database turned this down. They may already be on the deal in that role. Example Harbor Bank is recorded as introduced, not yet on the deal.",
+  );
+  await form.getByRole("button", { name: "Add", exact: true }).click();
+  await form.getByRole("alert").waitFor();
+  assert.deepEqual(
+    sent.map((s) => s.path),
+    ["/api/engine/introductions", "/api/engine/deals/d1/parties", "/api/engine/deals/d1/parties"],
+  );
+});
+
 test("with deal saves off the vendor boxes are labels and open no menu", async (t) => {
   const { page, deal } = await openParties(t, partyEngine(), { dealSaves: false });
   await deal.locator(".deal-diagram-box", { hasText: "Example Pelican Bank" }).waitFor();
+  assert.equal(await deal.getByRole("button", { name: "+ Add vendor" }).count(), 0, "no Add vendor");
   assert.equal(await deal.getByRole("button", { name: /^Example Pelican Bank/ }).count(), 0);
   await deal.locator(".deal-diagram-box", { hasText: "Example Pelican Bank" }).click();
   assert.equal(await page.locator(".deal-vendor-menu").count(), 0);

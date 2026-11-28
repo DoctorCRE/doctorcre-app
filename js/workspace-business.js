@@ -1,3 +1,4 @@
+import { RELATIONSHIP_SHAPES } from './relationship-shapes.js';
 import { BUSINESS_TIME_ZONE } from './business-date.js';
 import { partnerName, phoneLabel, withoutRecordCodes } from './visual-system.js';
 import { mountLocalTicker } from './visibility-poll.mjs';
@@ -170,6 +171,8 @@ async function readCardSection(kind, id, signal) {
 const vendorDoors = {
   add: (deal, party, role) => saveDealParty(deal, "", party, role),
   remove: (deal, party, role) => saveDealParty(deal, "/remove", party, role),
+  introduce: saveIntroduction,
+  findVendors: readVendorMatches,
   roles: readVendorRoles,
   vendorHref: id => viewHref(defaultQuery("vendors"), id),
   openVendor: id => navigate(viewHref(defaultQuery("vendors"), id)),
@@ -179,6 +182,21 @@ async function saveDealParty(deal, suffix, party_id, role) {
   const client = await dealroomClient();
   const path = `/api/engine/deals/${encodeURIComponent(deal)}/parties${suffix}`;
   return client.savePartnerRecord(path, `client-deal${suffix}:${deal}:${party_id}:${role}`, "party_id", { party_id, role });
+}
+
+async function saveIntroduction(introduction) {
+  const client = await dealroomClient();
+  const key = `client-deal-introduction:${introduction.deal_id}:${introduction.vendor_id}`;
+  return client.savePartnerRecord("/api/engine/introductions", key, "introduction_id", { made_by: "team", ...introduction });
+}
+
+async function readVendorMatches(query, signal) {
+  const response = await fetchRead(`/api/engine/vendors?${new URLSearchParams({ q: query })}`, { headers: { accept: "application/json" }, cache: "no-store", signal });
+  if (response.status === 401) expireNow();
+  if (!response.ok) throw new Error(`Vendor list read answered ${response.status}`);
+  const body = await response.json();
+  if (!Array.isArray(body?.rows)) throw new Error("Vendor list read answered no rows");
+  return body.rows.map(({ id, name }) => ({ id, name }));
 }
 
 async function readVendorRoles(signal) {
@@ -194,7 +212,7 @@ function cardSectionHost(dataset, record) {
   const kind = CARD_SECTIONS[dataset];
   const id = record.party_id ?? record.id;
   const key = `${dataset}:${id}`;
-  const subject = { id, name: record.name };
+  const subject = { id, name: record.name, ...(dataset === "vendors" && { relationship: vendorRelationship(record).key }) };
   if (cardSection?.key === key) {
     cardSection.subject = subject;
     cardSection.handle?.update(subject);
@@ -568,15 +586,6 @@ const dealLinks = row => row.active_deals?.length
   ? `<div class="client-deals">${row.active_deals.map(deal =>
       `<a href="${dealHref(deal.id)}">${escapeHtml(deal.name)}</a>`).join("")}</div>`
   : "";
-const RELATIONSHIP_SHAPES = {
-  core: '<circle cx="6" cy="6" r="5.2" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="6" cy="6" r="2.6" fill="currentColor"/>',
-  established: '<circle cx="6" cy="6" r="5.4" fill="currentColor"/>',
-  building: '<circle cx="6" cy="6" r="4.7" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6 1.3a4.7 4.7 0 000 9.4z" fill="currentColor"/>',
-  prospective: '<circle cx="6" cy="6" r="4.7" fill="none" stroke="currentColor" stroke-width="1.4"/>',
-  not_rated: '<circle cx="6" cy="6" r="4.7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="2.2 2.2"/>',
-  parked: '<rect x="2.4" y="1.8" width="2.6" height="8.4" rx=".8" fill="currentColor"/><rect x="7" y="1.8" width="2.6" height="8.4" rx=".8" fill="currentColor"/>',
-  avoid: '<circle cx="6" cy="6" r="4.7" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M2.7 9.3l6.6-6.6" stroke="currentColor" stroke-width="1.4"/>',
-};
 const relationshipShape = key => `<svg class="rel-shape" viewBox="0 0 12 12" aria-hidden="true">${RELATIONSHIP_SHAPES[key]}</svg>`;
 const wantToMeetHtml = relationship => relationship.wantToMeet ? '<span class="want-tag">Want to meet</span>' : "";
 

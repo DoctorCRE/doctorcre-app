@@ -2,6 +2,7 @@ import type { KeyboardEvent } from "react";
 import { createContext, type ReactNode, type Ref, useContext, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
+import type { RelationshipKey } from "../../js/relationship-shapes.js";
 
 type Partner = "joe" | "dell";
 export interface Role {
@@ -48,6 +49,8 @@ type Introducer = Partner | "unrecorded";
 export interface DiagramClient {
   id: string;
   name: string;
+  // A vendor's relationship, marked on its box in the opened view.
+  relationship?: RelationshipKey;
 }
 
 function treeOf(client: DiagramClient, deal: ClientDeal) {

@@ -128,6 +128,11 @@ test("opening relationships shows sides in place of the table, with who introduc
   assert.equal(await page.locator("#listRegion").isVisible(), false, "the table steps aside");
   const side = (name: string) =>
     opened.locator(`[data-side='${name}'] .deal-diagram-text > b`).evaluateAll((n) => n.map((b) => b.textContent));
+  assert.equal(
+    await opened.locator("[data-tone='client'] .rel-shape").getAttribute("data-relationship"),
+    await page.locator("#recordPanel [data-relationship]").first().getAttribute("data-relationship"),
+    "the vendor's box carries the relationship its card shows",
+  );
   assert.deepEqual(await side("left"), ["Example Client 1", "Example Client 2"]);
   assert.deepEqual(await side("right"), ["Example Client 3", "Example Client 4", "Example Client 5"]);
   assert.deepEqual(await opened.locator(".deal-diagram-date").allTextContents(), [

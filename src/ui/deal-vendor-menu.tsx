@@ -3,9 +3,23 @@ import { type ClientDeal, dated, type Role, type Vendor } from "./deal-diagram.t
 
 // `done` counts the roles a multi-role save had already landed when it stopped.
 export type Saved = { ok: true } | { ok: false; problem?: { error?: string }; done?: number };
-// The engine's deal party doors and the vendor card, as the page reaches them.
+export interface FoundVendor {
+  id: string;
+  name: string;
+}
+// A partner's introduction of the client to a vendor, for the deal it led to.
+export interface NewIntroduction {
+  vendor_id: string;
+  introduced_by: ClientDeal["owner"];
+  introduced_party_id: string;
+  introduced_on: string;
+  deal_id: string;
+}
+// The engine's deal party and introduction doors and the vendor card, as the page reaches them.
 export interface VendorDoors {
   add(deal: string, party: string, role: string): Promise<Saved>;
+  introduce(introduction: NewIntroduction): Promise<Saved>;
+  findVendors(query: string, signal: AbortSignal): Promise<FoundVendor[]>;
   remove(deal: string, party: string, role: string): Promise<Saved>;
   // Every vendor category, the roles a vendor can hold on a deal.
   roles(signal: AbortSignal): Promise<Role[]>;

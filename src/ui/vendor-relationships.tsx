@@ -1,5 +1,6 @@
 import { type ReactNode, type RefObject, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { RELATIONSHIP_SHAPES } from "../../js/relationship-shapes.js";
 import { type CardSectionProps, mountCardSection, OpenControl, OpenedFrame, useRead } from "./client-deals.tsx";
 import {
   Box,
@@ -167,7 +168,23 @@ interface DiagramProps {
   groups: Group[];
 }
 
-const top = (vendor: DiagramClient) => <Box tone="client" lead={null} name={vendor.name} caption="Vendor" />;
+function RelationshipShape({ relationship }: { relationship: DiagramClient["relationship"] }) {
+  if (!relationship) return null;
+  return (
+    <svg
+      className="rel-shape"
+      data-relationship={relationship}
+      viewBox="0 0 12 12"
+      aria-hidden="true"
+      // biome-ignore lint/security/noDangerouslySetInnerHtml: a fixed shape from this app, never record text.
+      dangerouslySetInnerHTML={{ __html: RELATIONSHIP_SHAPES[relationship] }}
+    />
+  );
+}
+
+const top = (vendor: DiagramClient, lead: ReactNode = null) => (
+  <Box tone="client" lead={lead} name={vendor.name} caption="Vendor" />
+);
 
 function CardTree({ vendor, partner, groups }: DiagramProps) {
   return (
@@ -240,7 +257,7 @@ function SidesView({ vendor, partner, groups }: DiagramProps) {
             <PartnerBox partner={partner} />
           </div>
         )}
-        <div ref={hub}>{top(vendor)}</div>
+        <div ref={hub}>{top(vendor, <RelationshipShape relationship={vendor.relationship} />)}</div>
         {below.length > 0 && <ul>{below}</ul>}
       </div>
       <ul data-side="right">{side("right")}</ul>

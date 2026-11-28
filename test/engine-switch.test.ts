@@ -3004,6 +3004,8 @@ test("Party saves and their read reach the engine only with Clients and Vendors 
     ["POST", "/api/engine/vendors"],
     ["POST", `/api/engine/vendors/${id}`],
     ["POST", "/api/engine/party-links"],
+    ["POST", "/api/engine/introductions"],
+    ["POST", `/api/engine/introductions/${id}`],
     ["GET", "/api/engine/parties/search?query=Avery"],
   ];
   for (const [method, path] of doors) {
