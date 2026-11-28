@@ -23,13 +23,14 @@ details.home-today-row > :not(summary) { margin: 0 0 var(--space-1); padding-inl
 .home-door:hover { background: var(--surface-2); }
 .home-door strong { flex: 1; font-weight: var(--font-weight-strong); }
 .home-door-detail { color: var(--fg-quiet); font-size: var(--font-size-1); }
+.home-door-detail > span { white-space: nowrap; }
 .home-door::after { content: "›"; color: var(--fg-quiet); }
 .home-dot-info { width: 6px; height: 6px; flex: none; border-radius: var(--radius-round); background: var(--status-info-ink); }
 
 /* Deals and Coming up: one-line rows that open the screen each number counts. */
 .home-deals ul, .home-coming-up ul { margin: 0; padding: 0; list-style: none; }
 /* Two phase columns when the tile has room, else one. */
-.home-phases { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); column-gap: var(--space-2); }
+.home-phases { display: grid; grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)); column-gap: var(--space-2); }
 .home-deals :is(li > a, .home-deals-line), .home-coming-up li > a, .inbox-shell .home-short-fold-line { display: flex; align-items: center; gap: var(--space-2); min-height: 34px; padding: 0 var(--space-2); border-radius: var(--radius-2); color: var(--fg); text-decoration: none; transition: background-color var(--duration-hover) var(--ease-out); }
 .home-deals :is(li > a, .home-deals-line):hover, .home-coming-up li > a:hover, .inbox-shell .home-short-fold-line:hover { background: var(--surface-2); }
 .home-phases a { justify-content: space-between; color: var(--fg-muted); font-size: var(--font-size-1); white-space: nowrap; }
@@ -54,6 +55,7 @@ details.home-today-row > :not(summary) { margin: 0 0 var(--space-1); padding-inl
   .inbox-shell .home-short-fold-line { display: flex; }
   .home-short-fold:not([data-open]) > :not(.home-short-fold-line) { display: none; }
   .home-coming-up:has(.home-short-fold:not([data-open])) > header { display: none; }
+  .home-deals .home-phases a { min-height: 30px; }
 } }
 @media (pointer: coarse) {
   .home-deals :is(li > a, .home-deals-line), .home-coming-up li > a { min-height: var(--touch); }
