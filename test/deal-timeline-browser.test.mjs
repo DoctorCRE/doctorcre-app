@@ -576,6 +576,6 @@ test('a pointer drag previews and saves an expected to-do date, and Typical leng
  assert.deepEqual(own.map(({todo,target_on,base_version})=>[todo,target_on,base_version]),[['sign','2026-10-19',0]]);
  await tab.getByRole('button',{name:'Typical lengths',exact:true}).click();
  await tab.getByRole('button',{name:'Use measured',exact:true}).click();
- await tab.getByText('Review the lease saved.').waitFor();
+ await page.locator('#workspacePlanStatus').getByText('Review the lease saved.').waitFor();
  assert.deepEqual(lengths.map(({days,base_version})=>[days,base_version]),[[9,5]]);
 });

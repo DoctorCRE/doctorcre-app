@@ -324,9 +324,10 @@ button.client-portal-link:disabled { cursor: wait; }
 #workspacePlanStatus { scroll-margin-block-start: var(--topbar-height); flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 #workspacePhaseMove { flex: 1; min-width: 0; }
 #workspaceSigning { min-width: 0; }
-#workspacePhaseMove .auto-move { display: flex; align-items: flex-start; gap: var(--space-1); }
+#workspacePhaseMove .auto-move { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--space-1); }
 #workspacePhaseMove details { flex: 1; min-width: var(--touch); min-height: var(--touch); }
 #workspacePhaseMove button { flex: none; }
+#workspacePhaseMove .phase-move-notice { flex-basis: 100%; margin: 0; }
 #workspacePhaseMove summary span { display: inline; overflow: visible; }
 #workspacePhaseMove summary { padding-block: var(--space-1); align-content: center; line-height: var(--line-height-body); }
 #workspacePhaseMove details:not([open]) .phase-move-evidence { display: none; }

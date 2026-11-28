@@ -23,12 +23,14 @@ export function TypicalLengths({
   reload,
   close,
   canSave,
+  report,
 }: {
   kind: string;
   request: typeof fetch;
   reload: () => Promise<unknown>;
   close: () => void;
   canSave: boolean;
+  report: (message: string) => void;
 }) {
   const [items, setItems] = useState<Length[]>([]);
   const [status, setStatus] = useState("Loading typical lengths…");
@@ -59,7 +61,7 @@ export function TypicalLengths({
         base_version: item.base_version,
       });
       if (!response.ok) {
-        setStatus(
+        report(
           response.status === 409
             ? "This length changed. Reopen Typical lengths to see it."
             : "Could not save the length.",
@@ -68,10 +70,10 @@ export function TypicalLengths({
       }
       const saved: { days: number; base_version: number } = await response.json();
       setItems((current) => current.map((other) => (other.todo === item.todo ? { ...other, ...saved } : other)));
-      setStatus(`${item.label} saved.`);
+      report(`${item.label} saved.`);
       await reload();
     } catch {
-      setStatus("Could not confirm the save. Reopen Typical lengths before trying again.");
+      report("Could not confirm the save. Reopen Typical lengths before trying again.");
     } finally {
       setSaving(false);
     }

@@ -237,9 +237,9 @@ export function renderPhaseReceipt(deal, { move, message }, legacy, compact = fa
   const button = undo ? `<button class="btn btn-quiet" type="button" data-undo-phase="${esc(deal.id)}" data-event-id="${esc(undo.eventId)}" data-base-version="${undo.version}" data-detail-focus="phase-undo"${undo.busy ? ' aria-disabled="true"' : ''}>Undo</button>` : '';
   const text = move ? `<span>${move.label}</span> <time datetime="${move.day}">${esc(move.date)}</time>${move.callTime ? ` · <span>Call on ${esc(move.callTime)}</span>` : ''}` : '';
   if (compact) {
-    const evidence = move ? `<time datetime="${move.day}">${esc(move.date)}</time>${move.callTime ? ` · Call on ${esc(move.callTime)}` : ''}` : '';
-    const caption = [evidence, message && esc(message)].filter(Boolean).join(' · ');
-    return caption ? `<div class="auto-move"><details><summary><span>${esc(move?.label ?? 'Move status')}</span><span class="phase-move-evidence"> · ${caption}</span></summary></details>${button}</div>` : '';
+    const receipt = move ? `<details><summary><span>${esc(move.label)}</span><span class="phase-move-evidence"> · <time datetime="${move.day}">${esc(move.date)}</time>${move.callTime ? ` · Call on ${esc(move.callTime)}` : ''}</span></summary></details>` : '';
+    const notice = message ? `<p class="phase-move-notice" role="status">${esc(message)}</p>` : '';
+    return receipt || notice ? `<div class="auto-move">${receipt}${button}${notice}</div>` : '';
   }
   const mark = move ? `<div class="auto-move"><span>${move.label}</span> <time datetime="${move.day}">${esc(move.date)}</time>${move.callTime ? `<div>Call on ${esc(move.callTime)}</div>` : ''}${button}</div>` : legacy;
   return mark + (message ? `<p class="auto-move">${esc(message)}</p>` : '');

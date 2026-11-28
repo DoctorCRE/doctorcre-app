@@ -572,7 +572,7 @@ function PlanScreen(props: Inputs) {
     if (bounds.top < top || bounds.bottom > innerHeight)
       statusHost.scrollIntoView({ block: "start", inline: "nearest" });
     if (confirming) statusHost.querySelector<HTMLElement>("[data-plan-confirm]")?.focus({ preventScroll: true });
-  }, [statusHost, status, confirming]);
+  }, [statusHost, status, confirming, edit]);
 
   const feedback = (
     <>
@@ -589,13 +589,47 @@ function PlanScreen(props: Inputs) {
       )}
     </>
   );
+  const criticalConfirmation = (edit === "drop" || edit === "done") && selectedFacts?.kind === "critical_date" && (
+    <form
+      className="plan-confirmation"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const reason = String(new FormData(event.currentTarget).get("reason")).trim();
+        if (reason)
+          void update(
+            `critical-dates/${selectedFacts.id.slice(14)}/resolve`,
+            { resolution: edit === "drop" ? "dropped" : "done", reason },
+            edit === "drop" ? "Critical date dropped." : "Critical date marked done.",
+          );
+      }}
+    >
+      <label>
+        Reason
+        <input data-plan-confirm name="reason" required maxLength={500} />
+      </label>
+      <button className="btn" type="button" onClick={() => setEdit(undefined)}>
+        Cancel
+      </button>
+      <button className="btn" type="submit" disabled={busy}>
+        {edit === "drop" ? "Drop date" : "Mark date done"}
+      </button>
+    </form>
+  );
   const planStatus =
     statusHost &&
     createPortal(
       <>
         {feedback}
         {canReset && !confirming && (
-          <button type="button" className="btn btn-quiet" onClick={() => setReset(true)}>
+          <button
+            type="button"
+            className="btn btn-quiet"
+            onClick={() => {
+              setOpened(undefined);
+              setEdit(undefined);
+              setReset(true);
+            }}
+          >
             Reset to typical
           </button>
         )}
@@ -618,32 +652,7 @@ function PlanScreen(props: Inputs) {
             </button>
           </section>
         )}
-        {(edit === "drop" || edit === "done") && selectedFacts?.kind === "critical_date" && (
-          <form
-            className="plan-confirmation"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const reason = String(new FormData(event.currentTarget).get("reason")).trim();
-              if (reason)
-                void update(
-                  `critical-dates/${selectedFacts.id.slice(14)}/resolve`,
-                  { resolution: edit === "drop" ? "dropped" : "done", reason },
-                  edit === "drop" ? "Critical date dropped." : "Critical date marked done.",
-                );
-            }}
-          >
-            <label>
-              Reason
-              <input data-plan-confirm name="reason" required maxLength={500} />
-            </label>
-            <button className="btn" type="button" onClick={() => setEdit(undefined)}>
-              Cancel
-            </button>
-            <button className="btn" type="submit" disabled={busy}>
-              {edit === "drop" ? "Drop date" : "Mark date done"}
-            </button>
-          </form>
-        )}
+        {criticalConfirmation}
       </>,
       statusHost,
     );
@@ -732,6 +741,7 @@ function PlanScreen(props: Inputs) {
           </button>
         </form>
       )}
+      {board && criticalConfirmation}
     </section>
   );
   const auxiliary = (
@@ -742,6 +752,7 @@ function PlanScreen(props: Inputs) {
           request={props.request}
           reload={props.reload}
           canSave={props.canSave}
+          report={setStatus}
           close={() => setLengths(false)}
         />
       )}
