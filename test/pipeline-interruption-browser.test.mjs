@@ -142,17 +142,6 @@ test('an actor change clears the previous detail from Doc while its replacement 
   assert.doesNotMatch(JSON.stringify(context), /Synthetic actor-only detail/);
 });
 
-test('phone Back closes the room and its open Context drawer together', async t => {
-  const page = await open(t); await room(page);
-  await page.locator('#panelContextOpen').click();
-  await page.locator('#contextDrawer[open]').waitFor();
-  await page.goBack();
-  await settles(async () => assert.equal(await page.locator('#recordPanel').isVisible(), false));
-  assert.equal(await page.locator('#contextDrawer').isVisible(), false);
-  assert.equal(await page.locator('#contextDrawerBody').textContent(), '');
-  assert.equal(new URL(page.url()).searchParams.has('deal'), false);
-});
-
 test('a deal requirement email uses only entered requirements and copies the edited preview', async t => {
   const page = await open(t); await room(page);
   await page.getByText('Draft requirement email', { exact: true }).click();

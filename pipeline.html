@@ -24,8 +24,8 @@
   <link rel="stylesheet" href="/css/deal-client-portal.css">
   <link rel="stylesheet" href="/css/deal-attention.css">
   <link rel="stylesheet" href="/css/deal-activity.css">
-  <link rel="stylesheet" href="/css/app-shell.css">
-<link rel="stylesheet" href="/css/watches.css"></head>
+  <link rel="stylesheet" href="/css/deal-overview.css">
+  <link rel="stylesheet" href="/css/app-shell.css"></head>
 <body class="dealroom-page">
   <div id="appShell"></div><script type="module" src="/js/app-shell.js"></script>
   <nav aria-label="Skip links"><a class="skip" href="#main">Skip to the board</a></nav>
@@ -109,9 +109,6 @@
   <main id="recordPanel" class="deal-workspace deal-detail" aria-label="Deal Workspace" hidden>
     <header class="workspace-header"><nav id="workspaceTabs" role="tablist" aria-label="Deal workspace tabs"></nav><div id="workspaceFacts"></div></header>
     <div id="panelBody"></div>
-    <div class="panel-section" id="panelContextOpenWrap" hidden>
-      <button class="btn" type="button" id="panelContextOpen" aria-haspopup="dialog">Client &amp; vendor context</button>
-    </div>
   </main>
 
   <dialog id="completionDialog" class="dialog" aria-labelledby="completionTitle">
@@ -173,19 +170,6 @@
   </dialog>
 
   <ul data-layout-slot="moves" class="receipt-list" id="receiptsList"></ul>
-
-  <dialog id="contextDrawer" class="dialog" aria-labelledby="contextDrawerTitle">
-    <article>
-      <header>
-        <div><h2 id="contextDrawerTitle">Client &amp; vendor context</h2><p class="dialog-context">Read-only</p></div>
-        <button class="btn icon-btn" type="button" id="contextDrawerClose" aria-label="Close">×</button>
-      </header>
-      <div class="dialog-body">
-        <div id="contextDrawerBody"><div class="state-block" data-state="loading"><h3>Updating…</h3></div></div>
-
-      </div>
-    </article>
-  </dialog>
 
   <div id="receiptDock" class="receipt-dock" role="region" aria-label="Command feedback"></div>
 

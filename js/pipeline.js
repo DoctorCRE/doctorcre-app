@@ -1,6 +1,5 @@
 import { hasTourDrafts, legacyTourDraftScope, TOUR_DRAFT_KEYS } from './offline-tour-session.js';
 import { createDayStore } from '../tours/day-store.js';
-import { mountWatchControl } from './ui-watches.generated.js';
 import { emailConversation, redactEmailAddresses, suggestionEmail } from './ui-deal-suggestion-email.generated.js';
 import { createMcpRequests } from './mcp-requests.mjs';
 import { dealPathHtml, pathQuestionHtml } from './ui-deal-path.generated.js';
@@ -17,7 +16,8 @@ import { engagementWriterFor } from './prospect-engagement.mjs';
 import { showToast } from './toast.js';
 import { submitOnEnter } from './ui-keyboard-input.generated.js';
 import { foldEmailBody } from './ui-email-fold.generated.js';
-import { renderDealActivity, showActivityFilter } from './ui-deal-activity.generated.js';
+import { renderDealActivity, renderLatestActivity, showActivityFilter } from './ui-deal-activity.generated.js';
+import { dealInvoiceHtml, dealPeopleHtml } from './ui-deal-overview-side.generated.js';
 import { renderDealVendors } from './deal-vendors.js';
 import { openEngineClientWebsite, renderClientPortalLink, saveEngineClientWebsite } from './client-portal-link.js';
 import { clearPrivateTextDrafts, privateSession, privateTextDraft, sessionFetch } from './private-session.js';
@@ -47,8 +47,8 @@ import {
 } from './change-receipts.mjs';
 import {
   CLOSED_SLUG, COLUMNS, OPEN_COLUMNS, closedColumnCaption, columnBySlug, columnByValue,
-  boardHeadline, columnLabel, completionPlan, contextDrawerSections, groupByColumn, keyboardTarget,
-  loadDealContext, moveIntent, moveSummary, moveTitle, noteText, dealName,
+  boardHeadline, columnLabel, completionPlan, groupByColumn, keyboardTarget,
+  moveIntent, moveSummary, moveTitle, noteText, dealName,
 } from './pipeline-model.js';
 import { attentionReason, isClosedDeal, localDeals, overdueLabel, overdueSince } from './deal-review-model.js';
 import { lostDeals, closedDeals, urgencyOrder, concise, invoiceClose, isPhaseMoveReceipt, isEngineDealDetail, prepareDealDetail, dealStepVersion, nationalMarketLabel, ordinaryOpenSteps, partnerDealStep, PARKING_REASONS, PHASE_TRIGGERS } from './local-deals-model.js';
@@ -598,14 +598,12 @@ function applyBoardSnapshot(board) {
     pageDocContext?.clear();
     const contextRead = pageDocContext?.begin('getBoard');
     pageDocContext?.finish(contextRead, board);
-    ++panelReadSequence; ++contextReadSequence;
+    ++panelReadSequence;
     state.panelDetail = null;
     disposeChecklist();
-    disposeWatchControl();
     disposeActivityAttribution();
     disposePanelCallReview();
     disposePanelEmailFollowups();
-    $('contextDrawer').close(); $('contextDrawerBody').replaceChildren();
     $('panelTitle').textContent = 'Deal';
     $('workspaceFacts').replaceChildren();
     $('panelBody').innerHTML = dealPlaceholderHtml;
@@ -1183,7 +1181,6 @@ function mountPanelActivityAttribution() {
   const root = $('panelBody').querySelector('.deal-updates');
   if (root?.querySelector('[data-attribution-id]')) activityAttribution = mountActivityAttribution(root, { engineSignIn: privateSession()?.engineSignIn, onDenied: refusePanelDetail });
 }
-let watchControl = null, watchElement = null, watchSubject = null;
 let panelCallReview = null;
 function disposePanelCallReview() {
   panelCallReview?.dispose();
@@ -1225,7 +1222,6 @@ async function mountPanelEmailFollowups(id) {
   }
 }
 let panelReadSequence = 0;
-let contextReadSequence = 0;
 let panelRead = null;
 let updateDraft = null;
 const updateDrafts = new Map();
@@ -1253,20 +1249,15 @@ function discardUpdate(id) {
 function refusePanelDetail(error) {
   if (![401,403].includes(error?.status) && !['unauthorized','not_authenticated','forbidden'].includes(error?.payload?.error)) return false;
   ++panelReadSequence;
-  ++contextReadSequence;
   automaticPhase.setOpenDeal(state.panelDeal);
   state.panelDetail = null;
   disposeChecklist();
-  disposeWatchControl();
   dealDocumentsPanel?.dispose(); dealDocumentsPanel = null;
   dealToursPanel?.dispose(); dealToursPanel = null;
   bindDraftActor(null);
   disposeActivityAttribution();
   disposePanelCallReview();
   disposePanelEmailFollowups();
-  setContextOpenVisible(false);
-  $('contextDrawer').close();
-  $('contextDrawerBody').replaceChildren();
   $('panelTitle').textContent = 'Deal';
   $('workspaceFacts').replaceChildren();
   $('panelBody').innerHTML = '<p role="status">Unavailable. Sign in to reload this record. <a href="/auth/login">Sign in</a> <button class="btn" type="button" data-refresh-detail>Retry</button></p>';
@@ -1412,10 +1403,11 @@ async function saveUpdate(id) {
   } finally { draft.sending = false; }
 }
 let activityNoteSending = false;
-async function saveActivityNote(id) {
-  const field = $('activityNote');
+// Overview's and Activity's note boxes share one draft and one save.
+async function saveActivityNote(id, formId) {
+  const field = $(formId)?.elements.text;
   const text = field?.value.trim();
-  const status = $('activityNoteStatus');
+  const status = $(formId)?.querySelector('[role="status"]');
   if (!text || !state.selfActor || activityNoteSending) {
     if (status && !text) status.textContent = 'Enter a note';
     return;
@@ -1427,7 +1419,7 @@ async function saveActivityNote(id) {
     const result = await runFollowUp(`activity-note:${id}`, { verb: 'add-deal-note', args: { deal: id, text }, summary: 'Deal note' });
     if (result?.status !== 'ok') {
       activityNoteDraft = text;
-      const again = $('activityNote');
+      const again = $(formId)?.elements.text;
       if (again) again.value = text;
       if (status) status.textContent = result?.message || 'Note not confirmed';
       return;
@@ -1542,7 +1534,6 @@ function selectWorkspaceTab(id) {
   revealTab($(`tab-${id}`));
   if (id === 'documents') void dealDocumentsPanel?.load();
   if (id === 'tours') void dealToursPanel?.load();
-  $('panelContextOpenWrap').hidden = id !== 'overview' || !state.panelDetail;
   if (id === 'activity') {
     const legacyEvidence = $('panelEvidenceSection');
     if (legacyEvidence) legacyEvidence.open = true;
@@ -1571,7 +1562,6 @@ function workspaceEventsHtml(detail, nextItem) {
 let dealToursPanel, dealDocumentsPanel;
 let checklistPanel;
 function disposeChecklist() { checklistPanel?.dispose(); checklistPanel = null; }
-function disposeWatchControl() { watchControl?.dispose(); watchControl = null; watchElement = null; watchSubject = null; }
 const focusedChecklistItem = dealId => {
   const params = new URL(location.href).searchParams;
   return params.get('deal') === dealId ? params.get('checklist') : null;
@@ -1956,11 +1946,7 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
   const phaseMove = detailPhaseMoveHtml(detail);
   const websiteSetup = !d.client_portal_url && (fromEngine ? detail.next_deal_saves && d.client_id : controlsAvailable)
     ? clientPortalSetupHtml() : '';
-  return `<section id="workspace-overview" role="tabpanel" aria-labelledby="tab-overview">${renderCriticalDates(detail, Date.now(), state.nextDealSaves && Number.isSafeInteger(d.seen), canAddCriticalDate)}
-    <div data-detail-read="add-critical-date" data-available="${canAddCriticalDate}">${canAddCriticalDate ? criticalDateFormHtml() : ''}</div>
-    <div class="deal-freshness"><time id="detailUpdated" title="Last updated"></time><button class="btn icon-btn" type="button" data-refresh-detail aria-label="Refresh deal" title="Refresh">↻</button></div><p id="detailReadStatus" role="status"></p>
-    ${fromEngine ? `<p id="detailStepStatus" role="status"></p><div class="deal-parked-line" data-detail-read="parked">${parked ? `${parkingSummary}${controlsAvailable ? `<button type="button" class="btn" data-revive="${esc(d.id)}">Revive</button>` : ''}` : ''}</div>` : ''}
-    <div data-detail-read="path">${dealPathHtml({ phases: COLUMNS, current: columnByValue(d.phase)?.slug ?? null, checklist: detail.checklist, showTodos: fromEngine, today, canMove: controlsAvailable && !parked, receiptHtml: fromEngine ? phaseMove : '', focusedItem: focusedChecklistItem(d.id) })}</div><section class="deal-opening-snapshot" aria-label="Deal snapshot">
+  const stepsHtml = (tail = '') => `<section class="deal-opening-snapshot" aria-label="Deal snapshot">
       <div data-detail-read="step-overview">
       ${renderInvoiceClose(d, state.nextDealSaves)}
       ${!fromEngine && phaseMove ? `<div data-phase-move aria-live="polite">${phaseMove}</div>` : ''}
@@ -1973,23 +1959,33 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
         addStep: ownStep ? `<details id="detailNextStepEditor" class="deal-step-editor"><summary>Add step</summary>${dealUpdateFormHtml(true, today)}</details>` : '',
         callReview: engineMode ? callReviewHtml : '' })
       : ownStep ? `<details id="detailNextStepEditor" class="deal-step-editor"><summary>Add next step</summary>${dealUpdateFormHtml(true, today)}</details>` : ''}
-      <div data-detail-read="snapshot">
+    ${tail}</section>`;
+  const snapshotHtml = `<div data-detail-read="snapshot">
     <div class="deal-alert">${renderDealItems({...d,items:items.filter(item => item !== nextItem)},{today:stepToday,buttons:true,empty:false,itemOwners})}</div>
       ${renderSnapshotFacts(d, fromEngine)}
       ${!fromEngine && d.client_portal_url ? renderClientPortalLink(d.client_portal_url) || '<p>Client website link is invalid.</p>' : ''}
-      </div>
-    </section>
-    ${fromEngine ? `<div data-detail-read="client-portal">${websiteSetup}</div>` : ''}
-    ${fromEngine ? '' : '<div data-detail-read="checklist"></div>'}
+      </div>`;
+  const ownerHtml = `<div data-detail-read="board-controls" data-available="${controlsAvailable}">${controlsAvailable ? `<div class="detail-actions"><div class="detail-controls"><label>Owner<select id="detailOwner">${fromEngine ? '' : '<option value="">Unassigned</option>'}${['joe','dell'].map(owner => `<option value="${owner}"${owner === d.owner ? ' selected' : ''}>${actorName(owner)}</option>`).join('')}</select></label></div>${fromEngine ? '' : `<div data-detail-read="parking" data-parked="${parked}" data-next-parking="${nextParking}">${parked ? `${parkingSummary}<button type="button" class="btn" data-revive="${esc(d.id)}">Revive</button>` : parkFormHtml(nextParking)}</div>`}</div>` : ''}</div>`;
+  const prospectHtml = `<div data-detail-read="prospect">${!engineSaves && controlsAvailable && prospect?.client_status === 'prospect' ? `<form id="detailInactiveForm"><p>Inactive prospects return to Leads.</p><label>Reason<input name="reason" maxlength="1000" required value="${esc(pendingProspect?.request.reason || '')}"${pendingProspect ? ' readonly' : ''}></label><button class="btn" type="submit">${pendingProspect ? 'Check outcome' : 'Mark inactive'}</button><p role="status" data-prospect-status>${pendingProspect ? 'Confirmation pending for this prospect. Check outcome to retry the same request.' : ''}</p></form>` : ''}</div>`;
+  return `<section id="workspace-overview" role="tabpanel" aria-labelledby="tab-overview">${renderCriticalDates(detail, Date.now(), state.nextDealSaves && Number.isSafeInteger(d.seen), canAddCriticalDate)}
+    <div data-detail-read="add-critical-date" data-available="${canAddCriticalDate}">${canAddCriticalDate ? criticalDateFormHtml() : ''}</div>
+    <div class="deal-freshness"><time id="detailUpdated" title="Last updated"></time><button class="btn icon-btn" type="button" data-refresh-detail aria-label="Refresh deal" title="Refresh">↻</button></div><p id="detailReadStatus" role="status"></p>
+    ${fromEngine ? `<p id="detailStepStatus" role="status"></p><div class="deal-parked-line" data-detail-read="parked">${parked ? `${parkingSummary}${controlsAvailable ? `<button type="button" class="btn" data-revive="${esc(d.id)}">Revive</button>` : ''}` : ''}</div>` : ''}
+    <div data-detail-read="path">${dealPathHtml({ phases: COLUMNS, current: columnByValue(d.phase)?.slug ?? null, checklist: detail.checklist, showTodos: fromEngine, today, canMove: controlsAvailable && !parked, receiptHtml: fromEngine ? phaseMove : '', focusedItem: focusedChecklistItem(d.id) })}</div>${fromEngine ? `<div class="deal-overview-grid">${stepsHtml(`${snapshotHtml}${ownStep ? '' : dealUpdateFormHtml(false, today)}`)}
+      <div data-detail-read="latest">${renderLatestActivity(detail, { planTours, note: activityNoteDraft, canNote: Boolean(state.selfActor), ports: activityPorts })}</div>
+      <div class="deal-overview-side">
+        <div data-detail-read="invoice">${dealInvoiceHtml(detail.invoice, dateCaption)}</div>
+        <div data-detail-read="vendors">${dealPeopleHtml(d, detail.participants)}</div>
+        <div data-detail-read="client-portal">${websiteSetup}</div>${ownerHtml}${prospectHtml}${requirementEmailHtml(d)}
+        <div class="deal-park-line" data-detail-read="parking" data-parked="${parked}" data-next-parking="${nextParking}" data-available="${controlsAvailable}">${controlsAvailable && !parked ? parkFormHtml(nextParking) : ''}</div>
+      </div></div>` : `${stepsHtml(snapshotHtml)}
+    <div data-detail-read="checklist"></div>
     ${ownStep ? '' : dealUpdateFormHtml(false, today)}
-    ${fromEngine ? '' : '<section id="panelEmailFollowups" aria-label="Email follow-ups"><p role="status">Updating email follow-ups…</p></section>'}
-    ${engineMode && !fromEngine ? `${callReviewHtml}\n    ` : ''}${requirementEmailHtml(d)}
-    <div data-detail-read="vendors">${renderDealVendors(d.vendors)}</div>
-    <div data-detail-read="board-controls" data-available="${controlsAvailable}">${controlsAvailable ? `<div class="detail-actions"><div class="detail-controls"><label>Owner<select id="detailOwner">${fromEngine ? '' : '<option value="">Unassigned</option>'}${['joe','dell'].map(owner => `<option value="${owner}"${owner === d.owner ? ' selected' : ''}>${actorName(owner)}</option>`).join('')}</select></label></div>${fromEngine ? '' : `<div data-detail-read="parking" data-parked="${parked}" data-next-parking="${nextParking}">${parked ? `${parkingSummary}<button type="button" class="btn" data-revive="${esc(d.id)}">Revive</button>` : parkFormHtml(nextParking)}</div>`}</div>` : ''}</div>
-    <div data-detail-read="prospect">${!engineSaves && controlsAvailable && prospect?.client_status === 'prospect' ? `<form id="detailInactiveForm"><p>Inactive prospects return to Leads.</p><label>Reason<input name="reason" maxlength="1000" required value="${esc(pendingProspect?.request.reason || '')}"${pendingProspect ? ' readonly' : ''}></label><button class="btn" type="submit">${pendingProspect ? 'Check outcome' : 'Mark inactive'}</button><p role="status" data-prospect-status>${pendingProspect ? 'Confirmation pending for this prospect. Check outcome to retry the same request.' : ''}</p></form>` : ''}</div>
-    ${!fromEngine ? `<div data-detail-read="client-portal">${websiteSetup}</div>` : ''}
-    <div data-detail-read="updates">${renderDealUpdates(detail, Date.now(), { engineSignIn: engineMode, noteHtml: text => linkRecordNames(text, detail.record_links) })}</div>
-    ${fromEngine ? `<div class="deal-park-line" data-detail-read="parking" data-parked="${parked}" data-next-parking="${nextParking}" data-available="${controlsAvailable}">${controlsAvailable && !parked ? parkFormHtml(nextParking) : ''}</div>` : ''}</section>
+    <section id="panelEmailFollowups" aria-label="Email follow-ups"><p role="status">Updating email follow-ups…</p></section>
+    ${engineMode ? `${callReviewHtml}\n    ` : ''}${requirementEmailHtml(d)}
+    <div data-detail-read="vendors">${renderDealVendors(d.vendors)}</div>${ownerHtml}${prospectHtml}
+    <div data-detail-read="client-portal">${websiteSetup}</div>
+    <div data-detail-read="updates">${renderDealUpdates(detail, Date.now(), { engineSignIn: engineMode, noteHtml: text => linkRecordNames(text, detail.record_links) })}</div>`}</section>
     <section id="workspace-documents" role="tabpanel" aria-labelledby="tab-documents" hidden>${fromEngine ? `<h2>Documents</h2>${detail.next_deal_saves ? '<div id="deal-document-upload"></div>' : ''}<div data-detail-read="filed-documents">${filedDocumentsHtml(detail.documents)}</div>` : ''}</section>
     <section id="workspace-client-portal" role="tabpanel" aria-labelledby="tab-client-portal" hidden>${fromEngine ? `<div data-detail-read="client-website">${clientPortalHtml({ deal: d.id, url: d.client_portal_url, clientName: d.client_name })}</div>` : ''}</section>
     <section id="workspace-tours" role="tabpanel" aria-labelledby="tab-tours" hidden>${engineMode ? '<p>Not available yet</p>' : ''}</section>
@@ -1998,15 +1994,15 @@ function workspaceHtml(detail, engineMode = privateSession()?.engineSignIn) {
       <details id="panelEvidenceSection"><summary>Threads &amp; meetings</summary><div id="panelEvidence"></div></details>
       <div data-detail-read="notes">${workspaceNotesHtml(detail)}</div>`}</section>`;
 }
+const activityPorts = {
+  businessDay, compareInstants, escapeText, emailSubject, calendarDay, changeText, dateCaption,
+  importedHistoryEntries, timelineActor, sourceTime, noteText,
+};
 function activityPanel(detail, planTours) {
-  const ports = {
-    businessDay, compareInstants, escapeText, emailSubject, calendarDay, changeText, dateCaption,
-    importedHistoryEntries, timelineActor, sourceTime, noteText,
-  };
   const view = renderDealActivity(detail, {
     planTours, now: new Date(), fold: foldEmailBody, filter: activityFilter, note: activityNoteDraft,
-    canNote: Boolean(state.selfActor), link: text => linkRecordNames(text, detail.record_links), ports,
-    open: activityOpen, emailHtml: id => activityEmailHtml(detail, id),
+    canNote: Boolean(state.selfActor), link: text => linkRecordNames(text, detail.record_links),
+    open: activityOpen, emailHtml: id => activityEmailHtml(detail, id), ports: activityPorts,
   });
   activityFilter = view.filter;
   activityOpen = view.open;
@@ -2271,11 +2267,9 @@ async function readPanel(id) {
       if ($('panelEvidenceSection')?.open) await refreshEvidence(detail, id, seq);
     }
     if (state.panelDeal !== id || seq !== panelReadSequence) return false;
-    setContextOpenVisible(true);
     return true;
   } catch (error) {
     if (state.panelDeal !== id || seq !== panelReadSequence || refusePanelDetail(error)) return false;
-    setContextOpenVisible(false);
     const message = 'Updates temporarily unavailable';
     const status = $('detailReadStatus');
     if (status) status.textContent = message;
@@ -2317,11 +2311,6 @@ function paintPanel(detail) {
   focusedTodo?.focus({ preventScroll: true });
   focusedTodo?.scrollIntoView({ block: 'center', inline: 'center' });
   if (!focusedTodo) revealCurrentPhase();
-  if (watchSubject !== detail.deal.id) disposeWatchControl();
-  watchElement ||= document.createElement('div');
-  $('workspace-overview').querySelector('[data-detail-read="add-critical-date"]').after(watchElement);
-  watchSubject = detail.deal.id;
-  watchControl ||= mountWatchControl(watchElement, {subject:{subject_type:'deal',subject_id:detail.deal.id}, ...(engineMode ? {engineRequest:sessionFetch} : {})});
   disposeActivityAttribution();
   disposePanelEmailFollowups();
   syncUpdateForm();
@@ -2460,7 +2449,6 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   if (!fromHistory && dealDocumentsPanel && !dealDocumentsPanel.confirmLeave()) return;
   if (!fromHistory && dealToursPanel && !await dealToursPanel.confirmLeave()) return;
   disposeChecklist();
-  disposeWatchControl();
   dealDocumentsPanel?.dispose(); dealDocumentsPanel = null;
   dealToursPanel?.dispose(); dealToursPanel = null;
   closeFiledDocumentText();
@@ -2469,7 +2457,6 @@ async function openWorkspace(dealId, trigger, { fromHistory = false } = {}) {
   disposeActivityAttribution();
   disposePanelCallReview();
   disposePanelEmailFollowups();
-  setContextOpenVisible(false);
   if (!state.panelDeal) boardScroll = history.state?.boardScroll ?? pageScroller().scrollTop;
   const scope = new URLSearchParams(location.search);
   const focusStep = scope.get('deal') === dealId && scope.get('focus') === 'next-step';
@@ -2540,7 +2527,6 @@ async function closeWorkspace({ fromHistory = false } = {}) {
   if (!fromHistory && dealDocumentsPanel && !dealDocumentsPanel.confirmLeave()) return;
   if (!fromHistory && dealToursPanel && !await dealToursPanel.confirmLeave()) return;
   disposeChecklist();
-  disposeWatchControl();
   dealDocumentsPanel?.dispose(); dealDocumentsPanel = null;
   dealToursPanel?.dispose(); dealToursPanel = null;
   if (!fromHistory && history.state?.doctorcreDealWorkspace) { history.back(); return; }
@@ -2550,8 +2536,7 @@ async function closeWorkspace({ fromHistory = false } = {}) {
   }
   selectDocRecord('deal', null);
   pageDocContext?.release('getDeal');
-  ++panelReadSequence; ++contextReadSequence;
-  $('contextDrawer').close(); $('contextDrawerBody').replaceChildren();
+  ++panelReadSequence;
   const id = state.panelReturnTo;
   disposeActivityAttribution();
   disposePanelCallReview();
@@ -2568,7 +2553,6 @@ async function closeWorkspace({ fromHistory = false } = {}) {
   state.panelDeal = null; state.panelStepId = null; state.panelDetail = null;
   pageScroller().scrollTo(0, history.state?.boardScroll ?? boardScroll);
   state.panelReturnTo = null;
-  setContextOpenVisible(false);
   if (id) document.querySelector(`.kanban-card[data-id="${CSS.escape(id)}"]`)?.focus({preventScroll:true});
 }
 function fieldPatch(field, value) {
@@ -2628,32 +2612,6 @@ async function markProspectInactive(form,id,reason) {
     }
   }
 }
-
-function setContextOpenVisible(visible) {
-  const wrap = $('panelContextOpenWrap');
-  if (wrap) wrap.hidden = !visible || workspaceTab !== 'overview';
-}
-
-
-async function openContextDrawer() {
-  const dialog = $('contextDrawer');
-  const detail = state.panelDetail;
-  if (!dialog || !detail) return;
-  const seq = ++contextReadSequence;
-  $('contextDrawerBody').innerHTML = '<div class="state-block" data-state="loading"><h3>Updating…</h3></div>';
-  if (typeof dialog.showModal === 'function' && !dialog.open) dialog.showModal();
-  const dealId = state.panelDeal;
-  let context;
-  try { context = await loadDealContext(state.client, detail); }
-  catch (error) { if (state.panelDeal === dealId && seq === contextReadSequence) refusePanelDetail(error); return; }
-  if (state.panelDeal !== dealId || seq !== contextReadSequence || !dialog.open) return;
-  const sections = contextDrawerSections(context, { dateLabel: dateWords });
-  if (!sections.length) { $('contextDrawerBody').innerHTML = '<p>No linked context recorded.</p>'; return; }
-  $('contextDrawerBody').innerHTML = sections
-    .map((section) => `<div class="panel-section"${section.state ? ` data-state="${esc(section.state)}"` : ''}>
-      <h3>${esc(section.title)}</h3>${section.state === 'unavailable' ? '<button type="button" data-context-retry>Retry</button>' : ''}${section.lines.map((line) => `<p>${esc(line)}</p>`).join('')}${(section.links || []).map(link=>`<p><a href="${esc(link.href)}">${esc(link.label)}</a></p>`).join('')}</div>`).join('');
-}
-
 
 function beginMove(dealId, toSlug, deal = state.deals.get(dealId), { wonOrLost = false } = {}) {
   const intent = moveIntent(deal, toSlug);
@@ -2958,9 +2916,6 @@ function wire() {
     document.dispatchEvent(new Event('doctorcre:open-today'));
   });
 
-  $('panelContextOpen')?.addEventListener('click', () => { openContextDrawer(); });
-  $('contextDrawerBody')?.addEventListener('click', event => { if (event.target.closest('[data-context-retry]')) void openContextDrawer(); });
-  $('contextDrawerClose')?.addEventListener('click', () => $('contextDrawer')?.close());
 
   $('completionOutcomeField')?.addEventListener('change', renderOutcomeState);
   $('completionCancel')?.addEventListener('click', () => closeCompletion({ cancelled: true }));
@@ -3029,6 +2984,12 @@ function wire() {
     const chip = e.target.closest('[data-activity-filter]');
     if (chip && $('workspace-activity')?.contains(chip)) {
       activityFilter = showActivityFilter($('workspace-activity'), chip.dataset.activityFilter);
+      return;
+    }
+    const latest = e.target.closest('[data-latest-activity], [data-all-activity]');
+    if (latest) {
+      selectWorkspaceTab('activity');
+      if (latest.dataset.latestActivity) showActivityItem(latest.dataset.latestActivity);
       return;
     }
     const opener = e.target.closest('[data-activity-open]');
@@ -3109,6 +3070,7 @@ function wire() {
       setSuggestionEdit(event.target.form, false);
       return;
     }
+    if (event.target.id === 'overviewNote') return submitOnEnter(event, () => event.target.form.requestSubmit());
     if (event.target.id !== 'dealUpdateStep' && event.target.id !== 'activityNote') return;
     const form = event.target.form;
     const submit = form.querySelector('button[type="submit"]:enabled');
@@ -3120,7 +3082,7 @@ function wire() {
       Object.assign(draft, Object.fromEntries(new FormData($('requirementEmailForm'))));
       requirementDrafts.set(state.panelDeal, draft);
     }
-    if (e.target.id === 'activityNote') activityNoteDraft = e.target.value;
+    if (['activityNote', 'overviewNote'].includes(e.target.id)) activityNoteDraft = e.target.value;
     if (e.target.closest('#detailUpdateForm') && updateDraft && ['text','step','date'].includes(e.target.name)) {
       updateDraft[e.target.name] = e.target.value;
       if (e.target.name === 'text') updateTextDraft(updateDraft.id).write(updateDraft.text);
@@ -3196,7 +3158,7 @@ function wire() {
       }
     }
     if (e.target.id === 'detailInactiveForm') await markProspectInactive(e.target,id,String(form.get('reason')).trim());
-    if (e.target.id === 'activityNoteForm') { await saveActivityNote(id); return; }
+    if (['activityNoteForm', 'overviewNoteForm'].includes(e.target.id)) { await saveActivityNote(id, e.target.id); return; }
     if (e.target.id === 'detailUpdateForm') await saveUpdate(id);
     if (e.target.id === 'detailClientPortalForm') await registerClientPortal(id, form);
   });

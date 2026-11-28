@@ -3229,7 +3229,7 @@ for (const width of [1440, 390]) test(`the deal shows its emails and meetings to
   const overview = page.getByRole('tabpanel', { name: 'Overview', exact: true });
   assert.ok(await overview.getByText(callSummary, { exact: true }).count());
   for (const text of [subject, title]) {
-    assert.equal(await overview.getByText(text, { exact: true }).count(), 0, `Overview shows ${text}`);
+    assert.equal(await overview.locator('.deal-opening-snapshot').getByText(text, { exact: true }).count(), 0, `Next steps show ${text}`);
   }
   await tab.click();
   thread.length = 0;
@@ -3532,7 +3532,7 @@ for (const width of [1440, 390]) {
     // The next critical date left the header for the dates row under the tabs (design CHANGE 14).
     assert.equal(await header.locator('time').count(), 0);
     assert.equal(await header.getByText('Next critical date', { exact: true }).count(), 0);
-    assert.equal(await detail.getByText('Example Practice', { exact: true }).count(), 1);
+    assert.equal(await header.getByText('Example Practice', { exact: true }).count(), 1);
     assert.equal(await snapshot.getByText('No next step set.', { exact: true }).count(), 1);
     for (const [label, value] of [['Market', 'Example City'], ['Deal kind', 'Purchase'], ['Deal reason', 'Renewal']]) {
       const fact = header.getByText(label, { exact: true });

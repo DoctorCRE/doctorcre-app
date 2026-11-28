@@ -149,19 +149,6 @@ for (const width of [360, 390, 500]) {
       expect.soft(layout.clipped, `Deal tab labels at ${width}px`).toEqual([]);
       expect.soft(layout.pageOverflow, `Page overflow at ${width}px`).toBeLessThanOrEqual(0);
       expect.soft(layout.rows, `Deal tab rows at ${width}px`).toBe(1);
-      await room.getByText(/^Deal watch settings/).click();
-      const watch = room.getByRole("group", { name: "Watch settings" });
-      const checkboxes = watch.getByRole("checkbox");
-      await expect(checkboxes).toHaveCount(3);
-      for (const checkbox of await checkboxes.all()) await expect(checkbox).toBeEnabled();
-      const labels = watch.locator("label").filter({ has: page.getByRole("checkbox") });
-      await expectTouchTargets(labels);
-      for (const [index, label] of (await labels.all()).entries()) {
-        const checkbox = checkboxes.nth(index);
-        const checked = await checkbox.isChecked();
-        await label.tap({ position: { x: 2, y: 2 } });
-        await expect(checkbox).toBeChecked({ checked: !checked });
-      }
     });
 
     test("Home row actions and bottom navigation work on phones", async ({ page }) => {

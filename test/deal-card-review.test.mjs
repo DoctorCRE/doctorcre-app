@@ -153,7 +153,6 @@ test('deal review prioritizes cards, page tabs and Add deal in both themes and w
   assert.equal(new Set(rails).size,width===390?2:1,'phase dates fit without horizontal scrolling');
   assert.ok((await page.locator('.deal-timeline').boundingBox()).height<(width===390?330:200),'phase timeline stays compact');
   await page.getByRole('tab',{name:'Overview',exact:true}).click();
-  assert.equal(await page.locator('#panelContextOpen').isVisible(),true,'linked context loads only when opened');
   assert.equal(await page.locator('#recordPanel').evaluate(n=>n.scrollWidth<=n.clientWidth),true);
   assert.deepEqual(errors,[]);
   await evidence('detail');
@@ -185,18 +184,13 @@ test('all seven phases fit in one row beside Today at 1440px', async t => {
  assert.deepEqual(overflowingCards,[],'card content wraps within its own card');
 });
 
-test('phone timeline has one rail and unlinked context opens an explicit empty state',async t=>{
+test('phone timeline has one rail',async t=>{
  const {page}=await open(t,390);
 
  await t.test('compact rail',async()=>{
   await page.getByRole('tab',{name:'Activity',exact:true}).click();
   const tops=await page.locator('.phase-rail li').evaluateAll(nodes=>nodes.map(n=>Math.round(n.getBoundingClientRect().top)));
   assert.equal(new Set(tops).size,2);
- });
- await t.test('explicit empty context',async()=>{
-  await page.getByRole('tab',{name:'Overview',exact:true}).click();
-  await page.locator('#panelContextOpen').click();
-  await page.getByText('No linked context recorded.',{exact:true}).waitFor();
  });
 });
 

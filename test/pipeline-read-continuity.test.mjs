@@ -19,7 +19,7 @@ async function open(t, { deal = '', holdBoard = false, holdFeed = false } = {}) 
       if (file === 'js/fixture-client.js') body = body.toString().replace('export async function createFixtureClient', 'async function fixtureClient') + `
         export async function createFixtureClient(options) {
           const client = await fixtureClient(options);
-          window.panelReads ||= { getDeal: 0, getRelationshipNetwork: 0, getPartyRecord: 0 };
+          window.panelReads ||= { getDeal: 0, getRelationshipNetwork: 0 };
           for (const name of Object.keys(window.panelReads)) {
             const read = client[name].bind(client);
             client[name] = async (...args) => { window.panelReads[name]++; if (name === 'getDeal' && window.holdDetail) await new Promise(resolve => window.releaseDetail = resolve); return read(...args); };
@@ -41,13 +41,10 @@ test('one card-body tap reads one detail and leaves unopened supporting sections
   await page.locator('.kanban-card[data-id="d14"]').waitFor();
   await page.locator('.kanban-card[data-id="d14"]').click({position:{x:5,y:5}});
   await page.locator('#detailUpdateForm').waitFor();
-  assert.deepEqual(await page.evaluate(() => window.panelReads), { getDeal: 1, getRelationshipNetwork: 0, getPartyRecord: 0 });
+  assert.deepEqual(await page.evaluate(() => window.panelReads), { getDeal: 1, getRelationshipNetwork: 0 });
   await page.getByRole('tab', {name:'Activity'}).click();
   await page.locator('#panelEvidence .correspondence-evidence').waitFor();
   assert.equal(await page.evaluate(() => window.panelReads.getDeal), 1);
-  await page.getByRole('tab',{name:'Overview',exact:true}).click();
-  await page.locator('#panelContextOpen').click();
-  await page.waitForFunction(() => window.panelReads.getRelationshipNetwork === 1);
 });
 
 for (const hold of ['holdBoard', 'holdFeed']) test(`an exact deal opens while the unrelated ${hold} read is pending`, async t => {

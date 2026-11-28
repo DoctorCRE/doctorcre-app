@@ -867,55 +867,6 @@ for (const width of [390,1280]) test(`move success fades after its hold and Undo
   assert.deepEqual(errors,[]);
 });
 
-test('unreadable linked client exposes a recoverable context error',async t=>{
-  const {page,errors}=await open(t,{deal:'d02'});
-  await page.locator('#detailUpdateForm').waitFor();
-  await page.locator('#panelContextOpen').click();
-  assert.match(await page.locator('#contextDrawerBody').textContent(),/Client details unavailable/);
-  assert.equal(await page.locator('[data-context-retry]').count()>0,true);
-  assert.deepEqual(errors,[]);
-});
-
-test('context retry restores the client and displays readable phone numbers',async t=>{
-  const {page,errors}=await open(t);
-  await page.evaluate(async()=>{
-    const {state}=await import('/js/pipeline.js');const read=state.client.getDeal.bind(state.client);
-    state.client.getDeal=async id=>{const detail=await read(id);return {...detail,deal:{...detail.deal,client_id:'demo-context-client',account_client_id:null},critical_dates:[],participants:[]};};
-    state.client.getPartyRecord=async()=>{if(window.contextUnavailable)throw Error('Synthetic unreadable client');return {record:{id:'demo-context-client',name:'Demo Context Client',phone:'+12025550123 x42',cell:'+12025550124'}};};
-    state.client.getRelationshipNetwork=async()=>({nodes:[],edges:[]});
-  });
-  await page.locator('.kanban-column [data-id="d14"] .card-open').click();
-  await page.locator('#panelContextOpen').waitFor({state:'visible'});
-  await page.evaluate(()=>{window.contextUnavailable=true;});
-  await page.locator('#panelContextOpen').click();
-  await waitForAsync(page,()=>!document.querySelector('#contextDrawerBody').textContent.includes('Updating'));
-  assert.equal(await page.locator('#contextDrawer').evaluate(n=>n.open),true);
-  assert.match(await page.locator('#contextDrawerBody').textContent(),/Client details unavailable/);
-  await page.evaluate(()=>{window.contextUnavailable=false;});
-  await page.locator('[data-context-retry]').click();
-  await page.waitForFunction(()=>document.querySelector('#contextDrawerBody').textContent.includes('Demo Context Client'));
-  assert.ok(await page.locator('#contextDrawerBody').getByText('(202) 555-0123 x42 · (202) 555-0124', { exact: true }).isVisible());
-  assert.equal(await page.locator('#panelContextOpenWrap').isVisible(),true);
-  assert.deepEqual(errors,[]);
-});
-
-test('readable vendor context survives a failed linked client read',async t=>{
-  const {page,errors}=await open(t);
-  await page.evaluate(async()=>{
-    const {state}=await import('/js/pipeline.js');
-    const read=state.client.getDeal.bind(state.client);state.client.getDeal=async id=>{const detail=await read(id);return {...detail,deal:{...detail.deal,client_id:'demo-unreadable'},critical_dates:[],participants:[]};};
-    state.client.getPartyRecord=async()=>{throw Error('Synthetic unreadable client');};
-    state.client.getRelationshipNetwork=async()=>({nodes:[{id:'party:demo-vendor',record_id:'demo-vendor',kind:'vendor',name:'Demo Vendor'}],edges:[{from:'party:demo-vendor',to:'deal:d14',kind:'referred'}]});
-  });
-  await page.locator('.kanban-column [data-id="d14"] .card-open').click();
-  await page.locator('#panelContextOpen').waitFor({state:'visible'});
-  await page.locator('#panelContextOpen').click();
-  await page.locator('#contextDrawer a[href="/vendors?record=demo-vendor"]').waitFor();
-  assert.equal(await page.locator('#contextDrawer .panel-section').count(),2);
-  assert.match(await page.locator('#contextDrawer [data-state=unavailable]').textContent(),/Client details unavailable/);
-  assert.deepEqual(errors,[]);
-});
-
 test('legacy next-step writes do not replace structured checklist items',async t=>{
   const {page,errors}=await open(t,{width:1280,review:true});
   const card=page.locator('.kanban-column [data-id="d14"]');
@@ -988,24 +939,6 @@ for (const width of [390, 1440]) test(`missing action items stay visible across 
   await page.locator('.deal-opening-snapshot').waitFor();
   assert.equal(await page.locator('#recordPanel').getByText('Next step missing', { exact: true }).count(), 0);
   assert.deepEqual(errors, []);
-});
-
-test('background detail refresh does not probe unopened context',async t=>{
- const {page,errors}=await open(t);
- await page.evaluate(async()=>{
-  const {state}=await import('/js/pipeline.js');const read=state.client.getDeal.bind(state.client);
-  state.client.getDeal=async id=>{const detail=await read(id);return {...detail,deal:{...detail.deal,client_id:'demo-client'},critical_dates:[],participants:[]};};
-  window.contextReads=0;
-  state.client.getPartyRecord=async()=>{window.contextReads++;return {record:{id:'demo-client',name:'Demo Current Client'}};};
- });
- await page.locator('.kanban-column [data-id="d14"] .card-open').click();
- await page.locator('#detailUpdateForm').waitFor();
- await page.getByRole('button', { name: 'Refresh deal', exact: true }).click();
- assert.equal(await page.evaluate(()=>window.contextReads),0);
- await page.locator('#panelContextOpen').click();
- await page.getByText('Demo Current Client',{exact:true}).waitFor();
- assert.equal(await page.evaluate(()=>window.contextReads),1);
- assert.deepEqual(errors,[]);
 });
 
 for(const failure of ['network','json','http']) test(`inactive ${failure} retry keeps its original request key`,async t=>{

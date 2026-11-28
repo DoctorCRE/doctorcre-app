@@ -393,23 +393,13 @@ export function createLiveClient(opts = {}) {
         documents: page.documents || [],
         ...(isEngineDealDetail(page) ? {
           email_follow_ups: page.email_follow_ups, next_deal_saves: page.next_deal_saves === true,
-          imported_deal_history, correspondence, properties,
+          imported_deal_history, correspondence, properties, invoice: page.invoice ?? null,
         } : Object.hasOwn(page, 'email_threads') ? { email_threads } : {}),
         lease: page.lease ?? null,
         checklist: page.checklist ?? null,
         record_links: page.record_links ?? [],
         schema_version: page.schema_version,
       };
-    },
-
-    // Use the client or vendor UUID, not a participant's party_id.
-    // A failed read leaves the context drawer unavailable.
-    async getPartyRecord({ dataset, id }) {
-      const res = await fetchReadImpl(`/api/v1/business/${dataset}/${id}`, {
-        headers: { accept: 'application/json' }, credentials: 'same-origin', cache: 'no-store',
-      });
-      if (!res.ok) throw Object.assign(new Error(`live business ${dataset} record -> HTTP ${res.status}`), {status:res.status});
-      return res.json();
     },
 
     // The confirm strip, live: proposals distilled from a recorded call. The

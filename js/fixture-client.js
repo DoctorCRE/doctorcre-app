@@ -96,11 +96,6 @@ export async function createFixtureClient(opts = {}) {
       workspace_kind: 'team', account_client_id: null, account_name: null,
       client_ref: d.client_ref || null, client_name: d.client_name || d.name,
     }));
-    // d02 names a client id the business-record fixture below deliberately does
-    // not carry, so the V5-UX-B04 context drawer's fetch-failure state (test
-    // fixture client, not a live network fault) has a fixture deal to exercise.
-    const brokenClientDeal = deals.get('d02');
-    if (brokenClientDeal) brokenClientDeal.account_client_id = 'demo-account-002-unlisted';
   }
 
 
@@ -110,18 +105,6 @@ export async function createFixtureClient(opts = {}) {
       { role: 'referring_agent', name: 'Sam Rivera', party_id: 'demo-party-102' },
       { role: 'listing_side', name: 'Casey Nguyen · Demo Realty', party_id: 'demo-party-103' },
     ]],
-  ]);
-
-  // Business records use their own IDs, never participant party_id. d02 is deliberately absent.
-  const businessRecords = new Map([
-    [fixtureAccountId, {
-      id: fixtureAccountId, ref: 'DEMO-CLIENT-001', name: 'Demo Dental North', party_kind: 'org',
-      city: 'Demo City', state: 'DM', title: 'Practice Administrator', phone: '205-555-0142', cell: null,
-      email: 'admin@demo-dental-north.example', recorded_status: 'active_client',
-      recorded_status_label: 'Active client', recorded_status_active_pipeline: true, vertical: 'Dental',
-      owner_label: 'Dell', owned_by_viewer: false, record_version: 1,
-      created_at: '2026-01-02T00:00:00Z', updated_at: '2026-01-10T00:00:00Z',
-    }],
   ]);
 
   // Shared loop display numbers are ambiguous; only record ids identify a loop.
@@ -1320,12 +1303,6 @@ export async function createFixtureClient(opts = {}) {
         unbindable_layers: ASSURANCE_LAYERS.filter(layer => evidence[layer].state === 'unbindable'), reasons: [],
         impact: { scope_limited_to: { ...scope }, withdrawn_stages: ['act', 'draft', 'read'] }, recovery: { required_evidence: [...ASSURANCE_LAYERS] } };
     },
-    async getPartyRecord({ dataset, id }) {
-      const record = businessRecords.get(id);
-      if (!record) throw new Error(`fixture business record not found: ${dataset}/${id}`);
-      return { viewer: selfActor, dataset, record: { ...record } };
-    },
-
     async getChanges(cursor, { since } = {}) {
       pruneLeases();
       const fresh = eventsAfter(cursor).filter(event => cursor || !since || Date.parse(event.recorded_at) >= Date.parse(since));

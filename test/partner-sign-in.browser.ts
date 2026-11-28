@@ -1438,7 +1438,7 @@ test("the engine deal page makes no legacy requests", async (t) => {
   await page.goto(server.origin + dealPage);
   const room = page.getByRole("main", { name: "Deal Workspace" });
   await page.getByRole("heading", { name: dealName }).waitFor({ timeout: 4000 });
-  await room.locator("summary").filter({ hasText: "Deal watch settings" }).waitFor({ timeout: 4000 });
+  await room.getByRole("region", { name: "Latest activity" }).waitFor({ timeout: 4000 });
   await room.getByRole("tab", { name: "Tours", exact: true }).click();
   await room
     .getByRole("tabpanel", { name: "Tours" })
@@ -2251,7 +2251,7 @@ test("overlapping tour cancellations both leave Planned tours and reach Activity
   firstCancel.resolve();
   await firstRow.waitFor({ state: "detached", timeout: 5000 });
   await secondRow.locator("summary").waitFor({ timeout: 5000 });
-  const cancellations = page.getByText("Tour cancelled", { exact: true });
+  const cancellations = page.locator("#workspace-activity").getByText("Tour cancelled", { exact: true });
   await cancellations.waitFor({ state: "attached", timeout: 5000 });
   const committed = page.waitForResponse(
     (response) => new URL(response.url()).pathname === `${tours}/${laterTour}/cancel`,
@@ -2381,12 +2381,19 @@ test("the Vendor card shows deal-history metrics with no rating in either sign-i
   }
 });
 
-function attributionButton(page: Page, update: string) {
+// The old read still lists its history under Updates.
+function carrAttributionButton(page: Page, update: string) {
   return page
     .getByRole("region", { name: "Deal updates" })
     .getByRole("article")
     .filter({ hasText: update })
     .getByRole("button", { name: "Show deal attribution" });
+}
+
+// A history entry opens beside Activity, where its deal attribution is offered.
+async function attributionButton(page: Page, update: string) {
+  await page.getByRole("region", { name: "Latest activity" }).getByRole("button", { name: update }).click();
+  return page.locator(".activity-pane").getByRole("button", { name: "Show deal attribution" });
 }
 
 test("an engine history note offers attribution for its activity ID", async (t) => {
@@ -2395,9 +2402,7 @@ test("an engine history note offers attribution for its activity ID", async (t) 
   });
   const page = await context.newPage();
   await page.goto(server.origin + dealPage);
-  await page.locator(".updates-history summary").click();
-  await page.getByRole("region", { name: "Deal updates" }).getByText(noteSummary, { exact: true }).waitFor();
-  const button = attributionButton(page, noteSummary);
+  const button = await attributionButton(page, noteSummary);
   assert.equal(await button.count(), 1, "The engine note should have a deal attribution button");
   await button.click();
   const panel = page.getByRole("region", { name: "Activity deal attribution" });
@@ -2431,8 +2436,7 @@ for (const { title, deals, response } of attributionCases)
     const { server, context } = await app(t, { readAttribution: response });
     const page = await context.newPage();
     await page.goto(server.origin + dealPage);
-    await page.locator(".updates-history summary").click();
-    await attributionButton(page, callSummary).click();
+    await (await attributionButton(page, callSummary)).click();
     const panel = page.getByRole("region", { name: "Activity deal attribution" });
     await panel.getByRole("heading", { name: title }).waitFor();
     await panel.getByText(`${deals.length === 1 ? 1 : 0} credited activities`, { exact: true }).waitFor();
@@ -2455,8 +2459,7 @@ test("a signed-out attribution read returns the partner to sign-in", async (t) =
   });
   const page = await context.newPage();
   await page.goto(server.origin + dealPage);
-  await page.locator(".updates-history summary").click();
-  await attributionButton(page, callSummary).click();
+  await (await attributionButton(page, callSummary)).click();
   await page.waitForURL("**/public-shell/session-ended.html");
   await page.getByRole("link", { name: "Sign in again" }).waitFor();
   assert.equal(await page.getByRole("heading", { name: dealName }).count(), 0);
@@ -2477,8 +2480,7 @@ test("an attribution timeout aborts the read and shows a sign-in prompt", async 
   const page = await context.newPage();
   await page.clock.install();
   await page.goto(server.origin + dealPage);
-  await page.locator(".updates-history summary").click();
-  await attributionButton(page, callSummary).click();
+  await (await attributionButton(page, callSummary)).click();
   await started.promise;
   await page.clock.fastForward(30_001);
   await page
@@ -2496,12 +2498,12 @@ test("CARR deal history uses its existing reads", async (t) => {
   await page.goto(server.origin + dealPage);
   await page.locator(".updates-history summary").click();
   await page.getByRole("region", { name: "Deal updates" }).getByText(noteSummary, { exact: true }).waitFor();
-  assert.equal(await attributionButton(page, noteSummary).count(), 0);
+  assert.equal(await carrAttributionButton(page, noteSummary).count(), 0);
   const reading = page.waitForRequest(
     (request) =>
       request.url().endsWith("/mcp") && request.postDataJSON()?.params?.name === "read-activity-deal-attribution",
   );
-  await attributionButton(page, callSummary).click();
+  await carrAttributionButton(page, callSummary).click();
   assert.deepEqual((await reading).postDataJSON().params.arguments, { activity_id: activityId });
   await page.getByRole("heading", { name: "Activity attribution unknown" }).waitFor();
   await page.getByText("Version evidence", { exact: true }).waitFor();
@@ -3467,89 +3469,4 @@ for (const openDay of [true, false]) {
       }
     },
   );
-}
-
-test("engine Deal page saves and reconciles watch settings", async (t) => {
-  const { server, context } = await app(t);
-  const page = await context.newPage();
-  const fixture = JSON.parse(await readFile(new URL("./fixtures/watches/recorded.json", import.meta.url), "utf8"));
-  let current = { ...fixture.watch, subject_id: dealId, baseline: { ...fixture.watch.baseline, subject_id: dealId } };
-  const commands: string[] = [];
-  let stale = false;
-  await page.route(`**/api/engine/deals/${dealId}/watch`, async (route) => {
-    if (route.request().method() === "GET") return route.fulfill({ json: { watch: current, health: null } });
-    const body = route.request().postDataJSON();
-    assert.match(body.idempotency_key, /^[0-9a-f-]{36}$/);
-    assert.equal(body.subscription_id, current.id);
-    assert.equal(body.base_version, current.lifecycle_version);
-    assert.deepEqual(
-      Object.keys(body).sort(),
-      (body.command === "replace-policy"
-        ? ["base_version", "command", "idempotency_key", "policy", "subscription_id"]
-        : ["base_version", "command", "idempotency_key", "subscription_id"]
-      ).sort(),
-    );
-    commands.push(body.command);
-    if (stale) {
-      stale = false;
-      current = {
-        ...current,
-        lifecycle_version: current.lifecycle_version + 1,
-        policy: { ...current.policy, include_self_changes: true },
-      };
-      return route.fulfill({ status: 409, json: { error: "watch_stale_version" } });
-    }
-    current = {
-      ...current,
-      lifecycle_version: current.lifecycle_version + 1,
-      policy: body.policy ?? current.policy,
-      state: body.command === "pause" ? "paused" : body.command === "unwatch" ? "removed" : "watching",
-    };
-    return route.fulfill({
-      json: { ok: true, schema_version: "subject-watch.v2", watch: current, rows_changed: [0, 1] },
-    });
-  });
-  await page.goto(server.origin + dealPage);
-  await page.locator("summary").filter({ hasText: "Deal watch settings" }).click({ timeout: 4000 });
-  const panel = page.getByRole("region", { name: "Deal watch", exact: true });
-  await panel.getByRole("heading", { name: "Watching", exact: true }).waitFor({ timeout: 4000 });
-  await panel.getByLabel("Include changes I make").uncheck();
-  await panel.getByRole("button", { name: "Save settings" }).click();
-  await panel.getByText(/Last confirmed version 2/).waitFor();
-  await panel.getByRole("button", { name: "Pause watch" }).click();
-  await panel.getByText(/Last confirmed version 3/).waitFor();
-  await panel.getByRole("button", { name: "Resume watch" }).click();
-  await panel.getByText(/Last confirmed version 4/).waitFor();
-  await panel.getByLabel("Include changes I make").check();
-  await panel.getByLabel("Include changes I make").uncheck();
-  stale = true;
-  await panel.getByRole("button", { name: "Save settings" }).click();
-  await panel.getByText(/This watch changed/).waitFor({ timeout: 5000 });
-  await panel.getByText(/Includes my changes/).waitFor();
-  assert.equal(await panel.getByLabel("Include changes I make").isChecked(), false);
-  await panel.getByRole("button", { name: "Save settings" }).click();
-  await panel.getByText(/Excludes my changes/).waitFor();
-  await panel.getByRole("button", { name: "Remove watch" }).click();
-  await panel.getByRole("heading", { name: "Not watching", exact: true }).waitFor();
-  assert.deepEqual(commands, ["replace-policy", "pause", "resume", "replace-policy", "replace-policy", "unwatch"]);
-});
-
-for (const missingOn of ["read", "save"] as const) {
-  test(`engine Deal watch shows unavailable when ${missingOn} returns 404`, async (t) => {
-    const { server, context } = await app(t);
-    const page = await context.newPage();
-    const fixture = JSON.parse(await readFile(new URL("./fixtures/watches/recorded.json", import.meta.url), "utf8"));
-    const watch = { ...fixture.watch, subject_id: dealId, baseline: { ...fixture.watch.baseline, subject_id: dealId } };
-    await page.route(`**/api/engine/deals/${dealId}/watch`, (route) => {
-      if (missingOn === "read" || route.request().method() === "POST")
-        return route.fulfill({ status: 404, json: { error: "not_found" } });
-      return route.fulfill({ json: { watch, health: null } });
-    });
-    await page.goto(server.origin + dealPage);
-    await page.locator("summary").filter({ hasText: "Deal watch settings" }).click({ timeout: 4000 });
-    const panel = page.getByRole("region", { name: "Deal watch", exact: true });
-    if (missingOn === "save") await panel.getByRole("button", { name: "Pause watch" }).click();
-    await panel.getByText("Watch settings are not available for this deal.").waitFor({ timeout: 5000 });
-    assert.equal(await panel.getByText(/Sign in again/).count(), 0);
-  });
 }

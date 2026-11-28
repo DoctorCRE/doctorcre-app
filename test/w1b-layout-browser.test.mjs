@@ -285,12 +285,10 @@ for (const status of [401,403,503]) test(`Deal detail refresh distinguishes HTTP
  assert.equal(await page.locator('.deal-path').count(),1,await page.locator('#panelBody').textContent());
  const title=await page.locator('#panelTitle').textContent();
  await page.locator('#dealUpdate').fill('Synthetic unsaved draft');
- await page.locator('#panelContextOpen').click();
- await page.waitForFunction(()=>document.querySelector('#contextDrawerBody h3')?.textContent!=='Updating…');
  failure=true;
  await page.evaluate(async()=>{const{state}=await import('/js/pipeline.js');await state.boardSync.refreshBoard({reason:'authorization-regression'});});
  await page.clock.fastForward(61_000);
- if(status===401||status===403){await page.waitForURL('**/public-shell/session-ended.html');assert.equal(await page.locator('#recordPanel,#contextDrawer').count(),0);assert.doesNotMatch(await page.locator('body').textContent(),/Synthetic unsaved draft|Synthetic protected note/);assert.deepEqual(errors,[]);return;}
+ if(status===401||status===403){await page.waitForURL('**/public-shell/session-ended.html');assert.equal(await page.locator('#recordPanel').count(),0);assert.doesNotMatch(await page.locator('body').textContent(),/Synthetic unsaved draft|Synthetic protected note/);assert.deepEqual(errors,[]);return;}
  await page.waitForFunction(()=>/unavailable/i.test(document.querySelector('#panelBody [role="status"]')?.textContent));
  assert.ok(failedReads>0,'the detail read returns the actual HTTP failure');
   assert.equal(await page.locator('#recordPanel').evaluate(n => !n.hidden),true);
@@ -298,7 +296,6 @@ for (const status of [401,403,503]) test(`Deal detail refresh distinguishes HTTP
   assert.equal(await page.locator('#dealUpdate').inputValue(),'Synthetic unsaved draft');
   assert.equal(await page.locator('#detailReadStatus').textContent(),'Updates temporarily unavailable');
   assert.equal(await page.evaluate(async()=>(await import('/js/pipeline.js')).state.panelDetail.deal.id),'d14');
- await page.locator('#contextDrawerClose').click();
  assert.equal(await page.locator('[data-retry-detail]').count(),0);
  failure=false;await page.clock.fastForward(61_000);
  await page.locator('.deal-path').waitFor();

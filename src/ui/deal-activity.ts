@@ -439,6 +439,25 @@ export function renderDealActivity(
   return { html, filter: selected, open: opened?.key ?? null };
 }
 
+/** Overview's Latest activity: the note box, then the newest eight items, each opening on Activity. */
+export function renderLatestActivity(
+  detail: unknown,
+  options: { planTours?: boolean; now?: Date; note?: string; canNote?: boolean; ports: ActivityPorts },
+): string {
+  const esc = options.ports.escapeText;
+  const canNote = options.canNote ?? true;
+  const rows = activityItems(detail, options)
+    .slice(0, 8)
+    .map((item) => {
+      const meta = [item.who, item.caption].filter(Boolean).map(esc).join(" · ");
+      return `<li class="activity-row"><button type="button" class="activity-open" data-latest-activity="${esc(item.key)}"><span class="activity-title">${esc(item.title)}</span><span class="activity-meta">${meta}</span></button></li>`;
+    })
+    .join("");
+  return `<section class="deal-latest" aria-labelledby="deal-latest-heading"><header><h2 id="deal-latest-heading">Latest activity</h2><button type="button" class="btn btn-quiet" data-all-activity>All activity</button></header>
+    <form id="overviewNoteForm" class="activity-note"><label class="sr-only" for="overviewNote">Deal note</label><textarea id="overviewNote" name="text" rows="1" maxlength="10000" placeholder="Add a note" data-detail-focus="overview-note"${canNote ? "" : " disabled"}>${esc(options.note ?? "")}</textarea><p id="overviewNoteStatus" role="status"></p></form>
+    ${rows ? `<ol>${rows}</ol>` : "<p>Nothing recorded yet.</p>"}</section>`;
+}
+
 function openItemHtml(
   item: ActivityItem,
   {

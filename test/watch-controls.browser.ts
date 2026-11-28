@@ -2,12 +2,9 @@ import assert from "node:assert/strict";
 import { mkdir, readFile } from "node:fs/promises";
 import test, { type TestContext } from "node:test";
 import { Ajv } from "ajv";
-import { buildArtifact } from "../scripts/artifact.mjs";
-import { temporaryDirectory } from "../scripts/temp-directory.mjs";
 import { uiAssets } from "../scripts/ui-bundle.mjs";
 import { parseWatch, type Watch } from "../src/ui/watches/model.ts";
 import { chromium, componentDocument } from "./browser-harness.mjs";
-import { ownedServer as startFixtureServer } from "./fixture-probe.ts";
 import { subjectWatchV2ResponseSchema } from "./fixtures/watches/producer-schema.ts";
 
 const recordedValue: unknown = JSON.parse(
@@ -21,82 +18,6 @@ assert.ok(recorded.watch);
 const originalWatch = recorded.watch;
 const validateProducer = new Ajv({ strict: false, validateFormats: false }).compile(subjectWatchV2ResponseSchema);
 const assets = await uiAssets((path) => readFile(new URL(`../${path}`, import.meta.url), "utf8"));
-test("built Deal Room mounts watch controls for the exact deal", async (t) => {
-  const directory = temporaryDirectory("watch-journey-", t);
-  await buildArtifact({ root: new URL("../", import.meta.url).pathname, outDir: directory, commit: "1".repeat(40) });
-  const server = await startFixtureServer({ env: { DOCTORCRE_FIXTURE_ROOT: `${directory}/site` } });
-  t.after(() => server.stop());
-  const browser = await chromium.launch();
-  t.after(() => browser.close());
-  const page = await browser.newPage({ viewport: { width: 390, height: 900 } });
-  try {
-    await page.route("**/mcp", (route) => {
-      if (route.request().postDataJSON().params.name === "list-subject-watches-v2") {
-        const payload = {
-          ok: true,
-          schema_version: "subject-watch.v2",
-          watches: [originalWatch],
-          has_more: false,
-          next_cursor: null,
-        };
-        assert.equal(validateProducer(payload), true);
-        return route.fulfill({ json: { result: { content: [{ type: "text", text: JSON.stringify(payload) }] } } });
-      }
-      const args: unknown = route.request().postDataJSON().params.arguments;
-      assert.ok(typeof args === "object" && args !== null && "subject_id" in args && "subject_type" in args);
-      assert.equal(args.subject_id, originalWatch.subject_id);
-      assert.equal(args.subject_type, "deal");
-      const payload = { ok: true, schema_version: "subject-watch.v2", watch: originalWatch };
-      assert.equal(validateProducer(payload), true);
-      parseWatch(payload, { subject_type: "deal", subject_id: originalWatch.subject_id });
-      return route.fulfill({ json: { result: { content: [{ type: "text", text: JSON.stringify(payload) }] } } });
-    });
-    const fixture = (
-      await readFile(new URL("../data/fixtures/deal-documents.mjs", import.meta.url), "utf8")
-    ).replaceAll("'d14'", JSON.stringify(originalWatch.subject_id));
-    const seed = (await readFile(new URL("../data/board-seed.json", import.meta.url), "utf8")).replaceAll(
-      '"d14"',
-      JSON.stringify(originalWatch.subject_id),
-    );
-    await page.route("**/data/fixtures/deal-documents.mjs", (route) =>
-      route.fulfill({ body: fixture, contentType: "text/javascript" }),
-    );
-    await page.route("**/data/board-seed.json", (route) =>
-      route.fulfill({ body: seed, contentType: "application/json" }),
-    );
-    await page.goto(`${server.url}/deals?deal=${originalWatch.subject_id}`);
-    await page.locator("summary").filter({ hasText: "watch settings" }).click();
-    const panel = page.getByRole("region", { name: "Deal watch", exact: true });
-    await panel.getByRole("heading", { name: "Watching", exact: true }).waitFor();
-    await panel.getByRole("button", { name: "Pause watch", exact: true }).waitFor();
-    for (const row of await panel.locator(".watch-option").evaluateAll((nodes) =>
-      nodes.map((node) => {
-        const input = node.querySelector("input");
-        return { rowHeight: node.getBoundingClientRect().height, glyphWidth: input?.getBoundingClientRect().width };
-      }),
-    )) {
-      assert.ok(row.rowHeight >= 44);
-      assert.equal(row.glyphWidth, 16);
-    }
-    assert.equal(
-      await panel.locator(".watch-primary").evaluate((node) => getComputedStyle(node).backgroundColor),
-      await panel.evaluate((node) => {
-        const probe = document.createElement("span");
-        probe.style.backgroundColor = "var(--accent)";
-        node.append(probe);
-        const color = getComputedStyle(probe).backgroundColor;
-        probe.remove();
-        return color;
-      }),
-    );
-    const evidence = new URL("../out/test-artifacts/watches/", import.meta.url);
-    await mkdir(evidence, { recursive: true });
-    await page.screenshot({ path: new URL("deal.png", evidence).pathname });
-    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-  } finally {
-    await page.context().close();
-  }
-});
 async function mountedWatch(
   t: TestContext,
   kind: "deal" | "lease",
