@@ -2123,6 +2123,46 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`Ho
   await meetings.waitFor({ state: 'detached' });
 });
 
+for (const [width, height] of [[1280, 640], [1440, 900]]) test(`Home columns each scroll once at ${width}x${height}`, async t => {
+  const { page, open, state } = await dashboard(t, width, 'dark');
+  await page.setViewportSize({ width, height });
+  state.items = [
+    ...state.items,
+    ...Array.from({ length: 30 }, (_, index) => step(200 + index, `Check sample ${index + 1}`)),
+    ...Array.from({ length: 30 }, (_, index) => step(300 + index, `Wait on sample ${index + 1}`, { section: 'snoozed', disposition: 'snoozed', snoozed_until: '2026-11-04T16:00:00Z' })),
+  ];
+  await page.route('**/api/engine/home/today', route => route.fulfill({ json: {
+    ok: true, schema_version: 'home-today.v1', today: '2026-11-03', viewer: 'joe',
+    meetings: { state: 'ready', items: Array.from({ length: 30 }, (_, index) => ({ ...scheduledMeeting, key: `meeting-${index}` })) },
+  } }));
+  await page.clock.install({ time: now });
+  await open('/?mode=live');
+  await page.getByRole('heading', { name: /^Today's meetings/ }).waitFor();
+  const result = await page.evaluate(() => {
+    const main = document.querySelector('main');
+    const columns = [...main.querySelectorAll('.home-column')].filter(node => node.scrollHeight > node.clientHeight);
+    const scrolling = [...main.querySelectorAll('*')].filter(node => /^(auto|scroll)$/.test(getComputedStyle(node).overflowY) && node.scrollHeight > node.clientHeight);
+    return { columns: columns.length, sameScrollers: scrolling.length === columns.length && scrolling.every((node, index) => node === columns[index]), pageFits: [document.scrollingElement, document.getElementById('appMainSlot')].every(node => node.scrollHeight <= node.clientHeight) };
+  });
+  assert.equal(result.sameScrollers, true, 'only columns scroll');
+  assert.equal(result.columns, 3, 'all three columns overflow');
+  assert.equal(result.pageFits, true);
+});
+
+test('Home stacked layout has no nested scrollers at 900x599', async t => {
+  const { page, open, state } = await dashboard(t, 900, 'dark');
+  await page.setViewportSize({ width: 900, height: 599 });
+  state.items = [...state.items, ...Array.from({ length: 30 }, (_, index) => step(200 + index, `Check sample ${index + 1}`))];
+  await page.clock.install({ time: now });
+  await open('/?mode=live');
+  const reminders = page.getByRole('region', { name: 'Reminders', exact: true });
+  await reminders.getByRole('button', { name: /^See all/ }).waitFor();
+  assert.equal(await page.evaluate(() => {
+    const scrolls = node => /^(auto|scroll)$/.test(getComputedStyle(node).overflowY) && node.scrollHeight > node.clientHeight;
+    return [...document.querySelectorAll('*')].some(node => scrolls(node) && [...node.querySelectorAll('*')].some(scrolls));
+  }), false);
+});
+
 for (const [width, height] of [[1280, 800], [1440, 900]]) for (const theme of ['light', 'dark']) test(`Home fits one screen with Reminders alone at ${width}x${height} in ${theme}`, async t => {
   const { page, open, state } = await dashboard(t, width, theme);
   await page.setViewportSize({ width, height });
@@ -2149,7 +2189,7 @@ for (const [width, height] of [[1280, 800], [1440, 900]]) for (const theme of ['
   assert.ok(band.y + band.height <= 60, 'the page controls take one compact band');
   assert.ok(tile.y >= band.y + band.height, 'the top bar never covers the tile title');
   assert.deepEqual(await page.evaluate(() => [document.scrollingElement, document.getElementById('appMainSlot')].every(node => node.scrollHeight <= node.clientHeight)), true, 'the page itself does not scroll');
-  assert.deepEqual(await reminders.evaluate(node => node.scrollHeight > node.clientHeight), true, 'the long list scrolls inside its tile');
+  assert.deepEqual(await reminders.evaluate(node => node.closest('.home-column').scrollHeight > node.closest('.home-column').clientHeight), true, 'the long list scrolls inside its column');
   await reminders.getByRole('heading', { name: /^Reminders/ }).waitFor();
 });
 
@@ -2170,7 +2210,7 @@ for (const [width, height, withMeeting] of [[1280, 800, false], [1440, 900, fals
   const waiting = page.getByRole('region', { name: 'In motion and waiting', exact: true });
   const meeting = page.getByRole('region', { name: "Today's meetings", exact: true });
   if (meetings.length) await meeting.getByRole('heading', { name: "Today's meetings 1" }).waitFor();
-  const [first, second, grid] = await Promise.all([reminders, waiting, page.locator('.home-sections')].map(node => node.boundingBox()));
+  const [first, second, grid] = await Promise.all([reminders.locator('..'), waiting.locator('..'), page.locator('.home-sections')].map(node => node.boundingBox()));
   assert.deepEqual(await page.evaluate(() => [document.scrollingElement, document.getElementById('appMainSlot')].every(node => node.scrollHeight <= node.clientHeight)), true, 'the page itself does not scroll');
   assert.equal(grid.y + grid.height, height - 12, 'the grid ends at the bottom of the screen');
   for (const box of [first, second]) assert.equal(box.y + box.height, grid.y + grid.height, 'each column reaches the bottom');
@@ -2180,7 +2220,7 @@ for (const [width, height, withMeeting] of [[1280, 800, false], [1440, 900, fals
     assert.ok(row.y + row.height <= last.y + last.height, 'the meetings tile shows its heading and its meeting');
     assert.ok(heading.y >= last.y, 'the meetings heading is not cut off');
   }
-  for (const tile of [reminders, waiting]) assert.equal(await tile.evaluate(node => node.scrollHeight > node.clientHeight), true, 'each long list scrolls inside its tile');
+  for (const tile of [reminders, waiting]) assert.equal(await tile.evaluate(node => node.closest('.home-column').scrollHeight > node.closest('.home-column').clientHeight), true, 'each long list scrolls inside its column');
 });
 
 for (const [width, height] of [[1280, 800], [1440, 779]]) test(`Home shows a grouped reminder once and saves each step it covers at ${width}x${height}`, async t => {

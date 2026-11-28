@@ -646,7 +646,7 @@ test("Deals attention keeps its full accessible reason and caps its preview at t
   assert.ok(lines > 1 && lines <= 2.05, "the reason wraps to two lines");
 });
 
-test("At 1280x599 wheel and touch scroll the column after reaching the end of a tile", async (t) => {
+test("At 1280x599 wheel and touch scroll the column", async (t) => {
   const dates = Array.from({ length: 42 }, (_, index) => criticalDate(index + 1, today));
   for (const touch of [false, true]) {
     await t.test(touch ? "touch swipe" : "mouse wheel", async (t) => {
@@ -663,9 +663,6 @@ test("At 1280x599 wheel and touch scroll the column after reaching the end of a 
       await column.evaluate((region) => {
         region.scrollTop = 0;
       });
-      await meetings.evaluate((tile) => {
-        tile.scrollTop = tile.scrollHeight;
-      });
       const [list, right, heading] = await Promise.all([
         meetings.boundingBox(),
         column.boundingBox(),
@@ -675,14 +672,8 @@ test("At 1280x599 wheel and touch scroll the column after reaching the end of a 
         list && right && heading && heading.y + heading.height > right.y + right.height,
         "Leads starts below the column viewport",
       );
-      assert.ok(
-        await meetings.evaluate(
-          (tile) => tile.scrollTop > 0 && Math.abs(tile.scrollHeight - tile.clientHeight - tile.scrollTop) <= 1,
-        ),
-        "the input starts at the tile's lower limit",
-      );
       const x = Math.round(list.x + list.width / 2);
-      const y = Math.round(list.y + list.height - 8);
+      const y = Math.round(right.y + Math.min(list.height, right.height) - 8);
       if (touch) {
         const input = await page.context().newCDPSession(page);
         await input.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
