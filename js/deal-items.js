@@ -235,7 +235,6 @@ export function automaticPhaseReceipt(deal, entry, { showEngineMoves = false, ca
 export function renderPhaseReceipt(deal, { move, message }, legacy, compact = false) {
   const undo = move?.action;
   const button = undo ? `<button class="btn btn-quiet" type="button" data-undo-phase="${esc(deal.id)}" data-event-id="${esc(undo.eventId)}" data-base-version="${undo.version}" data-detail-focus="phase-undo"${undo.busy ? ' aria-disabled="true"' : ''}>Undo</button>` : '';
-  const text = move ? `<span>${move.label}</span> <time datetime="${move.day}">${esc(move.date)}</time>${move.callTime ? ` · <span>Call on ${esc(move.callTime)}</span>` : ''}` : '';
   if (compact) {
     const receipt = move ? `<details><summary><span>${esc(move.label)}</span><span class="phase-move-evidence"> · <time datetime="${move.day}">${esc(move.date)}</time>${move.callTime ? ` · Call on ${esc(move.callTime)}` : ''}</span></summary></details>` : '';
     const notice = message ? `<p class="phase-move-notice" role="status">${esc(message)}</p>` : '';
