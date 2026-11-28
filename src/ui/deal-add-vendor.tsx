@@ -108,7 +108,8 @@ function AddVendorForm({ client, deal, doors, saved, close }: Props & { close: (
     setBusy(false);
     saved();
     if (answer.ok) return close();
-    const landed = introduced.current === vendor.id ? ` ${vendor.name} is recorded as introduced, not yet on the deal.` : "";
+    const landed =
+      introduced.current === vendor.id ? ` ${vendor.name} is recorded as introduced, not yet on the deal.` : "";
     setProblem(`${refusal(answer.problem)}${landed}`);
   }
   return (

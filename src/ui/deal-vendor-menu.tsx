@@ -8,7 +8,7 @@ export interface FoundVendor {
   name: string;
 }
 // A partner's introduction of the client to a vendor, for the deal it led to.
-export interface NewIntroduction {
+interface NewIntroduction {
   vendor_id: string;
   introduced_by: ClientDeal["owner"];
   introduced_party_id: string;

@@ -31,6 +31,7 @@ export const UI_ENTRIES = {
   'ui-keyboard-input': 'keyboard-input',
   'ui-keyboard-shortcuts': 'keyboard-shortcuts',
   'ui-record-links': 'record-links',
+  'ui-relationship-shapes': 'relationship-shapes',
   'ui-card-menu': 'card-quick-menu',
   'ui-scroll-thumb': 'scroll-thumb',
   'ui-new-version': 'new-version',
@@ -115,7 +116,7 @@ async function buildUi(readSource, options) {
         if (args.kind !== "entry-point" && args.namespace !== "ui-source") return undefined;
         const base = args.kind === "entry-point" ? posix.normalize(args.path)
           : posix.normalize(posix.join(posix.dirname(args.importer), args.path));
-        if (['js/boot-mode.js', 'js/business-date.js', 'js/routes.js', 'js/read-budget.mjs', 'js/email-action-receipt.mjs', 'js/visibility-poll.mjs', 'js/read-on-resume.mjs', 'js/toast.js', 'js/touch-layout.js', 'js/relationship-shapes.js', 'contracts/client-needs.v1.json'].includes(base)) {
+        if (['js/boot-mode.js', 'js/business-date.js', 'js/routes.js', 'js/read-budget.mjs', 'js/email-action-receipt.mjs', 'js/visibility-poll.mjs', 'js/read-on-resume.mjs', 'js/toast.js', 'js/touch-layout.js', 'contracts/client-needs.v1.json'].includes(base)) {
           const contents = await read(base);
           if (contents !== null) return { path: base, namespace: 'ui-source', pluginData: contents };
         }

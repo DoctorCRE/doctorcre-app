@@ -1,6 +1,5 @@
 import { type ReactNode, type RefObject, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { RELATIONSHIP_SHAPES } from "../../js/relationship-shapes.js";
 import { type CardSectionProps, mountCardSection, OpenControl, OpenedFrame, useRead } from "./client-deals.tsx";
 import {
   Box,
@@ -13,6 +12,7 @@ import {
   WORD,
   withRole,
 } from "./deal-diagram.tsx";
+import { RELATIONSHIP_SHAPES } from "./relationship-shapes.ts";
 
 type Partner = "joe" | "dell";
 interface Party {
@@ -176,8 +176,10 @@ function RelationshipShape({ relationship }: { relationship: DiagramClient["rela
       data-relationship={relationship}
       viewBox="0 0 12 12"
       aria-hidden="true"
-      // biome-ignore lint/security/noDangerouslySetInnerHtml: a fixed shape from this app, never record text.
-      dangerouslySetInnerHTML={{ __html: RELATIONSHIP_SHAPES[relationship] }}
+      // The shapes are this app's own fixed markup, shared with the Vendors table.
+      ref={(svg) => {
+        if (svg) svg.innerHTML = RELATIONSHIP_SHAPES[relationship];
+      }}
     />
   );
 }

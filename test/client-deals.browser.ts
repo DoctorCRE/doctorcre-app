@@ -487,6 +487,21 @@ test("an Add vendor that is refused after the introduction landed says so, and t
   );
 });
 
+for (const [width, height, scheme] of [
+  [1440, 900, "light"],
+  [1280, 640, "dark"],
+  [1280, 640, "light"],
+  [390, 844, "dark"],
+  [390, 844, "light"],
+] as const)
+  test(`Add vendor fits at ${width}x${height} ${scheme}`, async (t) => {
+    const { page, panel, deal } = await openParties(t, partyEngine(), { width, height, scheme });
+    await addVendor(page, deal, "Dell");
+    const sideways = await panel.evaluate((node) => node.scrollWidth > node.clientWidth);
+    assert.equal(sideways, false, "the open form never scrolls the card sideways");
+    await page.screenshot({ path: `${shots}/add-vendor-${width}-${scheme}.png` });
+  });
+
 test("with deal saves off the vendor boxes are labels and open no menu", async (t) => {
   const { page, deal } = await openParties(t, partyEngine(), { dealSaves: false });
   await deal.locator(".deal-diagram-box", { hasText: "Example Pelican Bank" }).waitFor();

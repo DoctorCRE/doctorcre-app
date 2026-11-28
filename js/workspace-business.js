@@ -1,10 +1,10 @@
-import { RELATIONSHIP_SHAPES } from './relationship-shapes.js';
 import { BUSINESS_TIME_ZONE } from './business-date.js';
 import { partnerName, phoneLabel, withoutRecordCodes } from './visual-system.js';
 import { mountLocalTicker } from './visibility-poll.mjs';
 import { createPageBudget } from './read-budget.mjs';
 import { compareInstants } from './change-receipts.mjs';
 import { linkRecordNames } from './ui-record-links.generated.js';
+import { RELATIONSHIP_SHAPES } from './ui-relationship-shapes.generated.js';
 import { pageDocContext, selectDocRecord, setDocFilters } from './doc-context.js';
 import { fetchRead, mountAutoRefresh, updatedLabel } from "./auto-refresh.mjs";
 // Clients and Vendors: the browser half of the Journey 1 business read.

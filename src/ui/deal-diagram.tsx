@@ -2,7 +2,7 @@ import type { KeyboardEvent } from "react";
 import { createContext, type ReactNode, type Ref, useContext, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
-import type { RelationshipKey } from "../../js/relationship-shapes.js";
+import type { RelationshipKey } from "./relationship-shapes.ts";
 
 type Partner = "joe" | "dell";
 export interface Role {

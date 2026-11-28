@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { mkdir } from "node:fs/promises";
 import test, { type TestContext } from "node:test";
 import type { Page, Route } from "playwright";
 import type { VendorRelationships } from "../src/ui/vendor-relationships.tsx";
@@ -6,6 +7,8 @@ import { chromium } from "./browser-harness.mjs";
 import { ownedServer as startFixtureServer } from "./fixture-probe.ts";
 import { directoryFixture } from "./fixtures/vendor-directory.synthetic.mjs";
 
+const shots = "out/test-artifacts/vendor-relationships";
+await mkdir(shots, { recursive: true });
 const vendorId = "00000000-0000-4000-8000-000000000001";
 const vendorName = "Demo Partner 01";
 const client = (n: number) => ({ party_id: `c${n}`, name: `Example Client ${n}` });
@@ -133,6 +136,7 @@ test("opening relationships shows sides in place of the table, with who introduc
     await page.locator("#recordPanel [data-relationship]").first().getAttribute("data-relationship"),
     "the vendor's box carries the relationship its card shows",
   );
+  await page.screenshot({ path: `${shots}/sides-1440-dark.png` });
   assert.deepEqual(await side("left"), ["Example Client 1", "Example Client 2"]);
   assert.deepEqual(await side("right"), ["Example Client 3", "Example Client 4", "Example Client 5"]);
   assert.deepEqual(await opened.locator(".deal-diagram-date").allTextContents(), [
