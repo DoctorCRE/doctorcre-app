@@ -596,8 +596,9 @@ for (const [width, height] of [
       .locator("#workspace-plan :is(.timeline-name, .deal-plan-item > button)")
       .filter({ hasText: "Example date 0" });
     await item.waitFor();
-    const geometryProblems = (checkRequired = false) =>
-      page.evaluate((checkRequired) => {
+    const geometryProblems = (state: "top" | "item" | "reset") =>
+      page.evaluate((state) => {
+        const checkRequired = state === "top";
         const scope = ":is(#appTopbar, #recordPanel)";
         const buttons = "button, a[href], summary, input, select, textarea, [role=button]";
         const viewport = new DOMRect(0, 0, innerWidth, innerHeight);
@@ -644,7 +645,8 @@ for (const [width, height] of [
             const pane = chartPane(node);
             if (
               !pane &&
-              (beyondInline(rect) || (checkRequired && node.closest(required) && !overlap(rect, viewport)))
+              (beyondInline(rect) ||
+                (checkRequired && (!listLayout || node.closest(required)) && !overlap(rect, viewport)))
             ) {
               issues.push(`${controlName(node)} is outside the viewport`);
               return false;
@@ -681,20 +683,17 @@ for (const [width, height] of [
           for (let text = walker.nextNode(); text; text = walker.nextNode()) {
             const value = text.textContent?.trim();
             const node = text.parentElement;
-            if (
-              !node ||
-              !value ||
-              !visible(node) ||
-              node.closest("style, script, .sr-only, .timeline-sr, .repeats-page, dt")
-            )
+            if (!node || !value || !visible(node) || node.closest("style, script, .sr-only, .timeline-sr, dt"))
               continue;
             if (node.closest("details:not([open])") && !node.closest("summary")) continue;
             range.selectNodeContents(text);
             const rect = range.getBoundingClientRect();
+            if (!rect.width || !rect.height) continue;
             const pane = chartPane(node);
             if (
               !pane &&
-              (beyondInline(rect) || (checkRequired && node.closest(required) && !overlap(rect, viewport)))
+              (beyondInline(rect) ||
+                (checkRequired && (!listLayout || node.closest(required)) && !overlap(rect, viewport)))
             ) {
               issues.push(`${value} text is outside the viewport`);
               continue;
@@ -707,16 +706,27 @@ for (const [width, height] of [
             if (clip) issues.push(`${value} text is clipped by ${clip.id || clip.className || clip.tagName}`);
           }
         }
+        if (state === "reset") {
+          const confirm = document.querySelector("#workspacePlanStatus [data-plan-confirm]");
+          if (!confirm || !inside(confirm.getBoundingClientRect(), viewport))
+            issues.push("Reset confirmation is outside the viewport");
+        }
         return issues;
-      }, checkRequired);
+      }, state);
     const receipt = page.locator("#workspacePhaseMove summary");
-    const closed = await geometryProblems(true);
+    const closed = await geometryProblems("top");
     await receipt.click();
-    const open = await geometryProblems(true);
+    const open = await geometryProblems("top");
     await receipt.click();
     await item.click();
-    const itemOpen = await geometryProblems();
-    assert.deepEqual({ closed, open, itemOpen }, { closed: [], open: [], itemOpen: [] });
+    const itemOpen = await geometryProblems("item");
+    const reset = page.getByRole("button", { name: "Reset to typical", exact: true });
+    let confirming: string[] = [];
+    if (width >= 1280 && (await reset.isVisible())) {
+      await reset.click();
+      confirming = await geometryProblems("reset");
+    }
+    assert.deepEqual({ closed, open, itemOpen, confirming }, { closed: [], open: [], itemOpen: [], confirming: [] });
   });
 
 for (const height of [599, 640])
