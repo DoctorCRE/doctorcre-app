@@ -612,7 +612,7 @@ function nextDealSave(verb, args) {
     }
     case 'patch-deal-field':
       if (field === 'phase' && value !== 'closed' && (args.phase_from === null || isString(args.phase_from))) {
-        const reason = [args.change_reason, args.human_quote].filter(isString).join('\n\n') || undefined;
+        const reason = isString(args.change_reason) ? args.change_reason : undefined;
         return changes({ phase: { from: args.phase_from, to: value, reason } });
       }
       if (field === 'owner' && isString(value) && value) return changes({ fields: { owner: value } });
