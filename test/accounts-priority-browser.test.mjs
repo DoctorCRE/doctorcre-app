@@ -65,7 +65,7 @@ for (const width of [390, 1280]) for (const theme of ['dark', 'light']) {
     const nextAction = summary.getByRole('button');
     assert.match(await nextAction.innerText(), /Review sample documents/);
     assert.match(await nextAction.innerText(), /Demo Vision Center/);
-    assert.match(await summary.innerText(), /4 overdue dates/);
+    assert.match(await summary.innerText(), /5 overdue dates/);
     assert.equal(await page.locator('#focusStrip').innerText(), '');
     assert.ok(await nextAction.evaluate(node => node.getBoundingClientRect().bottom < innerHeight), 'next action fits the first phone viewport');
     await nextAction.click();
