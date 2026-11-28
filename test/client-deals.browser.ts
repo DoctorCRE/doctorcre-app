@@ -704,7 +704,7 @@ test("Set records the client on a linked deal and removal leaves the chosen role
   assert.equal(engine.list[2]?.vendors[0]?.roles[0]?.role, "title");
 });
 
-test("Set shows the recovered source and confirms a changed choice before replacing it", async (t) => {
+async function recoverSet(t: TestContext) {
   const engine = partyEngine(null, 0, "request");
   const { page, panel, sent } = await openParties(t, engine);
   const article = panel.locator(".client-deal", { hasText: "Example first office" });
@@ -721,6 +721,11 @@ test("Set shows the recovered source and confirms a changed choice before replac
   await menu.getByText(/Joe was saved as the source/).waitFor({ timeout: 3000 });
   assert.deepEqual(sent[0], sent[1]);
   assert.equal(engine.list[2]?.introductions[0]?.introduced_by, "joe");
+  return { engine, panel, article, menu, sent };
+}
+
+test("Set shows the recovered source and confirms a changed choice before replacing it", async (t) => {
+  const { engine, article, menu } = await recoverSet(t);
   await menu.getByRole("button", { name: "Use new choice" }).click();
   await article
     .locator(".deal-diagram > ul > li > .deal-diagram-vendor", { hasText: "Example Halloran Title" })
@@ -730,3 +735,19 @@ test("Set shows the recovered source and confirms a changed choice before replac
     ["client"],
   );
 });
+
+for (const action of ["outside click", "vendor toggle", "Cancel", "Escape"]) {
+  test(`dismissing recovered Set with ${action} shows the saved source`, async (t) => {
+    const { panel, article, menu, sent } = await recoverSet(t);
+    if (action === "outside click") await panel.getByRole("heading", { name: "Deals", exact: true }).click();
+    else if (action === "vendor toggle") await article.getByRole("button", { name: /Example Halloran Title/ }).click();
+    else if (action === "Escape") await menu.getByRole("button", { name: "Use new choice" }).press("Escape");
+    else await menu.getByRole("button", { name: "Cancel", exact: true }).click();
+    await menu.waitFor({ state: "hidden" });
+    const chosen = article.getByRole("button", { name: /Example Halloran Title.*Title · Chosen/ });
+    await chosen.click({ timeout: 3000 });
+    assert.match((await menu.textContent()) ?? "", /Introduced .* by Joe/);
+    assert.equal(await menu.getByRole("button", { name: "Set", exact: true }).count(), 0);
+    assert.equal(sent.length, 2);
+  });
+}

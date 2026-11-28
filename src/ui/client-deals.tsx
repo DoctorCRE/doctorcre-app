@@ -31,9 +31,17 @@ export function useRead<T>(load: (signal: AbortSignal) => Promise<T>) {
     return () => controller.abort();
   }, [load, loading]);
   const reread = useRef<AbortController | null>(null);
-  useEffect(() => () => reread.current?.abort(), []);
+  const active = useRef(false);
+  useEffect(() => {
+    active.current = true;
+    return () => {
+      active.current = false;
+      reread.current?.abort();
+    };
+  }, []);
   // Reads again in place, keeping what is on screen, so a box changes state without a blank.
   const refresh = () => {
+    if (!active.current) return;
     reread.current?.abort();
     const controller = new AbortController();
     reread.current = controller;

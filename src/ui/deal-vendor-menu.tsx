@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { centralToday } from "./central-time.ts";
 import { type ClientDeal, dated, type Role, type Vendor } from "./deal-diagram.tsx";
 
@@ -148,6 +148,11 @@ export function DealVendorMenu({ deal, client, vendor, doors, close, saved, rere
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState("");
   const panel = useRef<HTMLDivElement>(null);
+  const recoveredSource = useRef(false);
+  const refreshOnDismiss = useEffectEvent(() => {
+    if (recoveredSource.current) reread();
+  });
+  useEffect(() => () => refreshOnDismiss(), []);
   const picking = step.at === "role";
   // Each step, and the roles arriving, hands focus to its first control.
   const focusKey = picking ? `role:${Boolean(step.roles)}` : step.at;
@@ -186,16 +191,15 @@ export function DealVendorMenu({ deal, client, vendor, doors, close, saved, rere
       if (!result.pending) reread();
       return setProblem(result.pending ? "Couldn’t confirm the save. Try again." : refusal(result.problem));
     }
-    if (result.introduction && result.introduction.by !== by) {
+    // Refreshing now would move the vendor to another branch and close the question.
+    if (result.introduction && result.introduction.by !== by && panel.current) {
+      recoveredSource.current = true;
       setStep({ at: "source", by, recorded: result.introduction });
       return setProblem(sourceMismatch(result.introduction.by));
     }
-    close();
+    recoveredSource.current = false;
+    if (panel.current) close();
     saved();
-  }
-  function dismiss() {
-    close();
-    if (step.at === "source" && step.recorded) reread();
   }
   const onDeal = vendor.roles.length > 0;
   const introduction = vendor.introduction;
@@ -209,7 +213,7 @@ export function DealVendorMenu({ deal, client, vendor, doors, close, saved, rere
       onKeyDown={(event) => {
         if (event.key !== "Escape" || busy) return;
         event.stopPropagation();
-        dismiss();
+        close();
       }}
     >
       <p className="deal-vendor-menu-who">
@@ -314,7 +318,7 @@ export function DealVendorMenu({ deal, client, vendor, doors, close, saved, rere
             <button type="submit" disabled={busy || !step.by}>
               {step.recorded ? "Use new choice" : "Set"}
             </button>
-            <button type="button" disabled={busy} onClick={dismiss}>
+            <button type="button" disabled={busy} onClick={close}>
               Cancel
             </button>
           </span>
