@@ -1088,7 +1088,7 @@ export function Timeline({
       </p>
       <span ref={probe} className="timeline-bar timeline-probe" aria-hidden="true" />
       {toolsHost ? createPortal(tools, toolsHost) : tools}
-      <section className="timeline-scroll" ref={scroller} aria-label="Timeline" tabIndex={0}>
+      <section className="timeline-scroll" ref={scroller} aria-label="Timeline" tabIndex={-1}>
         <div className="timeline-canvas">
           <div className="timeline-head">
             <div className="timeline-corner" ref={corner} />
