@@ -580,7 +580,7 @@ test("Open takes the partner to the vendor's card", async (t) => {
 });
 
 test("a refused save reads plainly and keeps the menu open", async (t) => {
-  const { page, deal, box } = await openParties(t, partyEngine("not_found"));
+  const { page, panel, deal, box } = await openParties(t, partyEngine("not_found"));
   await box("Example Pelican Bank").click();
   await page.getByRole("button", { name: "Remove from this deal" }).click();
   await page.getByRole("button", { name: "Remove", exact: true }).click();
@@ -588,6 +588,11 @@ test("a refused save reads plainly and keeps the menu open", async (t) => {
   assert.equal(await alert.textContent(), "That vendor isn't on this deal anymore.");
   assert.equal(await deal.locator(".client-deal-undo").count(), 0, "no Undo for a removal that did not land");
   await page.screenshot({ path: `${shots}/menu-refused-1440-dark.png` });
+  await page.locator("#recordClose").click();
+  await panel.getByRole("heading", { name: "Deals", exact: true }).waitFor({ state: "hidden" });
+  await page.locator(`a[data-record-id="${recordId}"]`).click();
+  await box("Example Pelican Bank").click();
+  await alert.getByText("That vendor isn't on this deal anymore.").waitFor();
 });
 
 test("Enter and Space open a vendor's menu, and Esc closes it and returns focus to the box", async (t) => {

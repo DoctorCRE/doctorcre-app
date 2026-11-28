@@ -25,10 +25,17 @@ const SAVE_STATUS = {
   unconfirmed: "Couldn't confirm the save",
   checking: "Checking the save…",
 };
-export type LinkPhase = keyof typeof SAVE_STATUS;
+type LinkPhase = keyof typeof SAVE_STATUS;
 
-export function VendorSaveStatus({ phase, check }: { phase: LinkPhase; check: () => void }) {
-  if (phase === "ready") return null;
+export type VendorStatus = { phase: LinkPhase; problem: string };
+
+export function VendorSaveStatus({ phase, problem, check }: VendorStatus & { check: () => void }) {
+  if (phase === "ready")
+    return problem ? (
+      <p className="deal-vendor-menu-problem" role="alert">
+        {problem}
+      </p>
+    ) : null;
   return (
     <p className="deal-vendor-menu-problem" role="status">
       {SAVE_STATUS[phase]}{" "}
@@ -42,11 +49,11 @@ export function VendorSaveStatus({ phase, check }: { phase: LinkPhase; check: ()
 }
 
 export interface VendorActions {
-  phase(vendor: string): LinkPhase;
+  status(vendor: string): VendorStatus;
   check(vendor: string): void;
   setSource(vendor: FoundVendor, by: BroughtBy, replaces?: RecordedSource): Promise<Saved>;
   removeIntroduction(vendor: FoundVendor, introduction: IntroductionVersion): Promise<Saved>;
-  add(vendor: FoundVendor, role: Role): Promise<Saved>;
+  add(vendor: FoundVendor, role: Role, by?: BroughtBy): Promise<Saved>;
   remove(vendor: Vendor): Promise<Saved>;
 }
 
@@ -160,7 +167,7 @@ function introduced({ introduction }: Vendor) {
 
 type Step =
   | { at: "menu" }
-  | { at: "role"; roles: Role[] | null; role: string }
+  | { at: "role"; roles: Role[] | "failed" | null; role: string }
   | { at: "confirm" }
   | { at: "remove-introduction"; introduction: IntroductionVersion }
   | { at: "source"; by: BroughtBy | null };
@@ -175,9 +182,9 @@ interface Props {
 
 export function DealVendorMenu({ deal, vendor, doors, actions, close }: Props) {
   const [step, setStep] = useState<Step>({ at: "menu" });
-  const phase = actions.phase(vendor.id);
+  const status = actions.status(vendor.id);
+  const { phase } = status;
   const busy = phase !== "ready";
-  const [problem, setProblem] = useState("");
   const panel = useRef<HTMLDivElement>(null);
   const picking = step.at === "role";
   const focusKey = picking ? `role:${Boolean(step.roles)}` : step.at;
@@ -187,20 +194,17 @@ export function DealVendorMenu({ deal, vendor, doors, actions, close }: Props) {
   useEffect(() => {
     if (!picking) return;
     const controller = new AbortController();
-    doors.roles(controller.signal).then(
-      (roles) => controller.signal.aborted || setStep((now) => (now.at === "role" ? { ...now, roles } : now)),
-      () => controller.signal.aborted || setProblem("The roles couldn't load. Try again."),
-    );
+    const loaded = (roles: Role[] | "failed") => {
+      if (!controller.signal.aborted) setStep((now) => (now.at === "role" ? { ...now, roles } : now));
+    };
+    doors.roles(controller.signal).then(loaded, () => loaded("failed"));
     return () => controller.abort();
   }, [doors, picking]);
   async function run(save: () => Promise<Saved>) {
-    setProblem("");
     const answer = await save();
     if (!answer.ok) {
-      if (answer.pending) return setStep({ at: "menu" });
-      return setProblem(
-        `${refusal(answer.problem)}${answer.done ? ` ${answer.done} of ${vendor.roles.length} roles were removed.` : ""}`,
-      );
+      if (answer.pending) setStep({ at: "menu" });
+      return;
     }
     if (panel.current) close();
   }
@@ -225,7 +229,7 @@ export function DealVendorMenu({ deal, vendor, doors, actions, close }: Props) {
         <span>{introduced(vendor)}</span>
         {vendor.introduction?.note && <q>{vendor.introduction.note}</q>}
       </p>
-      <VendorSaveStatus phase={phase} check={() => actions.check(vendor.id)} />
+      <VendorSaveStatus {...status} check={() => actions.check(vendor.id)} />
       {step.at === "menu" && phase === "ready" && (
         <>
           {!vendor.chosen && (
@@ -273,7 +277,7 @@ export function DealVendorMenu({ deal, vendor, doors, actions, close }: Props) {
         <form
           onSubmit={(event) => {
             event.preventDefault();
-            const role = step.roles?.find((role) => role.role === step.role);
+            const role = (step.roles === "failed" ? null : step.roles)?.find((role) => role.role === step.role);
             if (role) void run(() => actions.add(vendor, role));
           }}
         >
@@ -281,17 +285,18 @@ export function DealVendorMenu({ deal, vendor, doors, actions, close }: Props) {
             Chosen as
             <select
               value={step.role}
-              disabled={!step.roles}
+              disabled={!step.roles || step.roles === "failed"}
               onChange={(event) => setStep({ ...step, role: event.target.value })}
             >
               <option value="" disabled>
                 {step.roles ? "Pick a role" : "Loading roles…"}
               </option>
-              {step.roles?.map((r) => (
-                <option key={r.role} value={r.role}>
-                  {r.label}
-                </option>
-              ))}
+              {step.roles !== "failed" &&
+                step.roles?.map((r) => (
+                  <option key={r.role} value={r.role}>
+                    {r.label}
+                  </option>
+                ))}
             </select>
           </label>
           <span className="deal-vendor-menu-row">
@@ -358,9 +363,9 @@ export function DealVendorMenu({ deal, vendor, doors, actions, close }: Props) {
           </span>
         </>
       )}
-      {problem && (
+      {step.at === "role" && step.roles === "failed" && (
         <p className="deal-vendor-menu-problem" role="alert">
-          {problem}
+          The roles couldn't load. Try again.
         </p>
       )}
     </div>

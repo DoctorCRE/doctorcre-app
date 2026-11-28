@@ -4,7 +4,6 @@ import {
   type BroughtBy,
   broughtBy,
   type FoundVendor,
-  refusal,
   SourceChoices,
   sourceOf,
   type VendorActions,
@@ -75,14 +74,14 @@ function AddVendorForm({
 }) {
   const [query, setQuery] = useState("");
   const [vendor, setVendor] = useState<FoundVendor | null>(null);
-  const [roles, setRoles] = useState<Role[] | null>(null);
+  const [roleRead, setRoles] = useState<Role[] | "failed" | null>(null);
+  const roles = roleRead === "failed" ? null : roleRead;
   const [role, setRole] = useState("");
   const [by, setBy] = useState<BroughtBy | null>(null);
-  const [problem, setProblem] = useState("");
   const recorded = sourceOf(deal.introductions.find((i) => i.vendor_id === vendor?.id));
-  const phase = vendor ? actions.phase(vendor.id) : "ready";
+  const status = vendor ? actions.status(vendor.id) : null;
   const correction = recorded && by && recorded.by !== by;
-  const roleLocked = busy || phase !== "ready";
+  const roleLocked = busy || (status !== null && status.phase !== "ready");
   const search = useRef<HTMLInputElement>(null);
   // A vendor already on this deal, or introduced for it, is changed from its own box.
   const [onDeal] = useState(
@@ -96,7 +95,7 @@ function AddVendorForm({
     const controller = new AbortController();
     doors.roles(controller.signal).then(
       (list) => controller.signal.aborted || setRoles(list),
-      () => controller.signal.aborted || setProblem("The roles couldn't load. Try again."),
+      () => controller.signal.aborted || setRoles("failed"),
     );
     return () => controller.abort();
   }, [doors]);
@@ -104,12 +103,10 @@ function AddVendorForm({
     const pickedRole = roles?.find((row) => row.role === role);
     if (roleLocked || !vendor || !pickedRole || !by) return;
     setBusy(true);
-    setProblem("");
     if ((recorded?.by ?? "unrecorded") !== by) {
       const result = await actions.setSource(vendor, by, recorded ?? undefined);
       if (!result.ok) {
         setBusy(false);
-        if (!result.pending) setProblem(refusal(result.problem));
         return;
       }
     }
@@ -117,12 +114,9 @@ function AddVendorForm({
       setBusy(false);
       return close();
     }
-    const answer = await actions.add(vendor, pickedRole);
+    const answer = await actions.add(vendor, pickedRole, by);
     setBusy(false);
-    if (answer.ok) return close();
-    if (answer.pending) return;
-    const landed = by === "unrecorded" ? "" : ` ${vendor.name} is recorded as introduced by ${broughtBy(by)}.`;
-    setProblem(refusal(answer.problem) + landed);
+    if (answer.ok) close();
   }
   return (
     <form
@@ -186,11 +180,11 @@ function AddVendorForm({
           Cancel
         </button>
       </span>
-      {vendor && <VendorSaveStatus phase={phase} check={() => actions.check(vendor.id)} />}
+      {vendor && status && <VendorSaveStatus {...status} check={() => actions.check(vendor.id)} />}
       {recorded && <p>Recorded as introduced by {broughtBy(recorded.by)}.</p>}
-      {problem && (
+      {roleRead === "failed" && (
         <p className="deal-vendor-menu-problem" role="alert">
-          {problem}
+          The roles couldn't load. Try again.
         </p>
       )}
     </form>
