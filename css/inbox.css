@@ -40,7 +40,7 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
 .home-slice .inbox-row > .inbox-copy { flex: 1 1 0; min-width: 0; }
 .home-slice .inbox-row > .inbox-copy h3 { margin: 0; font-size: var(--font-size-2); font-weight: 500; line-height: 1.4; }
 .home-slice .inbox-row > .inbox-copy :is(h3:not(:has(> a)), h3 > a, .inbox-why),
-:is(.home-deal-name, .home-deal-reason, .home-today-title, .home-coming-up li > a > span) {
+:is(.home-deal-name, .home-deal-reason, .home-today-title, .home-coming-up li > a > span, .home-meeting-preview) {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -48,6 +48,11 @@ body{margin:0;min-height:100vh;background:var(--ground);color:var(--fg);font-fam
   overflow: hidden;
   text-overflow: ellipsis;
   overflow-wrap: anywhere;
+}
+.home-slice :is(details[open] .home-today-title, button[aria-expanded="true"] > .home-meeting-preview) {
+  display: block;
+  -webkit-line-clamp: unset;
+  line-clamp: none;
 }
 .home-whole-word { white-space: nowrap; }
 .home-slice .inbox-row > .inbox-copy > .inbox-why { font-size: var(--font-size-1); line-height: 1.4; }

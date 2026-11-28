@@ -2974,17 +2974,25 @@ test('Home meetings rolls over at Central midnight even when the refresh fails, 
 });
 
 test('Home reviews a review-only meeting in Inbox and keeps its row after the answer', async t => {
-  const calendar = { follow_up_reviews: [meetingOutcome] };
+  const title = 'Review the sample practice schedule and the revised tour stops. '.repeat(12).trim();
+  const calendar = { follow_up_reviews: [{ ...meetingOutcome, title }] };
   const { page, meetings } = await meetingDashboard(t, calendar);
   await page.route('**/api/engine/activities', route => {
     calendar.follow_up_reviews = [];
     return route.fulfill({ status: 201, json: { activity_id: id(91), existing: false } });
   });
-  const row = meetings.locator('summary').filter({ hasText: scheduledMeeting.title });
+  const row = meetings.locator('summary').filter({ hasText: title });
   await row.getByText('Ended', { exact: true }).waitFor();
   assert.equal(await meetings.getByRole('button', { name: 'It happened', exact: true }).count(), 0);
   const review = inboxReview(page, scheduledMeeting.key);
-  await logMeeting(review);
+  const confirm = review.getByRole('button', { name: `Confirm ${title}`, exact: true });
+  const preview = confirm.locator('span');
+  const clamp = () => preview.evaluate(node => getComputedStyle(node).webkitLineClamp);
+  assert.equal(await clamp(), '2');
+  await confirm.press('Enter');
+  assert.equal(await clamp(), 'none');
+  await review.getByRole('combobox', { name: 'Deal', exact: true }).selectOption(meetingDeal.id);
+  await review.getByRole('button', { name: 'It happened', exact: true }).click();
   await page.getByText('Meeting logged on Example Dental.', { exact: true }).waitFor();
   await review.waitFor({ state: 'detached' });
   calendar.state = 'partial';
