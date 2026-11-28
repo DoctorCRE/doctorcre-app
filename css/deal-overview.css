@@ -20,3 +20,12 @@
   .deal-overview-grid { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(16rem, 0.8fr); }
 }
 .deal-overview-side > div:empty, .deal-overview-side :is(.deal-alert, .deal-snapshot-facts):empty { display: none; }
+/* On a computer Overview is one screen: the three columns take the height left and scroll inside. */
+@media (min-width: 1100px) {
+  .app-layout-main:has(#workspace-overview:not([hidden]) > .deal-overview-grid) > #recordPanel { display: flex; flex-direction: column; height: 100%; }
+  #recordPanel:has(#workspace-overview:not([hidden]) > .deal-overview-grid) > #panelBody { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  #panelBody > #workspace-overview:not([hidden]):has(> .deal-overview-grid) { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  #workspace-overview > .deal-overview-grid { flex: 1; min-height: 12rem; grid-template-rows: minmax(0, 1fr); margin-block-end: var(--space-3); }
+  .deal-overview-grid > * { max-height: 100%; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
+  .deal-overview-grid > *::-webkit-scrollbar { display: none; }
+}

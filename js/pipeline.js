@@ -2979,7 +2979,7 @@ function wire() {
     if (event.target.id !== 'panelEvidenceSection') return;
     if (event.target.open && state.panelDetail) void refreshEvidence(state.panelDetail, state.panelDeal, panelReadSequence);
   }, true);
-  showScrollThumbs($('panelBody'), '.activity-list, .activity-pane');
+  showScrollThumbs($('panelBody'), '.activity-list, .activity-pane, .deal-overview-grid > *');
   $('panelBody').addEventListener('click', async e => {
     const chip = e.target.closest('[data-activity-filter]');
     if (chip && $('workspace-activity')?.contains(chip)) {
